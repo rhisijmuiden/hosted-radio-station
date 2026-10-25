@@ -34,7 +34,7 @@ Phase 1 as it runs today: the admin panel in the RHIS house style, light and dar
 | 5 | Public pages | Planned |
 | 6 | Radio station (AutoDJ) | Planned |
 | 7 | Scheduler | Planned |
-| 8 | Distribution network | Planned |
+| 8 | Distribution network and orchestration | Planned |
 | 9 | Windows client | Planned |
 | 10 | Hosted service | Planned |
 | 11 | FM/MPX and RDS module | Planned |
@@ -105,14 +105,15 @@ A tightly programmed station.
 - Weekly schedule that decides which clock runs when.
 - Live takeover with automatic fallback to the AutoDJ.
 
-### Phase 8: Distribution network
+### Phase 8: Distribution network and orchestration
 
-Scale out with remote nodes in the datacenter or at the studio.
+Scale out with remote nodes; the main server becomes the orchestrator.
 
-- Separate remote node package: its own Debian 13 LXC with an installer, just like the main server.
-- Each node gets a role, chosen in the control panel: **source server** (where encoders and studios deliver their stream) or **relay** (where listeners connect).
-- Pairing: create a node in the panel, run the installer with the one-time pairing code, and the node connects to the main server over an authenticated, encrypted channel. Nodes can be unpaired and re-paired.
-- Statistics per node in the control panel: listeners, bandwidth, CPU, availability and GeoIP, merged into the station statistics.
+- One universal node package: its own Debian 13 LXC with an installer that installs a small node agent.
+- Pairing: create a node in the panel, run the installer with the one-time pairing code, and the node connects to the main server over an authenticated, encrypted channel. Nodes can be paired first and get a role later; unpairing and re-pairing is possible.
+- Roles assigned from the panel and rolled out by the agent: **source server** (where encoders and studios deliver), **relay** (where listeners connect), and later **station node** (runs stations, AutoDJ and DJ ingest for selected customers) and **FM/MPX** (see phase 11).
+- Nodes overview in the admin panel: status, role, version, load, bandwidth and listeners per node, merged into the station statistics with GeoIP.
+- Topology view: a graphical map of how studios, source servers, stations, relays and listeners connect.
 - Updates come from the main server: nodes follow the main server's version and channel, and update from the panel.
 - Remote probes that monitor stream availability from other locations.
 
@@ -134,7 +135,7 @@ The commercial layer.
 
 A separate LXC package for FM broadcasters.
 
-- Its own Debian 13 LXC with a standalone installer, paired with the main server the same way as remote nodes (one-time pairing code, updates from the main server).
+- Runs as the FM/MPX role on a node: its own Debian 13 LXC with the node installer, paired with a one-time pairing code and updated from the main server.
 - Receives a station stream and generates a complete MPX signal (stereo encoder plus RDS).
 - RDS PS, RadioText and RadioText+ filled automatically from now-playing data, so FM receivers show the right song titles.
 - Output through a 192 kHz sound card or as MPX over IP, or control of an existing RDS encoder over UECP.
