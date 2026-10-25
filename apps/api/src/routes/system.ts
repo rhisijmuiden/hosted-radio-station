@@ -81,6 +81,7 @@ export const systemRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/update',
     {
+      config: { audit: 'system.update' },
       schema: {
         tags: ['System'],
         summary: 'Install the latest version of a channel. Switching channel (production ↔ test) works the same way.',

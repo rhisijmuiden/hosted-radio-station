@@ -5,6 +5,9 @@ import { hashPassword } from './lib/auth.js';
 import { loadConfig } from './lib/config.js';
 import { createContext } from './lib/context.js';
 import { getSetting, putSetting } from './services/settings.js';
+import { processQueue, queueRun } from './services/backup/jobs.js';
+import { writeAudit } from './lib/audit.js';
+import { desc, ilike, or } from 'drizzle-orm';
 import { emailSchema, passwordSchema } from './lib/schemas.js';
 
 const usage = `Hosted Radio Station command line
@@ -17,6 +20,10 @@ Usage:
                                                 Set a new password and sign the user out everywhere
 
   hrs set-setting <key> <json>                  Store an instance setting (proxy, update, smtp), used by install.sh
+
+  hrs backup list                               Backup locations and the latest runs
+  hrs backup run <location> [full|incremental]  Back up now (as root, in this terminal)
+  hrs backup worker                             Run the queued backups and restores (used by the systemd unit)
 
 Without --password a random password is generated and printed.`;
 
@@ -69,6 +76,39 @@ try {
     const current = await getSetting(ctx, key);
     await putSetting(ctx, key, { ...current, ...JSON.parse(json ?? '{}') } as never);
     console.log(`Setting "${key}" saved.`);
+  } else if (command === 'backup') {
+    const ctx = createContext(config, db);
+    const [, sub, name, kindArg] = positionals;
+    if (sub === 'worker') {
+      await processQueue(ctx);
+    } else if (sub === 'list') {
+      for (const t of await db.select().from(schema.backupTargets).orderBy(schema.backupTargets.name)) {
+        console.log(`${t.enabled ? '●' : '○'} ${t.name} (${t.type})  ${t.id}`);
+      }
+      console.log('\nLatest runs:');
+      for (const r of await db.select().from(schema.backupRuns).orderBy(desc(schema.backupRuns.queuedAt)).limit(10)) {
+        console.log(`  ${r.queuedAt.toISOString().slice(0, 16)}  ${r.kind.padEnd(11)} ${r.state.padEnd(9)} ${r.targetName}: ${r.message ?? ''}`);
+      }
+    } else if (sub === 'run') {
+      if (!name) throw new Error('Usage: hrs backup run <location name or id> [full|incremental]');
+      const kind = kindArg === 'full' ? 'full' : 'incremental';
+      const isId = /^[0-9a-f-]{36}$/.test(name);
+      const [target] = await db
+        .select()
+        .from(schema.backupTargets)
+        .where(isId ? or(eq(schema.backupTargets.id, name), ilike(schema.backupTargets.name, name)) : ilike(schema.backupTargets.name, name));
+      if (!target) throw new Error(`No backup location called "${name}"`);
+      const run = await queueRun(ctx, target, kind, 'shell', 'hrs (shell)', null, false);
+      await writeAudit(ctx, { action: 'backup.start', via: 'shell', actorEmail: 'hrs (shell)', targetType: 'backup_target', targetId: target.id, details: { kind, target: target.name } });
+      console.log(`Running a ${kind} backup to "${target.name}"…`);
+      await processQueue(ctx);
+      const [done] = await db.select().from(schema.backupRuns).where(eq(schema.backupRuns.id, run.id));
+      console.log(done?.log ?? '');
+      console.log(`Result: ${done?.state} ${done?.message ?? ''}`);
+      if (done?.state !== 'succeeded') process.exitCode = 1;
+    } else {
+      throw new Error('Usage: hrs backup list | run <location> [full|incremental] | worker');
+    }
   } else {
     console.error(`Unknown command "${command}"\n\n${usage}`);
     process.exitCode = 1;

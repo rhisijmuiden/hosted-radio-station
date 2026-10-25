@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Runs the queued backups and restores. Started as root by hosted-radio-backup.path when the API (or the scheduler)
+# drops run/backup-request. Root is needed to read every file, stop and start the panel during a restore and write
+# the restored configuration back to /etc.
+set -Eeuo pipefail
+INSTALL_DIR=/opt/hosted-radio
+ENV_FILE=/etc/hosted-radio/hosted-radio.env
+rm -f /var/lib/hosted-radio/run/backup-request
+set -a
+# shellcheck disable=SC1090
+. "$ENV_FILE"
+set +a
+export HRS_ENV_FILE="$ENV_FILE"
+cd "$INSTALL_DIR/apps/api"
+exec node dist/cli.js backup worker

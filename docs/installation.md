@@ -35,7 +35,7 @@ Non-interactive example:
   --channel main --admin-email you@example.com --admin-name "Your Name"
 ```
 
-Behind your own reverse proxy (Nginx Proxy Manager, Traefik, HAProxy):
+Behind your own reverse proxy (Nginx Proxy Manager, Zoraxy, Traefik, HAProxy):
 
 ```bash
 ./install.sh --yes --proxy external --trusted-proxies 10.10.4.1 --domain radio.example.com
@@ -63,6 +63,33 @@ hrs update test     # switch to the test channel
 
 An update downloads the new version, builds it, restarts the service and checks that it comes back. When anything fails it rolls back to the previous version.
 
+## Backups
+
+Go to **Backups** and add a location: SFTP/SCP, FTPS, FTP, OneDrive or a local folder (for example a NAS share mounted on `/mnt/backup`). Each backup contains the database, `/var/lib/hosted-radio` and the configuration (`/etc/hosted-radio`, the Caddyfile). Backups are made with [restic](https://restic.net) through [rclone](https://rclone.org): encrypted, deduplicated, and every snapshot can be restored on its own.
+
+- **Incremental** backups only store what changed; **full** backups read everything again. Both have their own schedule per location, and retention (keep last / daily / weekly / monthly) runs after every backup.
+- Every location gets a **recovery key**. Store it somewhere safe: without it the backups cannot be read, also not when you reinstall the server. You can show it again from the location's key button.
+- For SFTP, paste the server's host key (`ssh-keyscan -p 23 u12345.your-storagebox.de`) to verify its identity.
+- To restore, pick **Restore** on a location, choose a backup and what to restore (database, files, configuration) and type `RESTORE`. The panel is unavailable for a moment and everyone signs in again afterwards.
+- To restore on a fresh server: install it, add the same location with **its recovery key**, then restore.
+
+**OneDrive.** Either sign in from the panel with your own Microsoft app, or paste a token:
+
+1. Own app (recommended): in [Microsoft Entra](https://entra.microsoft.com) go to *App registrations*, *New registration*, accounts in any organizational directory and personal Microsoft accounts. Under *Authentication* turn on *Allow public client flows*. Under *API permissions* add Microsoft Graph delegated `Files.ReadWrite.All` and `offline_access`. Put the application (client) ID in **Backups → Settings**, then add a OneDrive location and choose *Sign in with Microsoft*.
+2. Token: on any computer with rclone run `rclone authorize "onedrive"`, sign in, and paste the JSON it prints.
+
+From the shell:
+
+```bash
+hrs backup list                     # locations and their last run
+hrs backup run "NAS"                # incremental backup now
+hrs backup run "NAS" full           # full backup now
+```
+
+## Single sign-on
+
+Open a customer and fill in **Single sign-on**. Choose OpenID Connect (Microsoft Entra ID, Google, Keycloak, Okta, Authentik) or SAML 2.0 (ADFS, Shibboleth), and enter the redirect URI or ACS URL shown at the bottom of the card at the identity provider. Only an administrator can set the allowed e-mail domains. People with an address in those domains get a "Sign in with single sign-on" button; switch off the password option to require it. Administrators always sign in with their password. Set the right public address under **Web server** first, the SSO links are built from it.
+
 ## Files and services
 
 | Path / unit | Purpose |
@@ -73,6 +100,7 @@ An update downloads the new version, builds it, restarts the service and checks 
 | `hosted-radio-api.service` | API and admin panel on 127.0.0.1:8000 |
 | `hosted-radio-update.path` / `.service` | Runs updates requested from the panel (as root) |
 | `hosted-radio-proxy.path` / `.service` | Rewrites the Caddy configuration requested from the panel (as root) |
+| `hosted-radio-backup.path` / `.service` | Runs backups and restores (as root, with restic and rclone) |
 
 Useful commands: `hrs status`, `hrs logs`, `hrs reset-password --email you@example.com`.
 

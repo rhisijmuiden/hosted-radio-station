@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for backup and restore requests from the Hosted Radio Station admin panel
+
+[Path]
+PathExists=/var/lib/hosted-radio/run/backup-request
+Unit=hosted-radio-backup.service
+
+[Install]
+WantedBy=multi-user.target

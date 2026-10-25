@@ -4,8 +4,17 @@ set -Eeuo pipefail
 INSTALL_DIR="${INSTALL_DIR:-/opt/hosted-radio}"
 SRC="$INSTALL_DIR/deploy/systemd"
 
+# Tools added after the first release; an update from the panel installs them too.
+missing=()
+for pkg in restic rclone; do command -v "$pkg" >/dev/null || missing+=("$pkg"); done
+if [[ ${#missing[@]} -gt 0 ]]; then
+  echo "Installing ${missing[*]}…"
+  apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${missing[@]}" >/dev/null
+fi
+
 install -m 0644 "$SRC"/hosted-radio-api.service "$SRC"/hosted-radio-update.service "$SRC"/hosted-radio-update.path \
-  "$SRC"/hosted-radio-proxy.service "$SRC"/hosted-radio-proxy.path /etc/systemd/system/
+  "$SRC"/hosted-radio-proxy.service "$SRC"/hosted-radio-proxy.path \
+  "$SRC"/hosted-radio-backup.service "$SRC"/hosted-radio-backup.path /etc/systemd/system/
 install -m 0755 "$INSTALL_DIR/deploy/bin/hrs" /usr/local/bin/hrs
 
 # Sandboxing needs mount namespaces, which some unprivileged LXC containers do not allow. Only enable it when it works.
@@ -18,5 +27,5 @@ else
 fi
 
 systemctl daemon-reload
-systemctl enable --quiet hosted-radio-api.service hosted-radio-update.path hosted-radio-proxy.path
-systemctl start hosted-radio-update.path hosted-radio-proxy.path
+systemctl enable --quiet hosted-radio-api.service hosted-radio-update.path hosted-radio-proxy.path hosted-radio-backup.path
+systemctl start hosted-radio-update.path hosted-radio-proxy.path hosted-radio-backup.path

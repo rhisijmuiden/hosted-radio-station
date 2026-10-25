@@ -135,3 +135,113 @@ export interface JobStatus {
   finishedAt?: string;
   log: string;
 }
+
+export interface AuthOptions {
+  passwordReset: boolean;
+  sso: boolean;
+}
+
+export interface AuditEntry {
+  id: number;
+  at: string;
+  actorUserId: string | null;
+  actorEmail: string | null;
+  actorName: string | null;
+  via: string;
+  tenantId: string | null;
+  tenantName: string | null;
+  action: string;
+  targetType: string | null;
+  targetId: string | null;
+  success: boolean;
+  ip: string | null;
+  userAgent: string | null;
+  details: Record<string, unknown> | null;
+}
+export interface AuditPage {
+  items: AuditEntry[];
+  nextBefore: number | null;
+}
+
+export interface SsoProvider {
+  type: 'oidc' | 'saml';
+  enabled: boolean;
+  displayName: string;
+  emailDomains: string[];
+  allowPasswordLogin: boolean;
+  autoCreateUsers: boolean;
+  defaultRole: 'manager' | 'dj';
+  oidc?: { issuer: string; clientId: string; clientSecret: string; scopes: string };
+  saml?: { entryPoint: string; idpCert: string; idpIssuer: string; emailAttribute: string; nameAttribute: string };
+  updatedAt?: string;
+}
+export interface SsoConfig {
+  provider: SsoProvider | null;
+  endpoints: { oidcRedirectUri: string; samlEntityId: string; samlAcsUrl: string; samlMetadataUrl: string; loginUrl: string };
+}
+
+export type BackupTargetType = 'ftp' | 'ftps' | 'sftp' | 'onedrive' | 'local';
+export interface BackupSchedule {
+  incremental: { enabled: boolean; everyHours: number; at: string };
+  full: { enabled: boolean; weekday: number; at: string };
+}
+export interface BackupRetention {
+  keepLast: number;
+  keepDaily: number;
+  keepWeekly: number;
+  keepMonthly: number;
+}
+export interface BackupRun {
+  id: string;
+  targetId: string | null;
+  targetName: string;
+  kind: 'full' | 'incremental' | 'restore';
+  state: 'queued' | 'running' | 'succeeded' | 'failed';
+  trigger: string;
+  requestedBy: string | null;
+  snapshotId: string | null;
+  filesNew: number | null;
+  filesChanged: number | null;
+  bytesAdded: number | null;
+  bytesTotal: number | null;
+  message: string | null;
+  queuedAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+export interface BackupRunDetail extends BackupRun {
+  log: string;
+  params: Record<string, unknown> | null;
+}
+export interface BackupTarget {
+  id: string;
+  name: string;
+  type: BackupTargetType;
+  description: string;
+  enabled: boolean;
+  config: Record<string, unknown>;
+  schedule: BackupSchedule;
+  retention: BackupRetention;
+  createdAt: string;
+  lastRun: BackupRun | null;
+  lastSuccess: BackupRun | null;
+  nextFull: string | null;
+  nextIncremental: string | null;
+}
+export interface Snapshot {
+  id: string;
+  shortId: string;
+  time: string;
+  hostname: string;
+  tags: string[];
+  paths: string[];
+  kind: 'full' | 'incremental' | 'unknown';
+  sizeBytes: number | null;
+  filesNew: number | null;
+}
+export interface BackupSettings {
+  notifyOn: 'never' | 'failure' | 'always';
+  notifyEmails: string[];
+  notifyLanguage: 'en' | 'nl';
+  onedriveClientId: string;
+}

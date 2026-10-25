@@ -4,7 +4,16 @@ import { requireSuperadmin } from '../lib/auth.js';
 import { badRequest } from '../lib/errors.js';
 import { emailSchema } from '../lib/schemas.js';
 import { createTransport, sendMail } from '../services/mail.js';
-import { getMaskedSetting, getSetting, proxySchema, putSetting, SECRET_MASK, smtpSchema } from '../services/settings.js';
+import {
+  auditSettingsSchema,
+  backupSettingsSchema,
+  getMaskedSetting,
+  getSetting,
+  proxySchema,
+  putSetting,
+  SECRET_MASK,
+  smtpSchema,
+} from '../services/settings.js';
 import { getProxyStatus, requestProxyApply } from '../services/system.js';
 import { jobOut } from './system.js';
 
@@ -25,6 +34,7 @@ export const settingsRoutes: FastifyPluginAsyncZod = async (app) => {
   app.put(
     '/smtp',
     {
+      config: { audit: 'settings.smtp' },
       schema: {
         tags: ['Settings'],
         summary: `Save the outgoing mail server. Send "${SECRET_MASK}" to keep a stored secret.`,
@@ -42,7 +52,7 @@ export const settingsRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/smtp/test',
     {
-      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+      config: { audit: 'settings.smtp_test', rateLimit: { max: 10, timeWindow: '1 minute' } },
       schema: {
         tags: ['Settings'],
         summary: 'Verify the connection and send a test e-mail. Pass `smtp` to test unsaved settings.',
@@ -98,6 +108,7 @@ export const settingsRoutes: FastifyPluginAsyncZod = async (app) => {
   app.put(
     '/proxy',
     {
+      config: { audit: 'settings.proxy' },
       schema: {
         tags: ['Settings'],
         summary: 'Save the web server mode. Use POST /settings/proxy/apply to activate it.',
@@ -121,6 +132,7 @@ export const settingsRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/proxy/apply',
     {
+      config: { audit: 'settings.proxy_apply' },
       schema: {
         tags: ['Settings'],
         summary: 'Rewrite the Caddy configuration from the saved settings and reload it',
@@ -141,6 +153,53 @@ export const settingsRoutes: FastifyPluginAsyncZod = async (app) => {
     async (req) => {
       requireSuperadmin(req);
       return getProxyStatus(ctx);
+    },
+  );
+
+  // Backups and audit log
+
+  app.get(
+    '/backup',
+    { schema: { tags: ['Settings'], summary: 'Backup notifications and the Microsoft app for OneDrive', response: { 200: backupSettingsSchema } } },
+    async (req) => {
+      requireSuperadmin(req);
+      return getSetting(ctx, 'backup');
+    },
+  );
+
+  app.put(
+    '/backup',
+    {
+      config: { audit: 'settings.backup' },
+      schema: { tags: ['Settings'], summary: 'Save backup notifications and the Microsoft app for OneDrive', body: backupSettingsSchema, response: { 200: backupSettingsSchema } },
+    },
+    async (req) => {
+      requireSuperadmin(req);
+      await putSetting(ctx, 'backup', req.body);
+      return getSetting(ctx, 'backup');
+    },
+  );
+
+  app.get(
+    '/audit',
+    { schema: { tags: ['Settings'], summary: 'How long the audit log is kept', response: { 200: auditSettingsSchema } } },
+    async (req) => {
+      requireSuperadmin(req);
+      return getSetting(ctx, 'audit');
+    },
+  );
+
+  app.put(
+    '/audit',
+    {
+      config: { audit: 'settings.audit' },
+      schema: { tags: ['Settings'], summary: 'Change how long the audit log is kept', body: auditSettingsSchema, response: { 200: auditSettingsSchema } },
+    },
+    async (req) => {
+      requireSuperadmin(req);
+      await putSetting(ctx, 'audit', req.body);
+      req.auditInfo.details = { retentionDays: req.body.retentionDays };
+      return getSetting(ctx, 'audit');
     },
   );
 };

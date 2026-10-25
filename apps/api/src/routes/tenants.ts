@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { schema } from '../db/index.js';
 import { canGrant, hashPassword, requireSuperadmin, requireTenantRole, requireUser } from '../lib/auth.js';
 import { badRequest, conflict, forbidden, isUniqueViolation, notFound } from '../lib/errors.js';
+import { sendInvite } from '../services/accounts.js';
+import { mailConfigured } from '../services/mail.js';
 import {
   emailSchema,
   idParam,
@@ -68,6 +70,7 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/',
     {
+      config: { audit: 'tenant.create' },
       schema: {
         tags: ['Customers'],
         summary: 'Create a customer (administrators only). Optionally creates the owner account in one call.',
@@ -78,15 +81,22 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
           limits: tenantLimitsSchema.default(tenantLimitsSchema.parse({})),
           externalRef: z.string().trim().max(200).nullish(),
           owner: z
-            .object({ email: emailSchema, name: z.string().trim().min(1).max(120), password: passwordSchema.optional() })
+            .object({
+              email: emailSchema,
+              name: z.string().trim().min(1).max(120),
+              password: passwordSchema.optional(),
+              sendInvite: z.boolean().default(false),
+            })
             .optional(),
         }),
         response: { 201: tenantWithCount },
       },
     },
     async (req, reply) => {
-      requireSuperadmin(req);
+      const auth = requireSuperadmin(req);
       const { owner, ...data } = req.body;
+      if (owner?.sendInvite && !(await mailConfigured(ctx))) throw badRequest('Set up the mail server first to send invitations');
+      let ownerUser: typeof schema.users.$inferSelect | undefined;
       try {
         const tenant = await ctx.db.transaction(async (tx) => {
           const [t] = await tx.insert(schema.tenants).values({ ...data, externalRef: data.externalRef ?? null }).returning();
@@ -103,9 +113,14 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
                 .returning();
             }
             await tx.insert(schema.memberships).values({ userId: user!.id, tenantId: t!.id, role: 'owner' });
+            ownerUser = user;
           }
           return t!;
         });
+        req.auditInfo = { tenantId: tenant.id, targetId: tenant.id, details: { name: tenant.name, slug: tenant.slug, plan: tenant.plan } };
+        if (owner?.sendInvite && ownerUser) {
+          await sendInvite(ctx, ownerUser, auth.user.name, tenant.name).catch((err) => req.log.error({ err }, 'invitation failed'));
+        }
         reply.status(201);
         return { ...tenant, memberCount: owner ? 1 : 0 };
       } catch (err) {
@@ -129,6 +144,7 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
   app.patch(
     '/:id',
     {
+      config: { audit: 'tenant.update' },
       schema: {
         tags: ['Customers'],
         summary: 'Update a customer. Owners may rename; plan, limits and status are for administrators.',
@@ -156,6 +172,7 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
           .where(eq(schema.tenants.id, req.params.id))
           .returning();
         if (!t) throw notFound('Customer');
+        req.auditInfo.details = { changed: Object.keys(req.body).filter((k) => req.body[k as keyof typeof req.body] !== undefined) };
         return { ...t, memberCount: (await memberCounts([t.id])).get(t.id) ?? 0 };
       } catch (err) {
         if (isUniqueViolation(err)) throw conflict('A customer with this short name already exists');
@@ -166,7 +183,7 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
 
   app.delete(
     '/:id',
-    { schema: { tags: ['Customers'], summary: 'Delete a customer (administrators only)', params: idParam, response: { 200: okOut } } },
+    { config: { audit: 'tenant.delete' }, schema: { tags: ['Customers'], summary: 'Delete a customer (administrators only)', params: idParam, response: { 200: okOut } } },
     async (req) => {
       requireSuperadmin(req);
       const deleted = await ctx.db.delete(schema.tenants).where(eq(schema.tenants.id, req.params.id)).returning();
@@ -197,6 +214,7 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/:id/members',
     {
+      config: { audit: 'member.add' },
       schema: {
         tags: ['Customers'],
         summary: 'Add a user to a customer. Creates the account when the e-mail address is new.',
@@ -206,6 +224,8 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
           name: z.string().trim().min(1).max(120).optional(),
           password: passwordSchema.optional(),
           role: roleSchema,
+          /** E-mail a link to choose a password (needs the mail server). */
+          sendInvite: z.boolean().default(false),
         }),
         response: { 201: memberOut },
       },
@@ -213,6 +233,7 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
     async (req, reply) => {
       const access = await requireTenantRole(ctx, req, req.params.id, 'manager');
       if (!canGrant(access.role, req.body.role)) throw forbidden('You cannot grant a role higher than your own');
+      if (req.body.sendInvite && !(await mailConfigured(ctx))) throw badRequest('Set up the mail server first to send invitations');
       let [user] = await ctx.db.select().from(schema.users).where(eq(schema.users.email, req.body.email));
       if (!user) {
         if (!req.body.name) throw badRequest('A name is required for a new user');
@@ -230,6 +251,11 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
           .insert(schema.memberships)
           .values({ userId: user!.id, tenantId: req.params.id, role: req.body.role })
           .returning();
+        req.auditInfo = { targetType: 'user', targetId: user!.id, details: { email: user!.email, role: m!.role, invited: req.body.sendInvite } };
+        if (req.body.sendInvite) {
+          const [tenant] = await ctx.db.select().from(schema.tenants).where(eq(schema.tenants.id, req.params.id));
+          await sendInvite(ctx, user!, access.user.name, tenant!.name).catch((err) => req.log.error({ err }, 'invitation failed'));
+        }
         reply.status(201);
         return { user: toUserOut(user!), role: m!.role, createdAt: m!.createdAt };
       } catch (err) {
@@ -242,6 +268,7 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
   app.put(
     '/:id/members/:userId',
     {
+      config: { audit: 'member.role' },
       schema: {
         tags: ['Customers'],
         summary: "Change a member's role",
@@ -259,15 +286,48 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
         throw forbidden('You cannot change a role higher than your own');
       }
       await ctx.db.update(schema.memberships).set({ role: req.body.role }).where(where);
+      req.auditInfo = { targetType: 'user', details: { from: current.role, to: req.body.role } };
       const [user] = await ctx.db.select().from(schema.users).where(eq(schema.users.id, req.params.userId));
       return { user: toUserOut(user!), role: req.body.role, createdAt: current.createdAt };
+    },
+  );
+
+  app.post(
+    '/:id/members/:userId/invite',
+    {
+      config: { audit: 'member.invite', rateLimit: { max: 20, timeWindow: '1 minute' } },
+      schema: {
+        tags: ['Customers'],
+        summary: 'E-mail a member a link to choose a (new) password',
+        params: memberParams,
+        response: { 200: okOut },
+      },
+    },
+    async (req) => {
+      const access = await requireTenantRole(ctx, req, req.params.id, 'manager');
+      if (!(await mailConfigured(ctx))) throw badRequest('Set up the mail server first to send invitations');
+      const [row] = await ctx.db
+        .select({ user: schema.users, tenant: schema.tenants, role: schema.memberships.role })
+        .from(schema.memberships)
+        .innerJoin(schema.users, eq(schema.users.id, schema.memberships.userId))
+        .innerJoin(schema.tenants, eq(schema.tenants.id, schema.memberships.tenantId))
+        .where(and(eq(schema.memberships.tenantId, req.params.id), eq(schema.memberships.userId, req.params.userId)));
+      if (!row) throw notFound('Member');
+      if (row.user.isSuperadmin || !canGrant(access.role, row.role)) throw forbidden();
+      req.auditInfo = { targetType: 'user' };
+      try {
+        await sendInvite(ctx, row.user, access.user.name, row.tenant.name);
+      } catch (err) {
+        throw badRequest(`Sending failed: ${(err as Error).message}`);
+      }
+      return { ok: true as const };
     },
   );
 
   app.delete(
     '/:id/members/:userId',
     {
-      schema: { tags: ['Customers'], summary: 'Remove a user from a customer', params: memberParams, response: { 200: okOut } },
+      config: { audit: 'member.remove' }, schema: { tags: ['Customers'], summary: 'Remove a user from a customer', params: memberParams, response: { 200: okOut } },
     },
     async (req) => {
       const access = await requireTenantRole(ctx, req, req.params.id, 'manager');
@@ -276,6 +336,7 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
       if (!current) throw notFound('Member');
       if (!canGrant(access.role, current.role)) throw forbidden('You cannot remove someone with a higher role');
       await ctx.db.delete(schema.memberships).where(where);
+      req.auditInfo = { targetType: 'user', details: { role: current.role } };
       return { ok: true as const };
     },
   );
