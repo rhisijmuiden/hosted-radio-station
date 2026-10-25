@@ -107,10 +107,14 @@ A tightly programmed station.
 
 ### Phase 8: Distribution network
 
-Scale out through the datacenter.
+Scale out with remote nodes in the datacenter or at the studio.
 
-- Relay agent on edge servers that takes the local LXC as its source and serves listeners.
-- Remote probes that monitor availability and report statistics back to the main server.
+- Separate remote node package: its own Debian 13 LXC with an installer, just like the main server.
+- Each node gets a role, chosen in the control panel: **source server** (where encoders and studios deliver their stream) or **relay** (where listeners connect).
+- Pairing: create a node in the panel, run the installer with the one-time pairing code, and the node connects to the main server over an authenticated, encrypted channel. Nodes can be unpaired and re-paired.
+- Statistics per node in the control panel: listeners, bandwidth, CPU, availability and GeoIP, merged into the station statistics.
+- Updates come from the main server: nodes follow the main server's version and channel, and update from the panel.
+- Remote probes that monitor stream availability from other locations.
 
 ### Phase 9: Windows client
 
