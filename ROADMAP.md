@@ -23,7 +23,7 @@ Phase 1 as it runs today: the admin panel in the RHIS house style, light and dar
 | ![Customer with users and roles](docs/screenshots/phase-1-customer-light.png) | ![Info dialog with update channel](docs/screenshots/phase-1-info-dark.png) |
 | ![Sign-in page](docs/screenshots/phase-1-login-light.png) | ![Dashboard in Dutch](docs/screenshots/phase-1-dashboard-dark-nl.png) |
 
-Phase 2 (in test): backups, restore, single sign-on per customer and the audit log.
+Phase 2: backups, restore, single sign-on per customer and the audit log.
 
 | Light | Dark, Dutch |
 | --- | --- |
@@ -37,7 +37,7 @@ Phase 2 (in test): backups, restore, single sign-on per customer and the audit l
 | Phase | Name | Status |
 | --- | --- | --- |
 | 1 | Foundation | Done |
-| 2 | Administration and security | In test |
+| 2 | Administration and security | Done |
 | 3 | Distribution | Planned |
 | 4 | Statistics | Planned |
 | 5 | Public pages | Planned |
