@@ -70,6 +70,7 @@ The first edition you can offer to customers.
 
 - Stations, mount points and bitrates, streaming to the local Icecast server or to an external Icecast or Shoutcast server.
 - Live DJ accounts and full live broadcasts.
+- Custom domains per customer: `stream.example.com` for the admin panel and public pages, `src.example.com` for source ingest. Sources can deliver over HTTPS (TLS) with automatic certificates; plain ports stay available for legacy encoders.
 - Media upload over SFTP, SCP, FTP and FTPS (SFTPGo), straight into the station library.
 - Limits per customer: listeners, bitrate and storage.
 
