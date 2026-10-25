@@ -35,7 +35,7 @@ Non-interactive example:
   --channel main --admin-email you@example.com --admin-name "Your Name"
 ```
 
-Behind your own reverse proxy (Nginx Proxy Manager, Traefik, HAProxy):
+Behind your own reverse proxy (Nginx Proxy Manager, Zoraxy, Traefik, HAProxy):
 
 ```bash
 ./install.sh --yes --proxy external --trusted-proxies 10.10.4.1 --domain radio.example.com

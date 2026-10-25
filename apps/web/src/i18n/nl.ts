@@ -236,7 +236,7 @@ export const nl: Translation = {
     builtin: 'Ingebouwde HTTPS',
     builtinHint: 'Deze server haalt zelf een gratis Let\'s Encrypt-certificaat. Poort 80 en 443 moeten deze server bereiken.',
     external: 'Achter een reverse proxy',
-    externalHint: 'Je eigen proxy (Nginx Proxy Manager, Traefik, HAProxy) regelt HTTPS en stuurt door naar deze server.',
+    externalHint: 'Je eigen proxy (Nginx Proxy Manager, Zoraxy, Traefik, HAProxy) regelt HTTPS en stuurt door naar deze server.',
     domain: 'Domein',
     domainHintBuiltin: 'Laat het DNS-record eerst naar deze server wijzen. Laat leeg voor gewone HTTP op het IP-adres.',
     domainHintExternal: 'Het publieke adres dat bezoekers gebruiken. Wordt gebruikt voor links in e-mails.',
