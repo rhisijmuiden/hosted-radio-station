@@ -15,17 +15,19 @@ Powered by [RHIS](https://rhis.nl).
 
 ## Preview
 
-Design preview of the admin panel (phase 1), in the light and dark themes. Screenshots of the real application replace these as each phase ships.
+Phase 1 as it runs today: the admin panel in the RHIS house style, light and dark, English and Dutch.
 
 | Light | Dark |
 | --- | --- |
 | ![Dashboard, light theme](docs/screenshots/phase-1-dashboard-light.png) | ![Dashboard, dark theme](docs/screenshots/phase-1-dashboard-dark.png) |
+| ![Customer with users and roles](docs/screenshots/phase-1-customer-light.png) | ![Info dialog with update channel](docs/screenshots/phase-1-info-dark.png) |
+| ![Sign-in page](docs/screenshots/phase-1-login-light.png) | ![Dashboard in Dutch](docs/screenshots/phase-1-dashboard-dark-nl.png) |
 
 ## Status
 
 | Phase | Name | Status |
 | --- | --- | --- |
-| 1 | Foundation | In progress |
+| 1 | Foundation | In test |
 | 2 | Administration and security | Planned |
 | 3 | Distribution | Planned |
 | 4 | Statistics | Planned |
@@ -50,6 +52,9 @@ The base server that everything else builds on.
 - Admin panel in the RHIS house style: menu on the left, English and Dutch, light and dark theme, "Powered by RHIS" in the sidebar.
 - Info button with the current version, update check, one-click update from the UI, and switching between the production and test channels.
 - Built-in HTTPS (Let's Encrypt), or running behind your own reverse proxy with trusted proxy headers.
+- Brought forward from phase 2: outgoing mail server settings (STARTTLS/TLS, DKIM) with a test e-mail.
+
+Install it on a fresh Debian 13 LXC with the [installation guide](docs/installation.md).
 
 ### Phase 2: Administration and security
 

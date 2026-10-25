@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Hosted Radio Station admin command. Run as root.
+set -Eeuo pipefail
+INSTALL_DIR=/opt/hosted-radio
+ENV_FILE=/etc/hosted-radio/hosted-radio.env
+RUN_DIR=/var/lib/hosted-radio/run
+
+[[ $EUID -eq 0 ]] || { echo "Run as root: sudo hrs $*" >&2; exit 1; }
+
+case "${1:-}" in
+  update)
+    channel="${2:-$(git -c safe.directory="$INSTALL_DIR" -C "$INSTALL_DIR" rev-parse --abbrev-ref HEAD)}"
+    [[ "$channel" =~ ^(main|test)$ ]] || { echo "Usage: hrs update [main|test]" >&2; exit 1; }
+    jq -nc --arg id "$(cat /proc/sys/kernel/random/uuid)" --arg ch "$channel" '{id:$id, channel:$ch, requestedBy:"hrs (shell)"}' > "$RUN_DIR/update-request.json"
+    chown hosted-radio: "$RUN_DIR/update-request.json"
+    echo "Updating to the latest '$channel'…"
+    systemctl start hosted-radio-update.service
+    cat "$RUN_DIR/update.log"
+    jq -r '"Result: \(.state) \(.message // "")"' "$RUN_DIR/update-status.json"
+    ;;
+  status)
+    systemctl --no-pager --lines=0 status hosted-radio-api caddy postgresql 2>/dev/null | grep -E '●|Active:' || true
+    git -c safe.directory="$INSTALL_DIR" -C "$INSTALL_DIR" log -1 --format='Version: %h (%cd) on branch '"$(git -c safe.directory="$INSTALL_DIR" -C "$INSTALL_DIR" rev-parse --abbrev-ref HEAD)" --date=short
+    ;;
+  logs)
+    exec journalctl -u hosted-radio-api -f
+    ;;
+  ""|-h|--help|help)
+    cat <<USAGE
+Hosted Radio Station
+
+  hrs status                        Service status and installed version
+  hrs logs                          Follow the API log
+  hrs update [main|test]            Install the latest version (optionally switch channel)
+  hrs create-admin --email <e> --name <n> [--password <p>]
+  hrs reset-password --email <e> [--password <p>]
+  hrs migrate                       Apply database migrations
+USAGE
+    ;;
+  *)
+    set -a
+    # shellcheck disable=SC1090
+    . "$ENV_FILE"
+    set +a
+    cd "$INSTALL_DIR/apps/api"
+    exec runuser -u hosted-radio -- node dist/cli.js "$@"
+    ;;
+esac

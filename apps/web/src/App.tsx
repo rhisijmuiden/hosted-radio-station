@@ -1,0 +1,63 @@
+import { Navigate, Route, Routes, useLocation } from 'react-router';
+import { Toaster } from 'sonner';
+import { Layout } from './components/Layout';
+import { Spinner } from './components/ui';
+import { isAdmin, useMe } from './lib/auth';
+import { useTheme } from './lib/theme';
+import { ThemeContext } from './lib/theme-context';
+import { ApiKeysPage } from './pages/ApiKeys';
+import { CustomerDetailPage } from './pages/CustomerDetail';
+import { CustomersPage } from './pages/Customers';
+import { DashboardPage } from './pages/Dashboard';
+import { LoginPage } from './pages/Login';
+import { MailServerPage } from './pages/MailServer';
+import { NotFoundPage } from './pages/NotFound';
+import { ProfilePage } from './pages/Profile';
+import { UpdatesPage } from './pages/Updates';
+import { UsersPage } from './pages/Users';
+import { WebServerPage } from './pages/WebServer';
+
+function RequireAuth({ admin, children }: { admin?: boolean; children: React.ReactNode }) {
+  const me = useMe();
+  const location = useLocation();
+  if (me.isPending) {
+    return (
+      <div className="grid h-full place-items-center">
+        <Spinner />
+      </div>
+    );
+  }
+  if (me.isError || !me.data) return <Navigate to={`/login?next=${encodeURIComponent(location.pathname)}`} replace />;
+  if (admin && !isAdmin(me.data)) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
+export function App() {
+  const theme = useTheme();
+  return (
+    <ThemeContext.Provider value={theme}>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route
+          element={
+            <RequireAuth>
+              <Layout />
+            </RequireAuth>
+          }
+        >
+          <Route index element={<DashboardPage />} />
+          <Route path="customers" element={<CustomersPage />} />
+          <Route path="customers/:id" element={<CustomerDetailPage />} />
+          <Route path="users" element={<RequireAuth admin><UsersPage /></RequireAuth>} />
+          <Route path="api-keys" element={<ApiKeysPage />} />
+          <Route path="settings/mail" element={<RequireAuth admin><MailServerPage /></RequireAuth>} />
+          <Route path="settings/web-server" element={<RequireAuth admin><WebServerPage /></RequireAuth>} />
+          <Route path="settings/updates" element={<RequireAuth admin><UpdatesPage /></RequireAuth>} />
+          <Route path="profile" element={<ProfilePage />} />
+          <Route path="*" element={<NotFoundPage />} />
+        </Route>
+      </Routes>
+      <Toaster position="bottom-right" theme={theme.theme} richColors closeButton />
+    </ThemeContext.Provider>
+  );
+}

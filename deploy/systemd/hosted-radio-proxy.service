@@ -1,0 +1,7 @@
+[Unit]
+Description=Hosted Radio Station web server configuration (Caddy)
+
+[Service]
+Type=oneshot
+ExecStart=/opt/hosted-radio/deploy/bin/hrs-proxy-apply
+TimeoutStartSec=2min
