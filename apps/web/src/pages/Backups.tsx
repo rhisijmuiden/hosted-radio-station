@@ -269,7 +269,7 @@ function ScheduleFields({ schedule, onChange }: { schedule: BackupSchedule; onCh
           <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px]">
             {t('backups.every')}
             <Select
-              className="h-9 w-28"
+              className="h-9! w-28!"
               value={schedule.incremental.everyHours}
               onChange={(e) => onChange({ ...schedule, incremental: { ...schedule.incremental, everyHours: Number(e.target.value) } })}
             >
@@ -280,7 +280,7 @@ function ScheduleFields({ schedule, onChange }: { schedule: BackupSchedule; onCh
               ))}
             </Select>
             {t('backups.startingAt')}
-            <Input type="time" className="h-9 w-28" value={schedule.incremental.at} onChange={(e) => onChange({ ...schedule, incremental: { ...schedule.incremental, at: e.target.value } })} />
+            <Input type="time" className="h-9! w-28!" value={schedule.incremental.at} onChange={(e) => onChange({ ...schedule, incremental: { ...schedule.incremental, at: e.target.value } })} />
           </div>
         )}
       </div>
@@ -289,7 +289,7 @@ function ScheduleFields({ schedule, onChange }: { schedule: BackupSchedule; onCh
         {schedule.full.enabled && (
           <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px]">
             {t('backups.weekday')}
-            <Select className="h-9 w-36" value={schedule.full.weekday} onChange={(e) => onChange({ ...schedule, full: { ...schedule.full, weekday: Number(e.target.value) } })}>
+            <Select className="h-9! w-36!" value={schedule.full.weekday} onChange={(e) => onChange({ ...schedule, full: { ...schedule.full, weekday: Number(e.target.value) } })}>
               <option value={-1}>{t('backups.everyDay')}</option>
               {weekdays.map((d, i) => (
                 <option key={d} value={i}>
@@ -298,7 +298,7 @@ function ScheduleFields({ schedule, onChange }: { schedule: BackupSchedule; onCh
               ))}
             </Select>
             {t('backups.at')}
-            <Input type="time" className="h-9 w-28" value={schedule.full.at} onChange={(e) => onChange({ ...schedule, full: { ...schedule.full, at: e.target.value } })} />
+            <Input type="time" className="h-9! w-28!" value={schedule.full.at} onChange={(e) => onChange({ ...schedule, full: { ...schedule.full, at: e.target.value } })} />
           </div>
         )}
       </div>
@@ -912,36 +912,38 @@ function TargetRow({ target, onEdit, onRestore, onOpenRun }: { target: BackupTar
   const next = [target.nextIncremental, target.nextFull].filter(Boolean).sort()[0] ?? null;
   const last = target.lastRun;
   return (
-    <div className="flex flex-col gap-3 border-b border-line px-5 py-4 last:border-b-0 lg:flex-row lg:items-center">
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        <span className="grid size-10 shrink-0 place-items-center rounded-[10px] bg-nacht text-white dark:bg-chip">
-          <Icon className="size-5" />
-        </span>
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="truncate font-semibold">{target.name}</span>
-            <Badge>{t(`backups.types.${target.type}`)}</Badge>
-            {!target.enabled && <Badge tone="warning">{t('backups.disabled')}</Badge>}
-          </div>
-          <div className="truncate font-mono text-xs text-muted">{target.description}</div>
-          <div className="mt-0.5 text-xs text-muted">
-            {next ? `${t('backups.nextBackup')}: ${formatRelative(next)}` : t('backups.notScheduled')}
+    <div className="flex flex-col gap-3 border-b border-line px-5 py-4 last:border-b-0">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+        <div className="flex min-w-60 flex-1 items-center gap-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-[10px] bg-nacht text-white dark:bg-chip">
+            <Icon className="size-5" />
+          </span>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold">{target.name}</span>
+              <Badge>{t(`backups.types.${target.type}`)}</Badge>
+              {!target.enabled && <Badge tone="warning">{t('backups.disabled')}</Badge>}
+            </div>
+            <div className="truncate font-mono text-xs text-muted">{target.description}</div>
+            <div className="mt-0.5 text-xs text-muted">
+              {next ? `${t('backups.nextBackup')}: ${formatRelative(next)}` : t('backups.notScheduled')}
+            </div>
           </div>
         </div>
+        <div className="flex shrink-0 items-center gap-3">
+          {last ? (
+            <button className="flex min-w-0 flex-col items-start gap-1 text-left" onClick={() => onOpenRun(last.id)}>
+              <RunState run={last} />
+              <span className="truncate text-xs text-muted">
+                {t(`backups.kinds.${last.kind}`)} · {formatRelative(last.finishedAt ?? last.startedAt ?? last.queuedAt)}
+              </span>
+            </button>
+          ) : (
+            <span className="text-xs text-muted">{t('backups.never')}</span>
+          )}
+        </div>
       </div>
-      <div className="flex items-center gap-3 lg:w-64">
-        {last ? (
-          <button className="flex min-w-0 flex-col items-start gap-1 text-left" onClick={() => onOpenRun(last.id)}>
-            <RunState run={last} />
-            <span className="truncate text-xs text-muted">
-              {t(`backups.kinds.${last.kind}`)} · {formatRelative(last.finishedAt ?? last.startedAt ?? last.queuedAt)}
-            </span>
-          </button>
-        ) : (
-          <span className="text-xs text-muted">{t('backups.never')}</span>
-        )}
-      </div>
-      <div className="flex flex-wrap items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5 sm:pl-13">
         <BackupNowButton target={target} />
         <Button size="sm" onClick={onRestore}>
           <ArchiveRestore className="size-4" /> {t('backups.restore')}

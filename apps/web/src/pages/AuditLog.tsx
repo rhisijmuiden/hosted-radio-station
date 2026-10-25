@@ -32,7 +32,7 @@ function RetentionSetting() {
       title={t('audit.retentionHint')}
     >
       <span className="text-muted">{t('audit.retention')}</span>
-      <Input type="number" min={0} max={3650} className="h-9 w-24" value={days} onChange={(e) => setDays(e.target.value)} />
+      <Input type="number" min={0} max={3650} className="h-9! w-24!" value={days} onChange={(e) => setDays(e.target.value)} />
       <span className="text-muted">{t('audit.days')}</span>
       <Button size="sm" type="submit" loading={save.isPending} disabled={!setting.data || days === String(setting.data.retentionDays)}>
         {t('common.save')}

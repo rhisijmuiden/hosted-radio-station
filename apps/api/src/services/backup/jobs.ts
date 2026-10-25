@@ -252,7 +252,7 @@ async function doBackup(ctx: AppContext, row: TargetRow, target: Target, kind: '
       const { paths, excludes } = backupPaths(ctx);
       log.add(`Backing up ${paths.join(', ')}`);
       const summary = await runBackup(remote, { kind, paths, excludes, host: SNAPSHOT_HOST }, log.add, log.progress);
-      let message = `${formatBytes(summary.bytesAdded)} added, ${formatBytes(summary.bytesTotal)} in total`;
+      let message = `${formatBytes(summary.bytesAdded)} uploaded, ${formatBytes(summary.bytesTotal)} backed up`;
       if (summary.warnings) message += '. Some files could not be read, see the log';
       try {
         log.progress('Removing old backups');

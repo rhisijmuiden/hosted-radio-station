@@ -103,7 +103,7 @@ export function AuditLogView({ tenantId, compact }: { tenantId?: string; compact
     <div>
       <div className={clsx('flex flex-wrap items-end gap-2 border-b border-line px-5 py-3', compact && 'hidden sm:flex')}>
         {!tenantId && (
-          <Select className="h-9 w-44 text-[13px]" value={tenant} onChange={(e) => setTenant(e.target.value)} aria-label={t('audit.target')}>
+          <Select className="h-9! sm:w-44! text-[13px]" value={tenant} onChange={(e) => setTenant(e.target.value)} aria-label={t('audit.target')}>
             <option value="">{t('audit.allCustomers')}</option>
             {(tenants.data ?? []).map((x) => (
               <option key={x.id} value={x.id}>
@@ -112,7 +112,7 @@ export function AuditLogView({ tenantId, compact }: { tenantId?: string; compact
             ))}
           </Select>
         )}
-        <Select className="h-9 w-48 text-[13px]" value={action} onChange={(e) => setAction(e.target.value)} aria-label={t('audit.action')}>
+        <Select className="h-9! sm:w-48! text-[13px]" value={action} onChange={(e) => setAction(e.target.value)} aria-label={t('audit.action')}>
           <option value="">{t('audit.allActions')}</option>
           {groupsInUse.map((g) => (
             <optgroup key={g} label={labels.group(g)}>
@@ -129,20 +129,20 @@ export function AuditLogView({ tenantId, compact }: { tenantId?: string; compact
             </optgroup>
           ))}
         </Select>
-        <Select className="h-9 w-40 text-[13px]" value={success} onChange={(e) => setSuccess(e.target.value)} aria-label={t('fields.status')}>
+        <Select className="h-9! sm:w-40! text-[13px]" value={success} onChange={(e) => setSuccess(e.target.value)} aria-label={t('fields.status')}>
           <option value="">{t('audit.allResults')}</option>
           <option value="false">{t('audit.onlyFailed')}</option>
           <option value="true">{t('audit.onlySucceeded')}</option>
         </Select>
         {!compact && (
           <>
-            <Input type="date" className="h-9 w-40 text-[13px]" value={from} onChange={(e) => setFrom(e.target.value)} aria-label={t('audit.from')} title={t('audit.from')} />
-            <Input type="date" className="h-9 w-40 text-[13px]" value={to} onChange={(e) => setTo(e.target.value)} aria-label={t('audit.to')} title={t('audit.to')} />
+            <Input type="date" className="h-9! sm:w-40! text-[13px]" value={from} onChange={(e) => setFrom(e.target.value)} aria-label={t('audit.from')} title={t('audit.from')} />
+            <Input type="date" className="h-9! sm:w-40! text-[13px]" value={to} onChange={(e) => setTo(e.target.value)} aria-label={t('audit.to')} title={t('audit.to')} />
           </>
         )}
         <div className="relative min-w-48 flex-1">
           <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" />
-          <Input className="h-9 pl-9 text-[13px]" placeholder={t('audit.search')} value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input className="h-9! pl-9 text-[13px]" placeholder={t('audit.search')} value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
         <a href={`/api/audit/export.csv?${key}`} download>
           <Button size="sm" type="button">
