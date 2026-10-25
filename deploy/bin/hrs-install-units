@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Installs the systemd units, the hrs command and enables the services. Safe to run repeatedly.
+set -Eeuo pipefail
+INSTALL_DIR="${INSTALL_DIR:-/opt/hosted-radio}"
+SRC="$INSTALL_DIR/deploy/systemd"
+
+install -m 0644 "$SRC"/hosted-radio-api.service "$SRC"/hosted-radio-update.service "$SRC"/hosted-radio-update.path \
+  "$SRC"/hosted-radio-proxy.service "$SRC"/hosted-radio-proxy.path /etc/systemd/system/
+install -m 0755 "$INSTALL_DIR/deploy/bin/hrs" /usr/local/bin/hrs
+
+# Sandboxing needs mount namespaces, which some unprivileged LXC containers do not allow. Only enable it when it works.
+mkdir -p /etc/systemd/system/hosted-radio-api.service.d
+if systemd-run --quiet --wait --collect -p ProtectSystem=strict -p PrivateTmp=yes -p ProtectHome=yes /bin/true >/dev/null 2>&1; then
+  install -m 0644 "$SRC/hardening.conf" /etc/systemd/system/hosted-radio-api.service.d/hardening.conf
+else
+  rm -f /etc/systemd/system/hosted-radio-api.service.d/hardening.conf
+  echo "Note: this container does not allow systemd sandboxing; running the API without it."
+fi
+
+systemctl daemon-reload
+systemctl enable --quiet hosted-radio-api.service hosted-radio-update.path hosted-radio-proxy.path
+systemctl start hosted-radio-update.path hosted-radio-proxy.path

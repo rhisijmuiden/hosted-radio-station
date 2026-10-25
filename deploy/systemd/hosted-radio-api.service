@@ -1,0 +1,20 @@
+[Unit]
+Description=Hosted Radio Station API and admin panel
+After=network-online.target postgresql.service valkey-server.service redis-server.service
+Wants=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=hosted-radio
+Group=hosted-radio
+EnvironmentFile=/etc/hosted-radio/hosted-radio.env
+WorkingDirectory=/opt/hosted-radio/apps/api
+ExecStart=/usr/bin/node dist/server.js
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+NoNewPrivileges=true
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

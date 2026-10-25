@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# Writes the Caddy configuration for the chosen web server mode and reloads Caddy. Started as root by
+# hosted-radio-proxy.path when the API drops run/proxy-request.json (and once by install.sh).
+#   builtin  = Caddy terminates HTTPS with Let's Encrypt (or plain HTTP when there is no domain)
+#   external = an upstream reverse proxy terminates HTTPS; Caddy listens on HTTP and trusts its X-Forwarded-For
+set -Eeuo pipefail
+
+main() {
+  local RUN=/var/lib/hosted-radio/run ENV_FILE=/etc/hosted-radio/hosted-radio.env CADDYFILE=/etc/caddy/Caddyfile
+  local REQ="$RUN/proxy-request.json" STATUS="$RUN/proxy-status.json" LOG="$RUN/proxy.log"
+  [[ -f "$REQ" ]] || exit 0
+  local id mode domain email port trusted
+  id=$(jq -r '.id // empty' "$REQ" 2>/dev/null | tr -cd 'A-Za-z0-9-' | cut -c1-64 || true)
+  mode=$(jq -r '.mode // empty' "$REQ" 2>/dev/null || true)
+  domain=$(jq -r '.domain // empty' "$REQ" 2>/dev/null | tr 'A-Z' 'a-z' || true)
+  email=$(jq -r '.acmeEmail // empty' "$REQ" 2>/dev/null || true)
+  port=$(jq -r '.httpPort // 80' "$REQ" 2>/dev/null || true)
+  trusted=$(jq -r '(.trustedProxies // []) | join(" ")' "$REQ" 2>/dev/null || true)
+  rm -f "$REQ"
+
+  : > "$LOG"; chown hosted-radio: "$LOG"
+  log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*" >> "$LOG"; }
+  status() {
+    jq -n --arg id "$id" --arg state "$1" --arg message "$2" --arg t "$(date -Is)" \
+      '{id:$id, state:$state, message:$message, startedAt:$t} + (if $state == "running" then {} else {finishedAt:$t} end)' > "$STATUS.tmp"
+    chown hosted-radio: "$STATUS.tmp"; mv "$STATUS.tmp" "$STATUS"
+  }
+  invalid() { status failed "$1"; log "$1"; exit 1; }
+  status running "Applying"
+
+  # Everything below ends up in a config file run by root, so validate strictly.
+  [[ "$mode" =~ ^(builtin|external)$ ]] || invalid "Unknown mode"
+  [[ -z "$domain" || "$domain" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]] || invalid "Invalid domain"
+  [[ -z "$email" || "$email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}$ ]] || invalid "Invalid e-mail address"
+  [[ "$port" =~ ^[0-9]{1,5}$ && $port -ge 1 && $port -le 65535 ]] || invalid "Invalid port"
+  local ip
+  for ip in $trusted; do
+    [[ "$ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}(/[0-9]{1,2})?$ || "$ip" =~ ^[0-9A-Fa-f:]+(/[0-9]{1,3})?$ ]] || invalid "Invalid trusted proxy: $ip"
+  done
+  [[ "$mode" == builtin || -n "$trusted" ]] || invalid "External mode needs at least one trusted proxy"
+
+  local upstream='reverse_proxy 127.0.0.1:8000 {
+		flush_interval -1
+	}'
+  local tmp public_url
+  tmp=$(mktemp)
+  {
+    echo "# Managed by Hosted Radio Station (Settings → Web server). Manual changes are overwritten."
+    if [[ "$mode" == builtin ]]; then
+      echo "{"
+      [[ -n "$email" ]] && echo "	email $email"
+      echo "}"
+      if [[ -n "$domain" ]]; then
+        printf '\n%s {\n\tencode zstd gzip\n\t%s\n}\n' "$domain" "$upstream"
+      fi
+      # Plain HTTP on the IP address keeps the panel reachable while DNS is not ready (and is all there is without a domain).
+      printf '\nhttp:// {\n\tencode zstd gzip\n\t%s\n}\n' "$upstream"
+    else
+      printf '{\n\tauto_https off\n\tservers {\n\t\ttrusted_proxies static %s\n\t\tclient_ip_headers X-Forwarded-For X-Real-IP\n\t}\n}\n' "$trusted"
+      printf '\n:%s {\n\tencode zstd gzip\n\t%s\n}\n' "$port" "$upstream"
+    fi
+  } > "$tmp"
+  log "New configuration:"; cat "$tmp" >> "$LOG"
+
+  if ! caddy validate --adapter caddyfile --config "$tmp" >> "$LOG" 2>&1; then
+    rm -f "$tmp"; invalid "Caddy rejected the configuration, see the log"
+  fi
+  [[ -f "$CADDYFILE" ]] && cp "$CADDYFILE" "$CADDYFILE.bak"
+  install -m 0644 "$tmp" "$CADDYFILE"; rm -f "$tmp"
+  if ! systemctl reload caddy >> "$LOG" 2>&1 && ! systemctl restart caddy >> "$LOG" 2>&1; then
+    [[ -f "$CADDYFILE.bak" ]] && cp "$CADDYFILE.bak" "$CADDYFILE" && systemctl restart caddy || true
+    invalid "Caddy did not accept the change; the previous configuration was restored"
+  fi
+
+  # The API must trust the same proxies (real listener IPs for statistics and GeoIP) and know its public URL.
+  if [[ -n "$domain" ]]; then public_url="https://$domain"; else public_url="http://$(hostname -I | awk '{print $1}')"; fi
+  local trusted_csv="127.0.0.1,::1"
+  [[ "$mode" == external && -n "$trusted" ]] && trusted_csv+=",${trusted// /,}"
+  sed -i -E "s#^TRUSTED_PROXIES=.*#TRUSTED_PROXIES=${trusted_csv}#; s#^PUBLIC_URL=.*#PUBLIC_URL=${public_url}#" "$ENV_FILE"
+  status succeeded "Web server is now in $mode mode${domain:+ for $domain}."
+  log "Done. Restarting the API to load the new trusted proxies."
+  systemctl restart hosted-radio-api || true
+}
+
+main "$@"; exit $?

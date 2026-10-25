@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Installs dependencies and builds the API and admin panel in place. Run as root from install.sh and hrs-update.
+set -Eeuo pipefail
+INSTALL_DIR="${INSTALL_DIR:-/opt/hosted-radio}"
+cd "$INSTALL_DIR"
+export CI=1 NODE_ENV=development NO_COLOR=1 FORCE_COLOR=0
+echo "Installing dependencies…"
+pnpm install --frozen-lockfile --reporter=append-only
+echo "Building…"
+pnpm -r --reporter=append-only build
+echo "Build finished: $(git log -1 --format='%h %s')"

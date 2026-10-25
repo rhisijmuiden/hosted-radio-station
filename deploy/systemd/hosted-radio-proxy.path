@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for web server changes from the Hosted Radio Station admin panel
+
+[Path]
+PathExists=/var/lib/hosted-radio/run/proxy-request.json
+Unit=hosted-radio-proxy.service
+
+[Install]
+WantedBy=multi-user.target
