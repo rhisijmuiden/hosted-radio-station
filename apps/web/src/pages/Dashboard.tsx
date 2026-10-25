@@ -1,14 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowRight, Building2, Check, Globe, KeyRound, Mail, Radio, Users } from 'lucide-react';
+import { ArrowRight, Building2, Check, DatabaseBackup, Globe, KeyRound, Mail, Radio, Users } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { useSystemInfo } from '../components/InfoDialog';
 import { Badge, Button, Card, CardHeader, PageHeader, Table } from '../components/ui';
-import { api, type ApiKey, type ProxySettings, type SmtpSettings, type Tenant, type UserDetail } from '../lib/api';
+import { api, type ApiKey, type BackupTarget, type ProxySettings, type SmtpSettings, type Tenant, type UserDetail } from '../lib/api';
 import { isAdmin, useMe } from '../lib/auth';
-import { shortCommit } from '../lib/format';
+import { formatRelative, shortCommit } from '../lib/format';
 
 function Stat({ label, value, note, tone = 'online' }: { label: string; value: ReactNode; note?: ReactNode; tone?: 'online' | 'muted' | 'warning' }) {
   return (
@@ -43,6 +43,13 @@ function AdminDashboard() {
   const keys = useQuery({ queryKey: ['api-keys'], queryFn: () => api<ApiKey[]>('/api-keys') });
   const smtp = useQuery({ queryKey: ['settings', 'smtp'], queryFn: () => api<SmtpSettings>('/settings/smtp') });
   const proxy = useQuery({ queryKey: ['settings', 'proxy'], queryFn: () => api<ProxySettings>('/settings/proxy') });
+  const backups = useQuery({ queryKey: ['backup-targets'], queryFn: () => api<BackupTarget[]>('/backups/targets') });
+  const lastBackup = (backups.data ?? [])
+    .map((b) => b.lastSuccess?.finishedAt)
+    .filter((d): d is string => !!d)
+    .sort()
+    .at(-1);
+  const backupFailing = (backups.data ?? []).some((b) => b.lastRun?.state === 'failed');
   const info = useSystemInfo();
 
   const list = tenants.data ?? [];
@@ -50,6 +57,7 @@ function AdminDashboard() {
   const steps = [
     { done: !!smtp.data?.enabled, label: t('dashboard.stepMail'), to: '/settings/mail', icon: Mail },
     { done: !!proxy.data?.domain || proxy.data?.mode === 'external', label: t('dashboard.stepWeb'), to: '/settings/web-server', icon: Globe },
+    { done: (backups.data?.length ?? 0) > 0, label: t('dashboard.stepBackup'), to: '/settings/backups', icon: DatabaseBackup },
     { done: list.length > 0, label: t('dashboard.stepCustomer'), to: '/customers', icon: Building2 },
     { done: (keys.data?.length ?? 0) > 0, label: t('dashboard.stepApiKey'), to: '/api-keys', icon: KeyRound },
   ];
@@ -164,6 +172,11 @@ function AdminDashboard() {
               label={t('nav.mail')}
               value={smtp.data ? (smtp.data.enabled ? smtp.data.host : t('dashboard.notConfigured')) : '…'}
               tone={smtp.data?.enabled ? 'online' : 'warning'}
+            />
+            <SystemRow
+              label={t('dashboard.lastBackup')}
+              value={backups.data ? (backupFailing ? t('dashboard.backupFailing') : lastBackup ? formatRelative(lastBackup) : t('dashboard.never')) : '…'}
+              tone={backupFailing ? 'offline' : lastBackup ? 'online' : 'warning'}
             />
           </Card>
         </div>

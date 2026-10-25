@@ -1,12 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Trash2, UserPlus } from 'lucide-react';
+import { ArrowLeft, Send, Trash2, UserPlus } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
 import { Avatar, Badge, Button, Card, CardHeader, Dialog, Field, Input, PageHeader, Select, Spinner, Switch, Table } from '../components/ui';
+import { AuditLogView } from '../components/AuditLog';
+import { SsoCard } from '../components/SsoCard';
 import { api, ApiError, type Member, type Role, type Tenant } from '../lib/api';
-import { isAdmin, useMe } from '../lib/auth';
+import { isAdmin, useMailConfigured, useMe } from '../lib/auth';
 import { formatDate } from '../lib/format';
 import { LimitsFields, PlanPicker } from './Customers';
 import { PlanBadge } from './Dashboard';
@@ -85,25 +87,26 @@ function DetailsCard({ tenant, admin, canEdit }: { tenant: Tenant; admin: boolea
 function AddMemberDialog({ tenantId, open, onClose, grantable }: { tenantId: string; open: boolean; onClose: () => void; grantable: Role[] }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const [form, setForm] = useState({ email: '', name: '', password: '', role: 'dj' as Role });
+  const mail = useMailConfigured();
+  const [form, setForm] = useState({ email: '', name: '', password: '', role: 'dj' as Role, sendInvite: false });
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (open) {
-      setForm({ email: '', name: '', password: '', role: 'dj' });
+      setForm({ email: '', name: '', password: '', role: 'dj', sendInvite: mail });
       setError(null);
     }
-  }, [open]);
+  }, [open, mail]);
 
   const add = useMutation({
     mutationFn: () =>
       api<Member>(`/tenants/${tenantId}/members`, {
         method: 'POST',
-        body: { email: form.email, name: form.name || undefined, password: form.password || undefined, role: form.role },
+        body: { email: form.email, name: form.name || undefined, password: form.password || undefined, role: form.role, sendInvite: form.sendInvite },
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['members', tenantId] });
       void qc.invalidateQueries({ queryKey: ['tenants'] });
-      toast.success(t('members.added'));
+      toast.success(form.sendInvite ? t('invite.sent', { email: form.email }) : t('members.added'));
       onClose();
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
@@ -138,9 +141,18 @@ function AddMemberDialog({ tenantId, open, onClose, grantable }: { tenantId: str
         <Field label={t('fields.name')} hint={t('members.nameHint')}>
           <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         </Field>
-        <Field label={t('fields.password')} hint={t('members.passwordHint')}>
-          <Input type="password" autoComplete="new-password" minLength={10} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-        </Field>
+        <Switch
+          checked={form.sendInvite}
+          disabled={!mail}
+          onChange={(v) => setForm({ ...form, sendInvite: v })}
+          label={t('invite.send')}
+          description={mail ? t('invite.sendHint') : t('invite.needsMail')}
+        />
+        {!form.sendInvite && (
+          <Field label={t('fields.password')} hint={t('members.passwordHint')}>
+            <Input type="password" autoComplete="new-password" minLength={10} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+          </Field>
+        )}
         <Field label={t('fields.role')} hint={t(`roles.${form.role}Hint`)}>
           <Select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })}>
             {grantable.map((r) => (
@@ -167,6 +179,12 @@ function MembersCard({ tenantId, myRole }: { tenantId: string; myRole: Role | 's
   const changeRole = useMutation({
     mutationFn: ({ userId, role }: { userId: string; role: Role }) => api(`/tenants/${tenantId}/members/${userId}`, { method: 'PUT', body: { role } }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['members', tenantId] }),
+    onError: (err) => toast.error((err as Error).message),
+  });
+  const mail = useMailConfigured();
+  const invite = useMutation({
+    mutationFn: (m: Member) => api(`/tenants/${tenantId}/members/${m.user.id}/invite`, { method: 'POST' }),
+    onSuccess: (_res, m) => toast.success(t('invite.sent', { email: m.user.email })),
     onError: (err) => toast.error((err as Error).message),
   });
   const remove = useMutation({
@@ -223,7 +241,12 @@ function MembersCard({ tenantId, myRole }: { tenantId: string; myRole: Role | 's
                   )}
                 </td>
                 <td className="whitespace-nowrap text-muted">{formatDate(m.user.lastLoginAt)}</td>
-                <td className="text-right">
+                <td className="text-right whitespace-nowrap">
+                  {editable && mail && !m.user.isSuperadmin && (
+                    <Button size="sm" variant="ghost" title={t('invite.resend')} onClick={() => invite.mutate(m)}>
+                      <Send className="size-4 text-muted" />
+                    </Button>
+                  )}
                   {editable && (
                     <Button
                       size="sm"
@@ -296,6 +319,7 @@ export function CustomerDetailPage() {
         <DetailsCard tenant={c} admin={admin} canEdit={rank[myRole] >= rank.owner} />
         <div className="flex flex-col gap-4">
           {rank[myRole] >= rank.manager && <MembersCard tenantId={c.id} myRole={myRole} />}
+          {rank[myRole] >= rank.owner && <SsoCard tenantId={c.id} admin={admin} />}
           {admin && (
             <Card className="border-offline/30 p-5">
               <h2 className="display text-base text-offline">{t('customers.dangerZone')}</h2>
@@ -307,6 +331,12 @@ export function CustomerDetailPage() {
           )}
         </div>
       </div>
+      {rank[myRole] >= rank.manager && (
+        <Card className="mt-4">
+          <CardHeader title={t('nav.auditLog')} description={t('audit.customerSubtitle')} />
+          <AuditLogView tenantId={c.id} compact />
+        </Card>
+      )}
     </>
   );
 }

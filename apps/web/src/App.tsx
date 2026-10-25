@@ -6,6 +6,8 @@ import { isAdmin, useMe } from './lib/auth';
 import { useTheme } from './lib/theme';
 import { ThemeContext } from './lib/theme-context';
 import { ApiKeysPage } from './pages/ApiKeys';
+import { AuditLogPage } from './pages/AuditLog';
+import { BackupsPage } from './pages/Backups';
 import { CustomerDetailPage } from './pages/CustomerDetail';
 import { CustomersPage } from './pages/Customers';
 import { DashboardPage } from './pages/Dashboard';
@@ -13,6 +15,7 @@ import { LoginPage } from './pages/Login';
 import { MailServerPage } from './pages/MailServer';
 import { NotFoundPage } from './pages/NotFound';
 import { ProfilePage } from './pages/Profile';
+import { ResetPasswordPage } from './pages/ResetPassword';
 import { UpdatesPage } from './pages/Updates';
 import { UsersPage } from './pages/Users';
 import { WebServerPage } from './pages/WebServer';
@@ -38,6 +41,7 @@ export function App() {
     <ThemeContext.Provider value={theme}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route
           element={
             <RequireAuth>
@@ -52,6 +56,8 @@ export function App() {
           <Route path="api-keys" element={<ApiKeysPage />} />
           <Route path="settings/mail" element={<RequireAuth admin><MailServerPage /></RequireAuth>} />
           <Route path="settings/web-server" element={<RequireAuth admin><WebServerPage /></RequireAuth>} />
+          <Route path="settings/backups" element={<RequireAuth admin><BackupsPage /></RequireAuth>} />
+          <Route path="audit" element={<RequireAuth admin><AuditLogPage /></RequireAuth>} />
           <Route path="settings/updates" element={<RequireAuth admin><UpdatesPage /></RequireAuth>} />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="*" element={<NotFoundPage />} />
