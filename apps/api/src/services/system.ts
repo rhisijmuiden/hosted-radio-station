@@ -107,7 +107,9 @@ async function readJob(ctx: AppContext, name: 'update' | 'proxy'): Promise<JobSt
     /* no pending request */
   }
   try {
-    status.log = (await readFile(join(dir, `${name}.log`), 'utf8')).split('\n').slice(-200).join('\n');
+    // Strip terminal colour codes from pnpm/vite output; the panel shows the log as plain text.
+    const log = (await readFile(join(dir, `${name}.log`), 'utf8')).replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+    status.log = log.split('\n').slice(-200).join('\n');
   } catch {
     /* no log */
   }

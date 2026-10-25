@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { login, setup } from './helpers.js';
@@ -21,4 +21,11 @@ it('queues an update request for the root helper and switches channel', async ()
   const again = await t.app.inject({ method: 'POST', url: '/api/system/update', headers, payload: {} });
   expect(again.statusCode).toBe(409);
   expect((await t.app.inject({ url: '/api/system/info', headers })).json().channel).toBe('test');
+});
+
+it('strips terminal colour codes from the update log', async () => {
+  const headers = await login(t.app, 'admin@example.com', 'admin-password');
+  writeFileSync(join(t.ctx.config.DATA_DIR, 'run', 'update.log'), '\u001b[36mvite\u001b[39m building\u001b[0m\n');
+  const status = await t.app.inject({ url: '/api/system/update/status', headers });
+  expect(status.json().log).toBe('vite building\n');
 });
