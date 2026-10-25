@@ -27,7 +27,7 @@ Phase 1 as it runs today: the admin panel in the RHIS house style, light and dar
 
 | Phase | Name | Status |
 | --- | --- | --- |
-| 1 | Foundation | In test |
+| 1 | Foundation | Done |
 | 2 | Administration and security | Planned |
 | 3 | Distribution | Planned |
 | 4 | Statistics | Planned |
