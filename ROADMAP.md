@@ -134,6 +134,7 @@ The commercial layer.
 
 A separate LXC package for FM broadcasters.
 
+- Its own Debian 13 LXC with a standalone installer, paired with the main server the same way as remote nodes (one-time pairing code, updates from the main server).
 - Receives a station stream and generates a complete MPX signal (stereo encoder plus RDS).
 - RDS PS, RadioText and RadioText+ filled automatically from now-playing data, so FM receivers show the right song titles.
 - Output through a 192 kHz sound card or as MPX over IP, or control of an existing RDS encoder over UECP.
