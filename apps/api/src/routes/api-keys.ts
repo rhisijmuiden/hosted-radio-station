@@ -50,6 +50,7 @@ export const apiKeyRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/',
     {
+      config: { audit: 'api_key.create' },
       schema: {
         tags: ['API keys'],
         summary: 'Create an API key. The secret is only returned once.',
@@ -80,6 +81,7 @@ export const apiKeyRoutes: FastifyPluginAsyncZod = async (app) => {
         })
         .returning({ id: schema.apiKeys.id });
       const [key] = await select().where(eq(schema.apiKeys.id, row!.id));
+      req.auditInfo = { tenantId: key!.tenantId, targetId: key!.id, details: { name: key!.name, readOnly: key!.readOnly } };
       reply.status(201);
       return { ...key!, secret };
     },
@@ -87,7 +89,7 @@ export const apiKeyRoutes: FastifyPluginAsyncZod = async (app) => {
 
   app.delete(
     '/:id',
-    { schema: { tags: ['API keys'], summary: 'Revoke one of your API keys', params: idParam, response: { 200: okOut } } },
+    { config: { audit: 'api_key.revoke' }, schema: { tags: ['API keys'], summary: 'Revoke one of your API keys', params: idParam, response: { 200: okOut } } },
     async (req) => {
       const auth = requireUser(req);
       const deleted = await ctx.db

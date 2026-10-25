@@ -14,13 +14,17 @@ import {
 import { Redis } from 'ioredis';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { registerAudit } from './lib/audit.js';
 import { registerAuth, API_KEY_PREFIX, SESSION_COOKIE } from './lib/auth.js';
 import type { AppContext } from './lib/context.js';
 import { HttpError } from './lib/errors.js';
 import { apiKeyRoutes } from './routes/api-keys.js';
+import { auditRoutes } from './routes/audit.js';
 import { authRoutes } from './routes/auth.js';
+import { backupRoutes } from './routes/backups.js';
 import { healthRoutes } from './routes/health.js';
 import { settingsRoutes } from './routes/settings.js';
+import { ssoAdminRoutes, ssoAuthRoutes } from './routes/sso.js';
 import { systemRoutes } from './routes/system.js';
 import { tenantRoutes } from './routes/tenants.js';
 import { userRoutes } from './routes/users.js';
@@ -87,13 +91,18 @@ export async function buildApp(ctx: AppContext) {
   app.get('/api/openapi.json', { schema: { hide: true } }, async () => app.swagger());
 
   registerAuth(app);
+  registerAudit(app);
   await app.register(healthRoutes, { prefix: '/api' });
   await app.register(authRoutes, { prefix: '/api/auth' });
+  await app.register(ssoAuthRoutes, { prefix: '/api/auth/sso' });
   await app.register(tenantRoutes, { prefix: '/api/tenants' });
+  await app.register(ssoAdminRoutes, { prefix: '/api/tenants' });
   await app.register(userRoutes, { prefix: '/api/users' });
   await app.register(apiKeyRoutes, { prefix: '/api/api-keys' });
   await app.register(settingsRoutes, { prefix: '/api/settings' });
   await app.register(systemRoutes, { prefix: '/api/system' });
+  await app.register(backupRoutes, { prefix: '/api/backups' });
+  await app.register(auditRoutes, { prefix: '/api/audit' });
 
   // In production the API also serves the built admin panel (single-page app).
   const webDist = config.WEB_DIST ? resolve(config.WEB_DIST) : null;

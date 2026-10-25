@@ -53,10 +53,31 @@ export const updateSchema = z.object({
 });
 export type UpdateSettings = z.infer<typeof updateSchema>;
 
+export const backupSettingsSchema = z.object({
+  /** E-mail after backups: never, only when one fails, or always. Restores always notify. */
+  notifyOn: z.enum(['never', 'failure', 'always']).default('failure'),
+  notifyEmails: z.array(z.email().trim().toLowerCase()).max(10).default([]),
+  notifyLanguage: z.enum(['en', 'nl']).default('en'),
+  /** Application (client) ID of your own Microsoft Entra app, for signing in to OneDrive from the panel. */
+  onedriveClientId: z
+    .string()
+    .trim()
+    .refine((v) => v === '' || /^[0-9a-f-]{36}$/i.test(v), 'Use the application (client) ID, a GUID')
+    .default(''),
+});
+export type BackupSettings = z.infer<typeof backupSettingsSchema>;
+
+export const auditSettingsSchema = z.object({
+  /** Entries older than this are deleted every night. 0 = keep forever. */
+  retentionDays: z.number().int().min(0).max(3650).default(365),
+});
+
 const registry = {
   smtp: { schema: smtpSchema, secrets: ['password', 'dkim.privateKey'] },
   proxy: { schema: proxySchema, secrets: [] },
   update: { schema: updateSchema, secrets: [] },
+  backup: { schema: backupSettingsSchema, secrets: [] },
+  audit: { schema: auditSettingsSchema, secrets: [] },
 } as const;
 type Registry = typeof registry;
 export type SettingKey = keyof Registry;

@@ -34,7 +34,7 @@ export function renderEmail(opts: { title: string; paragraphs: string[]; action?
 <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#FFFFFF;border-radius:16px;overflow:hidden;border:1px solid #DCE1EB">
 <tr><td style="background:#14213D;padding:20px 28px;color:#FFFFFF;font-weight:800;font-size:18px;letter-spacing:.5px">Hosted Radio Station</td></tr>
 <tr><td style="padding:28px"><h1 style="margin:0 0 16px;font-size:22px">${escape(opts.title)}</h1>${body}${button}</td></tr>
-<tr><td style="padding:16px 28px;color:#4F5B73;font-size:12px;border-top:1px solid #DCE1EB">Hosted Radio Station</td></tr>
+<tr><td style="padding:16px 28px;color:#4F5B73;font-size:12px;border-top:1px solid #DCE1EB">Hosted Radio Station &middot; Powered by <a href="https://rhis.nl" style="color:#4F5B73">RHIS</a></td></tr>
 </table></td></tr></table></body></html>`;
   const text = [opts.title, '', ...opts.paragraphs, ...(opts.action ? ['', `${opts.action.label}: ${opts.action.url}`] : [])].join('\n');
   return { html, text };
@@ -58,4 +58,10 @@ export async function sendMail(
     text,
   });
   return { messageId: info.messageId, response: info.response };
+}
+
+/** True when outgoing mail is switched on and complete, so features can offer e-mail (invitations, alerts). */
+export async function mailConfigured(ctx: AppContext) {
+  const smtp = await getSetting(ctx, 'smtp');
+  return smtp.enabled && !!smtp.host && !!smtp.fromAddress;
 }
