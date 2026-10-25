@@ -25,6 +25,16 @@ case "${1:-}" in
   logs)
     exec journalctl -u hosted-radio-api -f
     ;;
+  backup)
+    # Backups and restores run as root, like the systemd unit, so every file can be read and written back.
+    set -a
+    # shellcheck disable=SC1090
+    . "$ENV_FILE"
+    set +a
+    export HRS_ENV_FILE="$ENV_FILE"
+    cd "$INSTALL_DIR/apps/api"
+    exec node dist/cli.js "$@"
+    ;;
   ""|-h|--help|help)
     cat <<USAGE
 Hosted Radio Station
@@ -35,6 +45,9 @@ Hosted Radio Station
   hrs create-admin --email <e> --name <n> [--password <p>]
   hrs reset-password --email <e> [--password <p>]
   hrs migrate                       Apply database migrations
+  hrs backup list                   Backup locations and the latest runs
+  hrs backup run <location> [full|incremental]
+                                    Back up now and show the log
 USAGE
     ;;
   *)

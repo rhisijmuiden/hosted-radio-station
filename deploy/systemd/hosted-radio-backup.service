@@ -1,0 +1,12 @@
+[Unit]
+Description=Hosted Radio Station backups and restores (restic)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/hosted-radio/deploy/bin/hrs-backup
+TimeoutStartSec=24h
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

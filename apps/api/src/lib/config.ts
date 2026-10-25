@@ -20,6 +20,8 @@ const schema = z.object({
   WEB_DIST: z.string().optional(),
   /** Comma-separated IPs/CIDRs whose X-Forwarded-For header is trusted (the local Caddy by default). */
   TRUSTED_PROXIES: z.string().default('127.0.0.1,::1'),
+  /** Configuration files and folders that go into every backup, next to DATA_DIR and the database. */
+  BACKUP_CONFIG_PATHS: z.string().default('/etc/hosted-radio,/etc/caddy/Caddyfile'),
   /** Set to "1" when the privileged helper units (update, restore, proxy) are installed. */
   SYSTEM_HELPERS: z.enum(['0', '1']).default('0'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),

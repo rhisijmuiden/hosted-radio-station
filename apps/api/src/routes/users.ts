@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { schema } from '../db/index.js';
 import { hashPassword, requireSuperadmin } from '../lib/auth.js';
 import { badRequest, conflict, isUniqueViolation, notFound } from '../lib/errors.js';
+import { sendInvite } from '../services/accounts.js';
+import { mailConfigured } from '../services/mail.js';
 import { emailSchema, idParam, LOCALES, okOut, passwordSchema, roleSchema, toUserOut, userOut } from '../lib/schemas.js';
 
 const userDetail = userOut.extend({
@@ -45,6 +47,7 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/',
     {
+      config: { audit: 'user.create' },
       schema: {
         tags: ['Users'],
         summary: 'Create a user',
@@ -54,18 +57,23 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
           password: passwordSchema.optional(),
           isSuperadmin: z.boolean().default(false),
           locale: z.enum(LOCALES).default('en'),
+          /** E-mail a link to choose a password (needs the mail server). */
+          sendInvite: z.boolean().default(false),
         }),
         response: { 201: userDetail },
       },
     },
     async (req, reply) => {
-      requireSuperadmin(req);
-      const { password, ...data } = req.body;
+      const auth = requireSuperadmin(req);
+      const { password, sendInvite: invite, ...data } = req.body;
+      if (invite && !(await mailConfigured(ctx))) throw badRequest('Set up the mail server first to send invitations');
       try {
         const [user] = await ctx.db
           .insert(schema.users)
           .values({ ...data, passwordHash: password ? await hashPassword(password) : null })
           .returning();
+        req.auditInfo = { targetId: user!.id, details: { email: user!.email, isSuperadmin: user!.isSuperadmin, invited: invite } };
+        if (invite) await sendInvite(ctx, user!, auth.user.name, 'Hosted Radio Station').catch((err) => req.log.error({ err }, 'invitation failed'));
         reply.status(201);
         return withMemberships(user!);
       } catch (err) {
@@ -89,6 +97,7 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
   app.patch(
     '/:id',
     {
+      config: { audit: 'user.update' },
       schema: {
         tags: ['Users'],
         summary: 'Update a user. Setting a password signs the user out everywhere.',
@@ -116,6 +125,7 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
           .returning();
         if (!user) throw notFound('User');
         if (password || data.active === false) await ctx.db.delete(schema.sessions).where(eq(schema.sessions.userId, user.id));
+        req.auditInfo.details = { email: user.email, changed: Object.keys(req.body).filter((k) => req.body[k as keyof typeof req.body] !== undefined) };
         return withMemberships(user);
       } catch (err) {
         if (isUniqueViolation(err)) throw conflict('A user with this e-mail address already exists');
@@ -124,15 +134,41 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   );
 
+  app.post(
+    '/:id/invite',
+    {
+      config: { audit: 'user.invite', rateLimit: { max: 20, timeWindow: '1 minute' } },
+      schema: {
+        tags: ['Users'],
+        summary: 'E-mail the user a link to choose a (new) password',
+        params: idParam,
+        response: { 200: okOut },
+      },
+    },
+    async (req) => {
+      const auth = requireSuperadmin(req);
+      if (!(await mailConfigured(ctx))) throw badRequest('Set up the mail server first to send invitations');
+      const [user] = await ctx.db.select().from(schema.users).where(eq(schema.users.id, req.params.id));
+      if (!user) throw notFound('User');
+      try {
+        await sendInvite(ctx, user, auth.user.name, 'Hosted Radio Station');
+      } catch (err) {
+        throw badRequest(`Sending failed: ${(err as Error).message}`);
+      }
+      return { ok: true as const };
+    },
+  );
+
   app.delete(
     '/:id',
-    { schema: { tags: ['Users'], summary: 'Delete a user', params: idParam, response: { 200: okOut } } },
+    { config: { audit: 'user.delete' }, schema: { tags: ['Users'], summary: 'Delete a user', params: idParam, response: { 200: okOut } } },
     async (req) => {
       const auth = requireSuperadmin(req);
       if (auth.user.id === req.params.id) throw badRequest('You cannot delete your own account');
       await assertNotLastAdmin(req.params.id);
       const deleted = await ctx.db.delete(schema.users).where(eq(schema.users.id, req.params.id)).returning();
       if (!deleted.length) throw notFound('User');
+      req.auditInfo.details = { email: deleted[0]!.email };
       return { ok: true as const };
     },
   );

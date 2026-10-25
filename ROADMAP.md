@@ -23,12 +23,21 @@ Phase 1 as it runs today: the admin panel in the RHIS house style, light and dar
 | ![Customer with users and roles](docs/screenshots/phase-1-customer-light.png) | ![Info dialog with update channel](docs/screenshots/phase-1-info-dark.png) |
 | ![Sign-in page](docs/screenshots/phase-1-login-light.png) | ![Dashboard in Dutch](docs/screenshots/phase-1-dashboard-dark-nl.png) |
 
+Phase 2 (in test): backups, restore, single sign-on per customer and the audit log.
+
+| Light | Dark, Dutch |
+| --- | --- |
+| ![Backups with locations and history](docs/screenshots/phase-2-backups.png) | ![Backups in Dutch](docs/screenshots/phase-2-backups-dark-nl.png) |
+| ![Add a backup location](docs/screenshots/phase-2-backup-new.png) | ![Audit log in Dutch](docs/screenshots/phase-2-audit-log-dark-nl.png) |
+| ![Restore a backup](docs/screenshots/phase-2-restore.png) | ![Audit log](docs/screenshots/phase-2-audit-log.png) |
+| ![Single sign-on for a customer](docs/screenshots/phase-2-customer-sso.png) | ![Sign-in with single sign-on](docs/screenshots/phase-2-login-sso.png) |
+
 ## Status
 
 | Phase | Name | Status |
 | --- | --- | --- |
 | 1 | Foundation | Done |
-| 2 | Administration and security | Planned |
+| 2 | Administration and security | In test |
 | 3 | Distribution | Planned |
 | 4 | Statistics | Planned |
 | 5 | Public pages | Planned |
@@ -60,9 +69,12 @@ Install it on a fresh Debian 13 LXC with the [installation guide](docs/installat
 
 The standard building blocks of every installation.
 
-- Configurable outgoing mail server (SMTP with STARTTLS/TLS and DKIM) with branded e-mail templates.
-- Backup and restore, full and incremental, to FTP, FTPS, SFTP/SCP and OneDrive, with schedules and retention.
-- Single sign-on per customer (OIDC and SAML, e.g. Microsoft Entra ID, Google, Keycloak) and an audit log.
+- Configurable outgoing mail server (SMTP with STARTTLS/TLS and DKIM) with branded e-mail templates in English and Dutch: password reset, invitations, backup and restore reports.
+- Backup and restore of the database, the data folder and the server configuration, full and incremental, to FTP, FTPS, SFTP/SCP, OneDrive or a local folder (e.g. a mounted NAS). Encrypted and deduplicated with restic, with a schedule, retention, a recovery key per location, e-mail reports and `hrs backup` on the shell.
+- Restore from any remote location from the panel: pick a backup and choose database, files and/or configuration.
+- Single sign-on per customer (OpenID Connect and SAML 2.0, e.g. Microsoft Entra ID, Google, Keycloak, ADFS) with allowed e-mail domains, optional account creation on first sign-in and an optional password fallback.
+- Audit log of every change and sign-in, with filters, CSV export and a retention setting. Customers see the activity of their own account.
+- Invitations and "forgot password" by e-mail.
 
 ### Phase 3: Distribution
 

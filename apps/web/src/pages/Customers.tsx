@@ -4,9 +4,9 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
-import { Badge, Button, Card, Dialog, EmptyState, Field, Input, PageHeader, Segmented, Spinner, Table } from '../components/ui';
+import { Badge, Button, Card, Dialog, EmptyState, Field, Input, PageHeader, Segmented, Spinner, Switch, Table } from '../components/ui';
 import { api, ApiError, type Plan, type Tenant, type TenantLimits } from '../lib/api';
-import { isAdmin, useMe } from '../lib/auth';
+import { isAdmin, useMailConfigured, useMe } from '../lib/auth';
 import { formatDate } from '../lib/format';
 import { PlanBadge } from './Dashboard';
 
@@ -72,7 +72,8 @@ function NewCustomerDialog({ open, onClose }: { open: boolean; onClose: () => vo
   const [plan, setPlan] = useState<Plan>('distribution');
   const [limits, setLimits] = useState(defaultLimits);
   const [withOwner, setWithOwner] = useState(true);
-  const [owner, setOwner] = useState({ name: '', email: '', password: '' });
+  const mail = useMailConfigured();
+  const [owner, setOwner] = useState({ name: '', email: '', password: '', sendInvite: false });
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -82,9 +83,9 @@ function NewCustomerDialog({ open, onClose }: { open: boolean; onClose: () => vo
     setSlugTouched(false);
     setPlan('distribution');
     setLimits(defaultLimits);
-    setOwner({ name: '', email: '', password: '' });
+    setOwner({ name: '', email: '', password: '', sendInvite: mail });
     setError(null);
-  }, [open]);
+  }, [open, mail]);
 
   const create = useMutation({
     mutationFn: () =>
@@ -95,7 +96,7 @@ function NewCustomerDialog({ open, onClose }: { open: boolean; onClose: () => vo
           slug,
           plan,
           limits,
-          owner: withOwner ? { name: owner.name, email: owner.email, password: owner.password || undefined } : undefined,
+          owner: withOwner ? { name: owner.name, email: owner.email, password: owner.password || undefined, sendInvite: owner.sendInvite } : undefined,
         },
       }),
     onSuccess: (tenant) => {
@@ -174,9 +175,20 @@ function NewCustomerDialog({ open, onClose }: { open: boolean; onClose: () => vo
               <Field label={t('fields.email')}>
                 <Input required type="email" value={owner.email} onChange={(e) => setOwner({ ...owner, email: e.target.value })} />
               </Field>
-              <Field label={t('fields.password')} hint={t('customers.ownerPasswordHint')} className="sm:col-span-2">
-                <Input type="password" autoComplete="new-password" minLength={10} value={owner.password} onChange={(e) => setOwner({ ...owner, password: e.target.value })} />
-              </Field>
+              <div className="sm:col-span-2">
+                <Switch
+                  checked={owner.sendInvite}
+                  disabled={!mail}
+                  onChange={(sendInvite) => setOwner({ ...owner, sendInvite })}
+                  label={t('invite.send')}
+                  description={mail ? t('invite.sendHint') : t('invite.needsMail')}
+                />
+              </div>
+              {!owner.sendInvite && (
+                <Field label={t('fields.password')} hint={t('customers.ownerPasswordHint')} className="sm:col-span-2">
+                  <Input type="password" autoComplete="new-password" minLength={10} value={owner.password} onChange={(e) => setOwner({ ...owner, password: e.target.value })} />
+                </Field>
+              )}
             </div>
           )}
         </div>
