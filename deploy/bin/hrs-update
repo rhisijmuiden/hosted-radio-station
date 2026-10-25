@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Installs the latest version of a channel (main = production, test = test). Started as root by
+# hosted-radio-update.path when the API (or `hrs update`) drops run/update-request.json.
+# Builds first and only then restarts; on any failure it rolls back to the previous version.
+#
+# Everything lives in main(), which bash parses completely before running: the checkout (and so this
+# very file) changes halfway through.
+set -Eeuo pipefail
+
+main() {
+  local INSTALL_DIR=/opt/hosted-radio RUN=/var/lib/hosted-radio/run
+  local REQ="$RUN/update-request.json" STATUS="$RUN/update-status.json" LOG="$RUN/update.log"
+  [[ -f "$REQ" ]] || exit 0
+  local id channel by
+  id=$(jq -r '.id // empty' "$REQ" 2>/dev/null || true)
+  channel=$(jq -r '.channel // empty' "$REQ" 2>/dev/null || true)
+  by=$(jq -r '.requestedBy // "unknown"' "$REQ" 2>/dev/null | tr -cd '[:alnum:]@._ ()-' | cut -c1-120)
+  rm -f "$REQ"
+
+  : > "$LOG"
+  chown hosted-radio: "$LOG"
+  log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*" >> "$LOG"; }
+  status() { # status <state> <message>
+    jq -n --arg id "$id" --arg state "$1" --arg message "$2" --arg channel "$channel" --arg from "${from:-}" --arg to "${to:-}" \
+      --arg started "${started:-}" --arg finished "$([[ $1 == running ]] || date -Is)" \
+      '{id:$id, state:$state, message:$message, channel:$channel, fromCommit:$from, toCommit:$to, startedAt:$started}
+       + (if $finished == "" then {} else {finishedAt:$finished} end)' > "$STATUS.tmp"
+    chown hosted-radio: "$STATUS.tmp"
+    mv "$STATUS.tmp" "$STATUS"
+  }
+
+  local from="" to="" started prev_branch
+  started=$(date -Is)
+  trap 'status failed "Unexpected error (line $LINENO), see the log."; log "Failed at line $LINENO"' ERR
+  if [[ ! "$id" =~ ^[A-Za-z0-9-]{1,64}$ || ! "$channel" =~ ^(main|test)$ ]]; then
+    id=${id//[^A-Za-z0-9-]/}; status failed "Invalid update request"; exit 1
+  fi
+
+  cd "$INSTALL_DIR"
+  from=$(git rev-parse HEAD)
+  prev_branch=$(git rev-parse --abbrev-ref HEAD)
+  status running "Downloading"
+  log "Update to '$channel' requested by $by. Current version: $(git log -1 --format='%h %s')"
+
+  rollback() {
+    log "Rolling back to $from ($prev_branch)…"
+    git checkout -q -f -B "$prev_branch" "$from" >> "$LOG" 2>&1 || true
+    "$INSTALL_DIR/deploy/bin/hrs-build" >> "$LOG" 2>&1 || log "Rebuilding the previous version failed too."
+    systemctl restart hosted-radio-api || true
+    status failed "$1 The previous version was restored."
+    log "Rolled back. $1"
+    exit 1
+  }
+
+  if ! git fetch --prune origin "+refs/heads/$channel:refs/remotes/origin/$channel" >> "$LOG" 2>&1; then
+    status failed "Could not download from the repository."; log "git fetch failed"; exit 1
+  fi
+  to=$(git rev-parse "origin/$channel")
+  if [[ "$to" == "$from" && "$prev_branch" == "$channel" ]]; then
+    status succeeded "Already up to date."; log "Already on the latest version."; exit 0
+  fi
+  log "Installing $(git log -1 --format='%h %s' "$to")"
+  git checkout -q -f -B "$channel" "origin/$channel" >> "$LOG" 2>&1 || rollback "Checking out the new version failed."
+
+  status running "Building"
+  "$INSTALL_DIR/deploy/bin/hrs-build" >> "$LOG" 2>&1 || rollback "The build failed."
+  "$INSTALL_DIR/deploy/bin/hrs-install-units" >> "$LOG" 2>&1 || rollback "Installing the system units failed."
+
+  status running "Restarting"
+  log "Restarting the API (database migrations run on start)…"
+  systemctl restart hosted-radio-api
+  local ok=0
+  for _ in $(seq 1 90); do
+    if curl -fsS http://127.0.0.1:8000/api/health >/dev/null 2>&1; then ok=1; break; fi
+    sleep 1
+  done
+  [[ $ok -eq 1 ]] || rollback "The new version did not start."
+  status succeeded "Updated to $(git log -1 --format='%h' HEAD) on $channel."
+  log "Done."
+}
+
+main "$@"; exit $?

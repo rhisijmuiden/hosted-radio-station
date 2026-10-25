@@ -1,0 +1,7 @@
+[Unit]
+Description=Hosted Radio Station update (git pull, build, restart)
+
+[Service]
+Type=oneshot
+ExecStart=/opt/hosted-radio/deploy/bin/hrs-update
+TimeoutStartSec=30min

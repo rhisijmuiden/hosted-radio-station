@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for update requests from the Hosted Radio Station admin panel
+
+[Path]
+PathExists=/var/lib/hosted-radio/run/update-request.json
+Unit=hosted-radio-update.service
+
+[Install]
+WantedBy=multi-user.target

@@ -3,6 +3,8 @@ import { parseArgs } from 'node:util';
 import { createDb, runMigrations, schema } from './db/index.js';
 import { hashPassword } from './lib/auth.js';
 import { loadConfig } from './lib/config.js';
+import { createContext } from './lib/context.js';
+import { getSetting, putSetting } from './services/settings.js';
 import { emailSchema, passwordSchema } from './lib/schemas.js';
 
 const usage = `Hosted Radio Station command line
@@ -13,6 +15,8 @@ Usage:
                                                 Create an administrator (or promote and reset an existing user)
   hrs reset-password --email <e> [--password <p>]
                                                 Set a new password and sign the user out everywhere
+
+  hrs set-setting <key> <json>                  Store an instance setting (proxy, update, smtp), used by install.sh
 
 Without --password a random password is generated and printed.`;
 
@@ -58,6 +62,13 @@ try {
       console.log(`Password for ${email} has been reset.`);
     }
     if (generated) console.log(`Password: ${password}`);
+  } else if (command === 'set-setting') {
+    const [, key, json] = positionals;
+    if (key !== 'proxy' && key !== 'update' && key !== 'smtp') throw new Error('Key must be proxy, update or smtp');
+    const ctx = createContext(config, db);
+    const current = await getSetting(ctx, key);
+    await putSetting(ctx, key, { ...current, ...JSON.parse(json ?? '{}') } as never);
+    console.log(`Setting "${key}" saved.`);
   } else {
     console.error(`Unknown command "${command}"\n\n${usage}`);
     process.exitCode = 1;

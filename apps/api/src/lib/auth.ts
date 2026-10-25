@@ -45,7 +45,8 @@ export async function createSession(ctx: AppContext, req: FastifyRequest, reply:
     path: '/',
     httpOnly: true,
     sameSite: 'lax',
-    secure: ctx.config.PUBLIC_URL.startsWith('https://'),
+    // Behind Caddy or an external proxy, req.protocol comes from X-Forwarded-Proto of a trusted proxy.
+    secure: req.protocol === 'https',
     expires: expiresAt,
   });
 }
