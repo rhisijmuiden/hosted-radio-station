@@ -112,6 +112,7 @@ Scale out with remote nodes; the main server becomes the orchestrator.
 - One universal node package: its own Debian 13 LXC with an installer that installs a small node agent.
 - Pairing: create a node in the panel, run the installer with the one-time pairing code, and the node connects to the main server over an authenticated, encrypted channel. Nodes can be paired first and get a role later; unpairing and re-pairing is possible.
 - Roles assigned from the panel and rolled out by the agent: **source server** (where encoders and studios deliver), **relay** (where listeners connect), and later **station node** (runs stations, AutoDJ and DJ ingest for selected customers) and **FM/MPX** (see phase 11).
+- Dedicated customer nodes: place a customer on its own server or LXC. The orchestrator tells each node where its sources come in and where listeners connect, and keeps DNS names (`src.` and `stream.`) pointing at the right node.
 - Nodes overview in the admin panel: status, role, version, load, bandwidth and listeners per node, merged into the station statistics with GeoIP.
 - Topology view: a graphical map of how studios, source servers, stations, relays and listeners connect.
 - Updates come from the main server: nodes follow the main server's version and channel, and update from the panel.
