@@ -99,7 +99,7 @@ export LANG=C.UTF-8 LC_ALL=C.UTF-8
 step "System packages"
 echo 'LANG=C.UTF-8' > /etc/default/locale
 apt-get update -qq
-apt-get install -y -qq ca-certificates curl gnupg git jq openssl debian-keyring debian-archive-keyring apt-transport-https >/dev/null
+apt-get install -y -qq ca-certificates curl gnupg git jq openssl >/dev/null
 install -d -m 0755 /etc/apt/keyrings
 
 if ! command -v node >/dev/null || [[ "$(node -p 'process.versions.node.split(".")[0]')" -lt $NODE_MAJOR ]]; then
