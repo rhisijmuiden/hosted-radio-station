@@ -16,6 +16,13 @@ Forward host / IP: ${ip}
 Forward port:      80
 Websockets:        on
 SSL:               request a Let's Encrypt certificate, Force SSL on`,
+    Zoraxy: `HTTP Proxy → New Proxy Rule
+Matching keyword / domain:  ${host}
+Target IP / domain + port:  ${ip}:80
+Proxy target requires TLS:  off
+Websocket:                  automatic (on by default)
+TLS / SSL certificates:     ACME → request a certificate for ${host}
+X-Forwarded-For / X-Real-IP are sent by default`,
     Nginx: `server {
     listen 443 ssl http2;
     server_name ${host};

@@ -234,7 +234,7 @@ export const en = {
     builtin: 'Built-in HTTPS',
     builtinHint: 'This server gets a free Let\'s Encrypt certificate itself. Ports 80 and 443 must reach this server.',
     external: 'Behind a reverse proxy',
-    externalHint: 'Your own proxy (Nginx Proxy Manager, Traefik, HAProxy) handles HTTPS and forwards to this server.',
+    externalHint: 'Your own proxy (Nginx Proxy Manager, Zoraxy, Traefik, HAProxy) handles HTTPS and forwards to this server.',
     domain: 'Domain',
     domainHintBuiltin: 'Point the DNS record to this server first. Leave empty for plain HTTP on the IP address.',
     domainHintExternal: 'The public address visitors use. Used for links in e-mails.',
