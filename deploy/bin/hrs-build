@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 INSTALL_DIR="${INSTALL_DIR:-/opt/hosted-radio}"
 cd "$INSTALL_DIR"
-export CI=1 NODE_ENV=development
+export CI=1 NODE_ENV=development NO_COLOR=1 FORCE_COLOR=0
 echo "Installing dependencies…"
 pnpm install --frozen-lockfile --reporter=append-only
 echo "Building…"
