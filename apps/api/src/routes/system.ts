@@ -1,3 +1,4 @@
+import { networkInterfaces } from 'node:os';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { requireSuperadmin, requireUser } from '../lib/auth.js';
@@ -26,6 +27,8 @@ const infoOut = z.object({
   channel: channelSchema,
   node: z.string(),
   helpers: z.boolean(),
+  /** LAN addresses of this server, for reverse proxy examples. */
+  addresses: z.array(z.string()),
   lastCheck: z
     .object({
       channel: channelSchema,
@@ -48,7 +51,11 @@ export const systemRoutes: FastifyPluginAsyncZod = async (app) => {
     async (req) => {
       requireUser(req);
       const [info, update] = await Promise.all([getVersionInfo(ctx), getSetting(ctx, 'update')]);
-      return { name: 'Hosted Radio Station', ...info, channel: update.channel, lastCheck };
+      const addresses = Object.values(networkInterfaces())
+        .flat()
+        .filter((a) => a && a.family === 'IPv4' && !a.internal)
+        .map((a) => a!.address);
+      return { name: 'Hosted Radio Station', ...info, channel: update.channel, addresses, lastCheck };
     },
   );
 

@@ -98,9 +98,13 @@ export async function buildApp(ctx: AppContext) {
   // In production the API also serves the built admin panel (single-page app).
   const webDist = config.WEB_DIST ? resolve(config.WEB_DIST) : null;
   if (webDist && existsSync(webDist)) {
-    await app.register(fastifyStatic, { root: webDist, wildcard: false, maxAge: '1h' });
+    await app.register(fastifyStatic, {
+      root: webDist,
+      // Hashed build assets never change; index.html must always be fresh.
+      setHeaders: (res, path) => res.header('cache-control', path.includes('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache'),
+    });
     app.setNotFoundHandler((req, reply) => {
-      if (req.method === 'GET' && !req.url.startsWith('/api/')) return reply.sendFile('index.html', { maxAge: 0 });
+      if ((req.method === 'GET' || req.method === 'HEAD') && !req.url.startsWith('/api/') && !req.url.startsWith('/assets/')) return reply.sendFile('index.html');
       return reply.status(404).send({ error: { code: 'not_found', message: 'Not found' } });
     });
   } else {
