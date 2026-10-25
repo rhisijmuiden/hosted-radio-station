@@ -119,6 +119,14 @@ Scale out with remote nodes; the main server becomes the orchestrator.
 - Updates come from the main server: nodes follow the main server's version and channel, and update from the panel.
 - Remote probes that monitor stream availability from other locations.
 
+Design preview of the topology view: the administrator sees every node, a customer sees only their own setup.
+
+| Administrator (dark) | Customer, own node (dark) |
+| --- | --- |
+| ![Topology, administrator view](docs/screenshots/phase-8-topology-admin-dark.png) | ![Topology, customer view](docs/screenshots/phase-8-topology-customer-dark.png) |
+
+![Topology, administrator view, light theme](docs/screenshots/phase-8-topology-admin-light.png)
+
 ### Phase 9: Windows client
 
 Live assist from the studio PC.
