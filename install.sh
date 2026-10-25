@@ -12,6 +12,7 @@
 #   --trusted-proxies <list>   Comma-separated IPs/CIDRs of your reverse proxy (external mode)
 #   --channel main|test        Update channel: main = production (default), test = test
 #   --repo <url>               Git repository (default: the public GitHub repository)
+#   --ref <branch>             Install another branch than the channel, e.g. a feature branch for testing
 #   --admin-email <address>    First administrator (default: admin@<domain or hostname>)
 #   --admin-name <name>        Name of the first administrator (default: Administrator)
 #   --yes                      Do not ask anything, use defaults for missing options
@@ -28,7 +29,7 @@ SERVICE_USER="hosted-radio"
 NODE_MAJOR=22
 PNPM_VERSION="10.28.0"
 
-DOMAIN="" EMAIL="" PROXY="" TRUSTED="" CHANNEL="" REPO="" ADMIN_EMAIL="" ADMIN_NAME="" ASSUME_YES=0
+DOMAIN="" EMAIL="" PROXY="" TRUSTED="" CHANNEL="" REPO="" REF="" ADMIN_EMAIL="" ADMIN_NAME="" ASSUME_YES=0
 
 C_RESET=$'\e[0m' C_CORAL=$'\e[38;2;255;107;87m' C_DIM=$'\e[2m' C_BOLD=$'\e[1m' C_RED=$'\e[31m' C_GREEN=$'\e[32m'
 step() { printf '\n%s==>%s %s%s%s\n' "$C_CORAL" "$C_RESET" "$C_BOLD" "$*" "$C_RESET"; }
@@ -44,10 +45,11 @@ while [[ $# -gt 0 ]]; do
     --trusted-proxies) TRUSTED="${2:-}"; shift 2 ;;
     --channel) CHANNEL="${2:-}"; shift 2 ;;
     --repo) REPO="${2:-}"; shift 2 ;;
+    --ref) REF="${2:-}"; shift 2 ;;
     --admin-email) ADMIN_EMAIL="${2:-}"; shift 2 ;;
     --admin-name) ADMIN_NAME="${2:-}"; shift 2 ;;
     --yes|-y) ASSUME_YES=1; shift ;;
-    -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) fail "Unknown option: $1 (see --help)" ;;
   esac
 done
@@ -87,6 +89,9 @@ fi
 PROXY=${PROXY:-builtin}
 CHANNEL=${CHANNEL:-main}
 REPO=${REPO:-$REPO_DEFAULT}
+REF=${REF:-$CHANNEL}
+[[ "$REF" =~ ^[A-Za-z0-9._/-]+$ ]] || fail "Invalid --ref"
+
 [[ "$PROXY" =~ ^(builtin|external)$ ]] || fail "--proxy must be builtin or external"
 [[ "$CHANNEL" =~ ^(main|test)$ ]] || fail "--channel must be main or test"
 [[ -z "$DOMAIN" || "$DOMAIN" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$ ]] || fail "Invalid domain: $DOMAIN"
@@ -131,7 +136,7 @@ id "$SERVICE_USER" >/dev/null 2>&1 || useradd --system --home-dir "$DATA_DIR" --
 install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_USER" "$DATA_DIR" "$DATA_DIR/run"
 install -d -m 0750 -o root -g "$SERVICE_USER" "$CONF_DIR"
 
-step "Application code ($CHANNEL)"
+step "Application code ($REF)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)"
 if [[ ! -d "$INSTALL_DIR/.git" ]]; then
   if [[ -n "$SCRIPT_DIR" && -d "$SCRIPT_DIR/.git" && "$SCRIPT_DIR" != "$INSTALL_DIR" ]]; then
@@ -142,10 +147,10 @@ if [[ ! -d "$INSTALL_DIR/.git" ]]; then
     git clone --quiet "$REPO" "$INSTALL_DIR"
   fi
 fi
-git -C "$INSTALL_DIR" fetch --quiet --prune origin "+refs/heads/$CHANNEL:refs/remotes/origin/$CHANNEL" \
-  || fail "Branch '$CHANNEL' was not found in $(git -C "$INSTALL_DIR" remote get-url origin)"
+git -C "$INSTALL_DIR" fetch --quiet --prune origin "+refs/heads/$REF:refs/remotes/origin/$REF" \
+  || fail "Branch '$REF' was not found in $(git -C "$INSTALL_DIR" remote get-url origin)"
 if [[ -z "$(git -C "$INSTALL_DIR" status --porcelain --untracked-files=no)" ]]; then
-  git -C "$INSTALL_DIR" checkout --quiet -f -B "$CHANNEL" "origin/$CHANNEL"
+  git -C "$INSTALL_DIR" checkout --quiet -f -B "$REF" "origin/$REF"
 else
   info "Local changes in $INSTALL_DIR, keeping the current checkout"
 fi
