@@ -380,7 +380,7 @@ export const nl: Translation = {
     retention: 'Bewaar regels',
     retentionHint: 'Oudere regels worden elke nacht verwijderd. 0 = voor altijd bewaren.',
     days: 'dagen',
-    via: { session: 'Paneel', api_key: 'API-sleutel', sso: 'Single sign-on', system: 'Systeem', anonymous: 'Niet ingelogd' },
+    via: { session: 'Paneel', api_key: 'API-sleutel', sso: 'Single sign-on', system: 'Systeem', shell: 'Shell (hrs)', anonymous: 'Niet ingelogd' },
     groups: {
       auth: 'Inloggen',
       tenant: 'Klanten',

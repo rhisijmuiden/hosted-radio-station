@@ -378,7 +378,7 @@ export const en = {
     retention: 'Keep entries for',
     retentionHint: 'Older entries are removed every night. 0 = keep forever.',
     days: 'days',
-    via: { session: 'Panel', api_key: 'API key', sso: 'Single sign-on', system: 'System', anonymous: 'Not signed in' },
+    via: { session: 'Panel', api_key: 'API key', sso: 'Single sign-on', system: 'System', shell: 'Shell (hrs)', anonymous: 'Not signed in' },
     groups: {
       auth: 'Sign-in',
       tenant: 'Customers',

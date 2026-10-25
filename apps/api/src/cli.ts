@@ -6,6 +6,7 @@ import { loadConfig } from './lib/config.js';
 import { createContext } from './lib/context.js';
 import { getSetting, putSetting } from './services/settings.js';
 import { processQueue, queueRun } from './services/backup/jobs.js';
+import { writeAudit } from './lib/audit.js';
 import { desc, ilike, or } from 'drizzle-orm';
 import { emailSchema, passwordSchema } from './lib/schemas.js';
 
@@ -98,6 +99,7 @@ try {
         .where(isId ? or(eq(schema.backupTargets.id, name), ilike(schema.backupTargets.name, name)) : ilike(schema.backupTargets.name, name));
       if (!target) throw new Error(`No backup location called "${name}"`);
       const run = await queueRun(ctx, target, kind, 'shell', 'hrs (shell)', null, false);
+      await writeAudit(ctx, { action: 'backup.start', via: 'shell', actorEmail: 'hrs (shell)', targetType: 'backup_target', targetId: target.id, details: { kind, target: target.name } });
       console.log(`Running a ${kind} backup to "${target.name}"…`);
       await processQueue(ctx);
       const [done] = await db.select().from(schema.backupRuns).where(eq(schema.backupRuns.id, run.id));
