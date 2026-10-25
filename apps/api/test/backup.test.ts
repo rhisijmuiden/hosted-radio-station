@@ -1,5 +1,5 @@
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chownSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -141,6 +141,18 @@ describe.skipIf(!hasTools)('backup and restore', () => {
     const target = (await t.app.inject({ url: `/api/backups/targets/${localId}`, headers: admin })).json();
     expect(target.lastSuccess.id).toBe(incr.id);
     expect(target.nextFull).toBeTruthy();
+  });
+
+  it.runIf(process.getuid?.() === 0)('gives the service group read access to a local repository', async () => {
+    // As root (like the worker on a server) with a data folder owned by another group, as the service account.
+    chownSync(t.ctx.config.DATA_DIR, 0, 4321);
+    expect((await runAndWait(localId, 'incremental')).state).toBe('succeeded');
+    for (const p of [repoDir, join(repoDir, 'config'), join(repoDir, 'keys'), join(repoDir, 'keys', readdirSync(join(repoDir, 'keys'))[0]!)]) {
+      const st = statSync(p);
+      expect(st.gid).toBe(4321);
+      expect(st.mode & 0o040).toBe(0o040);
+    }
+    chownSync(t.ctx.config.DATA_DIR, 0, 0);
   });
 
   it('restores files, configuration and the database', async () => {

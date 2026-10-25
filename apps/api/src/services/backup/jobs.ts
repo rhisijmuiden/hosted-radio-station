@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { schema } from '../../db/index.js';
@@ -189,6 +189,23 @@ async function writeAuditEntry(ctx: AppContext, r: Run) {
     .catch(() => undefined);
 }
 
+/**
+ * The worker runs as root, so a local repository ends up root-only. The panel lists snapshots itself (read-only, without
+ * locks), so give the service account's group read access to it.
+ */
+async function shareLocalRepository(ctx: AppContext, path: string, log: (l: string) => void) {
+  if (process.getuid?.() !== 0) return;
+  try {
+    const { gid } = statSync(ctx.config.DATA_DIR);
+    for (const [cmd, args] of [['chgrp', ['-R', String(gid), path]], ['chmod', ['-R', 'g+rX', path]]] as const) {
+      const res = await run(cmd, [...args]);
+      if (res.code !== 0) throw new Error(res.stderr.trim() || `${cmd} exited with ${res.code}`);
+    }
+  } catch (err) {
+    log(`Warning: could not give the panel read access to ${path}: ${(err as Error).message}`);
+  }
+}
+
 /** Decrypts the target and renews a OneDrive token signed in through the panel. */
 async function prepareTarget(ctx: AppContext, row: TargetRow, log: (l: string) => void) {
   const target = await loadTarget(ctx, row);
@@ -262,6 +279,7 @@ async function doBackup(ctx: AppContext, row: TargetRow, target: Target, kind: '
         message += '. Removing old backups failed, see the log';
       }
       await keepRefreshedToken(ctx, row, target, await remote.readToken());
+      if (row.type === 'local') await shareLocalRepository(ctx, (row.config as { path: string }).path, log.add);
       return {
         snapshotId: summary.snapshotId,
         filesNew: summary.filesNew,
