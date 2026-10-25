@@ -112,6 +112,7 @@ Live assist from the studio PC.
 
 - Control Q1 and Q2, play live and broadcast from the PC.
 - Talks to the server through the API and a direct audio channel.
+- Sound card passthrough: pick any input of the studio sound card (ASIO/WASAPI) and send it live to the server, so studios can broadcast from a real mixing desk.
 
 ### Phase 10: Hosted service
 
