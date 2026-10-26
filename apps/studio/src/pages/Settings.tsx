@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, RefreshCw } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, FolderOpen, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { StereoMeter } from '../components/Meter';
-import { Button, Card, CardHeader, Fact, Field, Select, Switch } from '../components/ui';
+import { Button, Card, CardHeader, Fact, Field, Input, Select, Switch } from '../components/ui';
 import { useEngine } from '../lib/engine';
-import { call, type AudioConfig, type Devices } from '../lib/native';
+import { call, type AudioConfig, type Devices, type OutputSel } from '../lib/native';
 import { useSession } from '../lib/session';
 import { updateSettings, useSettings } from '../lib/settings';
 
@@ -19,6 +20,53 @@ function channelOptions(channels: number) {
 export async function applyAudio(config: AudioConfig) {
   updateSettings({ audio: config });
   await call('configure_audio', { config }).catch(() => undefined);
+}
+
+export async function applyPreviewOutput(output: OutputSel | null) {
+  updateSettings({ preview: { output } });
+  await call('preview_output', { output }).catch(() => undefined);
+}
+
+/** Network shares for the library panel: \\\\server\\share paths, opened with the Windows sign-in of this PC. */
+function Shares() {
+  const { t } = useTranslation();
+  const { shares } = useSettings();
+  const [path, setPath] = useState('');
+  const add = () => {
+    const p = path.trim().replace(/\//g, '\\').replace(/\\+$/, '');
+    if (!p || shares.includes(p)) return;
+    updateSettings({ shares: [...shares, p] });
+    setPath('');
+  };
+  return (
+    <Card>
+      <CardHeader title={t('settings.shares')} description={t('settings.sharesText')} />
+      <div className="flex flex-col gap-2 px-5 py-4">
+        {shares.length === 0 && <p className="text-[13px] text-muted">{t('settings.noShares')}</p>}
+        {shares.map((s) => (
+          <div key={s} className="flex items-center gap-3 rounded-md border border-line px-3 py-2">
+            <FolderOpen className="size-4 text-muted" />
+            <span className="flex-1 truncate font-mono text-[13px]">{s}</span>
+            <Button size="sm" variant="ghost" onClick={() => updateSettings({ shares: shares.filter((x) => x !== s) })} aria-label={t('settings.removeShare')} title={t('settings.removeShare')}>
+              <Trash2 className="size-3.5" />
+            </Button>
+          </div>
+        ))}
+        <form
+          className="mt-1 flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            add();
+          }}
+        >
+          <Input value={path} onChange={(e) => setPath(e.target.value)} placeholder={'\\\\nas\\muziek'} className="font-mono" aria-label={t('settings.sharePath')} />
+          <Button type="submit" variant="secondary" disabled={!path.trim()}>
+            <Plus className="size-4" /> {t('settings.addShare')}
+          </Button>
+        </form>
+      </div>
+    </Card>
+  );
 }
 
 function Slider({ value, onChange, min, max, label }: { value: number; onChange: (v: number) => void; min: number; max: number; label: string }) {
@@ -148,6 +196,31 @@ export function SettingsPage() {
           <Switch checked={a.monitorInput} onChange={(v) => set({ monitorInput: v })} label={t('settings.monitorInput')} description={t('settings.monitorInputHint')} />
         </div>
       </Card>
+
+      <Card>
+        <CardHeader title={t('settings.preview')} description={t('settings.previewText')} />
+        <div className="grid gap-4 px-5 py-4 md:grid-cols-2">
+          <Field label={t('settings.previewDevice')} hint={a.output && settings.preview.output?.device === a.output.device ? t('settings.previewSame') : undefined}>
+            <Select
+              value={settings.preview.output ? `${settings.preview.output.host}|${settings.preview.output.device}` : ''}
+              onChange={(e) => {
+                const [host, ...rest] = e.target.value.split('|');
+                void applyPreviewOutput(e.target.value ? { host: host!, device: rest.join('|') } : null);
+              }}
+            >
+              <option value="">{t('settings.previewDefault')}</option>
+              {outputs.map((d) => (
+                <option key={`${d.host}|${d.name}`} value={`${d.host}|${d.name}`}>
+                  {d.host} · {d.name}
+                  {d.isDefault ? ` (${t('settings.default')})` : ''}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+      </Card>
+
+      <Shares />
 
       <Card className="p-5">
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold">

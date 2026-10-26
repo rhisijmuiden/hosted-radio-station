@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import type { AudioConfig } from './native';
+import type { AudioConfig, OutputSel } from './native';
 
 export interface CartSlot {
   label: string;
@@ -17,6 +17,10 @@ export interface Settings {
   live: { accountId: string | null; mountId: string | null; bitrate: number; title: string };
   carts: (CartSlot | null)[];
   cartPage: number;
+  /** Pre-listen, off air: its own sound card output (null = the Windows default). */
+  preview: { output: OutputSel | null };
+  /** Network shares in the library panel, e.g. \\\\nas\\muziek. */
+  shares: string[];
 }
 
 const KEY = 'rhis-studio-settings';
@@ -29,12 +33,14 @@ const defaults: Settings = {
   live: { accountId: null, mountId: null, bitrate: 192, title: '' },
   carts: Array.from({ length: 48 }, () => null),
   cartPage: 0,
+  preview: { output: null },
+  shares: [],
 };
 
 function load(): Settings {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Settings>;
-    return { ...defaults, ...raw, audio: { ...defaults.audio, ...raw.audio }, live: { ...defaults.live, ...raw.live }, carts: raw.carts?.length === 48 ? raw.carts : defaults.carts };
+    return { ...defaults, ...raw, audio: { ...defaults.audio, ...raw.audio }, live: { ...defaults.live, ...raw.live }, preview: { ...defaults.preview, ...raw.preview }, shares: Array.isArray(raw.shares) ? raw.shares : [], carts: raw.carts?.length === 48 ? raw.carts : defaults.carts };
   } catch {
     return defaults;
   }
