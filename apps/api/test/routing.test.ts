@@ -168,6 +168,16 @@ describe('orchestrator as control plane (phase 13)', () => {
     expect(res.statusCode).toBe(503);
   });
 
+  it('sends a new plan when the routing changes while the node is connected', async () => {
+    await routing({ ingest: 'local', backupIngest: null, relays: 'auto' });
+    const a = agent(ingest.id, ingest.secret);
+    await a.planWhere((p) => !p.ingest?.stations?.length);
+    await routing({ ingest: ingest.id, backupIngest: backup.id, relays: 'auto' });
+    const p = await Promise.race([a.planWhere((p) => p.ingest?.stations?.length > 0), new Promise((r) => setTimeout(() => r(null), 5000))]);
+    expect(p).not.toBeNull();
+    a.close();
+  });
+
   it('passes encoders on to a direct address when one is set', async () => {
     const cur = (await t.app.inject({ method: 'GET', url: '/api/nodes/settings', headers: admin })).json();
     expect((await t.app.inject({ method: 'PUT', url: '/api/nodes/settings', headers: admin, payload: { ...cur, ingestAddress: '10.10.4.240' } })).statusCode).toBe(200);

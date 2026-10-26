@@ -437,23 +437,24 @@ export class NodeHub {
       this.refreshAgain = true;
       return this.refreshing;
     }
-    this.refreshing = (async () => {
-      try {
-        do {
-          this.refreshAgain = false;
-          // One node that cannot be planned must not keep the others on an old plan.
-          for (const id of [...this.conns.keys()]) {
-            let timer: NodeJS.Timeout | undefined;
-            const late = new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error('planning took longer than 20 s')), 20_000)));
-            await Promise.race([this.refresh(id), late])
-              .catch((err) => this.log.warn({ err, nodeId: id }, 'planning a node failed'))
-              .finally(() => clearTimeout(timer));
-          }
-        } while (this.refreshAgain);
-      } finally {
-        this.refreshing = null;
-      }
-    })();
+    const round = async () => {
+      do {
+        this.refreshAgain = false;
+        // One node that cannot be planned must not keep the others on an old plan.
+        for (const id of [...this.conns.keys()]) {
+          let timer: NodeJS.Timeout | undefined;
+          const late = new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error('planning took longer than 20 s')), 20_000)));
+          await Promise.race([this.refresh(id), late])
+            .catch((err) => this.log.warn({ err, nodeId: id }, 'planning a node failed'))
+            .finally(() => clearTimeout(timer));
+        }
+      } while (this.refreshAgain);
+    };
+    // Cleared in a callback, so also after a round without nodes that finishes at once: clearing it inside the round
+    // would run before the assignment and leave a finished round in place for good, so no node got a new plan again.
+    this.refreshing = round().finally(() => {
+      this.refreshing = null;
+    });
     return this.refreshing;
   }
 

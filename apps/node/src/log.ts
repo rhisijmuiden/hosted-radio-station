@@ -5,7 +5,7 @@ const min = order[(process.env.HRS_NODE_LOG as Level) ?? 'info'] ?? 1;
 
 function write(level: Level, msg: string, extra?: Record<string, unknown>) {
   if (order[level] < min) return;
-  const tail = extra && Object.keys(extra).length ? ` ${JSON.stringify(extra, (_k, v) => (v instanceof Error ? v.message : v))}` : '';
+  const tail = extra && Object.keys(extra).length ? ` ${JSON.stringify(extra, (_k, v) => (v instanceof Error ? v.message || (v as NodeJS.ErrnoException).code || v.name : v))}` : '';
   (level === 'error' || level === 'warn' ? process.stderr : process.stdout).write(`${level.toUpperCase().padEnd(5)} ${msg}${tail}\n`);
 }
 
