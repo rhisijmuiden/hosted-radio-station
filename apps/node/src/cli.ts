@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { hostname } from 'node:os';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { Agent } from './agent.js';
 import { dataPath, paths, readNodeFile, readVersion, writeAtomic } from './config.js';
 import { log } from './log.js';
@@ -47,7 +47,9 @@ async function status() {
   console.log(`Version:   ${v.version} ${v.commit?.slice(0, 7) ?? ''}`);
   console.log(`Roles:     ${plan?.roles?.join(', ') || 'none'}`);
   console.log(`Relays:    ${plan?.relay?.mounts?.length ?? 0} streams`);
-  console.log(`Encoders:  ${plan?.source ? `ports ${plan.source.plainPort ?? '-'} / ${plan.source.tlsPort ?? '-'} (TLS)` : 'off'}`);
+  const certs = (await readdir(dataPath('certs')).catch(() => [] as string[])).some((f) => f.endsWith('.crt'));
+  const tlsPort = plan?.source?.tlsPort ? `${plan.source.tlsPort} (TLS${certs ? '' : ', waiting for a certificate'})` : '-';
+  console.log(`Encoders:  ${plan?.source ? `ports ${plan.source.plainPort ?? '-'} / ${tlsPort}` : 'off'}`);
   console.log(`Probes:    ${plan?.probes?.targets?.length ?? 0} streams`);
   if (apply) console.log(`Setup:     ${apply.state}${apply.message ? ` – ${apply.message}` : ''}`);
   if (update) console.log(`Update:    ${update.state}${update.message ? ` – ${update.message}` : ''}`);
