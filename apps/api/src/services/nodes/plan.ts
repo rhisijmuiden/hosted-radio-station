@@ -130,7 +130,8 @@ export function carried(node: RelayNode, stations: RoutedStation[], relays: Rela
 
 /** Paired relay nodes. */
 export async function pairedRelays(ctx: AppContext): Promise<Node[]> {
-  const nodes = await ctx.db.select().from(schema.nodes).where(isNotNull(schema.nodes.pairedAt));
+  // In a fixed order: rows move around as their status is updated, and a plan or package must not change with them.
+  const nodes = await ctx.db.select().from(schema.nodes).where(isNotNull(schema.nodes.pairedAt)).orderBy(asc(schema.nodes.id));
   return nodes.filter((n) => n.roles.includes('relay'));
 }
 

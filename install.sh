@@ -148,6 +148,8 @@ fi
 
 step "Service user and folders"
 id "$SERVICE_USER" >/dev/null 2>&1 || useradd --system --home-dir "$DATA_DIR" --shell /usr/sbin/nologin "$SERVICE_USER"
+# The service reads the link to its main server; it is written by the node agent before the service user exists.
+[[ $STATION_NODE -eq 1 ]] && { chown root:"$SERVICE_USER" "$STATION_NODE_FILE"; chmod 0640 "$STATION_NODE_FILE"; }
 install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_USER" "$DATA_DIR" "$DATA_DIR/run" "$DATA_DIR/stations" "$DATA_DIR/certs" "$DATA_DIR/sftpgo"
 install -d -m 0750 -o root -g "$SERVICE_USER" "$CONF_DIR"
 

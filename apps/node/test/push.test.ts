@@ -135,3 +135,37 @@ test('keeps the backup ingest on standby and switches to it without dropping the
   receiver.stop();
   ice.server.close();
 });
+
+test('takes over the source a puller kept open, so listeners stay connected when a station moves to a station node', async () => {
+  const ice = fakeIcecast();
+  const icePort = await listen(ice.server);
+  const { sourceConnection } = await import('../src/relay.js');
+  // The puller's source connection, still open after the main server stopped the stream.
+  let kept: net.Socket | null = await sourceConnection(icePort, '/listen/studio-fm/live', 'src', { 'Content-Type': 'audio/mpeg' });
+  kept.write(Buffer.from('pulled;'));
+  const receiver = new PushReceiver({
+    icecastPort: () => icePort,
+    secrets: { source: 'src', admin: 'adm' },
+    inherit: () => {
+      const s = kept;
+      kept = null;
+      return s;
+    },
+  });
+  const port = await freePort();
+  await receiver.apply(port, [{ key: 'studio-fm/live', stationId: 'x', slug: 'studio-fm', path: '/live', name: 'Studio FM', format: 'mp3', url: null, push: { token: 'tok-123' } }]);
+  await new Promise((r) => setTimeout(r, 200));
+
+  const ok = await push(port, 'tok-123');
+  assert.equal(ok.status.slice(0, 3), '200');
+  ok.socket.write(Buffer.from('pushed;'));
+  await new Promise((r) => setTimeout(r, 200));
+  // One source login on Icecast: the push continues on the puller's connection.
+  assert.equal(ice.got.head.match(/^PUT /gm)?.length, 1);
+  assert.equal(Buffer.concat(ice.got.body).toString(), 'pulled;pushed;');
+  assert.equal(receiver.connected('studio-fm/live'), true);
+
+  ok.socket.destroy();
+  receiver.stop();
+  ice.server.close();
+});

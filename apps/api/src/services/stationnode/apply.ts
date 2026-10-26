@@ -38,7 +38,18 @@ const ids = (rows: WireRow[]) => rows.map((r) => String(r.id));
  */
 export async function applyPackage(ctx: AppContext, pkg: StationPackage, ready: (stationId: string) => boolean = () => true): Promise<ApplyResult> {
   const { box } = ctx;
-  const seal = (v: unknown) => (typeof v === 'string' && v ? box.encrypt(v) : undefined);
+  // The same secret keeps its sealed form: a new one each time would look like a change (and restart the outputs).
+  const reseal = (v: unknown, prev: string | undefined | null) => {
+    if (typeof v !== 'string' || !v) return undefined;
+    if (prev) {
+      try {
+        if (box.decrypt(prev) === v) return prev;
+      } catch {
+        /* sealed with another key */
+      }
+    }
+    return box.encrypt(v);
+  };
   const wanted = pkg.stations.map((p) => String(p.station.id));
   const result: ApplyResult = {
     stationIds: wanted,
@@ -49,7 +60,11 @@ export async function applyPackage(ctx: AppContext, pkg: StationPackage, ready: 
 
   await ctx.db.transaction(async (tx) => {
     const db = tx as unknown as Db;
-    const before = await tx.select({ id: schema.stations.id, edition: schema.stations.edition }).from(schema.stations);
+    const before = await tx
+      .select({ id: schema.stations.id, edition: schema.stations.edition, admin: schema.stations.icecastAdminPassword, source: schema.stations.icecastSourcePassword })
+      .from(schema.stations);
+    const prevStation = new Map(before.map((s) => [s.id, s]));
+    const prevOutputs = new Map((await tx.select({ id: schema.stationOutputs.id, config: schema.stationOutputs.config }).from(schema.stationOutputs)).map((o) => [o.id, o.config]));
     const prevEdition = new Map(before.map((s) => [s.id, s.edition]));
 
     // First what is gone, so a new row with the same slug or e-mail address fits.
@@ -71,11 +86,13 @@ export async function applyPackage(ctx: AppContext, pkg: StationPackage, ready: 
     for (const p of pkg.stations) {
       const id = String(p.station.id);
       const station = fromWire(T.stations, p.station, box);
-      station.icecastAdminPassword = seal(p.station.icecastAdminPassword) ?? box.encrypt(crypto.randomUUID());
-      station.icecastSourcePassword = seal(p.station.icecastSourcePassword) ?? box.encrypt(crypto.randomUUID());
-      // A station that is still moving gets its library first; the main server runs it until then.
-      // So is a station that switched over and whose latest tables this node has not taken yet.
-      if (p.state === 'moving' || !ready(id)) station.enabled = false;
+      const prev = prevStation.get(id);
+      station.icecastAdminPassword = reseal(p.station.icecastAdminPassword, prev?.admin) ?? prev?.admin ?? box.encrypt(crypto.randomUUID());
+      station.icecastSourcePassword = reseal(p.station.icecastSourcePassword, prev?.source) ?? prev?.source ?? box.encrypt(crypto.randomUUID());
+      // A station that is moving here runs only once its library and tables are here (it then warms up while the main
+      // server still has it on air), and a station that switched over only once this node took its latest tables.
+      const moving = p.state === 'moving';
+      if (!ready(id)) station.enabled = false;
       const legacyMountId = station.legacyMountId ?? null;
       station.legacyMountId = null;
       await upsertRows(db, T.stations, [station], undefined, ['storageBytes', 'storageScannedAt']);
@@ -91,7 +108,10 @@ export async function applyPackage(ctx: AppContext, pkg: StationPackage, ready: 
         p.outputs.map((r) => {
           const o = fromWire(T.outputs, r, box);
           const c = o.config as OutputConfig;
-          o.config = { ...c, password: seal(c.password), adminPassword: seal(c.adminPassword) };
+          const was = prevOutputs.get(String(o.id));
+          o.config = { ...c, password: reseal(c.password, was?.password), adminPassword: reseal(c.adminPassword, was?.adminPassword) };
+          // While the main server still has the station on air, nothing goes out from here.
+          if (moving) o.enabled = false;
           return o;
         }),
         undefined,
