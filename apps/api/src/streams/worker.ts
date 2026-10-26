@@ -201,12 +201,15 @@ export class StreamsWorker {
     if (Date.now() - this.externalPolledAt > 30_000) {
       this.externalPolledAt = Date.now();
       void this.pollExternal(snap);
+      void this.collector.refreshNodes().catch(() => undefined);
     }
   }
 
   /** Counts the readers of our own jobs on the mounts they read, so the panel can leave them out of listener counts. */
   private async countInternal(view: StationView, live: Map<string, MountStats>) {
     const read = new Set([...this.relays.values()].filter((r) => r.input.stationId === view.station.id && live.has(r.input.mount)).map((r) => r.input.mount));
+    // Relay nodes read every public mount of the stations they carry.
+    if (this.snap?.relayed.has(view.station.id)) for (const m of view.mounts) if (m.isPublic && live.has(m.path)) read.add(m.path);
     const counts: Record<string, number> = {};
     await Promise.all(
       [...read].map(async (mount) => {

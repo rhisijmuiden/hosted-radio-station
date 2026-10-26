@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Installs the dependencies of the node agent and builds it in place. Run as root by install-node.sh and hrs-node-update.
+set -Eeuo pipefail
+INSTALL_DIR="${INSTALL_DIR:-/opt/hrs-node}"
+cd "$INSTALL_DIR"
+export CI=1 NODE_ENV=development NO_COLOR=1 FORCE_COLOR=0
+echo "Installing dependencies…"
+pnpm install --frozen-lockfile --filter @hrs/node --reporter=append-only
+echo "Building…"
+pnpm --filter @hrs/node --reporter=append-only build
+echo "Build finished: $(git log -1 --format='%h %s')"

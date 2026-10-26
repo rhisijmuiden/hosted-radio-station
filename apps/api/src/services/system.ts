@@ -68,6 +68,11 @@ export async function getVersionInfo(ctx: AppContext): Promise<VersionInfo> {
   return { version, commit, commitDate, branch, node: process.version, helpers: ctx.config.SYSTEM_HELPERS === '1' };
 }
 
+/** The repository this installation was cloned from, e.g. https://github.com/owner/repo.git. */
+export async function repositoryUrl(ctx: AppContext): Promise<string | null> {
+  return git(ctx, 'remote', 'get-url', 'origin').catch(() => null);
+}
+
 /** Compares the running commit with the head of the channel branch. Uses ls-remote, so the checkout is not touched. */
 export async function checkForUpdates(ctx: AppContext, channel: Channel): Promise<UpdateCheck> {
   const info = await getVersionInfo(ctx);

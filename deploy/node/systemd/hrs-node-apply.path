@@ -1,0 +1,9 @@
+[Unit]
+Description=Hosted Radio Station node: apply web server and certificate settings on request
+
+[Path]
+PathExists=/var/lib/hrs-node/run/apply-request.json
+Unit=hrs-node-apply.service
+
+[Install]
+WantedBy=multi-user.target

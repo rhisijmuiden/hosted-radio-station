@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import http from 'node:http';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import type pino from 'pino';
 import { schema } from '../db/index.js';
+import type { NodeClient } from '../db/schema.js';
 import type { AppContext } from '../lib/context.js';
 import { getSetting, type StatisticsSettings } from '../services/settings.js';
 import { GeoIp } from '../services/stats/geoip.js';
@@ -62,6 +63,8 @@ export class ListenerCollector {
   private plays = new Map<string, Play>();
   /** Latest listener count per external output, from the 30-second poll. */
   private external = new Map<string, { stationId: string; listeners: number }>();
+  /** Listeners of the relay nodes as they reported them last (empty when a node stopped reporting). */
+  private nodeClients = new Map<string, NodeClient[]>();
   private lastReconcile = 0;
   /** Other local hooks on the same port (the AutoDJ players); returns true when it handled the request. */
   extraHandler?: (req: http.IncomingMessage, res: http.ServerResponse) => boolean;
@@ -151,7 +154,7 @@ export class ListenerCollector {
 
   private async openSession(
     view: StationView,
-    s: { key: string; mount: string; via: string; ip: string | null; userAgent: string | null; referer?: string | null; startedAt: number; outputId?: string },
+    s: { key: string; mount: string; via: string; ip: string | null; userAgent: string | null; referer?: string | null; startedAt: number; outputId?: string; nodeId?: string },
   ) {
     const key = `${view.station.id}:${s.key}`;
     if (this.open.has(key)) return;
@@ -168,6 +171,7 @@ export class ListenerCollector {
       tenantId: view.tenantId,
       mountPath: s.mount.slice(0, 200),
       outputId: s.outputId ?? null,
+      nodeId: s.nodeId ?? null,
       via: s.via,
       clientKey: s.key.slice(0, 100),
       startedAt: new Date(s.startedAt),
@@ -223,6 +227,12 @@ export class ListenerCollector {
       if (e.stationId !== id) continue;
       counts.set(`output:${outputId}`, e.listeners);
       total += e.listeners;
+    }
+    for (const [nodeId, clients] of this.nodeClients) {
+      const n = clients.filter((c) => c.stationId === id).length;
+      if (!n && !counts.size) continue;
+      counts.set(`node:${nodeId}`, n);
+      total += n;
     }
     if (counts.size) {
       counts.set('*', total);
@@ -330,7 +340,7 @@ export class ListenerCollector {
       }
       for (const [key, s] of this.open) {
         const [sid, clientKey] = [key.slice(0, 36), key.slice(37)];
-        if (sid !== view.station.id || clientKey.startsWith('ext:')) continue;
+        if (sid !== view.station.id || clientKey.startsWith('ext:') || clientKey.startsWith('node:')) continue;
         // Sessions that started while the lists were read are left for the next round.
         if (!seen.has(clientKey) && complete && s.startedAt < now - 10_000) await this.closeSession(sid, clientKey, now).catch(() => undefined);
         else if (seen.get(clientKey)?.mount && seen.get(clientKey)!.mount !== s.mount) s.mount = seen.get(clientKey)!.mount;
@@ -349,11 +359,56 @@ export class ListenerCollector {
         }
       }
     }
+    await this.refreshNodes().catch((err) => this.log.debug({ err }, 'reading relay listeners failed'));
+    for (const view of snap.stations.values()) {
+      if (!view.active) continue;
+      for (const [nodeId, clients] of this.nodeClients) {
+        await this.syncNode(view, nodeId, clients.filter((c) => c.stationId === view.station.id), now).catch(() => undefined);
+      }
+    }
+    // Sessions of relay nodes that were removed or unpaired.
+    for (const key of [...this.open.keys()]) {
+      const m = key.slice(37).match(/^node:([0-9a-f-]{36}):/);
+      if (m && !this.nodeClients.has(m[1]!)) await this.closeSession(key.slice(0, 36), key.slice(37), now).catch(() => undefined);
+    }
     // Sessions of stations that were removed or switched off.
     const active = new Set([...snap.stations.values()].filter((v) => v.active).map((v) => v.station.id));
     for (const key of [...this.open.keys()]) {
       const sid = key.slice(0, 36);
       if (!active.has(sid)) await this.closeSession(sid, key.slice(37), now).catch(() => undefined);
+    }
+  }
+
+  /** Listeners of the relay nodes, from what they reported (a node silent for three minutes counts as empty). */
+  async refreshNodes() {
+    const rows = await this.ctx.db
+      .select({ id: schema.nodes.id, clients: schema.nodes.clients, lastSeenAt: schema.nodes.lastSeenAt })
+      .from(schema.nodes)
+      .where(isNotNull(schema.nodes.pairedAt));
+    const fresh = Date.now() - 3 * 60_000;
+    this.nodeClients = new Map(rows.map((r) => [r.id, r.lastSeenAt && r.lastSeenAt.getTime() > fresh ? r.clients : []]));
+  }
+
+  private async syncNode(view: StationView, nodeId: string, clients: NodeClient[], now: number) {
+    const prefix = `node:${nodeId}:`;
+    const ids = new Set(clients.map((c) => `${prefix}${c.mount}:${c.id}`));
+    for (const key of [...this.open.keys()]) {
+      if (!key.startsWith(`${view.station.id}:${prefix}`)) continue;
+      const clientKey = key.slice(37);
+      if (!ids.has(clientKey)) await this.closeSession(view.station.id, clientKey, now);
+    }
+    for (const c of clients) {
+      if (c.userAgent?.startsWith(INTERNAL_AGENT)) continue;
+      await this.openSession(view, {
+        key: `${prefix}${c.mount}:${c.id}`,
+        mount: c.mount,
+        via: 'relay',
+        ip: normalizeIp(c.ip),
+        userAgent: c.userAgent,
+        referer: c.referer,
+        startedAt: now - c.connectedSeconds * 1000,
+        nodeId,
+      });
     }
   }
 

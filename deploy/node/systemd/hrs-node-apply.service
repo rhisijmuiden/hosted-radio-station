@@ -1,0 +1,6 @@
+[Unit]
+Description=Hosted Radio Station node: web server, certificates and Icecast (root helper)
+
+[Service]
+Type=oneshot
+ExecStart=/opt/hrs-node/deploy/node/bin/hrs-node-apply

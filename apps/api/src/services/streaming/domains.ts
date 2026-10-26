@@ -43,10 +43,19 @@ export async function checkHost(host: string, target: { cname: string; ips: stri
   return { host, ok: false, found, error: ours.size ? 'wrong_target' : 'no_target' };
 }
 
+/** Where the encoder name must point when it is routed to a source node: the node's host name or addresses. */
+async function nodeTarget(ctx: AppContext, nodeId: string) {
+  const [node] = await ctx.db.select({ config: schema.nodes.config, status: schema.nodes.status }).from(schema.nodes).where(eq(schema.nodes.id, nodeId));
+  if (!node) return null;
+  const ips = [node.status.ip, ...(node.status.addresses ?? [])].filter((a): a is string => !!a);
+  return { cname: node.config.publicHost ?? '', ips };
+}
+
 /** Checks both names of a domain and stores the result. */
 export async function verifyDomain(ctx: AppContext, row: DomainRow) {
   const target = await dnsTarget(ctx);
-  const checks = await Promise.all([checkHost(row.panelHost, target), checkHost(row.ingestHost, target)]);
+  const ingestTarget = (row.ingestNodeId && (await nodeTarget(ctx, row.ingestNodeId))) || target;
+  const checks = await Promise.all([checkHost(row.panelHost, target), checkHost(row.ingestHost, ingestTarget)]);
   const ok = checks.every((c) => c.ok);
   let status: DomainRow['status'];
   if (row.verifiedManually || ok) status = 'verified';

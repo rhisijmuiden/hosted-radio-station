@@ -12,6 +12,7 @@ export const tenantLimitsSchema = z.object({
   maxListeners: z.number().int().min(0).max(1_000_000).default(100),
   maxBitrateKbps: z.number().int().min(32).max(512).default(192),
   storageQuotaMb: z.number().int().min(0).max(10_000_000).default(10_240),
+  maxNodes: z.number().int().min(0).max(100).default(0),
 });
 
 export const roleSchema = z.enum(['owner', 'manager', 'dj']);

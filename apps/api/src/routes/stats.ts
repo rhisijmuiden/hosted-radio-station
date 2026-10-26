@@ -3,6 +3,7 @@ import type { FastifyRequest } from 'fastify';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { schema } from '../db/index.js';
+import { relaysByStation } from '../services/nodes/plan.js';
 import { requireSuperadmin, requireTenantRole, requireUser } from '../lib/auth.js';
 import { badRequest, forbidden, notFound } from '../lib/errors.js';
 import { getMaskedSetting, getSetting, putSetting, statisticsSchema } from '../services/settings.js';
@@ -144,6 +145,8 @@ export const statsRoutes: FastifyPluginAsyncZod = async (app) => {
               tenantName: z.string(),
               mounts: z.array(z.string()),
               outputs: z.array(z.object({ id: z.string(), name: z.string() })),
+              /** Relay nodes that carry the station ("node:<id>" in filters). */
+              nodes: z.array(z.object({ id: z.string(), name: z.string() })),
             }),
           ),
         },
@@ -158,6 +161,7 @@ export const statsRoutes: FastifyPluginAsyncZod = async (app) => {
         throw err;
       }
       if (!ids.length) return [];
+      const relays = await relaysByStation(ctx);
       const [rows, mounts, outputs] = await Promise.all([
         ctx.db
           .select({ id: schema.stations.id, name: schema.stations.name, tenantId: schema.tenants.id, tenantName: schema.tenants.name })
@@ -172,6 +176,7 @@ export const statsRoutes: FastifyPluginAsyncZod = async (app) => {
         ...r,
         mounts: mounts.filter((m) => m.stationId === r.id).map((m) => m.path),
         outputs: outputs.filter((o) => o.stationId === r.id && o.type !== 'local').map((o) => ({ id: o.id, name: o.name })),
+        nodes: (relays.get(r.id) ?? []).map((n) => ({ id: n.id, name: n.location ? `${n.name} (${n.location})` : n.name })),
       }));
     },
   );
@@ -200,12 +205,14 @@ export const statsRoutes: FastifyPluginAsyncZod = async (app) => {
       const ids = await resolveStations(req, req.query);
       const stations = ids.length ? await ctx.db.select().from(schema.stations).where(inArray(schema.stations.id, ids)).orderBy(asc(schema.stations.name)) : [];
       const outputs = ids.length ? await ctx.db.select().from(schema.stationOutputs).where(inArray(schema.stationOutputs.stationId, ids)) : [];
+      const relays = await relaysByStation(ctx);
       const counts = await Promise.all(
         stations.map(async (s) => {
           const stats = s.enabled ? await stationStats(ctx, s) : null;
           const local = (stats ?? []).reduce((n, m) => n + m.listeners, 0);
           const external = outputs.filter((o) => o.stationId === s.id && o.type !== 'local' && o.enabled).reduce((n, o) => n + (o.status?.listeners ?? 0), 0);
-          return { id: s.id, name: s.name, listeners: local + external, onAir: !!stats?.length };
+          const relayed = (relays.get(s.id) ?? []).reduce((n, r) => n + (r.status.online ? (r.status.relays ?? []).filter((x) => x.key.startsWith(`${s.slug}/`)).reduce((a, x) => a + (x.listeners ?? 0), 0) : 0), 0);
+          return { id: s.id, name: s.name, listeners: local + external + relayed, onAir: !!stats?.length };
         }),
       );
       const now = new Date();

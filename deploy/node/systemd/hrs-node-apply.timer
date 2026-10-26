@@ -1,0 +1,10 @@
+[Unit]
+Description=Hosted Radio Station node: pick up renewed certificates
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=6h
+Unit=hrs-node-apply.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,7 @@
+[Unit]
+Description=Hosted Radio Station node: update to the version of the main server (root helper)
+
+[Service]
+Type=oneshot
+ExecStart=/opt/hrs-node/deploy/node/bin/hrs-node-update
+TimeoutStartSec=30min
