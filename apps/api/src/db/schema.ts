@@ -989,6 +989,8 @@ export interface NodeStatus {
   ingest?: NodeIngestMount[];
   /** Errors applying the configuration on the node (web server, ports). */
   problems?: string[];
+  /** The end of the log of the last configuration run on the node, when it failed. */
+  applyLog?: string[];
   update?: { state: 'idle' | 'running' | 'succeeded' | 'failed'; message?: string; at?: string } | null;
   /** FM/MPX: ffmpeg is installed, the playback devices of the node, and what it has on air (phase 11). */
   ffmpeg?: boolean;

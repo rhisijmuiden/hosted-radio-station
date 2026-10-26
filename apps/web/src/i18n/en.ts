@@ -1928,6 +1928,7 @@ export const en = {
       memory: 'Memory',
       encoders: 'Encoders',
       problems: 'The node reports problems',
+      applyLog: 'Show the end of the log',
       machine: 'Machine',
       hostname: 'Host name',
       connectsFrom: 'Connects from',

@@ -912,6 +912,7 @@ export interface NodeStatus {
   relays?: { key: string; state: RelayState; message?: string; bitrateKbps?: number | null; listeners?: number }[];
   encoders?: number;
   problems?: string[];
+  applyLog?: string[];
   update?: { state: 'idle' | 'running' | 'succeeded' | 'failed'; message?: string; at?: string } | null;
   ffmpeg?: boolean;
   soundcards?: { device: string; name: string }[];

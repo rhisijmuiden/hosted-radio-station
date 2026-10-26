@@ -92,6 +92,11 @@ afterAll(async () => {
 
 describe('station nodes', () => {
   it('moves a station with its library to the node, which then runs it', async () => {
+    // A past broadcast that came in through a node: that node only exists on the main server.
+    const [session] = await main.db
+      .insert(schema.liveSessions)
+      .values({ stationId, mountPath: '/live', accountName: 'dj1', via: 'node', nodeId, endedAt: new Date() })
+      .returning();
     const res = await main.app.inject({ method: 'PUT', url: `/api/stations/${stationId}/placement`, headers: admin, payload: { nodeId } });
     expect(res.statusCode).toBe(200);
     expect(res.json().move.direction).toBe('to_node');
@@ -114,6 +119,11 @@ describe('station nodes', () => {
     expect(users.every((u) => u.passwordHash === null)).toBe(true);
     // The first full report from the node.
     await until('the first full report', async () => (await mainStation()).nodeRuntime?.syncedAt);
+    // The broadcast came along without its node, and the main server kept its own.
+    const [onNode] = await node.db.select().from(schema.liveSessions).where(eq(schema.liveSessions.id, session!.id));
+    expect(onNode?.nodeId).toBeNull();
+    const [onMain] = await main.db.select().from(schema.liveSessions).where(eq(schema.liveSessions.id, session!.id));
+    expect(onMain?.nodeId).toBe(nodeId);
   }, 90_000);
 
   it('passes panel requests through the tunnel and mirrors the changes back', async () => {

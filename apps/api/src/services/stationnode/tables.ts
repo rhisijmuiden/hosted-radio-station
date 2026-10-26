@@ -16,7 +16,7 @@ export const NODE_TABLES = [
   { name: 'playlist_items', table: schema.playlistItems, pk: ['playlistId', 'mediaId'], station: null },
   { name: 'clocks', table: schema.clocks, pk: ['id'], station: 'stationId' },
   { name: 'schedule_entries', table: schema.scheduleEntries, pk: ['id'], station: 'stationId' },
-  { name: 'live_sessions', table: schema.liveSessions, pk: ['id'], station: 'stationId' },
+  { name: 'live_sessions', table: schema.liveSessions, pk: ['id'], station: 'stationId', mainOnly: ['nodeId'] },
   { name: 'song_requests', table: schema.songRequests, pk: ['id'], station: 'stationId' },
   { name: 'ondemand_items', table: schema.onDemandItems, pk: ['id'], station: 'stationId' },
   { name: 'queue_items', table: schema.queueItems, pk: ['id'], station: 'stationId' },
@@ -30,6 +30,19 @@ export interface NodeTable {
   pk: readonly string[];
   /** Property holding the station id; null = rows hang under a playlist (playlist_items). */
   station: string | null;
+  /**
+   * Properties that point at rows only the main server has (e.g. the source node of a live broadcast). They never travel
+   * between the two: the node leaves them empty, the main server keeps its own value.
+   */
+  mainOnly?: readonly string[];
+}
+
+/** A row without its main-server-only properties. */
+export function withoutMainOnly(t: NodeTable, row: WireRow): WireRow {
+  if (!t.mainOnly?.length) return row;
+  const out = { ...row };
+  for (const k of t.mainOnly) delete out[k];
+  return out;
 }
 
 export type NodeTableName = (typeof NODE_TABLES)[number]['name'];
@@ -43,7 +56,7 @@ export const rowKey = (t: NodeTable, row: WireRow) => t.pk.map((k) => String(row
 /** A row as it travels: dates as ISO strings, secrets in plain text (the channel is TLS; each side seals its own). */
 export function toWire(t: NodeTable, row: WireRow, box: SecretBox): WireRow {
   const out: WireRow = {};
-  for (const [k, v] of Object.entries(row)) out[k] = v instanceof Date ? v.toISOString() : v;
+  for (const [k, v] of Object.entries(row)) if (!t.mainOnly?.includes(k)) out[k] = v instanceof Date ? v.toISOString() : v;
   if (t.name === 'media_sources') out.config = openSourceConfig(out.config as MediaSourceConfig, box);
   return out;
 }

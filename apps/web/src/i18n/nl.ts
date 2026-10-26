@@ -1930,6 +1930,7 @@ export const nl: Translation = {
       memory: 'Geheugen',
       encoders: 'Encoders',
       problems: 'De node meldt problemen',
+      applyLog: 'Toon het einde van het logboek',
       machine: 'Machine',
       hostname: 'Hostnaam',
       connectsFrom: 'Verbindt vanaf',
