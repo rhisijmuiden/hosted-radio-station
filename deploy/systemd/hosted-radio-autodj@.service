@@ -1,0 +1,18 @@
+[Unit]
+Description=Hosted Radio Station AutoDJ (Liquidsoap) for station %i
+After=network.target hosted-radio-icecast@%i.service
+# Started, stopped and restarted by hrs-streams-apply when the station's AutoDJ settings change.
+
+[Service]
+Type=simple
+User=hosted-radio
+Group=hosted-radio
+ExecStart=/usr/bin/liquidsoap /var/lib/hosted-radio/stations/%i/autodj.liq
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+LimitNOFILE=65536
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target

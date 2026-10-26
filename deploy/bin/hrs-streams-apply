@@ -6,6 +6,8 @@
 #   - writes the web server routes /listen/<station>/<mount> and reloads Caddy
 #   - fetches certificates for encoder TLS and FTPS from Caddy into /var/lib/hosted-radio/certs
 #   - restarts or stops file upload (SFTPGo) when its settings changed
+#   - starts, stops and restarts the AutoDJ player (Liquidsoap) of each Radio station (hosted-radio-autodj@<id>)
+#   - mounts the SMB and NFS music shares of Radio stations read-only under stations/<id>/sources/<source>
 # Everything in the state file ends up in root-run configuration, so it is validated strictly. Safe to run repeatedly.
 set -Eeuo pipefail
 
@@ -148,11 +150,108 @@ main() {
     systemctl disable --now --quiet hosted-radio-sftpgo >>"$LOG" 2>&1 || true
   fi
 
-  # Remember what was applied, to detect port and upload changes next time.
-  jq '{ports: (.stations | map({(.id): .port}) | add // {}), sftpgo: .sftpgo.hash}' "$STATE" > "$APPLIED.tmp" && mv "$APPLIED.tmp" "$APPLIED"
+  # 5. Music shares of Radio stations, mounted read-only for the library and the AutoDJ. Done before the players start,
+  #    so a player that starts finds its files.
+  local mstatus="$RUN/media-mounts-status.json" mjson='{}' mid msid mtype mhost mpath mver mcred target opts err src mounted=()
+  local mhost_re='^[a-z0-9]([a-z0-9.-]{0,252}[a-z0-9])?$' share_re='^[A-Za-z0-9._$ -]{1,80}(/[A-Za-z0-9._ -]{1,80}){0,8}$'
+  local export_re='^/[A-Za-z0-9._/-]{0,200}$' ver_re='^(|1\.0|2\.0|2\.1|3\.0|3\.1\.1|3|4|4\.1|4\.2)$'
+  mount_result() { mjson=$(jq --arg id "$1" --argjson ok "$2" --arg m "$3" --arg t "$(date -Is)" '. + {($id): {ok: $ok, message: $m, at: $t}}' <<<"$mjson"); }
+  while IFS=$'\t' read -r mid msid mtype mhost mpath mver mcred; do
+    [[ "$mid" =~ $uuid_re && "$msid" =~ $uuid_re && "$mhost" =~ $mhost_re && "$mver" =~ $ver_re ]] || { log "Skipping invalid share entry"; problems=1; continue; }
+    if [[ "$mtype" == smb ]]; then [[ "$mpath" =~ $share_re ]] || { log "Skipping invalid SMB share"; problems=1; continue; }
+    elif [[ "$mtype" == nfs ]]; then [[ "$mpath" =~ $export_re ]] || { log "Skipping invalid NFS export"; problems=1; continue; }
+    else continue; fi
+    [[ -d "$DATA/stations/$msid" ]] || continue
+    target="$DATA/stations/$msid/sources/$mid"
+    mounted+=("$target")
+    if mountpoint -q "$target" 2>/dev/null; then mount_result "$mid" true "Mounted"; continue; fi
+    if [[ "$mtype" == smb ]] && ! command -v mount.cifs >/dev/null; then
+      log "Installing SMB support (cifs-utils)"
+      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq cifs-utils >>"$LOG" 2>&1 || true
+    elif [[ "$mtype" == nfs ]] && ! command -v mount.nfs >/dev/null; then
+      log "Installing NFS support (nfs-common)"
+      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nfs-common >>"$LOG" 2>&1 || true
+    fi
+    install -d -m 0755 -o hosted-radio -g hosted-radio "$DATA/stations/$msid/sources" "$target"
+    if [[ "$mtype" == smb ]]; then
+      opts="ro,nosuid,nodev,noexec,noserverino,uid=$(id -u hosted-radio),gid=$(id -g hosted-radio),file_mode=0444,dir_mode=0555"
+      [[ -n "$mver" ]] && opts+=",vers=$mver"
+      src="$RUN/media-credentials/$mid"
+      if [[ "$mcred" == true && -f "$src" && ! -L "$src" ]]; then
+        install -d -m 0700 /run/hosted-radio-cifs
+        install -m 0600 "$src" "/run/hosted-radio-cifs/$mid"
+        opts+=",credentials=/run/hosted-radio-cifs/$mid"
+      else
+        opts+=",guest"
+      fi
+      log "Mounting //$mhost/$mpath for station $msid"
+      err=$(timeout 40 mount -t cifs "//$mhost/$mpath" "$target" -o "$opts" 2>&1) || true
+    else
+      opts="ro,nosuid,nodev,noexec,soft,timeo=100,retrans=2"
+      [[ -n "$mver" ]] && opts+=",vers=$mver"
+      log "Mounting $mhost:$mpath for station $msid"
+      err=$(timeout 40 mount -t nfs "$mhost:$mpath" "$target" -o "$opts" 2>&1) || true
+    fi
+    if mountpoint -q "$target" 2>/dev/null; then
+      mount_result "$mid" true "Mounted"
+    else
+      err=$(tr '\n' ' ' <<<"$err" | cut -c1-300)
+      if [[ "$err" == *"ermission denied"* || "$err" == *"not permitted"* || "$err" == *"must be superuser"* ]] && [[ "$err" != *"error(13)"* ]] && systemd-detect-virt -cq 2>/dev/null; then
+        err="This container may not mount network shares ($err). In Proxmox, enable the SMB/CIFS or NFS feature of the container, or mount the share on the host, pass it in as a bind mount and add it as a server folder."
+      fi
+      log "Mounting share $mid failed: $err"
+      mount_result "$mid" false "${err:-Mounting failed}"
+      problems=1
+    fi
+  done < <(jq -r '.mediaMounts[]? | [.id, .stationId, .type, .host, .path, .version, (.credentials|tostring)] | @tsv' "$STATE")
+  # Shares that were removed or switched off.
+  while read -r target; do
+    [[ -z "$target" ]] && continue
+    if [[ " ${mounted[*]-} " != *" $target "* ]]; then
+      log "Unmounting $target"
+      umount -l "$target" >>"$LOG" 2>&1 || true
+      rm -f "/run/hosted-radio-cifs/$(basename "$target")"
+    fi
+  done < <(findmnt -rn -o TARGET 2>/dev/null | grep -E "^$DATA/stations/[0-9a-f-]{36}/sources/[0-9a-f-]{36}$" || true)
+  jq . <<<"$mjson" > "$mstatus.tmp" && chown hosted-radio: "$mstatus.tmp" && mv "$mstatus.tmp" "$mstatus"
+
+  # 6. AutoDJ players. A new script hash (settings changed) restarts the player.
+  local aid ahash prev_ahash awant=()
+  while IFS=$'\t' read -r aid ahash; do
+    [[ "$aid" =~ $uuid_re && "$ahash" =~ ^[a-f0-9]{16}$ ]] || { log "Skipping invalid AutoDJ entry"; problems=1; continue; }
+    [[ -f "$DATA/stations/$aid/autodj.liq" ]] || continue
+    if ! command -v liquidsoap >/dev/null; then
+      log "Liquidsoap is not installed; run an update (hrs update) to install it"; problems=1; break
+    fi
+    awant+=("$aid")
+    unit="hosted-radio-autodj@$aid.service"
+    prev_ahash=$(jq -r --arg id "$aid" '.autodj[$id] // empty' "$APPLIED" 2>/dev/null || true)
+    if ! systemctl is-active --quiet "$unit"; then
+      log "Starting the AutoDJ of station $aid"
+      systemctl enable --quiet "$unit" 2>>"$LOG" || true
+      systemctl start "$unit" >>"$LOG" 2>&1 || { log "The AutoDJ of station $aid did not start: $(journalctl -u "$unit" -n 3 --no-pager -o cat 2>/dev/null | tr '\n' ' ')"; problems=1; }
+    elif [[ "$prev_ahash" != "$ahash" ]]; then
+      log "AutoDJ settings of station $aid changed, restarting its player"
+      systemctl restart "$unit" >>"$LOG" 2>&1 || problems=1
+    fi
+  done < <(jq -r '.autodj[]? | [.id, .hash] | @tsv' "$STATE")
+  while read -r unit; do
+    [[ -z "$unit" ]] && continue
+    running=${unit#hosted-radio-autodj@}; running=${running%.service}
+    if [[ " ${awant[*]-} " != *" $running "* ]] && { systemctl is-active --quiet "$unit" || systemctl is-enabled --quiet "$unit" 2>/dev/null; }; then
+      log "Stopping the AutoDJ of station $running"
+      systemctl disable --now --quiet "$unit" >>"$LOG" 2>&1 || true
+    fi
+  done < <(systemctl list-units --all --plain --no-legend 'hosted-radio-autodj@*.service' 2>/dev/null | awk '{print $1}'; \
+           systemctl list-unit-files --plain --no-legend 'hosted-radio-autodj@*.service' 2>/dev/null | awk '$1 ~ /@.+\.service/ {print $1}')
+
+  # Remember what was applied, to detect port, upload and AutoDJ changes next time.
+  jq '{ports: (.stations | map({(.id): .port}) | add // {}), sftpgo: .sftpgo.hash, autodj: ((.autodj // []) | map({(.id): .hash}) | add // {})}' "$STATE" > "$APPLIED.tmp" && mv "$APPLIED.tmp" "$APPLIED"
   local n
   n=$(jq '[.stations[] | select(.enabled)] | length' "$STATE")
-  if [[ $problems -eq 0 ]]; then status succeeded "$n station server(s) running."; else status failed "Some changes failed, see the log."; fi
+  local players=""
+  [[ ${#awant[@]} -gt 0 ]] && players=", ${#awant[@]} AutoDJ player(s)"
+  if [[ $problems -eq 0 ]]; then status succeeded "$n station server(s) running$players."; else status failed "Some changes failed, see the log."; fi
   log "Done."
 }
 

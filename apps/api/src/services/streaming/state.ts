@@ -1,10 +1,12 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { schema } from '../../db/index.js';
 import type { AppContext } from '../../lib/context.js';
 import { conflict } from '../../lib/errors.js';
+import { autodjScriptPath, renderScript, scriptHash } from '../autodj/liquidsoap.js';
+import { autodjActive, autodjSettings } from '../autodj/settings.js';
 import { getSetting, type StreamingSettings } from '../settings.js';
 import { fetchStats, icecastConfigPath, icecastPidPath, mediaDir, renderIcecastConfig, stationDir, type MountStats } from './icecast.js';
 import { renderSftpgoEnv } from './sftpgo.js';
@@ -104,11 +106,31 @@ export async function writeStationConfig(ctx: AppContext, stationId: string) {
     internalClients,
     listenerHook: (await listenerHooksEnabled(ctx)) ? ctx.config.LISTENER_HOOK_URL.replace(/\/$/, '') : null,
   });
+  await writeAutodjScript(ctx, station, mounts);
   const path = icecastConfigPath(ctx, station.id);
   const current = await readFile(path, 'utf8').catch(() => null);
   if (current === body) return;
   await writeAtomic(path, body);
   await signalIcecast(ctx, station.id, 'SIGHUP');
+}
+
+/** The AutoDJ mount of a station whose AutoDJ plays, or null. */
+export function autodjMount(station: Station, mounts: Mount[]) {
+  if (!autodjActive(station)) return null;
+  const id = autodjSettings(station).mountId;
+  return mounts.find((m) => m.id === id && m.kind === 'source') ?? null;
+}
+
+/** Writes (or removes) the Liquidsoap script of the station's AutoDJ; the system helper (re)starts the player. */
+async function writeAutodjScript(ctx: AppContext, station: Station, mounts: Mount[]) {
+  const path = autodjScriptPath(ctx, station.id);
+  const mount = autodjMount(station, mounts);
+  if (!mount) {
+    await rm(path, { force: true });
+    return;
+  }
+  const body = renderScript(ctx, { station, mount, settings: autodjSettings(station), sourcePassword: ctx.box.decrypt(station.icecastSourcePassword) });
+  if ((await readFile(path, 'utf8').catch(() => null)) !== body) await writeAtomic(path, body);
 }
 
 /** The hooks are only switched on once the web server forwards them (marker written by hrs-proxy-apply). */
@@ -136,6 +158,22 @@ export interface StreamsState {
   /** Certificate used for TLS clients without a known name, and for FTPS. */
   defaultCertHost: string | null;
   sftpgo: { enabled: boolean; hash: string };
+  /** Stations whose AutoDJ plays, with a hash of its script (a new hash restarts the player). */
+  autodj: { id: string; hash: string }[];
+  /** SMB and NFS shares to mount read-only under stations/<station>/sources/<source>. */
+  mediaMounts: MediaMountState[];
+}
+
+export interface MediaMountState {
+  id: string;
+  stationId: string;
+  type: 'smb' | 'nfs';
+  host: string;
+  /** smb: share[/folder]; nfs: exported path. */
+  path: string;
+  version: string;
+  /** smb: the credentials file the API wrote (run/media-credentials/<id>). */
+  credentials: boolean;
 }
 
 /** Everything the root helper needs, in one file it can validate. */
@@ -164,6 +202,12 @@ export async function buildStreamsState(ctx: AppContext): Promise<StreamsState> 
 
   const enabled = (r: (typeof stations)[number]) => r.s.enabled && r.tenantActive;
   const sftpgoEnv = await renderSftpgoEnv(ctx, streaming);
+  const autodj: StreamsState['autodj'] = [];
+  for (const r of stations) {
+    if (!enabled(r) || !autodjMount(r.s, mounts.filter((m) => m.stationId === r.s.id))) continue;
+    const body = await readFile(autodjScriptPath(ctx, r.s.id), 'utf8').catch(() => null);
+    if (body) autodj.push({ id: r.s.id, hash: scriptHash(body) });
+  }
   return {
     generatedAt: new Date().toISOString(),
     stations: stations.map((r) => ({ id: r.s.id, slug: r.s.slug, port: r.s.icecastPort, enabled: enabled(r) })),
@@ -178,7 +222,41 @@ export async function buildStreamsState(ctx: AppContext): Promise<StreamsState> 
     certHosts: proxy.mode === 'builtin' ? [...new Set([proxy.domain, ...domains.map((d) => d.ingestHost)].filter(Boolean))].sort() : [],
     defaultCertHost: proxy.mode === 'builtin' && proxy.domain ? proxy.domain : null,
     sftpgo: { enabled: streaming.sftp.enabled || streaming.ftp.enabled, hash: createHash('sha256').update(sftpgoEnv).digest('hex').slice(0, 16) },
+    autodj,
+    mediaMounts: await writeMediaMounts(ctx, stations.filter(enabled).map((r) => r.s)),
   };
+}
+
+/**
+ * The shares of Radio stations, for the system helper. SMB passwords go into one file per share that only this user
+ * can read; the helper copies it before mounting. Files of shares that are gone are removed.
+ */
+async function writeMediaMounts(ctx: AppContext, active: Station[]): Promise<MediaMountState[]> {
+  const ids = active.filter((s) => s.edition === 'station').map((s) => s.id);
+  const sources = ids.length
+    ? await ctx.db
+        .select()
+        .from(schema.mediaSources)
+        .where(and(inArray(schema.mediaSources.stationId, ids), eq(schema.mediaSources.enabled, true), inArray(schema.mediaSources.type, ['smb', 'nfs'])))
+    : [];
+  const dir = join(ctx.config.DATA_DIR, 'run', 'media-credentials');
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  const out: MediaMountState[] = [];
+  for (const src of sources) {
+    const c = src.config;
+    if (!c.host) continue;
+    const smb = src.type === 'smb';
+    const credentials = smb && !!c.username;
+    if (credentials) {
+      const pass = c.password ? ctx.box.decrypt(c.password) : '';
+      const body = [`username=${c.username}`, `password=${pass}`, c.domain ? `domain=${c.domain}` : ''].filter(Boolean).join('\n') + '\n';
+      await writeAtomic(join(dir, src.id), body);
+    }
+    out.push({ id: src.id, stationId: src.stationId, type: src.type as 'smb' | 'nfs', host: c.host, path: (smb ? c.share : c.export) ?? '', version: c.version ?? '', credentials });
+  }
+  const keep = new Set(out.filter((m) => m.credentials).map((m) => m.id));
+  for (const f of await readdir(dir).catch(() => [] as string[])) if (!keep.has(f)) await rm(join(dir, f), { force: true });
+  return out;
 }
 
 /**

@@ -14,7 +14,8 @@ import { ListenerCollector } from './collector.js';
 import { IngestGateway } from './gateway.js';
 import { Recorder } from './recorder.js';
 import { externalListeners, Pusher, Transcoder, type Relay } from './relays.js';
-import { loadSnapshot, type Snapshot, type StationView } from './snapshot.js';
+import { AutodjController } from './autodj.js';
+import { heard, loadSnapshot, type Snapshot, type StationView } from './snapshot.js';
 
 /**
  * The streams service (hosted-radio-streams): the ingest gateway for encoders, transcoders and relays to external
@@ -25,6 +26,7 @@ export class StreamsWorker {
   private snap: Snapshot | null = null;
   readonly gateway: IngestGateway;
   readonly collector: ListenerCollector;
+  readonly autodj: AutodjController;
   private relays = new Map<string, Relay>();
   /** Per station: mounts on air with their last title. */
   private live = new Map<string, Map<string, MountStats>>();
@@ -43,9 +45,12 @@ export class StreamsWorker {
   ) {
     this.gateway = new IngestGateway(ctx, log as never);
     this.collector = new ListenerCollector(ctx, log, () => this.snap);
+    this.autodj = new AutodjController(ctx, log);
+    this.collector.extraHandler = (req, res) => this.autodj.handle(req, res);
     this.gateway.onBroadcast = (b) => {
       this.reconcile();
       this.notifyNowPlaying(b.stationId);
+      if (this.snap) void this.autodj.sync(this.snap, this.gateway.broadcasts.values());
     };
   }
 
@@ -108,12 +113,12 @@ export class StreamsWorker {
       for (const m of view.mounts) {
         if (m.kind !== 'transcode' || !m.sourceMountId) continue;
         const source = view.mounts.find((x) => x.id === m.sourceMountId);
-        if (source && live.has(source.path)) wanted.set(`transcode:${m.id}`, new Transcoder(view, m, source, this.log as never));
+        if (source && heard(view, source, live)) wanted.set(`transcode:${m.id}`, new Transcoder(view, m, source, this.log as never));
       }
       for (const o of view.outputs) {
         if (o.type === 'local' || !o.enabled || o.config.push === false || !o.mountId) continue;
         const mount = view.mounts.find((x) => x.id === o.mountId);
-        if (mount && live.has(mount.path)) wanted.set(`push:${o.id}`, new Pusher(this.ctx, view, o, mount, this.log as never));
+        if (mount && heard(view, mount, live)) wanted.set(`push:${o.id}`, new Pusher(this.ctx, view, o, mount, this.log as never));
       }
       if (publicSettings(view.station).recording.enabled) {
         const room = view.storageQuotaMb * 1024 * 1024 - (this.storageUsed.get(view.tenantId) ?? 0);
@@ -188,6 +193,7 @@ export class StreamsWorker {
       }),
     );
     if (changed) this.reconcile();
+    void this.autodj.sync(snap, this.gateway.broadcasts.values()).catch((err) => this.log.warn({ err }, 'AutoDJ sync failed'));
     await this.collector.flush().catch((err) => this.log.warn({ err }, 'saving listener counts failed'));
     void this.collector.reconcile(snap, this.live).catch((err) => this.log.warn({ err }, 'checking listener sessions failed'));
     if (Date.now() - this.externalPolledAt > 30_000) {
@@ -278,6 +284,7 @@ export class StreamsWorker {
       relays: [...this.relays.values()].map((r) => r.state),
       encoders: this.gateway.liveCount,
       internal: this.internal,
+      autodj: this.autodj.snapshot(),
     };
     const path = workerStatusPath(this.ctx);
     await mkdir(dirname(path), { recursive: true });
