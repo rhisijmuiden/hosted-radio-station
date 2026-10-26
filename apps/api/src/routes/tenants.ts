@@ -194,6 +194,8 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
       const stations = await ctx.db.select({ id: schema.stations.id }).from(schema.stations).where(eq(schema.stations.tenantId, req.params.id));
       const deleted = await ctx.db.delete(schema.tenants).where(eq(schema.tenants.id, req.params.id)).returning();
       if (!deleted.length) throw notFound('Customer');
+      // The audit row can't point at a customer that no longer exists.
+      req.auditInfo = { tenantId: null, targetId: deleted[0]!.id, details: { name: deleted[0]!.name, slug: deleted[0]!.slug } };
       if (stations.length) {
         await applyStreams(ctx, { by: auth.user.email });
         for (const s of stations) await rm(stationDir(ctx, s.id), { recursive: true, force: true }).catch(() => undefined);

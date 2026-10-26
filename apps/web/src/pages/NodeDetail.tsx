@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
 import { formatBps, formatMs, formatPct, formatUptime, HealthBadge, nodeHealth, PairingPanel, RoleBadges } from '../components/nodes/common';
+import { FmOnAir, FmSettingsCards } from '../components/nodes/FmPanel';
 import { AreaChart, ChartLegend } from '../components/stats/charts';
 import { Badge, Button, Card, CardHeader, Dialog, EmptyState, Fact, Field, Input, PageHeader, Spinner, Switch, Table, Tabs } from '../components/ui';
 import i18n from '../i18n';
@@ -168,6 +169,8 @@ function Overview({ node, warnMs }: { node: NodeItem; warnMs: number }) {
           </div>
         </Card>
       )}
+      {/* An FM node is about what it has on air: that comes first. */}
+      {node.roles.includes('fm') && <FmOnAir node={node} />}
       <div className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
         <Card>
           <CardHeader title={t('nodes.detail.machine')} />
@@ -429,6 +432,7 @@ function SettingsForm({ node }: { node: NodeItem }) {
           </div>
         </Card>
       )}
+      {roles.includes('fm') && <FmSettingsCards node={node} value={c.fm} onChange={(fm) => set({ fm })} stations={pick} />}
       {roles.includes('source') && (
         <Card>
           <CardHeader title={t('nodes.detail.sourceSettings')} description={t('nodes.detail.sourceSettingsHint')} />

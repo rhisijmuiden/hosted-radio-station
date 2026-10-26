@@ -89,6 +89,15 @@ describe('audit log', () => {
     expect(csv.body).toContain('"tenant.create"');
     expect(csv.body.trim().split('\r\n')).toHaveLength(3);
   });
+
+  it('records deleting a customer', async () => {
+    const created = await t.app.inject({ method: 'POST', url: '/api/tenants', headers: admin, payload: { name: 'Gone FM', slug: 'gone-fm' } });
+    const id = created.json().id;
+    expect((await t.app.inject({ method: 'DELETE', url: `/api/tenants/${id}`, headers: admin })).statusCode).toBe(200);
+    await new Promise((r) => setTimeout(r, 200));
+    const items = (await t.app.inject({ url: '/api/audit?limit=20', headers: admin })).json().items;
+    expect(items.find((i: { action: string }) => i.action === 'tenant.delete')).toMatchObject({ tenantId: null, targetId: id, details: { name: 'Gone FM' } });
+  });
 });
 
 describe('password reset and invitations', () => {

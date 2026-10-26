@@ -16,6 +16,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import type { FmStatus } from '../services/nodes/protocol.js';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 
@@ -915,7 +916,7 @@ export const scheduleEntries = pgTable(
 
 // Phase 8: distribution network and orchestration
 
-export const NODE_ROLES = ['relay', 'source', 'station'] as const;
+export const NODE_ROLES = ['relay', 'source', 'station', 'fm'] as const;
 export type NodeRole = (typeof NODE_ROLES)[number];
 
 /** Settings of a node, made in the panel. Read through nodeConfigSchema for defaults. */
@@ -937,6 +938,8 @@ export interface NodeConfig {
   pushPort?: number | null;
   /** Station: address of the node on the studio's own network, for RHIS Studio (e.g. 192.168.1.20). */
   lanAddress?: string;
+  /** FM/MPX (phase 11): station, RDS, audio, output and UECP. See fmConfigSchema. */
+  fm?: Record<string, unknown>;
 }
 
 /** What a node reported last, kept with the node so every process (API, streams) can read it. */
@@ -978,6 +981,10 @@ export interface NodeStatus {
   /** Errors applying the configuration on the node (web server, ports). */
   problems?: string[];
   update?: { state: 'idle' | 'running' | 'succeeded' | 'failed'; message?: string; at?: string } | null;
+  /** FM/MPX: ffmpeg is installed, the playback devices of the node, and what it has on air (phase 11). */
+  ffmpeg?: boolean;
+  soundcards?: { device: string; name: string }[];
+  fm?: FmStatus | null;
   updatedAt?: string;
 }
 

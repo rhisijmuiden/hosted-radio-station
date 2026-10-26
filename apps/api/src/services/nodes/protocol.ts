@@ -65,7 +65,50 @@ export interface NodePlan {
   probes: { intervalSeconds: number; targets: ProbeTarget[] } | null;
   /** Station node: the full server next to the agent runs the stations (it gets them itself from the main server). */
   station: { stations: number } | null;
+  /** FM/MPX role (phase 11). */
+  fm: FmPlan | null;
   update: { branch: string | null; commit: string | null; auto: boolean };
+}
+
+/** What an FM/MPX node puts on air and how. */
+export interface FmPlan {
+  station: { id: string; slug: string; name: string };
+  /** The stream it puts on air (the main server's listen route of the chosen mount); null without a station. */
+  url: string | null;
+  texts: {
+    ps: string;
+    psMode: 'static' | 'dynamic';
+    psSeconds: number;
+    rtSong: string;
+    rtLive: string;
+    rtIdle: string;
+  };
+  rds: { enabled: boolean; pi: number; pty: number; tp: boolean; ta: boolean; music: boolean; af: number[]; rtPlus: boolean; clock: boolean; timezone: string };
+  audio: { stereo: boolean; preemphasis: 0 | 50 | 75; limiter: boolean; pilot: number; rdsLevel: number; gainDb: number; bufferSeconds: number };
+  /** soundcard: a 192 kHz sound card (ALSA); rtp: MPX over IP (RTP, L24 192 kHz); none: no MPX (UECP only). */
+  output: { kind: 'soundcard' | 'rtp' | 'none'; device: string; channels: 1 | 2; rtpHost: string; rtpPort: number; rtpTtl: number };
+  /** An existing RDS encoder steered over UECP, or null. */
+  uecp: { transport: 'tcp' | 'udp' | 'serial'; host: string; port: number; device: string; baud: number; site: number; encoder: number } | null;
+}
+
+/** What an FM/MPX node reports about its output, in every stats message. */
+export interface FmStatus {
+  input: 'idle' | 'connecting' | 'connected' | 'error';
+  inputMessage?: string;
+  /** The song title in the stream right now. */
+  title: string | null;
+  output: 'off' | 'starting' | 'running' | 'error';
+  outputMessage?: string;
+  uecp: 'off' | 'connecting' | 'connected' | 'error';
+  uecpMessage?: string;
+  meters: { peak: number; left: number; right: number; buffered: number; ppm: number; underruns: number; overruns: number; playing: boolean } | null;
+  /** The PS on air now, all PS frames it rotates through, the RadioText and its RadioText+ tags. */
+  ps: string;
+  psFrames: string[];
+  rt: string;
+  tags: { type: number; start: number; length: number }[];
+  /** RDS groups sent since the agent started, by type. */
+  groups: Record<string, number>;
 }
 
 export interface AgentHello {
@@ -76,7 +119,7 @@ export interface AgentHello {
   version: string;
   commit: string | null;
   hostname: string;
-  facts: { cores: number; memoryMb: number; os: string; caddy: boolean; addresses: string[] };
+  facts: { cores: number; memoryMb: number; os: string; caddy: boolean; addresses: string[]; ffmpeg?: boolean; soundcards?: { device: string; name: string }[] };
 }
 
 export interface AgentStats {
@@ -93,6 +136,7 @@ export interface AgentStats {
   problems: string[];
   update: { state: 'idle' | 'running' | 'succeeded' | 'failed'; message?: string; at?: string } | null;
   revision: string | null;
+  fm?: FmStatus | null;
 }
 
 export interface AgentEvent {
@@ -108,11 +152,15 @@ export type ServerMessage =
   | { t: 'welcome'; nodeId: string; name: string; serverTime: string }
   | { t: 'plan'; plan: NodePlan }
   | { t: 'ping'; seq: number }
-  | { t: 'update'; branch: string | null; commit: string | null };
+  | { t: 'update'; branch: string | null; commit: string | null }
+  /** FM/MPX: who is live and which show runs, for the RadioText (the song comes from the stream itself). */
+  | { t: 'fm'; dj: string | null; show: string | null };
 
 /** The bulk report a node posts every 30 seconds (POST /api/nodes/agent/report). */
 export interface AgentReport {
   relays: { key: string; state: 'connecting' | 'connected' | 'error' | 'idle'; message?: string; bitrateKbps?: number | null; listeners?: number }[];
   clients: { key: string; id: string; ip: string | null; userAgent: string | null; referer: string | null; connectedSeconds: number }[];
   probes: { target: string; stationId: string; url: string; ok: boolean; httpStatus: number | null; ttfbMs: number | null; message?: string; at: string }[];
+  /** Listeners that left since the last report, with the moment they left. */
+  ended?: { key: string; id: string; endedAt: string }[];
 }

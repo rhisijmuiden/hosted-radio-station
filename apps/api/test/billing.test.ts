@@ -181,6 +181,8 @@ describe('hosted service', () => {
     expect(secret).toMatch(/^whsec_/);
     const test = await t.app.inject({ method: 'POST', url: `/api/billing/webhooks/${id}/test`, headers: admin });
     expect(test.json()).toMatchObject({ state: 'delivered', responseStatus: 204, event: 'webhook.test' });
+    await new Promise((r) => setTimeout(r, 200));
+    expect(received.filter((r) => JSON.parse(r.body).event === 'webhook.test')).toHaveLength(1);
     const last = received.at(-1)!;
     const sig = String(last.headers['x-hrs-signature']);
     const [, ts, v1] = sig.match(/^t=(\d+),v1=([0-9a-f]+)$/)!;
@@ -219,8 +221,9 @@ describe('hosted service', () => {
 
     // A retry gives the same answer and creates nothing.
     const again = await t.app.inject({ method: 'POST', url: '/api/provisioning/signup', headers, payload });
-    expect(again.statusCode).toBe(200);
-    expect(again.json().tenant.id).toBe(tenantId);
+    expect(again.statusCode).toBe(201);
+    expect(again.headers['idempotent-replayed']).toBe('true');
+    expect(again.json()).toEqual(out);
     const other = await t.app.inject({ method: 'POST', url: '/api/provisioning/signup', headers, payload: { ...payload, interval: 'year' } });
     expect(other.statusCode).toBe(409);
     const dup = await t.app.inject({ method: 'POST', url: '/api/provisioning/signup', headers: { authorization: headers.authorization }, payload });
@@ -342,7 +345,7 @@ describe('hosted service', () => {
       method: 'PATCH',
       url: `/api/tenants/${tenantId}/subscription`,
       headers: owner,
-      payload: { billing: { company: 'Zeezicht Media BV', email: 'boekhouding@zeezicht.nl', country: 'BE', vatNumber: 'be 0123 456 789' } },
+      payload: { billing: { company: 'Zeezicht Media BV', email: 'boekhouding@zeezicht.nl', country: 'BE', vatNumber: 'be 0123.456-789' } },
     });
     expect(patched.json().billing).toMatchObject({ email: 'boekhouding@zeezicht.nl', vatNumber: 'BE0123456789' });
 

@@ -6,9 +6,10 @@ Nodes are extra servers that work for the main server. A node runs a small agent
 | --- | --- |
 | Relay | Pulls the public streams of its stations from the main server and serves them to listeners. Players and public pages send listeners to the nearest healthy relay. |
 | Source | Takes encoders on `src.<domain>` and passes every connection on to the main server, signed with the node's secret, so the real address of the encoder is kept. |
+| FM/MPX | Puts one station on FM: MPX with stereo and RDS on a 192 kHz sound card or over IP, or RDS to an existing encoder over UECP. Installed with `install-fm.sh`; see [fm.md](fm.md). |
 | Remote probe (every node) | Checks the streams of its stations regularly, on the main server and on the relays, and reports availability and time to first byte. |
 
-Station nodes and FM/MPX nodes follow in later phases.
+Station nodes follow in a later phase.
 
 ## Add a node
 
@@ -30,6 +31,7 @@ Installer options:
 | `--code <code>` | The one-time pairing code. Not needed when the node is already paired (running the installer again updates it). |
 | `--ref <branch>` | Branch to install; later the node follows the main server's version by itself. |
 | `--no-caddy` | No web server on the node: Icecast serves listeners directly on its own port, without HTTPS. Chosen automatically when the main server runs on the same machine. |
+| `--fm` | Also install ffmpeg and the ALSA tools for the FM/MPX role (`install-fm.sh` adds it for you). |
 
 ## Relay settings
 
@@ -53,6 +55,12 @@ Encoders use the same login as on the main server. A customer node can only take
 Every node is pinged over its control channel every 5 seconds. The panel shows the round trip, lost pings over the last 5 minutes, ping timeouts over the last 24 hours, CPU, memory, traffic and listeners, per minute and over time, and the events of the node. A node that is slower than **Slow above (ms)**, loses more than 5% of its pings or reports a problem is shown as degraded.
 
 The **Topology** page (customers: **My setup**) shows all of this live as a 3D map: the main server, nodes, live studios and the streams between them. Customers see their own nodes and, without names, the platform relays that carry their stations.
+
+Next to the 3D map there are two flat views (the switch **3D / 2D → / 2D ↓** above the map, remembered per user): the signal flow in lanes, Studios & encoders → Ingest → Core → Distribution → Audience, from left to right or from top to bottom. Every line to a node carries its latency and packet loss (for example `6.0 ms · 0.02%`); live streams are animated, a degraded node's line is orange and an offline node's line is red. Click a block for its details.
+
+| 2D, left to right | 2D, top to bottom |
+| --- | --- |
+| ![Topology, flat left to right](screenshots/phase-8-topology-flat-lr-dark.png) | ![Topology, flat top to bottom](screenshots/phase-8-topology-flat-tb-light.png) |
 
 ## Updates
 

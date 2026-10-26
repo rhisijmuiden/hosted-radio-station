@@ -5,7 +5,7 @@ import type { AppContext } from '../lib/context.js';
 import { scanAllLibraries } from './autodj/library.js';
 import { tickScheduler } from './backup/jobs.js';
 import { billingTick } from './billing/engine.js';
-import { deliverDue, pruneDeliveries } from './billing/webhooks.js';
+import { deliverDue, pruneDeliveries, requeueStuck } from './billing/webhooks.js';
 import { pruneRecordings, scanAllOnDemand } from './public/ondemand.js';
 import { getSetting } from './settings.js';
 import { maybeUpdateGeoip, pruneStatistics, rollupHourly } from './stats/maintenance.js';
@@ -51,7 +51,15 @@ export function startBackgroundTasks(ctx: AppContext, log: FastifyBaseLogger) {
   const scheduler = only(() => setInterval(safe('backup scheduler', () => tickScheduler(ctx)), 60_000));
   // Hosted service: renewals, reminders and suspensions every ten minutes; webhook retries every minute.
   const billing = only(() => setInterval(safe('billing', () => billingTick(ctx)), 10 * 60_000));
-  const webhooks = only(() => setInterval(safe('webhooks', () => deliverDue(ctx)), 60_000));
+  const webhooks = only(() =>
+    setInterval(
+      safe('webhooks', async () => {
+        await requeueStuck(ctx);
+        await deliverDue(ctx);
+      }),
+      60_000,
+    ),
+  );
   if (main) setTimeout(safe('billing', () => billingTick(ctx)), 50_000).unref();
   const house = setInterval(safe('housekeeping', () => housekeeping(ctx)), 6 * 3600_000);
   const storage = setInterval(safe('storage scan', () => scanAllStorage(ctx)), 6 * 3600_000);

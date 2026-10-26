@@ -17,14 +17,16 @@ export function newPairingCode() {
 export const normalizeCode = (code: string) => code.toUpperCase().replace(/[^A-Z0-9]/g, '');
 export const hashCode = (code: string) => sha256(`hrs-node-pairing:${normalizeCode(code)}`);
 
-/** The one-liner that installs the node agent on a fresh Debian 13 LXC and pairs it with this server. */
-export async function installCommand(ctx: AppContext, code: string) {
+/**
+ * The one-liner that installs the node agent on a fresh Debian 13 LXC and pairs it with this server. FM/MPX nodes use
+ * install-fm.sh, which adds ffmpeg and the sound card tools.
+ */
+export async function installCommand(ctx: AppContext, code: string, fm = false) {
   const [repo, v] = await Promise.all([repositoryUrl(ctx), getVersionInfo(ctx)]);
   const branch = v.branch && v.branch !== 'HEAD' ? v.branch : 'main';
   const gh = repo?.match(/github\.com[/:]([^/]+)\/([^/]+?)(\.git)?$/);
-  const raw = gh
-    ? `https://raw.githubusercontent.com/${gh[1]}/${gh[2]}/${branch}/install-node.sh`
-    : 'https://raw.githubusercontent.com/rhisijmuiden/hosted-radio-station/main/install-node.sh';
+  const script = fm ? 'install-fm.sh' : 'install-node.sh';
+  const raw = gh ? `https://raw.githubusercontent.com/${gh[1]}/${gh[2]}/${branch}/${script}` : `https://raw.githubusercontent.com/rhisijmuiden/hosted-radio-station/main/${script}`;
   const server = ctx.config.PUBLIC_URL.replace(/\/$/, '');
   return `curl -fsSL ${raw} | bash -s -- --server ${server} --code ${code}${branch !== 'main' ? ` --ref ${branch}` : ''}`;
 }

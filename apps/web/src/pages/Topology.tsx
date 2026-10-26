@@ -1,12 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowRight, Plus } from 'lucide-react';
+import { ArrowRight, Plus, X } from 'lucide-react';
 import { lazy, Suspense, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router';
 import { formatBps, formatMs, formatPct } from '../components/nodes/common';
 import { Sparkline } from '../components/stats/charts';
 import type { SceneData, SceneHealth, SceneKind } from '../components/topology/scene';
+import TopologyFlat from '../components/topology/TopologyFlat';
 import { Badge, Button, Card, PageHeader, Select, Spinner } from '../components/ui';
 import { api, type NodeEvent, type NodeMetric, type Tenant, type Topology, type TopologyNode } from '../lib/api';
 import { isAdmin, useMe } from '../lib/auth';
@@ -16,9 +17,38 @@ import { eventText } from './NodeDetail';
 
 const TopologyCanvas = lazy(() => import('../components/topology/TopologyCanvas'));
 
+type Layout = '3d' | 'lr' | 'tb';
+const LAYOUTS: Layout[] = ['3d', 'lr', 'tb'];
+const layoutKey = (userId: string) => `hrs-topology-layout:${userId}`;
+
+/** The chosen view (3D or one of the 2D flows), remembered per user in this browser. */
+function useLayout(userId: string): [Layout, (l: Layout) => void] {
+  const [layout, setLayout] = useState<Layout>(() => {
+    try {
+      const v = localStorage.getItem(layoutKey(userId));
+      return LAYOUTS.includes(v as Layout) ? (v as Layout) : '3d';
+    } catch {
+      return '3d';
+    }
+  });
+  return [
+    layout,
+    (l) => {
+      setLayout(l);
+      try {
+        localStorage.setItem(layoutKey(userId), l);
+      } catch {
+        /* storage is off: the choice lasts for this visit */
+      }
+    },
+  ];
+}
+
 type Filter = 'all' | 'relays' | 'sources' | 'stations' | 'problems' | 'mine' | 'streams';
 
-const kindOf = (n: TopologyNode): SceneKind => (n.roles.includes('station') ? 'station' : n.roles.includes('relay') ? 'relay' : n.roles.includes('source') ? 'source' : 'node');
+const kindOf = (n: TopologyNode): SceneKind =>
+  n.roles.includes('station') ? 'station' : n.roles.includes('relay') ? 'relay' : n.roles.includes('source') ? 'source' : n.roles.includes('fm') ? 'fm' : 'node';
+
 const healthOf = (n: TopologyNode): SceneHealth => (!n.paired ? 'unpaired' : !n.online ? 'offline' : n.degraded ? 'degraded' : 'online');
 const healthTone = { online: 'online', degraded: 'warning', offline: 'offline', unpaired: 'neutral' } as const;
 
@@ -182,6 +212,7 @@ export function TopologyPage() {
   const tenantId = admin ? (params.get('customer') ?? '') : '';
   const [filter, setFilter] = useState<Filter>('all');
   const [selected, setSelected] = useState<string | null>(null);
+  const [layout, setLayout] = useLayout(me.user.id);
   const topo = useQuery({ queryKey: ['topology', tenantId], queryFn: () => api<Topology>(`/nodes/topology${tenantId ? `?tenantId=${tenantId}` : ''}`), refetchInterval: 5000 });
   const tenants = useQuery({ queryKey: ['tenants'], queryFn: () => api<Tenant[]>('/tenants'), enabled: admin });
   const data = topo.data;
@@ -206,6 +237,10 @@ export function TopologyPage() {
                 ? t('topology.encodersCount', { count: n.encoders })
                 : kind === 'station'
                   ? t('topology.stationsCount', { count: n.stations })
+                  : kind === 'fm'
+                    ? n.fmOnAir
+                      ? t('topology.fmOnAir')
+                      : t('topology.fmOff')
                   : n.location || t('nodes.noRoles');
         return { id: n.id, kind, label: customer && n.own ? t('topology.myNode', { name: n.name }) : n.name, meta, health: healthOf(n), listeners: n.online ? n.listeners : 0, dim: !matches(n), own: customer && n.own };
       }),
@@ -231,16 +266,19 @@ export function TopologyPage() {
     return { nodes, links };
   }, [data, filter, customer, t]);
 
+  const dimmed = useMemo(() => new Set(scene.nodes.filter((n) => n.dim).map((n) => n.id)), [scene]);
   const k = data?.kpis;
   const selNode = data?.nodes.find((n) => n.id === selected);
   const selStudio = data?.studios.find((s) => s.id === selected);
-  const ownSel = selNode ?? (!selected && customer ? data?.nodes.find((n) => n.own) : undefined);
+  // In 3D the panel always shows something; the 2D flows use the whole width until a block is clicked.
+  const ownSel = selNode ?? (!selected && customer && layout === '3d' ? data?.nodes.find((n) => n.own) : undefined);
+  const showPanel = layout === '3d' || !!selected;
 
   return (
     <>
       <PageHeader
         title={customer && !admin ? t('topology.myTitle') : t('topology.title')}
-        description={customer && !admin ? t('topology.mySubtitle') : t('topology.subtitle')}
+        description={customer && !admin ? t(layout === '3d' ? 'topology.mySubtitle' : 'topology.mySubtitleFlat') : t(layout === '3d' ? 'topology.subtitle' : 'topology.subtitleFlat')}
         actions={
           <>
             {admin && (
@@ -255,6 +293,21 @@ export function TopologyPage() {
                 </Select>
               </div>
             )}
+            <div className="flex rounded-full border border-line bg-raised p-[3px]" role="radiogroup" aria-label={t('topology.layout.label')}>
+              {LAYOUTS.map((l) => (
+                <button
+                  key={l}
+                  type="button"
+                  role="radio"
+                  aria-checked={layout === l}
+                  title={t(`topology.layout.${l}Title`)}
+                  onClick={() => setLayout(l)}
+                  className={clsx('rounded-full px-3 py-1 text-xs font-semibold whitespace-nowrap transition-colors', layout === l ? 'bg-nacht text-white dark:bg-koraal dark:text-nacht' : 'text-muted hover:text-ink')}
+                >
+                  {t(`topology.layout.${l}`)}
+                </button>
+              ))}
+            </div>
             <div className="flex flex-wrap gap-1.5">
               {filters.map((f) => (
                 <button
@@ -299,15 +352,19 @@ export function TopologyPage() {
               )}
             </div>
             <div className="topo-stage relative h-[min(70vh,640px)] min-h-[420px] overflow-hidden rounded-lg border border-line">
-              <Suspense
-                fallback={
-                  <div className="grid h-full place-items-center">
-                    <Spinner />
-                  </div>
-                }
-              >
-                <TopologyCanvas data={scene} selected={selected ?? ownSel?.id ?? null} onSelect={setSelected} dark={theme === 'dark'} />
-              </Suspense>
+              {layout === '3d' ? (
+                <Suspense
+                  fallback={
+                    <div className="grid h-full place-items-center">
+                      <Spinner />
+                    </div>
+                  }
+                >
+                  <TopologyCanvas data={scene} selected={selected ?? ownSel?.id ?? null} onSelect={setSelected} dark={theme === 'dark'} />
+                </Suspense>
+              ) : (
+                <TopologyFlat data={data} layout={layout} dimmed={dimmed} selected={selected ?? ownSel?.id ?? null} onSelect={setSelected} />
+              )}
               <div className="pointer-events-none absolute bottom-3 left-3 hidden flex-wrap gap-3 rounded-md border border-line bg-raised/85 px-3 py-2 text-xs text-muted backdrop-blur sm:flex">
                 <span className="flex items-center gap-1.5">
                   <i className="inline-block h-[3px] w-4 rounded bg-koraal" /> {t('topology.legend.stream')}
@@ -332,18 +389,25 @@ export function TopologyPage() {
                   </Link>
                 </div>
               )}
-              <p className="pointer-events-none absolute top-3 right-3 hidden text-[11px] text-muted md:block">{t('topology.hint')}</p>
+              {layout === '3d' && <p className="pointer-events-none absolute top-3 right-3 hidden text-[11px] text-muted md:block">{t('topology.hint')}</p>}
             </div>
           </div>
-          <Card className="flex w-full shrink-0 flex-col gap-3.5 p-5 xl:w-[330px]">
-            {selStudio ? (
-              <StudioPanel studio={selStudio} target={selStudio.nodeId ? (data.nodes.find((n) => n.id === selStudio.nodeId)?.name ?? '—') : t('topology.main')} />
-            ) : ownSel ? (
-              <NodePanel key={ownSel.id} node={ownSel} open={data.view === 'admin' || ownSel.own || admin} />
-            ) : (
-              <MainPanel data={data} />
-            )}
-          </Card>
+          {showPanel && (
+            <Card className="relative flex w-full shrink-0 flex-col gap-3.5 p-5 xl:w-[330px]">
+              {layout !== '3d' && (
+                <button type="button" className="absolute top-3 right-3 grid size-8 place-items-center rounded-md text-muted hover:bg-hover hover:text-ink" title={t('common.close')} onClick={() => setSelected(null)}>
+                  <X className="size-4" />
+                </button>
+              )}
+              {selStudio ? (
+                <StudioPanel studio={selStudio} target={selStudio.nodeId ? (data.nodes.find((n) => n.id === selStudio.nodeId)?.name ?? '—') : t('topology.main')} />
+              ) : ownSel ? (
+                <NodePanel key={ownSel.id} node={ownSel} open={data.view === 'admin' || ownSel.own || admin} />
+              ) : (
+                <MainPanel data={data} />
+              )}
+            </Card>
+          )}
         </div>
       )}
     </>
