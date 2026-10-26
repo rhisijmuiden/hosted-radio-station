@@ -6,7 +6,7 @@ import { eq, sql } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import { schema } from '../db/index.js';
 import type { AppContext } from '../lib/context.js';
-import { authenticateSource, type Account } from '../services/streaming/sources.js';
+import { authenticateSource, type Account, type OutsideShow } from '../services/streaming/sources.js';
 import type { LiveBroadcast } from './recorder.js';
 import { resolveMount, type Snapshot, type StationView } from './snapshot.js';
 
@@ -270,7 +270,16 @@ export class IngestGateway {
       if (!target) return reply(socket, '404 Not Found', `Unknown mount ${req.path}. Use /<station>/<mount>, for example /my-station/live.`);
       const creds = basicAuth(req.headers.get('authorization'));
       if (!creds) return reply(socket, '401 Unauthorized', 'Log-in required', ['WWW-Authenticate: Basic realm="Icecast2 Server"']);
-      const account = await authenticateSource(this.ctx, target.view.station.id, target.mount.id, creds.user, creds.pass);
+      let outside: OutsideShow | null = null;
+      const account = await authenticateSource(this.ctx, target.view.station.id, target.mount.id, creds.user, creds.pass, (refusal, who) => {
+        outside = refusal;
+        this.log.info({ station: target.view.station.slug, account: who.username, opensAt: refusal.opensAt && new Date(refusal.opensAt).toISOString() }, 'DJ refused outside their show');
+      });
+      if (!account && outside) {
+        const { opensAt, timezone } = outside as OutsideShow;
+        const when = opensAt && new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: timezone }).format(opensAt);
+        return reply(socket, '403 Forbidden', when ? `You can only broadcast during your show. You can connect from ${when} (${timezone}).` : 'You can only broadcast during your show.');
+      }
       if (!account) return this.refuse(socket, ip);
       const bitrate = announcedBitrate(req.headers);
       const limit = Math.min(target.mount.bitrateKbps, target.view.maxBitrateKbps);

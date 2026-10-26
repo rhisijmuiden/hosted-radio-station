@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Folder, HardDrive, ListMusic, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Clock3, Folder, HardDrive, ListMusic, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -8,8 +8,10 @@ import { api, type Playlist, type PlaylistFolder, type QueueName, type StationDe
 import { Badge, Button, Card, CardHeader, Dialog, EmptyState, Field, Input, Segmented, Spinner, Switch } from '../ui';
 import { folderTree, useFolders, usePlaylists } from './Library';
 
-type Draft = Omit<Playlist, 'id' | 'trackCount' | 'createdAt'>;
-const blank = (queue: QueueName): Draft => ({ name: '', queue, weight: 5, order: 'shuffle', folders: [], enabled: true });
+type Draft = Omit<Playlist, 'id' | 'trackCount' | 'averageSeconds' | 'createdAt'>;
+/** Where a playlist plays: one of the queues, or only where an hour clock asks for it. */
+type Feed = QueueName | 'clock';
+const blank = (feed: Feed): Draft => ({ name: '', queue: feed === 'clock' ? 'q1' : feed, weight: 5, order: 'shuffle', folders: [], enabled: true, rotation: feed !== 'clock' });
 const sameFolder = (a: PlaylistFolder, b: PlaylistFolder) => a.location === b.location && a.path === b.path;
 
 function PlaylistDialog({ station, open, editing, onClose }: { station: StationDetail; open: boolean; editing: Playlist | Draft | null; onClose: () => void }) {
@@ -18,7 +20,7 @@ function PlaylistDialog({ station, open, editing, onClose }: { station: StationD
   const folders = useFolders(station.id);
   const [draft, setDraft] = useState<Draft>(blank('q1'));
   useEffect(() => {
-    if (editing) setDraft({ name: editing.name, queue: editing.queue, weight: editing.weight, order: editing.order, folders: editing.folders, enabled: editing.enabled });
+    if (editing) setDraft({ name: editing.name, queue: editing.queue, weight: editing.weight, order: editing.order, folders: editing.folders, enabled: editing.enabled, rotation: editing.rotation });
   }, [editing]);
   const id = editing && 'id' in editing ? editing.id : null;
   const save = useMutation({
@@ -62,16 +64,22 @@ function PlaylistDialog({ station, open, editing, onClose }: { station: StationD
           <Field label={t('fields.name')}>
             <Input required maxLength={80} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder={t('playlists.namePlaceholder')} />
           </Field>
-          <Field label={t('playlists.weight', { weight: draft.weight })} hint={t('playlists.weightHint')}>
-            <input type="range" min={1} max={10} value={draft.weight} onChange={(e) => setDraft({ ...draft, weight: Number(e.target.value) })} className="mt-2 w-40 accent-koraal" />
-          </Field>
+          {draft.rotation && (
+            <Field label={t('playlists.weight', { weight: draft.weight })} hint={t('playlists.weightHint')}>
+              <input type="range" min={1} max={10} value={draft.weight} onChange={(e) => setDraft({ ...draft, weight: Number(e.target.value) })} className="mt-2 w-40 accent-koraal" />
+            </Field>
+          )}
         </div>
         <div>
           <div className="mb-2 text-[13px] font-semibold">{t('playlists.queue')}</div>
-          <Segmented
-            value={draft.queue}
-            onChange={(queue) => setDraft({ ...draft, queue })}
-            options={(['q1', 'q2'] as const).map((q) => ({ value: q, label: t(`autodj.queue.${q}`), description: t(`playlists.queueHint.${q}`) }))}
+          <Segmented<Feed>
+            value={draft.rotation ? draft.queue : 'clock'}
+            onChange={(feed) => setDraft({ ...draft, queue: feed === 'clock' ? draft.queue : feed, rotation: feed !== 'clock' })}
+            options={(['q1', 'q2', 'clock'] as const).map((q) => ({
+              value: q,
+              label: q === 'clock' ? t('playlists.clockOnly') : t(`autodj.queue.${q}`),
+              description: t(`playlists.queueHint.${q}`),
+            }))}
           />
         </div>
         <div>
@@ -138,7 +146,7 @@ function PlaylistCard({ playlist, station, canEdit, onEdit }: { playlist: Playli
   };
   const update = useMutation({
     mutationFn: (enabled: boolean) => {
-      const { id, trackCount: _n, createdAt: _c, ...body } = playlist;
+      const { id, trackCount: _n, averageSeconds: _a, createdAt: _c, ...body } = playlist;
       return api(`/stations/${station.id}/playlists/${id}`, { method: 'PUT', body: { ...body, enabled } });
     },
     onSuccess: refresh,
@@ -163,7 +171,8 @@ function PlaylistCard({ playlist, station, canEdit, onEdit }: { playlist: Playli
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold">{playlist.name}</div>
           <div className="mt-0.5 text-xs text-muted">
-            {t('library.tracksCount', { count: playlist.trackCount })} · {t(`playlists.orders.${playlist.order}`)} · {t('playlists.weightShort', { weight: playlist.weight })}
+            {t('library.tracksCount', { count: playlist.trackCount })} · {t(`playlists.orders.${playlist.order}`)}
+            {playlist.rotation && ` · ${t('playlists.weightShort', { weight: playlist.weight })}`}
           </div>
         </div>
         {canEdit && (
@@ -208,7 +217,7 @@ export function PlaylistsTab({ station, canEdit }: { station: StationDetail; can
     <>
       <div className="grid items-start gap-4 lg:grid-cols-2">
         {(['q1', 'q2'] as const).map((q) => {
-          const mine = lists.filter((p) => p.queue === q);
+          const mine = lists.filter((p) => p.rotation && p.queue === q);
           return (
             <Card key={q}>
               <CardHeader
@@ -231,6 +240,35 @@ export function PlaylistsTab({ station, canEdit }: { station: StationDetail; can
             </Card>
           );
         })}
+        <Card className="lg:col-span-2">
+          <CardHeader
+            title={
+              <span className="inline-flex items-center gap-2">
+                <Clock3 className="size-4 text-accent-text" /> {t('playlists.clockOnly')}
+              </span>
+            }
+            description={t('playlists.queueHint.clock')}
+            actions={
+              canEdit && (
+                <Button size="sm" onClick={() => setEditing(blank('clock'))}>
+                  <Plus className="size-4" /> {t('playlists.add')}
+                </Button>
+              )
+            }
+          />
+          <div className="grid gap-3 p-5 md:grid-cols-2">
+            {lists
+              .filter((p) => !p.rotation)
+              .map((p) => (
+                <PlaylistCard key={p.id} playlist={p} station={station} canEdit={canEdit} onEdit={() => setEditing(p)} />
+              ))}
+            {!lists.some((p) => !p.rotation) && (
+              <div className="md:col-span-2">
+                <EmptyState icon={<Clock3 className="size-5" />} title={t('playlists.empty')} description={t('playlists.clockOnlyEmpty')} />
+              </div>
+            )}
+          </div>
+        </Card>
       </div>
       <PlaylistDialog station={station} open={!!editing} editing={editing} onClose={() => setEditing(null)} />
     </>

@@ -58,6 +58,13 @@ const en = {
   dark: 'Dark',
   language: 'Language',
   backToTop: 'Back to the player',
+  schedule: 'Schedule',
+  scheduleText: 'What is on now and what is coming up.',
+  onNow: 'On now',
+  withDjs: 'with {{djs}}',
+  noShows: 'Nothing scheduled for the coming days.',
+  timesIn: 'Times in {{zone}}',
+  showMore: 'Show more',
 };
 type Strings = typeof en;
 
@@ -120,6 +127,13 @@ const nl: Strings = {
   dark: 'Donker',
   language: 'Taal',
   backToTop: 'Terug naar de speler',
+  schedule: 'Programma',
+  scheduleText: 'Wat er nu op is en wat er komt.',
+  onNow: 'Nu',
+  withDjs: 'met {{djs}}',
+  noShows: 'De komende dagen staat er niets gepland.',
+  timesIn: 'Tijden in {{zone}}',
+  showMore: 'Meer tonen',
 };
 
 export const strings = { en, nl };

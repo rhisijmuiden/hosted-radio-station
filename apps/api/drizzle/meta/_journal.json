@@ -43,6 +43,13 @@
       "when": 1792987373896,
       "tag": "0005_phase6",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792990893680,
+      "tag": "0006_phase7",
+      "breakpoints": true
     }
   ]
 }
