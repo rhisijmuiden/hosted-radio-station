@@ -84,6 +84,17 @@ describe('linking a studio PC', () => {
     expect((await t.app.inject({ method: 'DELETE', url: `/api/studio/devices/${devices.json()[0].id}`, headers: dj })).statusCode).toBe(200);
     expect((await t.app.inject({ url: '/api/auth/me', headers: { authorization: `Bearer ${key}` } })).statusCode).toBe(401);
   });
+
+  it('lets a PC sign itself out', async () => {
+    const start = (await t.app.inject({ method: 'POST', url: '/api/studio/link', payload: { deviceName: 'STUDIO-3' } })).json();
+    await t.app.inject({ method: 'POST', url: `/api/studio/link/${start.code}/approve`, headers: dj });
+    const key = (await t.app.inject({ method: 'POST', url: '/api/studio/link/poll', payload: { deviceSecret: start.deviceSecret } })).json().apiKey;
+    expect((await t.app.inject({ url: '/api/studio/devices', headers: dj })).json()).toHaveLength(1);
+    expect((await t.app.inject({ method: 'DELETE', url: '/api/studio/session', headers: dj })).statusCode).toBe(400);
+    expect((await t.app.inject({ method: 'DELETE', url: '/api/studio/session', headers: { authorization: `Bearer ${key}` } })).statusCode).toBe(200);
+    expect((await t.app.inject({ url: '/api/auth/me', headers: { authorization: `Bearer ${key}` } })).statusCode).toBe(401);
+    expect((await t.app.inject({ url: '/api/studio/devices', headers: dj })).json()).toHaveLength(0);
+  });
 });
 
 describe('live broadcasts from the studio client', () => {

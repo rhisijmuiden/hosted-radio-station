@@ -1,0 +1,127 @@
+@import 'tailwindcss';
+@import './tokens.css';
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+@font-face {
+  font-family: 'Archivo';
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-display: swap;
+  src: url('/brand/archivo-latin.woff2') format('woff2');
+}
+
+/* Same app tokens as the admin panel. */
+:root {
+  --hover: #eef1f7;
+  --chip: #e8f0ff;
+  --nav-active-bg: var(--nacht);
+  --nav-active-ink: #ffffff;
+  --overlay: rgb(20 33 61 / 0.45);
+  --meter-bg: #e3e7ef;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --hover: #1d2a47;
+    --chip: #1f2e52;
+    --nav-active-bg: var(--chip);
+    --overlay: rgb(0 0 0 / 0.6);
+    --meter-bg: #0b1322;
+  }
+}
+:root[data-theme='dark'] {
+  --hover: #1d2a47;
+  --chip: #1f2e52;
+  --nav-active-bg: var(--chip);
+  --overlay: rgb(0 0 0 / 0.6);
+  --meter-bg: #0b1322;
+}
+
+@theme inline {
+  --color-nacht: var(--nacht);
+  --color-koraal: var(--koraal);
+  --color-lucht: var(--lucht);
+  --color-surface: var(--surface);
+  --color-raised: var(--surface-raised);
+  --color-ink: var(--ink);
+  --color-muted: var(--ink-muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-text: var(--accent-text);
+  --color-online: var(--status-online);
+  --color-warning: var(--status-warning);
+  --color-offline: var(--status-offline);
+  --color-hover: var(--hover);
+  --color-chip: var(--chip);
+  --color-meter: var(--meter-bg);
+  --font-sans: 'Archivo', system-ui, sans-serif;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  overflow: hidden;
+}
+input,
+textarea {
+  user-select: text;
+}
+.display {
+  font-stretch: 125%;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+::selection {
+  background: color-mix(in srgb, var(--koraal) 30%, transparent);
+}
+:focus-visible {
+  outline: 2px solid var(--koraal);
+  outline-offset: 2px;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* On air: a soft pulsing ring around the live button and badge. */
+@keyframes onair {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--koraal) 55%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 10px color-mix(in srgb, var(--koraal) 0%, transparent);
+  }
+}
+.onair-pulse {
+  animation: onair 1.8s ease-in-out infinite;
+}
+
+/* Level meter: green to yellow to red, masked by the current level. */
+.meter-fill {
+  background: linear-gradient(to right, #1c8a57 0%, #4acb8c 62%, #f2b640 80%, #ff6b57 92%, #c23434 100%);
+}
+.meter-fill-v {
+  background: linear-gradient(to top, #1c8a57 0%, #4acb8c 62%, #f2b640 80%, #ff6b57 92%, #c23434 100%);
+}

@@ -217,6 +217,21 @@ export const studioRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   );
 
+  app.delete(
+    '/session',
+    {
+      config: { audit: 'studio.device.sign_out' },
+      schema: { tags: ['Studio client'], summary: 'Sign this studio PC out: revokes the API key it calls with', response: { 200: okOut } },
+    },
+    async (req) => {
+      const auth = requireUser(req);
+      if (auth.via !== 'api_key') throw badRequest('Only a studio PC can sign itself out');
+      const [key] = await ctx.db.delete(schema.apiKeys).where(eq(schema.apiKeys.hash, sha256(req.headers.authorization!.slice(7).trim()))).returning();
+      if (key) await ctx.db.delete(schema.studioLinks).where(eq(schema.studioLinks.apiKeyId, key.id));
+      return { ok: true as const };
+    },
+  );
+
   // The client reports its version so the panel can show it.
   app.post(
     '/hello',
