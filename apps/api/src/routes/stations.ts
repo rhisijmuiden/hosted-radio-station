@@ -14,9 +14,9 @@ import { autodjSettings } from '../services/autodj/settings.js';
 import { getSetting, SECRET_MASK } from '../services/settings.js';
 import { killSource, stationDir } from '../services/streaming/icecast.js';
 import { connectionInfo } from '../services/streaming/info.js';
-import { cachedRelays } from '../services/nodes/routing.js';
+import { cachedRelays, forgetStations } from '../services/nodes/routing.js';
 import { stationRouting } from '../services/nodes/routing-rules.js';
-import { allocatePort, applyStreams, loadStation, newInternalPassword, stationStats, type Mount, type Output, type Station } from '../services/streaming/state.js';
+import { allocatePort, applyStreams, loadStation, waitForApply, newInternalPassword, stationStats, type Mount, type Output, type Station } from '../services/streaming/state.js';
 
 const stationParams = z.object({ id: z.uuid() });
 const mountParams = z.object({ id: z.uuid(), mountId: z.uuid() });
@@ -275,7 +275,10 @@ function checkBitrate(tenant: typeof schema.tenants.$inferSelect, kbps: number) 
 export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
   const { ctx } = app;
   const apply = (req: FastifyRequest, stationId?: string) =>
-    applyStreams(ctx, { stationIds: stationId ? [stationId] : [], by: req.auth?.user.email }).catch((err) => req.log.error({ err }, 'applying stream configuration failed'));
+    applyStreams(ctx, { stationIds: stationId ? [stationId] : [], by: req.auth?.user.email }).catch((err) => {
+      req.log.error({ err }, 'applying stream configuration failed');
+      return null;
+    });
 
   async function detail(stationId: string, role: z.infer<typeof stationDetailOut>['role']) {
     const loaded = (await loadStation(ctx, stationId))!;
@@ -522,9 +525,12 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
       const { station } = await stationAccess(ctx, req, req.params.id, 'owner');
       await ctx.db.delete(schema.stations).where(eq(schema.stations.id, station.id));
       req.auditInfo.details = { name: station.name, slug: station.slug };
-      await apply(req);
-      // The system helper stops the Icecast server; its files can go right away.
-      await rm(stationDir(ctx, station.id), { recursive: true, force: true }).catch((err) => req.log.warn({ err }, 'removing station files failed'));
+      const request = await apply(req);
+      // No relay node keeps pointing at the station.
+      if (await forgetStations(ctx, [station.id])) void app.nodes.refreshAll();
+      // The files go once the system helper has stopped the station's Icecast server and AutoDJ: a player that loses
+      // its files while it still runs fails, and stays "failed" in systemd.
+      void waitForApply(ctx, request).then(() => rm(stationDir(ctx, station.id), { recursive: true, force: true })).catch((err) => req.log.warn({ err }, 'removing station files failed'));
       return { ok: true as const };
     },
   );

@@ -96,8 +96,8 @@ export default function TopologyFlat({
       lane: 'control',
       icon: <Cpu />,
       title: t('topology.main'),
-      // The version first: the bus beside the card already says it carries no audio.
-      meta: `v${data.main.version} · ${t('topology.controlOnly')}`,
+      // Only the version: the bus beside the card already says it carries no audio.
+      meta: `v${data.main.version}`,
       health: 'online',
       core: true,
       dim: false,
@@ -212,6 +212,9 @@ export default function TopologyFlat({
     const mid = e.kind === 'control' ? { x: B.x, y: B.y - CARD_H / 2 - (lr ? 16 : 10) } : { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
     return [{ ...e, d, mid }];
   });
+  // When the box is narrower than the flow (say, with the side panel open), the view zooms out to fit its width.
+  const fit = box.w > 0 ? Math.min(1, box.w / W) : 1;
+  const scale = zoom * fit;
   const isSel = (c: Card) => !!selected && c.select === selected && !c.audience;
 
   const tool = 'grid size-9 place-items-center rounded-md border border-line bg-raised text-muted shadow-sm hover:bg-hover hover:text-ink';
@@ -219,8 +222,8 @@ export default function TopologyFlat({
     <>
       <div ref={host} className="absolute inset-0 overflow-auto" onClick={(e) => e.target === e.currentTarget && onSelect(null)}>
         {box.w > 0 && (
-          <div style={{ width: W * zoom, height: H * zoom }}>
-            <div className="relative origin-top-left" style={{ width: W, height: H, transform: `scale(${zoom})` }} onClick={(e) => e.target === e.currentTarget && onSelect(null)}>
+          <div style={{ width: W * scale, height: H * scale }}>
+            <div className="relative origin-top-left" style={{ width: W, height: H, transform: `scale(${scale})` }} onClick={(e) => e.target === e.currentTarget && onSelect(null)}>
               {LANES.map((l, i) => {
                 const a = along(i);
                 return lr ? (

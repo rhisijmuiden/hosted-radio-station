@@ -224,8 +224,10 @@ Icecast · Liquidsoap · ffmpeg · SFTPGo · restic and rclone (backups) · GeoI
 
 ## Roadmap
 
-The platform is built in phases. Phases 1 to 11 are done. Station nodes, the orchestrator as a pure control plane,
-orchestrator redundancy, Cloudflare DNS integration and a guided installer are next. See [ROADMAP.md](ROADMAP.md).
+The platform is built in phases. **Version 1.0.0** contains phases 1 to 13: everything from streaming, AutoDJ and the
+scheduler to station nodes and the orchestrator as a pure control plane. Orchestrator redundancy, Cloudflare DNS
+integration and a guided installer follow as 1.x updates. See [ROADMAP.md](ROADMAP.md) and the
+[changelog](CHANGELOG.md).
 
 ---
 

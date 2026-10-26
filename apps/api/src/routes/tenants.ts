@@ -7,7 +7,8 @@ import { badRequest, conflict, forbidden, isUniqueViolation, notFound } from '..
 import { sendInvite } from '../services/accounts.js';
 import { mailConfigured } from '../services/mail.js';
 import { stationDir } from '../services/streaming/icecast.js';
-import { applyStreams } from '../services/streaming/state.js';
+import { forgetStations } from '../services/nodes/routing.js';
+import { applyStreams, waitForApply } from '../services/streaming/state.js';
 import { rm } from 'node:fs/promises';
 import {
   emailSchema,
@@ -197,8 +198,12 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
       // The audit row can't point at a customer that no longer exists.
       req.auditInfo = { tenantId: null, targetId: deleted[0]!.id, details: { name: deleted[0]!.name, slug: deleted[0]!.slug } };
       if (stations.length) {
-        await applyStreams(ctx, { by: auth.user.email });
-        for (const s of stations) await rm(stationDir(ctx, s.id), { recursive: true, force: true }).catch(() => undefined);
+        const request = await applyStreams(ctx, { by: auth.user.email });
+        if (await forgetStations(ctx, stations.map((s) => s.id))) void app.nodes.refreshAll();
+        // The files go once the system helper has stopped the stations' servers and players.
+        void waitForApply(ctx, request).then(async () => {
+          for (const s of stations) await rm(stationDir(ctx, s.id), { recursive: true, force: true }).catch(() => undefined);
+        });
       }
       return { ok: true as const };
     },

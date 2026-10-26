@@ -1,3 +1,5 @@
+import { eq } from 'drizzle-orm';
+import { schema } from '../../db/index.js';
 import type { AppContext } from '../../lib/context.js';
 import type { GeoInfo } from '../stats/geoip.js';
 import { nodeSettings, relayBaseUrl, relaysByStation, type Node } from './plan.js';
@@ -11,6 +13,24 @@ export async function cachedRelays(ctx: AppContext) {
   return cache.value;
 }
 export const forgetRelays = () => (cache = null);
+
+/**
+ * Takes deleted stations out of the relay nodes that carried them by a chosen list, so no node keeps pointing at a
+ * station that is gone. Returns whether any node changed (its plan then needs a refresh).
+ */
+export async function forgetStations(ctx: AppContext, stationIds: string[]) {
+  if (!stationIds.length) return false;
+  const gone = new Set(stationIds);
+  let changed = false;
+  for (const n of await ctx.db.select({ id: schema.nodes.id, config: schema.nodes.config }).from(schema.nodes)) {
+    const list = n.config.relayStations;
+    if (!Array.isArray(list) || !list.some((id) => gone.has(id))) continue;
+    await ctx.db.update(schema.nodes).set({ config: { ...n.config, relayStations: list.filter((id) => !gone.has(id)) } }).where(eq(schema.nodes.id, n.id));
+    changed = true;
+  }
+  if (changed) forgetRelays();
+  return changed;
+}
 
 /** Scores this close to the best one count as equally good. */
 const NEAR = 0.1;

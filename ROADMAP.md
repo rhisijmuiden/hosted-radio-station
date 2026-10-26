@@ -147,6 +147,9 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 
 ## Status
 
+**Version 1.0.0** (26 October 2026) contains phases 1 to 13 and the staged node updates. Phases 14 to 16 follow as
+1.x updates. What changed per version is in the [changelog](CHANGELOG.md).
+
 | Phase | Name | Status |
 | --- | --- | --- |
 | 1 | Foundation | Done |
@@ -162,9 +165,9 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 11 | FM/MPX and RDS module | Done |
 | 12 | Station nodes | Done |
 | 13 | Orchestrator as control plane | Done |
-| 14 | Orchestrator redundancy | Planned |
-| 15 | Cloudflare DNS integration | Planned |
-| 16 | Installer menu and node enrollment | Planned |
+| 14 | Orchestrator redundancy | Planned (1.x) |
+| 15 | Cloudflare DNS integration | Planned (1.x) |
+| 16 | Installer menu and node enrollment | Planned (1.x) |
 
 ## Phases
 
