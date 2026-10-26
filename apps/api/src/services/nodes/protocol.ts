@@ -251,6 +251,8 @@ export interface AgentStats {
   encoders: number;
   icmp: { rttMs: number | null; loss: number } | null;
   problems: string[];
+  /** The end of the log of the last configuration run, when it failed. */
+  applyLog?: string[];
   update: { state: 'idle' | 'running' | 'succeeded' | 'failed'; message?: string; at?: string } | null;
   revision: string | null;
   /** Ingest: mounts on air on this node. */

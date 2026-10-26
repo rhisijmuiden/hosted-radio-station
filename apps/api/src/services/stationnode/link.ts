@@ -18,7 +18,7 @@ import { missingFiles, receiveFile, type FileEntry } from './files.js';
 import type { MirrorBatch } from './mirror.js';
 import type { StationPackage } from './package.js';
 import { HOP_BY_HOP, TunnelPeer } from './tunnel.js';
-import { NODE_TABLES, upsertRows, fromWire, type WireRow } from './tables.js';
+import { NODE_TABLES, upsertRows, fromWire, withoutMainOnly, type WireRow } from './tables.js';
 
 /**
  * The file the node agent writes for the API of a station node: where the main server is and how to sign in.
@@ -54,6 +54,7 @@ export class StationNodeLink {
   /** Stations whose tables were taken over since they became active here. */
   private seeded = new Set<string>();
   private preparing = new Map<string, Promise<void>>();
+  private takeOverFailures = new Map<string, number>();
   private needFull = true;
   private ws: WebSocket | null = null;
   private mirroring: Promise<void> | null = null;
@@ -168,10 +169,15 @@ export class StationNodeLink {
       this.seeded.add(stationId);
       this.needFull = true;
     } catch (err) {
-      this.log.warn({ err, stationId }, 'taking over a station failed; trying again shortly');
+      // Longer waits while it keeps failing (10 s up to 5 minutes), so a lasting problem does not flood the main server.
+      const failures = (this.takeOverFailures.get(stationId) ?? 0) + 1;
+      this.takeOverFailures.set(stationId, failures);
+      this.log.warn({ err, stationId, failures }, 'taking over a station failed; trying again later');
       this.revision = null;
-      await sleep(10_000);
+      await sleep(Math.min(300_000, 10_000 * 2 ** (failures - 1)));
+      return;
     }
+    this.takeOverFailures.delete(stationId);
   }
 
   /** Copies the tables of a station from the main server, replacing what is here. */
@@ -189,7 +195,7 @@ export class StationNodeLink {
     }
     await this.ctx.db.transaction(async (tx) => {
       await clearStationTables(tx as never, stationId);
-      for (const p of pages) await upsertRows(tx as never, p.t, p.rows.map((r) => fromWire(p.t, r, this.ctx.box)));
+      for (const p of pages) await upsertRows(tx as never, p.t, p.rows.map((r) => withoutMainOnly(p.t, fromWire(p.t, r, this.ctx.box))));
     });
   }
 

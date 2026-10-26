@@ -306,6 +306,7 @@ export class Agent {
         listeners: this.relay?.listenerCount ?? 0,
         encoders: this.source.encoders,
         icmp: this.icmp,
+        applyLog: apply?.state === 'failed' && apply.log?.length ? apply.log.slice(-20) : undefined,
         problems: [...(apply?.problems ?? []), ...this.source.problems, ...(this.relay?.push.problems ?? []), ...(this.ingest?.problems() ?? []), ...this.fm.problemList].slice(0, 10),
         update: this.update ? { state: this.update.state, message: this.update.message, at: this.update.at } : null,
         revision: this.plan?.revision ?? null,

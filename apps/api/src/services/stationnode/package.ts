@@ -45,12 +45,17 @@ export function derivedUuid(text: string) {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
 
-/** Stations a station node runs or is preparing. */
+/** Stations a station node runs or is preparing. A move that failed is left alone until it is retried or cancelled. */
 export async function nodeStations(ctx: AppContext, nodeId: string) {
   return ctx.db
     .select()
     .from(schema.stations)
-    .where(or(eq(schema.stations.nodeId, nodeId), and(isNotNull(schema.stations.nodeMove), sql`${schema.stations.nodeMove}->>'nodeId' = ${nodeId}`)))
+    .where(
+      or(
+        eq(schema.stations.nodeId, nodeId),
+        and(isNotNull(schema.stations.nodeMove), sql`${schema.stations.nodeMove}->>'nodeId' = ${nodeId} and ${schema.stations.nodeMove}->>'state' is distinct from 'failed'`),
+      ),
+    )
     .orderBy(asc(schema.stations.slug));
 }
 

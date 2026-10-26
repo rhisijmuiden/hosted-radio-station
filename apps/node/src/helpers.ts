@@ -26,6 +26,8 @@ export interface JobStatus {
   state: 'idle' | 'running' | 'succeeded' | 'failed';
   message?: string;
   problems?: string[];
+  /** The end of the log when the job failed. */
+  log?: string[];
   at?: string;
 }
 
