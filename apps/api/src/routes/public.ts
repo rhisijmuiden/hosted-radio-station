@@ -470,7 +470,8 @@ export async function renderPublicShell(ctx: AppContext, html: string, slug: str
   if (!s || !s.settings.enabled) return html;
   const base = (await connectionInfo(ctx, s, [], false)).listenBase;
   const description = s.description || [s.genre, 'Live radio'].filter(Boolean).join(' · ');
-  const image = s.logoFile ? `${base}/api/public/stations/${s.slug}/logo?v=${encodeURIComponent(s.logoFile)}` : `${base}/brand/rhis-icon.svg`;
+  // A PNG fallback: social media and chat apps do not show SVG previews.
+  const image = s.logoFile ? `${base}/api/public/stations/${s.slug}/logo?v=${encodeURIComponent(s.logoFile)}` : `${base}/brand/rhis-og.png`;
   const meta = [
     `<meta name="description" content="${esc(description)}" />`,
     `<meta property="og:type" content="music.radio_station" />`,

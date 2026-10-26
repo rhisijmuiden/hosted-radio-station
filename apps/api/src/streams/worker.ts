@@ -137,6 +137,7 @@ export class StreamsWorker {
     }
     for (const [id, relay] of wanted) {
       if (this.relays.has(id)) continue;
+      if (relay instanceof Transcoder) relay.titleOf = () => this.live.get(relay.input.stationId)?.get(relay.input.mount)?.title ?? undefined;
       relay.onState = (s) => {
         if (id.startsWith('push:')) void this.saveOutputStatus(id.slice(5), { state: s.state, message: s.message, since: s.since });
         // A converted mount that (re)connects gets the title that is playing now, not only the next one.
@@ -210,8 +211,8 @@ export class StreamsWorker {
 
   private async titleForTranscode(relay: Transcoder) {
     const view = this.snap?.stations.get(relay.input.stationId);
-    const title = this.live.get(relay.input.stationId)?.get(relay.input.mount)?.title;
-    if (!view || !title) return;
+    const title = this.live.get(relay.input.stationId)?.get(relay.input.mount)?.title ?? undefined;
+    if (!view || !title || relay.setTitle(title)) return;
     await updateMetadata({ port: view.station.icecastPort, adminPassword: view.adminPassword }, relay.output, title).catch(() => undefined);
   }
 
@@ -219,9 +220,11 @@ export class StreamsWorker {
   private async forwardTitle(view: StationView, mountPath: string, title: string) {
     const mount = view.mounts.find((m) => m.path === mountPath);
     if (!mount) return;
-    // Icecast takes title updates for Ogg (Opus, Vorbis) mounts too: it shows them in its status and to players
-    // that read it, while the audio itself is converted without titles.
+    // Ogg (Opus, Vorbis) mounts carry the title inside the stream, so their transcoder takes it; others go through
+    // Icecast's /admin/metadata.
     for (const t of view.mounts.filter((m) => m.kind === 'transcode' && m.sourceMountId === mount.id)) {
+      const relay = this.relays.get(`transcode:${t.id}`);
+      if (relay instanceof Transcoder && relay.setTitle(title)) continue;
       await updateMetadata({ port: view.station.icecastPort, adminPassword: view.adminPassword }, t.path, title).catch(() => undefined);
     }
     for (const o of view.outputs.filter((o) => o.mountId === mount.id)) {

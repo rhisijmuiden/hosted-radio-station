@@ -13,7 +13,7 @@ import { renderPublicShell } from '../src/routes/public.js';
 import { artworkKey, splitTitle } from '../src/services/public/artwork.js';
 import { scanOnDemand } from '../src/services/public/ondemand.js';
 import { mediaDir } from '../src/services/streaming/icecast.js';
-import { Recorder, recordingFile } from '../src/streams/recorder.js';
+import { Recorder, recordingFile, recordingTitle } from '../src/streams/recorder.js';
 import { loadSnapshot } from '../src/streams/snapshot.js';
 import { login, setup } from './helpers.js';
 
@@ -100,8 +100,9 @@ describe('helpers', () => {
   });
 
   it('names recordings after the date and the DJ', () => {
-    const f = recordingFile({ sessionId: 'abcdef12-0000', stationId, mountPath: '/live', accountName: 'DJ Hard/Core', startedAt: new Date('2026-10-26T20:05:00Z') }, 'mp3', 'Europe/Amsterdam');
-    expect(f).toBe('recordings/2026-10-26 2105 DJ HardCore abcdef.mp3');
+    const b = { sessionId: 'abcdef12-0000', stationId, mountPath: '/live', accountName: 'DJ Hard/Core', startedAt: new Date('2026-10-26T20:05:00Z') };
+    expect(recordingFile(b, 'mp3', 'Europe/Amsterdam')).toBe('recordings/2026-10-26_2105_DJ-HardCore_abcdef.mp3');
+    expect(recordingTitle(b, 'Europe/Amsterdam')).toBe('2026-10-26 2105 DJ Hard/Core');
   });
 });
 

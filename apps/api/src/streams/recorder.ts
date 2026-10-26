@@ -25,13 +25,20 @@ export interface LiveBroadcast {
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
-/** "recordings/2026-10-26 2100 DJ Reinder.mp3", with only safe characters. */
-export function recordingFile(b: LiveBroadcast, format: Mount['format'], timeZone = process.env.TZ) {
+/** Date and time a broadcast started, in the server's time zone: "2026-10-26 2100". */
+function startStamp(b: LiveBroadcast, timeZone: string | undefined) {
   const d = new Date(b.startedAt.toLocaleString('en-US', { timeZone }));
-  const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}${pad(d.getMinutes())}`;
-  const who = b.accountName.replace(/[^\p{L}\p{N} ._-]+/gu, '').trim().slice(0, 60) || 'live';
-  return `${RECORDINGS_FOLDER}/${stamp} ${who} ${b.sessionId.slice(0, 6)}.${EXTENSIONS[format]}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}${pad(d.getMinutes())}`;
 }
+
+/** "recordings/2026-10-26_2100_DJ-Reinder_abcdef.mp3": no spaces or odd characters, so it is easy over SFTP and in scripts. */
+export function recordingFile(b: LiveBroadcast, format: Mount['format'], timeZone = process.env.TZ) {
+  const who = b.accountName.replace(/[^\p{L}\p{N} ._-]+/gu, '').trim().replace(/\s+/g, '-').slice(0, 60) || 'live';
+  return `${RECORDINGS_FOLDER}/${startStamp(b, timeZone).replace(' ', '_')}_${who}_${b.sessionId.slice(0, 6)}.${EXTENSIONS[format]}`;
+}
+
+/** The on-demand title of a recording: "2026-10-26 2100 DJ Reinder". */
+export const recordingTitle = (b: LiveBroadcast, timeZone = process.env.TZ) => `${startStamp(b, timeZone)} ${b.accountName.trim() || 'Live'}`.slice(0, 200);
 
 /**
  * Records a live broadcast into the station's media folder by listening to its source mount on the local Icecast
@@ -73,7 +80,7 @@ export class Recorder extends Relay {
           stationId: this.view.station.id,
           source: 'recording',
           file: this.file,
-          title: this.file.split('/').pop()!.replace(/ [0-9a-f]{6}\.[a-z0-9]+$/, '').slice(0, 200),
+          title: recordingTitle(this.broadcast),
           host: this.broadcast.accountName,
           liveSessionId: this.broadcast.sessionId,
           contentType: CONTENT_TYPES[this.mount.format],

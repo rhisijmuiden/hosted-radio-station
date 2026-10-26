@@ -58,7 +58,7 @@ Phase 4: statistics with real listener addresses, GeoIP, devices, songs and broa
 | 2 | Administration and security | Done |
 | 3 | Distribution | Done |
 | 4 | Statistics | Done |
-| 5 | Public pages | Planned |
+| 5 | Public pages | Done |
 | 6 | Radio station (AutoDJ) | Planned |
 | 7 | Scheduler | Planned |
 | 8 | Distribution network and orchestration | Planned |
@@ -124,9 +124,12 @@ Insight into who listens, where and for how long.
 
 What listeners see.
 
-- Public station page, now playing, recently played and on-demand.
-- Embeddable player and widgets for other websites, plus song requests.
-- Real-time now-playing feeds (WebSocket and Server-Sent Events) and a public JSON API.
+- A public page per station at `/public/<station>` (also on the customer's own `stream.<domain>`): a big player with album art, the DJ who is live, listeners, quality choice and volume, recently played, song requests, on demand, about and social links, sharing, a mini player while scrolling and lock-screen controls. Light and dark, English and Dutch, with the station's own logo and accent colour and "Powered by RHIS". Links shared on social media get a proper preview.
+- Widgets for other websites: the player as a bar or a card, recently played and the request form, with theme, language, accent colour and a transparent background. The panel makes the embed code with a live preview.
+- Now playing in real time over Server-Sent Events and WebSocket, and a public JSON API (now playing, history, on demand, requests) that any website can call. Converted mounts such as `/opus` carry the title of their source.
+- Album art looked up for every song (iTunes Search) and kept on the server, so listeners never contact a third party.
+- Song requests with an inbox for DJs in the panel, optionally only while a DJ is live, limited per listener.
+- On demand: live DJ sets are recorded automatically (within the customer's storage limit) and published right away or as a draft; audio files uploaded over SFTP/FTP into the `ondemand` folder appear by themselves.
 
 ### Phase 6: Radio station (AutoDJ)
 
