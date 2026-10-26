@@ -56,6 +56,8 @@ install -m 0644 "$SRC"/hosted-radio-api.service "$SRC"/hosted-radio-update.servi
   "$SRC"/hosted-radio-streams-apply.service "$SRC"/hosted-radio-streams-apply.path "$SRC"/hosted-radio-streams-apply.timer \
   /etc/systemd/system/
 install -m 0755 "$INSTALL_DIR/deploy/bin/hrs" /usr/local/bin/hrs
+# Also in /usr/bin: "pct exec" and some other shells have no /usr/local/bin in their PATH.
+ln -sf /usr/local/bin/hrs /usr/bin/hrs
 
 # Sandboxing needs mount namespaces, which some unprivileged LXC containers do not allow. Only enable it when it works.
 sandbox=0
