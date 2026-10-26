@@ -2,7 +2,8 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { cpus, hostname, loadavg, networkInterfaces, totalmem, uptime } from 'node:os';
 
-/** Facts the main server shows about the node. */
+/** Facts the main server shows about the node. */import { soundCards } from './fm/manager.js';
+
 export function facts(web: 'caddy' | 'direct') {
   let os = 'Linux';
   try {
@@ -16,7 +17,7 @@ export function facts(web: 'caddy' | 'direct') {
     .map((a) => a!.address);
   return {
     hostname: hostname(),
-    facts: { cores: cpus().length, memoryMb: Math.round(totalmem() / 1048576), os, caddy: web === 'caddy' && existsSync('/usr/bin/caddy'), addresses },
+    facts: { cores: cpus().length, memoryMb: Math.round(totalmem() / 1048576), os, caddy: web === 'caddy' && existsSync('/usr/bin/caddy'), addresses, ffmpeg: existsSync('/usr/bin/ffmpeg'), soundcards: soundCards() },
   };
 }
 
