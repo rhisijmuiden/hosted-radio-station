@@ -35,6 +35,22 @@ describe('auth', () => {
   });
 });
 
+describe('request bodies', () => {
+  // Cloudflare passes an empty POST on as a chunked request without a content type (1.0.0: node update gave 415).
+  it('accepts an empty chunked POST without a content type', async () => {
+    const res = await t.app.inject({ method: 'POST', url: '/api/nodes/updates/pause', headers: { ...adminHeaders, 'transfer-encoding': 'chunked' } });
+    expect(res.statusCode).toBe(200);
+    await t.app.inject({ method: 'POST', url: '/api/nodes/updates/resume', headers: adminHeaders });
+  });
+
+  it('still refuses a body of an unknown type', async () => {
+    const res = await t.app.inject({ method: 'POST', url: '/api/nodes/updates/pause', headers: { ...adminHeaders, 'content-type': 'text/xml' }, payload: '<a/>' });
+    expect(res.statusCode).toBe(415);
+    const raw = await t.app.inject({ method: 'POST', url: '/api/nodes/updates/pause', headers: { ...adminHeaders, 'transfer-encoding': 'chunked' }, payload: 'abc' });
+    expect(raw.statusCode).toBe(415);
+  });
+});
+
 describe('customers, members and roles', () => {
   let tenantId: string;
   let ownerHeaders: { cookie: string };

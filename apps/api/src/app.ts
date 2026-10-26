@@ -76,6 +76,14 @@ export async function buildApp(ctx: AppContext) {
 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
+  // A proxy (Cloudflare) can pass an empty POST on as a chunked request without a content type, which Fastify
+  // answers with 415. Such a request has no body: accept it. Anything with a body or an unknown type stays 415.
+  app.addContentTypeParser('*', { parseAs: 'buffer' }, (req, body, done) => {
+    if (!req.headers['content-type'] && (body as Buffer).length === 0) return done(null, undefined);
+    const err = new Error('Unsupported Media Type') as Error & { statusCode: number };
+    err.statusCode = 415;
+    done(err, undefined);
+  });
   app.decorate('ctx', ctx);
   const hub = new NowPlayingHub(ctx, app.log);
   app.decorate('nowPlaying', hub);
