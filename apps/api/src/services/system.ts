@@ -68,6 +68,13 @@ export async function getVersionInfo(ctx: AppContext): Promise<VersionInfo> {
   return { version, commit, commitDate, branch, node: process.version, helpers: ctx.config.SYSTEM_HELPERS === '1' };
 }
 
+let running: Promise<VersionInfo> | null = null;
+/**
+ * The version this process runs, read once when it starts. An update checks the new version out before it builds it,
+ * so during the build the checkout is ahead of the running code; nodes must not follow it yet.
+ */
+export const runningVersion = (ctx: AppContext) => (running ??= getVersionInfo(ctx));
+
 /** The repository this installation was cloned from, e.g. https://github.com/owner/repo.git. */
 export async function repositoryUrl(ctx: AppContext): Promise<string | null> {
   return git(ctx, 'remote', 'get-url', 'origin').catch(() => null);

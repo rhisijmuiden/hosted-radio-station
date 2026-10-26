@@ -5,7 +5,7 @@ import type { NodeStatus } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
 import { conflict } from '../../lib/errors.js';
 import { getSetting, putSetting, type NodeRollout, type NodesSettings, type NodeUpdatesSettings, type UpdatePolicy, type UpdateWindow } from '../settings.js';
-import { getVersionInfo } from '../system.js';
+import { runningVersion } from '../system.js';
 import { nodeEvent, type NodeHub } from './hub.js';
 import { nodeSettings, type Node } from './plan.js';
 
@@ -206,7 +206,6 @@ export class NodeUpdater {
   private timer: NodeJS.Timeout | null = null;
   private lock: Promise<unknown> = Promise.resolve();
   private startedAt = Date.now();
-  private versionCache: { at: number; value: Ref & { version: string } } | null = null;
 
   constructor(
     private readonly ctx: AppContext,
@@ -234,12 +233,10 @@ export class NodeUpdater {
     return p;
   }
 
-  async target() {
-    if (!this.versionCache || Date.now() - this.versionCache.at > 30_000) {
-      const v = await getVersionInfo(this.ctx);
-      this.versionCache = { at: Date.now(), value: { version: v.version, commit: v.commit, branch: v.branch } };
-    }
-    return this.versionCache.value;
+  /** The version nodes update to: the one this server runs, not a checkout an update is still building. */
+  async target(): Promise<Ref & { version: string }> {
+    const v = await runningVersion(this.ctx);
+    return { version: v.version, commit: v.commit, branch: v.branch };
   }
 
   async overview(): Promise<UpdateOverview> {

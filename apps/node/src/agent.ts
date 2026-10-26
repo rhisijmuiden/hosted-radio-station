@@ -153,7 +153,11 @@ export class Agent {
       this.ws = null;
       this.ready = false;
       if (this.stopped) return;
-      let delay = Math.min(30_000, 1000 * 2 ** Math.min(this.retries++, 5));
+      // A restart of the main server takes a few seconds (1001 = it said so): try again soon, a little apart per node,
+      // and only slow down to every 30 s when it stays away for about two minutes.
+      if (ev.code === 1001) this.retries = 0;
+      const n = this.retries++;
+      let delay = (n < 30 ? Math.min(5000, 1000 * (n + 1)) : 30_000) + Math.floor(Math.random() * 500);
       if (ev.code === CLOSE.unauthorized) {
         // Unpaired or removed in the panel: stop serving, and look again now and then in case it was a mistake.
         log.error('the main server does not accept this node; pair it again with "hrs-node pair"', { reason: ev.reason });

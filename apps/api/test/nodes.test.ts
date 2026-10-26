@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { schema } from '../src/db/index.js';
 import { signPreamble, verifyPreamble } from '../src/services/nodes/preamble.js';
-import { forgetRelays } from '../src/services/nodes/routing.js';
+import { forgetMissingStations, forgetRelays } from '../src/services/nodes/routing.js';
 import { eq } from 'drizzle-orm';
 import { login, setup } from './helpers.js';
 
@@ -321,6 +321,16 @@ describe('nodes', () => {
     expect((await t.app.inject({ method: 'DELETE', url: `/api/stations/${tmp.id}`, headers: owner })).statusCode).toBe(200);
     const [row] = await t.db.select().from(schema.nodes).where(eq(schema.nodes.id, node.id));
     expect(row!.config.relayStations).toEqual([stationId]);
+  });
+
+  it('cleans up a station that was deleted before the clean-up existed', async () => {
+    const { node } = await pair(admin, { name: 'old-relay', roles: ['relay'] });
+    const [row] = await t.db.select().from(schema.nodes).where(eq(schema.nodes.id, node.id));
+    await t.db.update(schema.nodes).set({ config: { ...row!.config, relayStations: [stationId, randomUUID()] } }).where(eq(schema.nodes.id, node.id));
+    expect(await forgetMissingStations(t.ctx)).toBe(true);
+    const [after] = await t.db.select().from(schema.nodes).where(eq(schema.nodes.id, node.id));
+    expect(after!.config.relayStations).toEqual([stationId]);
+    expect(await forgetMissingStations(t.ctx)).toBe(false);
   });
 
   it('signs and checks the encoder preamble', () => {
