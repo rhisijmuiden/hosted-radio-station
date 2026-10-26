@@ -70,7 +70,8 @@ main() {
   echo "# Managed by Hosted Radio Station (stations in the panel). Manual changes are overwritten." > "$tmp"
   while IFS=$'\t' read -r slug port m; do
     [[ "$slug" =~ $slug_re && "$m" =~ $mount_re ]] && valid_port "$port" || { log "Skipping invalid listen route"; problems=1; continue; }
-    printf 'handle /listen/%s%s {\n\trewrite * %s\n\treverse_proxy 127.0.0.1:%s {\n\t\tflush_interval -1\n\t}\n}\n' "$slug" "$m" "$m" "$port" >> "$tmp"
+    # X-Hrs-Client carries the listener's real address (behind trusted proxies too) to the statistics hooks.
+    printf 'handle /listen/%s%s {\n\trewrite * %s\n\treverse_proxy 127.0.0.1:%s {\n\t\theader_up X-Hrs-Client {client_ip}\n\t\theader_up -X-Hrs-Via\n\t\tflush_interval -1\n\t}\n}\n' "$slug" "$m" "$m" "$port" >> "$tmp"
   done < <(jq -r '.listen[] | .slug as $s | .port as $p | .mounts[] | [$s, ($p|tostring), .] | @tsv' "$STATE")
   local included=0
   grep -q 'hosted-radio-streams.caddy' /etc/caddy/Caddyfile 2>/dev/null && included=1

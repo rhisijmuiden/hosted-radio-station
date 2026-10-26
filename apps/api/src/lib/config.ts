@@ -24,6 +24,13 @@ const schema = z.object({
   BACKUP_CONFIG_PATHS: z.string().default('/etc/hosted-radio,/etc/caddy/Caddyfile'),
   /** Set to "1" when the privileged helper units (update, restore, proxy) are installed. */
   SYSTEM_HELPERS: z.enum(['0', '1']).default('0'),
+  /** Listener hooks of the Icecast servers: auto = on when the web server forwards them (see hrs-proxy-apply). */
+  LISTENER_HOOKS: z.enum(['auto', 'on', 'off']).default('auto'),
+  /** Where Icecast reports listeners: the web server, which answers "allowed" itself when the streams service is down. */
+  LISTENER_HOOK_URL: z.string().default('http://127.0.0.1:8099'),
+  /** Port of the listener hook in the streams service (behind LISTENER_HOOK_URL). */
+  LISTENER_HOOK_PORT: z.coerce.number().int().default(8098),
+  CADDYFILE: z.string().default('/etc/caddy/Caddyfile'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 

@@ -28,9 +28,28 @@ export interface IcecastConfigInput {
   sourcePassword: string;
   /** Extra connections for relays and transcoders that listen on this server. */
   internalClients: number;
+  /** Base URL of the listener hooks (statistics), or null to leave them out. */
+  listenerHook?: string | null;
 }
 
 /** The icecast.xml of one station. Only reachable on 127.0.0.1; the web server and the ingest gateway sit in front. */
+/**
+ * Icecast reports every listener that connects and disconnects to the streams service, with the listener's real
+ * address that the web server passes in X-Hrs-Client. The web server answers "allowed" itself when the streams
+ * service is down, so listening never depends on it.
+ */
+function listenerAuth(base: string) {
+  return [
+    `    <authentication type="url">`,
+    `      <option name="listener_add" value="${xml(`${base}/add`)}" />`,
+    `      <option name="listener_remove" value="${xml(`${base}/remove`)}" />`,
+    `      <option name="auth_header" value="icecast-auth-user: 1" />`,
+    `      <option name="headers" value="x-hrs-client,x-hrs-via,referer" />`,
+    `      <option name="header_prefix" value="h_" />`,
+    `    </authentication>`,
+  ].join('\n');
+}
+
 export function renderIcecastConfig(ctx: AppContext, input: IcecastConfigInput): string {
   const { station, mounts } = input;
   const dir = stationDir(ctx, station.id);
@@ -50,6 +69,7 @@ export function renderIcecastConfig(ctx: AppContext, input: IcecastConfigInput):
         m.isPublic ? '' : `    <hidden>1</hidden>`,
         // Encoders that do not say otherwise send UTF-8 titles.
         m.format === 'mp3' || m.format === 'aac' ? `    <charset>UTF-8</charset>` : '',
+        input.listenerHook ? listenerAuth(`${input.listenerHook}/icecast/${station.id}`) : '',
       ].filter(Boolean);
       return `  <mount type="normal">\n${lines.join('\n')}\n  </mount>`;
     })
@@ -190,10 +210,30 @@ export async function fetchStats(t: IcecastTarget): Promise<MountStats[]> {
 /** User agent of the transcoders and relays of the streams service; these readers are not listeners. */
 export const INTERNAL_AGENT = 'Hosted Radio Station';
 
+export interface IcecastClient {
+  id: string;
+  ip: string;
+  userAgent: string;
+  connectedSeconds: number;
+}
+
+/** Parses /admin/listclients. Exported for tests. */
+export function parseClients(body: string): IcecastClient[] {
+  return [...body.matchAll(/<listener[^>]*>([\s\S]*?)<\/listener>/g)].map((m) => {
+    const f: Record<string, string> = {};
+    for (const x of m[1]!.matchAll(/<([A-Za-z]+)>([^<]*)<\/\1>/g)) f[x[1]!] = decodeEntities(x[2]!);
+    return { id: f.ID ?? '', ip: f.IP ?? '', userAgent: f.UserAgent ?? '', connectedSeconds: Number(f.Connected ?? 0) };
+  });
+}
+
+/** Everyone connected to a mount, listeners and our own readers alike. */
+export async function listClients(t: IcecastTarget, mount: string) {
+  return parseClients(await adminRequest(t, `/admin/listclients?mount=${encodeURIComponent(mount)}`));
+}
+
 /** Number of readers of a mount that belong to the streams service (transcoders, relays). */
 export async function internalReaders(t: IcecastTarget, mount: string) {
-  const body = await adminRequest(t, `/admin/listclients?mount=${encodeURIComponent(mount)}`);
-  return [...body.matchAll(/<UserAgent>([^<]*)<\/UserAgent>/g)].filter((m) => decodeEntities(m[1]!).startsWith(INTERNAL_AGENT)).length;
+  return (await listClients(t, mount)).filter((c) => c.userAgent.startsWith(INTERNAL_AGENT)).length;
 }
 
 /** Disconnects the encoder of a mount; listeners stay or move to the fallback mount. */

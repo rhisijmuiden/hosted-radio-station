@@ -29,6 +29,7 @@ import { publicRoutes } from './routes/public.js';
 import { settingsRoutes } from './routes/settings.js';
 import { ssoAdminRoutes, ssoAuthRoutes } from './routes/sso.js';
 import { stationRoutes } from './routes/stations.js';
+import { statsRoutes } from './routes/stats.js';
 import { systemRoutes } from './routes/system.js';
 import { tenantRoutes } from './routes/tenants.js';
 import { userRoutes } from './routes/users.js';
@@ -109,6 +110,7 @@ export async function buildApp(ctx: AppContext) {
   await app.register(auditRoutes, { prefix: '/api/audit' });
   await app.register(stationRoutes, { prefix: '/api/stations' });
   await app.register(tenantStreamingRoutes, { prefix: '/api/tenants' });
+  await app.register(statsRoutes, { prefix: '/api/stats' });
   await app.register(publicRoutes, { prefix: '/api/public' });
   await app.register(internalRoutes, { prefix: '/api/internal' });
 
