@@ -74,6 +74,8 @@ jobs:
           mkdir -p out
           cp apps/studio/src-tauri/target/release/bundle/nsis/*-setup.exe out/
           cd out
+          # GitHub turns spaces in asset names into dots; do it here so the checksum file matches the asset.
+          for f in *-setup.exe; do mv "$f" "${f// /.}"; done
           sha256sum *-setup.exe | sed 's/ \*/  /' > SHA256SUMS.txt
           cat SHA256SUMS.txt
           echo "installer=$(ls *-setup.exe)" >> "$GITHUB_OUTPUT"

@@ -67,7 +67,8 @@ async function toRelease(r: GithubRelease, version: string, fetchImpl: typeof fe
       const line = text
         .split('\n')
         .map((l) => /^([0-9a-f]+)\s+\*?(.+)$/i.exec(l.trim()))
-        .find((m) => m?.[2] === installer.name);
+        // GitHub replaces spaces in asset names with dots, the checksum file keeps the original name.
+        .find((m) => m?.[2]?.replaceAll(' ', '.') === installer.name.replaceAll(' ', '.'));
       sha256 = line?.[1]?.toLowerCase() ?? null;
     } catch {
       /* the client then refuses to install; the panel still offers the download */

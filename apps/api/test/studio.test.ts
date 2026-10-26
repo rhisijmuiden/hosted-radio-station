@@ -139,7 +139,7 @@ describe('studio client releases', () => {
 
   it('picks the newest release per channel with its checksum', async () => {
     clearStudioReleaseCache();
-    const asset = (v: string) => ({ name: `RHIS Studio_${v}_x64-setup.exe`, browser_download_url: `https://dl/${v}.exe`, size: 1234 });
+    const asset = (v: string) => ({ name: `RHIS.Studio_${v}_x64-setup.exe`, browser_download_url: `https://dl/${v}.exe`, size: 1234 });
     const sums = (v: string) => ({ name: 'SHA256SUMS.txt', browser_download_url: `https://dl/${v}.sums`, size: 80 });
     const releases = [
       { tag_name: 'studio-v0.9.0', prerelease: false, draft: false, published_at: '2026-10-26T10:00:00Z', body: 'First', html_url: 'https://gh/r1', assets: [asset('0.9.0'), sums('0.9.0')] },
