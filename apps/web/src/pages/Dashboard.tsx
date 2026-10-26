@@ -11,7 +11,7 @@ import { isAdmin, useMe } from '../lib/auth';
 import { formatRelative, shortCommit } from '../lib/format';
 import { StationsTable } from './Stations';
 
-function Stat({ label, value, note, tone = 'online' }: { label: string; value: ReactNode; note?: ReactNode; tone?: 'online' | 'muted' | 'warning' }) {
+export function Stat({ label, value, note, tone = 'online' }: { label: string; value: ReactNode; note?: ReactNode; tone?: 'online' | 'muted' | 'warning' }) {
   return (
     <Card className="p-[18px]">
       <div className="text-xs text-muted">{label}</div>

@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Avatar, Badge, Button, Card, CardHeader, Dialog, Field, Input, PageHeader, Select, Spinner, Switch, Table } from '../components/ui';
 import { AuditLogView } from '../components/AuditLog';
 import { SsoCard } from '../components/SsoCard';
+import { SubscriptionPanel, TenantInvoicesCard } from '../components/billing';
 import { DomainsCard, UsageCard } from '../components/DomainsCard';
 import { api, ApiError, type Member, type Role, type StationListItem, type Tenant } from '../lib/api';
 import { isAdmin, useMailConfigured, useMe } from '../lib/auth';
@@ -353,8 +354,12 @@ export function CustomerDetailPage() {
       </div>
       <div className="grid gap-4 xl:grid-cols-[1fr_1.2fr]">
         <div className="flex flex-col gap-4">
+          {(admin || me.memberships.find((m) => m.tenantId === c.id)?.billed) && rank[myRole] >= rank.manager && (
+            <SubscriptionPanel tenantId={c.id} admin={admin} canEdit={rank[myRole] >= rank.owner} compact />
+          )}
           <DetailsCard tenant={c} admin={admin} canEdit={rank[myRole] >= rank.owner} />
           <UsageCard tenantId={c.id} />
+          {admin && <TenantInvoicesCard tenantId={c.id} admin />}
         </div>
         <div className="flex flex-col gap-4">
           {rank[myRole] >= rank.manager && <DomainsCard tenantId={c.id} canEdit={rank[myRole] >= rank.owner} admin={admin} />}

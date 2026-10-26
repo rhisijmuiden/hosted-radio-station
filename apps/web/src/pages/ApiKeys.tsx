@@ -6,18 +6,20 @@ import { toast } from 'sonner';
 import { Badge, Button, Card, Dialog, EmptyState, Field, Input, PageHeader, Select, Spinner, Switch, Table } from '../components/ui';
 import { api, ApiError, type ApiKey, type Tenant } from '../lib/api';
 import { formatDate } from '../lib/format';
+import { isAdmin, useMe } from '../lib/auth';
 
 function NewKeyDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const tenants = useQuery({ queryKey: ['tenants'], queryFn: () => api<Tenant[]>('/tenants'), enabled: open });
-  const [form, setForm] = useState({ name: '', tenantId: '', readOnly: false, expiresInDays: '' });
+  const admin = isAdmin(useMe().data!);
+  const [form, setForm] = useState({ name: '', tenantId: '', readOnly: false, expiresInDays: '', provisioning: false });
   const [secret, setSecret] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (open) {
-      setForm({ name: '', tenantId: '', readOnly: false, expiresInDays: '' });
+      setForm({ name: '', tenantId: '', readOnly: false, expiresInDays: '', provisioning: false });
       setSecret(null);
       setCopied(false);
       setError(null);
@@ -30,8 +32,9 @@ function NewKeyDialog({ open, onClose }: { open: boolean; onClose: () => void })
         method: 'POST',
         body: {
           name: form.name,
-          tenantId: form.tenantId || null,
+          tenantId: form.provisioning ? null : form.tenantId || null,
           readOnly: form.readOnly,
+          scope: form.provisioning ? 'provisioning' : 'full',
           expiresInDays: form.expiresInDays ? Number(form.expiresInDays) : null,
         },
       }),
@@ -106,6 +109,14 @@ function NewKeyDialog({ open, onClose }: { open: boolean; onClose: () => void })
             </Select>
           </Field>
           <Switch checked={form.readOnly} onChange={(readOnly) => setForm({ ...form, readOnly })} label={t('apiKeys.readOnly')} description={t('apiKeys.readOnlyHint')} />
+          {admin && (
+            <Switch
+              checked={form.provisioning}
+              onChange={(provisioning) => setForm({ ...form, provisioning, tenantId: provisioning ? '' : form.tenantId })}
+              label={t('apiKeys.provisioning')}
+              description={t('apiKeys.provisioningHint')}
+            />
+          )}
           {error && <p className="rounded-md bg-offline/10 px-3 py-2 text-[13px] text-offline">{error}</p>}
         </form>
       )}
@@ -160,7 +171,7 @@ export function ApiKeysPage() {
             {keys.data!.map((k) => (
               <tr key={k.id}>
                 <td className="font-semibold">
-                  {k.name} {k.readOnly && <Badge>{t('apiKeys.readOnlyShort')}</Badge>}
+                  {k.name} {k.readOnly && <Badge>{t('apiKeys.readOnlyShort')}</Badge>} {k.scope === 'provisioning' && <Badge tone="accent">{t('apiKeys.provisioningShort')}</Badge>}
                 </td>
                 <td>
                   <code className="text-xs text-muted">{k.prefix}…</code>

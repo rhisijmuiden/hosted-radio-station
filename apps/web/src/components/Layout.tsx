@@ -22,6 +22,12 @@ import {
   Server,
   Network,
   MonitorSmartphone,
+  CreditCard,
+  FileText,
+  Package,
+  Receipt,
+  Webhook,
+  Landmark,
   type LucideIcon,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -56,7 +62,7 @@ function NavItemLink({ item, onNavigate }: { item: NavItem; onNavigate: () => vo
   return (
     <NavLink
       to={item.to}
-      end={item.to === '/'}
+      end={item.to === '/' || item.to === '/billing'}
       onClick={onNavigate}
       className={({ isActive }) => clsx(base, isActive ? 'bg-[var(--nav-active-bg)] text-[var(--nav-active-ink)]' : 'text-ink hover:bg-hover')}
     >
@@ -167,7 +173,15 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
     ...(admin || me.memberships.some((m) => m.role !== 'dj') ? [{ to: '/statistics', label: t('nav.statistics'), icon: BarChart3 }] : []),
     { to: '/customers', label: admin ? t('nav.customers') : t('nav.myCustomers'), icon: Building2 },
     { to: '/studio', label: t('nav.studio'), icon: MonitorSmartphone },
+    ...(!admin && me.memberships.some((m) => m.billed && m.role !== 'dj') ? [{ to: '/subscription', label: t('nav.subscription'), icon: CreditCard }] : []),
   ];
+  const hosted: NavItem[] = admin
+    ? [
+        { to: '/billing', label: t('nav.billingOverview'), icon: Receipt },
+        { to: '/billing/packages', label: t('nav.packages'), icon: Package },
+        { to: '/billing/invoices', label: t('nav.invoices'), icon: FileText },
+      ]
+    : [];
   const infra: NavItem[] =
     admin || me.memberships.some((m) => m.role !== 'dj')
       ? [
@@ -184,6 +198,8 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
         { to: '/settings/streaming', label: t('nav.streaming'), icon: RadioTower },
         { to: '/settings/statistics', label: t('nav.statisticsSettings'), icon: BarChart3 },
         { to: '/settings/backups', label: t('nav.backups'), icon: DatabaseBackup },
+        { to: '/settings/billing', label: t('nav.billingSettings'), icon: Landmark },
+        { to: '/settings/webhooks', label: t('nav.webhooks'), icon: Webhook },
         { to: '/audit', label: t('nav.auditLog'), icon: ScrollText },
         { to: '/settings/updates', label: t('nav.updates'), icon: RefreshCw },
         { to: '/api/docs', label: t('nav.apiDocs'), icon: BookOpen, external: true },
@@ -210,6 +226,10 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
         ))}
         {!!infra.length && <div className="px-2.5 pt-4 pb-1.5 text-[11px] tracking-[0.08em] text-muted uppercase">{t('nav.infrastructure')}</div>}
         {infra.map((item) => (
+          <NavItemLink key={item.to} item={item} onNavigate={onNavigate} />
+        ))}
+        {!!hosted.length && <div className="px-2.5 pt-4 pb-1.5 text-[11px] tracking-[0.08em] text-muted uppercase">{t('nav.hostedService')}</div>}
+        {hosted.map((item) => (
           <NavItemLink key={item.to} item={item} onNavigate={onNavigate} />
         ))}
         <div className="px-2.5 pt-4 pb-1.5 text-[11px] tracking-[0.08em] text-muted uppercase">{admin ? t('nav.administration') : t('nav.developer')}</div>

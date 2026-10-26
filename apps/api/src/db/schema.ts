@@ -94,6 +94,8 @@ export const apiKeys = pgTable(
     prefix: text('prefix').notNull(),
     hash: text('hash').notNull(),
     readOnly: boolean('read_only').notNull().default(false),
+    /** full = everything its owner may do; provisioning = only the sign-up API for a website (phase 10). */
+    scope: text('scope').notNull().default('full'),
     lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
     createdAt: createdAt(),
@@ -1062,3 +1064,196 @@ export const studioLiveTokens = pgTable(
   },
   (t) => [uniqueIndex('studio_live_tokens_hash_idx').on(t.hash), index('studio_live_tokens_account_idx').on(t.accountId)],
 );
+
+// Phase 10: hosted service (packages, subscriptions, invoices, webhooks)
+
+/**
+ * A package that is sold: an edition with its limits and prices. The RHIS website reads the public ones and signs
+ * customers up with a package code. Changing a package does not change running subscriptions until they are renewed
+ * or moved to it.
+ */
+export const packages = pgTable('packages', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  /** Stable code the website uses, e.g. "radio-basic". */
+  code: text('code').notNull().unique(),
+  name: text('name').notNull(),
+  description: jsonb('description').$type<{ en: string; nl: string }>().notNull().default({ en: '', nl: '' }),
+  /** Selling points for pricing tables, one line each. */
+  features: jsonb('features').$type<{ en: string; nl: string }[]>().notNull().default([]),
+  edition: tenantPlan('edition').notNull(),
+  limits: jsonb('limits').$type<TenantLimits>().notNull(),
+  currency: text('currency').notNull().default('EUR'),
+  /** Prices without VAT, in cents. A null yearly price means the package is only sold per month. */
+  priceMonthCents: integer('price_month_cents').notNull(),
+  priceYearCents: integer('price_year_cents'),
+  setupFeeCents: integer('setup_fee_cents').notNull().default(0),
+  trialDays: integer('trial_days').notNull().default(0),
+  /** Shown in the public package list (website, customer panel). */
+  public: boolean('public').notNull().default(true),
+  /** New customers can be signed up with it. Retired packages keep their subscriptions. */
+  active: boolean('active').notNull().default(true),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: createdAt(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const billingInterval = pgEnum('billing_interval', ['month', 'year']);
+export const subscriptionStatus = pgEnum('subscription_status', ['trialing', 'active', 'past_due', 'suspended', 'cancelled']);
+
+export interface BillingContact {
+  company: string;
+  name: string;
+  email: string;
+  address: string;
+  postcode: string;
+  city: string;
+  /** ISO 3166-1 alpha-2, e.g. "NL". */
+  country: string;
+  vatNumber: string;
+  /** Purchase order or reference printed on invoices. */
+  reference: string;
+}
+
+/** The package a customer pays for. One per customer; customers without one (own stations) are never billed. */
+export const subscriptions = pgTable(
+  'subscriptions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+    packageId: uuid('package_id').notNull().references(() => packages.id, { onDelete: 'restrict' }),
+    interval: billingInterval('interval').notNull().default('month'),
+    status: subscriptionStatus('status').notNull(),
+    trialEndsAt: timestamp('trial_ends_at', { withTimezone: true }),
+    currentPeriodStart: timestamp('current_period_start', { withTimezone: true }).notNull(),
+    currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }).notNull(),
+    cancelAtPeriodEnd: boolean('cancel_at_period_end').notNull().default(false),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    suspendedAt: timestamp('suspended_at', { withTimezone: true }),
+    /** A downgrade waits for the end of the period. */
+    pendingPackageId: uuid('pending_package_id').references(() => packages.id, { onDelete: 'set null' }),
+    pendingInterval: billingInterval('pending_interval'),
+    /** Agreed price per interval instead of the package price, in cents without VAT. */
+    customPriceCents: integer('custom_price_cents'),
+    discountPercent: integer('discount_percent').notNull().default(0),
+    /** The limits were changed by hand; package changes then leave them alone. */
+    customLimits: boolean('custom_limits').notNull().default(false),
+    billing: jsonb('billing').$type<BillingContact>().notNull(),
+    /** Language of invoices and billing e-mails. */
+    locale: text('locale').notNull().default('en'),
+    notes: text('notes').notNull().default(''),
+    createdAt: createdAt(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('subscriptions_tenant_idx').on(t.tenantId), index('subscriptions_period_idx').on(t.currentPeriodEnd)],
+);
+
+export const invoiceStatus = pgEnum('invoice_status', ['open', 'paid', 'void']);
+
+export interface InvoiceLine {
+  description: string;
+  quantity: number;
+  unitCents: number;
+  /** quantity × unitCents, rounded. */
+  amountCents: number;
+}
+
+export interface InvoiceParty {
+  company: string;
+  name: string;
+  email: string;
+  address: string;
+  postcode: string;
+  city: string;
+  country: string;
+  vatNumber: string;
+  cocNumber?: string;
+  iban?: string;
+  bic?: string;
+  website?: string;
+  phone?: string;
+  /** Free text at the bottom of the invoice (seller only). */
+  footer?: string;
+}
+
+/** An invoice, numbered when it is created. Seller and buyer are copied in, so later changes never alter it. */
+export const invoices = pgTable(
+  'invoices',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    number: text('number').notNull().unique(),
+    tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'set null' }),
+    subscriptionId: uuid('subscription_id').references(() => subscriptions.id, { onDelete: 'set null' }),
+    /** Kept when the customer is deleted later. */
+    tenantName: text('tenant_name').notNull(),
+    status: invoiceStatus('status').notNull().default('open'),
+    issuedAt: timestamp('issued_at', { withTimezone: true }).notNull().defaultNow(),
+    dueAt: timestamp('due_at', { withTimezone: true }).notNull(),
+    periodStart: timestamp('period_start', { withTimezone: true }),
+    periodEnd: timestamp('period_end', { withTimezone: true }),
+    currency: text('currency').notNull().default('EUR'),
+    lines: jsonb('lines').$type<InvoiceLine[]>().notNull(),
+    subtotalCents: integer('subtotal_cents').notNull(),
+    vatRate: doublePrecision('vat_rate').notNull(),
+    /** standard | reverse_charge (EU business customer) | export (outside the EU) */
+    vatScheme: text('vat_scheme').notNull().default('standard'),
+    vatCents: integer('vat_cents').notNull(),
+    totalCents: integer('total_cents').notNull(),
+    seller: jsonb('seller').$type<InvoiceParty>().notNull(),
+    buyer: jsonb('buyer').$type<InvoiceParty & { reference: string }>().notNull(),
+    locale: text('locale').notNull().default('en'),
+    notes: text('notes').notNull().default(''),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    /** How it was paid: mollie, bank transfer, ... and the reference. */
+    paymentMethod: text('payment_method'),
+    paymentRef: text('payment_ref'),
+    /** Online payment (Mollie) and its checkout link. */
+    molliePaymentId: text('mollie_payment_id'),
+    paymentUrl: text('payment_url'),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    remindedAt: timestamp('reminded_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index('invoices_tenant_idx').on(t.tenantId, t.issuedAt), index('invoices_status_idx').on(t.status, t.dueAt), index('invoices_mollie_idx').on(t.molliePaymentId)],
+);
+
+/** Outgoing webhooks: the RHIS website (or anything else) hears about sign-ups, invoices and suspensions. */
+export const webhooks = pgTable('webhooks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull(),
+  url: text('url').notNull(),
+  /** Encrypted signing secret. */
+  secret: text('secret').notNull(),
+  /** Event names, or "*" for all. */
+  events: jsonb('events').$type<string[]>().notNull(),
+  active: boolean('active').notNull().default(true),
+  createdAt: createdAt(),
+});
+
+export const webhookDeliveries = pgTable(
+  'webhook_deliveries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    webhookId: uuid('webhook_id').notNull().references(() => webhooks.id, { onDelete: 'cascade' }),
+    event: text('event').notNull(),
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
+    /** pending | delivered | failed (gave up) */
+    state: text('state').notNull().default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).notNull().defaultNow(),
+    responseStatus: integer('response_status'),
+    error: text('error'),
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index('webhook_deliveries_due_idx').on(t.state, t.nextAttemptAt), index('webhook_deliveries_hook_idx').on(t.webhookId, t.createdAt)],
+);
+
+/** Answers to provisioning calls with an Idempotency-Key, so a website retry never creates a customer twice. */
+export const idempotencyKeys = pgTable('idempotency_keys', {
+  key: text('key').primaryKey(),
+  /** sha256 of the request body; the same key with another body is refused. */
+  requestHash: text('request_hash').notNull(),
+  statusCode: integer('status_code').notNull(),
+  response: jsonb('response').notNull(),
+  createdAt: createdAt(),
+});

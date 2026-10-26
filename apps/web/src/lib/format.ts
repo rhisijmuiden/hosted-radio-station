@@ -47,3 +47,9 @@ export function formatSeconds(total: number | null | undefined) {
   const sec = String(s % 60).padStart(2, '0');
   return h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
 }
+
+/** "€ 12,10" from cents, in the interface language. */
+export function formatMoney(cents: number | null | undefined, currency = 'EUR') {
+  if (cents == null) return '—';
+  return new Intl.NumberFormat(i18n.language, { style: 'currency', currency }).format(cents / 100);
+}
