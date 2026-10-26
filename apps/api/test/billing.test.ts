@@ -223,7 +223,7 @@ describe('hosted service', () => {
     const again = await t.app.inject({ method: 'POST', url: '/api/provisioning/signup', headers, payload });
     expect(again.statusCode).toBe(201);
     expect(again.headers['idempotent-replayed']).toBe('true');
-    expect(again.json().tenant.id).toBe(tenantId);
+    expect(again.json()).toEqual(out);
     const other = await t.app.inject({ method: 'POST', url: '/api/provisioning/signup', headers, payload: { ...payload, interval: 'year' } });
     expect(other.statusCode).toBe(409);
     const dup = await t.app.inject({ method: 'POST', url: '/api/provisioning/signup', headers: { authorization: headers.authorization }, payload });
