@@ -1,4 +1,4 @@
-export type NodeRole = 'relay' | 'source' | 'station';
+export type NodeRole = 'relay' | 'source' | 'station' | 'fm';
 
 /**
  * The messages between the main server and the node agent. A copy of apps/api/src/services/nodes/protocol.ts: keep
@@ -66,6 +66,8 @@ export interface NodePlan {
   probes: { intervalSeconds: number; targets: ProbeTarget[] } | null;
   /** Station node: the full server next to the agent runs the stations (it gets them itself from the main server). */
   station: { stations: number } | null;
+  /** FM/MPX role (phase 11). */
+  fm: FmPlan | null;
   update: { branch: string | null; commit: string | null; auto: boolean };
 }
 
@@ -185,6 +187,47 @@ export interface IngestMountStatus {
   pushing: string[];
 }
 
+/** What an FM/MPX node puts on air and how. */
+export interface FmPlan {
+  station: { id: string; slug: string; name: string };
+  /** The stream it puts on air (the main server's listen route of the chosen mount); null without a station. */
+  url: string | null;
+  texts: {
+    ps: string;
+    psMode: 'static' | 'dynamic';
+    psSeconds: number;
+    rtSong: string;
+    rtLive: string;
+    rtIdle: string;
+  };
+  rds: { enabled: boolean; pi: number; pty: number; tp: boolean; ta: boolean; music: boolean; af: number[]; rtPlus: boolean; clock: boolean; timezone: string };
+  audio: { stereo: boolean; preemphasis: 0 | 50 | 75; limiter: boolean; pilot: number; rdsLevel: number; gainDb: number; bufferSeconds: number };
+  /** soundcard: a 192 kHz sound card (ALSA); rtp: MPX over IP (RTP, L24 192 kHz); none: no MPX (UECP only). */
+  output: { kind: 'soundcard' | 'rtp' | 'none'; device: string; channels: 1 | 2; rtpHost: string; rtpPort: number; rtpTtl: number };
+  /** An existing RDS encoder steered over UECP, or null. */
+  uecp: { transport: 'tcp' | 'udp' | 'serial'; host: string; port: number; device: string; baud: number; site: number; encoder: number } | null;
+}
+
+/** What an FM/MPX node reports about its output, in every stats message. */
+export interface FmStatus {
+  input: 'idle' | 'connecting' | 'connected' | 'error';
+  inputMessage?: string;
+  /** The song title in the stream right now. */
+  title: string | null;
+  output: 'off' | 'starting' | 'running' | 'error';
+  outputMessage?: string;
+  uecp: 'off' | 'connecting' | 'connected' | 'error';
+  uecpMessage?: string;
+  meters: { peak: number; left: number; right: number; buffered: number; ppm: number; underruns: number; overruns: number; playing: boolean } | null;
+  /** The PS on air now, all PS frames it rotates through, the RadioText and its RadioText+ tags. */
+  ps: string;
+  psFrames: string[];
+  rt: string;
+  tags: { type: number; start: number; length: number }[];
+  /** RDS groups sent since the agent started, by type. */
+  groups: Record<string, number>;
+}
+
 export interface AgentHello {
   t: 'hello';
   protocol: number;
@@ -193,7 +236,7 @@ export interface AgentHello {
   version: string;
   commit: string | null;
   hostname: string;
-  facts: { cores: number; memoryMb: number; os: string; caddy: boolean; addresses: string[] };
+  facts: { cores: number; memoryMb: number; os: string; caddy: boolean; addresses: string[]; ffmpeg?: boolean; soundcards?: { device: string; name: string }[] };
 }
 
 export interface AgentStats {
@@ -212,6 +255,7 @@ export interface AgentStats {
   revision: string | null;
   /** Ingest: mounts on air on this node. */
   ingest?: IngestMountStatus[];
+  fm?: FmStatus | null;
 }
 
 export interface AgentEvent {
@@ -228,7 +272,9 @@ export type ServerMessage =
   | { t: 'plan'; plan: NodePlan }
   | { t: 'ping'; seq: number }
   | { t: 'update'; branch: string | null; commit: string | null }
-  | AuthResult;
+  | AuthResult
+  /** FM/MPX: who is live and which show runs, for the RadioText (the song comes from the stream itself). */
+  | { t: 'fm'; dj: string | null; show: string | null };
 
 /** The bulk report a node posts every 30 seconds (POST /api/nodes/agent/report). */
 export interface AgentReport {

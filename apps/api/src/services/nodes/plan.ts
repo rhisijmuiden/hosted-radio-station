@@ -7,6 +7,7 @@ import type { AppContext } from '../../lib/context.js';
 import { getSetting } from '../settings.js';
 import { platformHost } from '../streaming/state.js';
 import { getVersionInfo, type VersionInfo } from '../system.js';
+import { buildFmPlan, fmConfigSchema } from './fm.js';
 import { ingestsOf, pushedRouting, stationRouting } from './routing-rules.js';
 import type { IngestStation, NodePlan, ProbeTarget, RelayMount } from './protocol.js';
 
@@ -35,8 +36,18 @@ export const nodeConfigSchema = z.object({
     .max(253)
     .regex(/^$|^[A-Za-z0-9.:-]+$/, 'Use an IP address or host name')
     .default(''),
+  fm: fmConfigSchema.default(fmConfigSchema.parse({})),
 });
 export type NodeSettings = z.infer<typeof nodeConfigSchema>;
+
+/** The same object with every field optional and without defaults: a change sends only what it changes. */
+function patchOf<T extends z.ZodRawShape>(shape: T) {
+  return z.object(Object.fromEntries(Object.entries(shape).map(([k, v]) => [k, ((v instanceof z.ZodDefault ? v.unwrap() : v) as z.ZodType).optional()])) as unknown as { [K in keyof T]: z.ZodOptional<T[K] extends z.ZodDefault<infer I> ? I : T[K]> });
+}
+
+/** Body of a settings change from the panel or the API. */
+export const nodeConfigPatch = patchOf(nodeConfigSchema.shape).extend({ fm: patchOf(fmConfigSchema.shape).optional() });
+export type NodeConfigPatch = z.infer<typeof nodeConfigPatch>;
 
 export const nodeSettings = (node: Pick<Node, 'config'>): NodeSettings => nodeConfigSchema.parse(node.config ?? {});
 
@@ -228,6 +239,17 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
     const [{ n }] = await ctx.db.select({ n: count() }).from(schema.stations).where(eq(schema.stations.nodeId, node.id));
     station = { stations: n };
   }
+  const fmStation = roles.includes('fm') ? stations.find((s) => s.id === c.fm.stationId) : undefined;
+  // The audio of a station with an ingest node (or on a station node) does not pass this server: the FM node then
+  // listens on one of the station's relays.
+  const fmBase =
+    fmStation && (fmStation.nodeId || pushedRouting(stationRouting(fmStation)))
+      ? (relaysOf(fmStation, relays)
+          .filter((r) => r.status.online)
+          .map((r) => relayBaseUrl(r))
+          .find(Boolean) ?? base)
+      : base;
+  const fm = fmStation ? await buildFmPlan(ctx, c.fm, fmBase, stations) : null;
 
   const plan: Omit<NodePlan, 'revision'> = {
     nodeId: node.id,
@@ -239,6 +261,7 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
     ingest,
     probes,
     station,
+    fm,
     update: { branch: v.branch, commit: v.commit, auto: settings.autoUpdate },
   };
   return { ...plan, revision: createHash('sha256').update(JSON.stringify(plan)).digest('hex').slice(0, 16) };
@@ -334,6 +357,7 @@ export function pushToken(ctx: AppContext, relay: Pick<Node, 'secret'>, key: str
 }
 
 /** Validates settings from the panel and returns the stored form. */
-export function storedConfig(input: Partial<NodeSettings>, current: NodeConfig = {}): NodeConfig {
-  return nodeConfigSchema.parse({ ...current, ...input });
+export function storedConfig(input: NodeConfigPatch, current: NodeConfig = {}): NodeConfig {
+  const fm = input.fm ? { ...(current.fm ?? {}), ...input.fm } : current.fm;
+  return nodeConfigSchema.parse({ ...current, ...input, fm });
 }

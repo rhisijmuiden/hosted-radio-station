@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { Cpu, Headphones, Maximize2, Mic, Minus, Plus, Radio, Server, Users } from 'lucide-react';
+import { Cpu, Headphones, Maximize2, Mic, Minus, Plus, Radio, RadioTower, Server, Users } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Topology, TopologyNode } from '../../lib/api';
@@ -103,12 +103,34 @@ export default function TopologyFlat({
     for (const n of data.nodes) {
       const ingest = n.roles.includes('source');
       const relay = n.roles.includes('relay');
+      const fm = !relay && n.roles.includes('fm');
       const common = { select: n.id, title: nodeName(t, n, customer), health: healthOf(n), own: customer && n.own, dim: dimmed.has(n.id) };
       if (ingest) add({ ...common, key: `${n.id}#in`, lane: 'ingest', icon: <Server />, meta: meta(n, t('topology.encodersCount', { count: n.encoders })) });
-      if (relay || !ingest) add({ ...common, key: `${n.id}#out`, lane: 'distribution', icon: relay ? <Radio /> : <Server />, meta: meta(n, relay ? t('topology.listenersCount', { count: n.listeners }) : n.location || t('nodes.noRoles')) });
+      if (relay || !ingest)
+        add({
+          ...common,
+          key: `${n.id}#out`,
+          lane: 'distribution',
+          icon: relay ? <Radio /> : fm ? <RadioTower /> : <Server />,
+          meta: meta(n, relay ? t('topology.listenersCount', { count: n.listeners }) : fm ? (n.fmOnAir ? t('topology.fmOnAir') : t('topology.fmOff')) : n.location || t('nodes.noRoles')),
+        });
       // Control only: the orchestrator steers the node, the audio does not pass it.
       if (n.paired && !n.local) edges.push({ from: 'main', to: ingest ? `${n.id}#in` : `${n.id}#out`, kind: 'control', state: !n.online ? 'down' : n.degraded ? 'degraded' : 'ok', label: latency(n), dim: dimmed.has(n.id) });
       if (n.local) edges.push({ from: 'main', to: ingest ? `${n.id}#in` : `${n.id}#out`, kind: 'control', state: n.online ? 'ok' : 'down', label: null, dim: dimmed.has(n.id) });
+      if (n.roles.includes('fm')) {
+        add({
+          key: `fm:${n.id}`,
+          select: n.id,
+          lane: 'audience',
+          icon: <RadioTower />,
+          title: t('topology.flat.fmListeners', { where: n.location || n.city || '' }).trim(),
+          meta: n.fmOnAir ? t('topology.fmOnAir') : t('topology.fmOff'),
+          health: null,
+          audience: true,
+          dim: dimmed.has(n.id),
+        });
+        edges.push({ from: relay || !ingest ? `${n.id}#out` : `${n.id}#in`, to: `fm:${n.id}`, kind: 'listen', state: n.online && n.fmOnAir ? 'ok' : 'idle', label: null, dim: dimmed.has(n.id) });
+      }
       if (relay) {
         const where = n.local ? t('topology.flat.direct') : n.location || n.city || n.country;
         add({

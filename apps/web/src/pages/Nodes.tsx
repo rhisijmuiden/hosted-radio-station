@@ -10,7 +10,7 @@ import { Badge, Button, Card, Dialog, EmptyState, Field, Input, PageHeader, Sele
 import { api, ApiError, type NodeItem, type NodePairing, type NodeRole, type NodesSettings, type Tenant } from '../lib/api';
 import { isAdmin, useMe } from '../lib/auth';
 
-export const ROLES: NodeRole[] = ['relay', 'source'];
+export const ROLES: NodeRole[] = ['relay', 'source', 'fm'];
 
 /** Role toggles with a line on what each role does. */
 export function RolePicker({ value, onChange }: { value: NodeRole[]; onChange: (v: NodeRole[]) => void }) {
@@ -32,7 +32,7 @@ export function RolePicker({ value, onChange }: { value: NodeRole[]; onChange: (
           </button>
         );
       })}
-      <div className="rounded-md border border-dashed border-line p-3 text-left opacity-60 sm:col-span-2">
+      <div className="rounded-md border border-dashed border-line p-3 text-left opacity-60">
         <div className="text-sm font-semibold">{t('nodes.roles.later')}</div>
         <div className="mt-0.5 text-xs text-muted">{t('nodes.roleHints.later')}</div>
       </div>

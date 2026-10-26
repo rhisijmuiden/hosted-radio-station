@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { dataPath, ports, readVersion, writeAtomic, type NodeFile } from './config.js';
 import { applyStatus, applyWeb, requestUpdate, updateStatus, type JobStatus } from './helpers.js';
 import { icecastConfigPath, icecastSecrets, reloadIcecast, renderIcecastConfig, type IcecastLayout, type IcecastSecrets } from './icecast.js';
+import { FmManager } from './fm/manager.js';
 import { log } from './log.js';
 import { Prober } from './probe.js';
 import { IngestManager } from './ingest.js';
@@ -33,6 +34,7 @@ export class Agent {
   /** The main server accepted this connection (welcome), so it takes messages. */
   private ready = false;
   private prober = new Prober();
+  private fm: FmManager;
   private sampler = new Sampler();
   private hooks: http.Server | null = null;
   private timers: NodeJS.Timeout[] = [];
@@ -49,6 +51,7 @@ export class Agent {
 
   constructor(private readonly file: NodeFile) {
     this.source = new SourceForwarder({ nodeId: file.nodeId, secret: file.secret });
+    this.fm = new FmManager(file.nodeId);
   }
 
   async start() {
@@ -86,6 +89,7 @@ export class Agent {
     this.ingest?.stop();
     this.source.stop();
     this.prober.stop();
+    this.fm.stop();
     this.hooks?.close();
   }
 
@@ -155,6 +159,7 @@ export class Agent {
         this.ingest?.stop();
         void this.source.apply(null);
         this.prober.stop();
+        this.fm.stop();
         delay = 5 * 60_000;
       } else if (ev.code === CLOSE.protocol) {
         log.error('the main server speaks another protocol version; update this node', { reason: ev.reason });
@@ -217,6 +222,8 @@ export class Agent {
         return;
       case 'update':
         return this.startUpdate(msg.branch, msg.commit, 'requested');
+      case 'fm':
+        return this.fm.setContext({ dj: msg.dj, show: msg.show });
     }
   }
 
@@ -256,6 +263,8 @@ export class Agent {
     );
     await this.source.apply(plan.source);
     this.prober.apply(plan.probes);
+    // Plans of older main servers have no fm field.
+    this.fm.apply(plan.roles.includes('fm') ? (plan.fm ?? null) : null);
     log.info('plan applied', { revision: plan.revision, roles: plan.roles.join(',') || 'none', mounts: mounts.length, probes: plan.probes?.targets.length ?? 0 });
   }
 
@@ -297,10 +306,11 @@ export class Agent {
         listeners: this.relay?.listenerCount ?? 0,
         encoders: this.source.encoders,
         icmp: this.icmp,
-        problems: [...(apply?.problems ?? []), ...this.source.problems, ...(this.relay?.push.problems ?? []), ...(this.ingest?.problems() ?? [])].slice(0, 10),
+        problems: [...(apply?.problems ?? []), ...this.source.problems, ...(this.relay?.push.problems ?? []), ...(this.ingest?.problems() ?? []), ...this.fm.problemList].slice(0, 10),
         update: this.update ? { state: this.update.state, message: this.update.message, at: this.update.at } : null,
         revision: this.plan?.revision ?? null,
         ingest: this.ingest?.status() ?? [],
+        fm: this.fm.status(),
       });
     })().catch((err) => log.debug('sending stats failed', { err }));
   }

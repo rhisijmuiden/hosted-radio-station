@@ -14,7 +14,10 @@ const ctx = createContext(config, db);
 const app = await buildApp(ctx);
 const stopTasks = startBackgroundTasks(ctx, app.log);
 // The streams service reports new titles and live DJs; the public live feeds pass them on right away.
-await client.listen(NOWPLAYING_CHANNEL, (stationId) => app.nowPlaying.notify(stationId));
+await client.listen(NOWPLAYING_CHANNEL, (stationId) => {
+  app.nowPlaying.notify(stationId);
+  app.nodes.fmNotify(stationId);
+});
 // Stations, mounts or domains changed: nodes get a new plan when it affects them.
 await client.listen(STREAMS_CHANNEL, () => void app.nodes.refreshAll());
 

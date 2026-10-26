@@ -795,7 +795,63 @@ export interface SchedulerView {
 
 // Nodes (distribution network)
 
-export type NodeRole = 'relay' | 'source';
+export type NodeRole = 'relay' | 'source' | 'fm';
+/** FM/MPX settings of a node (phase 11). Shares are 0..1 of 100% modulation. */
+export interface FmConfig {
+  stationId: string | null;
+  mount: string | null;
+  rds: boolean;
+  pi: string;
+  ps: string;
+  psMode: 'static' | 'dynamic';
+  psSeconds: number;
+  rtSong: string;
+  rtLive: string;
+  rtIdle: string;
+  rtPlus: boolean;
+  pty: number;
+  tp: boolean;
+  ta: boolean;
+  music: boolean;
+  af: number[];
+  clock: boolean;
+  stereo: boolean;
+  preemphasis: 0 | 50 | 75;
+  limiter: boolean;
+  pilot: number;
+  rdsLevel: number;
+  gainDb: number;
+  bufferSeconds: number;
+  output: 'soundcard' | 'rtp' | 'none';
+  device: string;
+  channels: 1 | 2;
+  rtpHost: string;
+  rtpPort: number;
+  rtpTtl: number;
+  uecp: boolean;
+  uecpTransport: 'tcp' | 'udp' | 'serial';
+  uecpHost: string;
+  uecpPort: number;
+  uecpDevice: string;
+  uecpBaud: number;
+  uecpSite: number;
+  uecpEncoder: number;
+}
+export interface FmStatus {
+  input: 'idle' | 'connecting' | 'connected' | 'error';
+  inputMessage?: string;
+  title: string | null;
+  output: 'off' | 'starting' | 'running' | 'error';
+  outputMessage?: string;
+  uecp: 'off' | 'connecting' | 'connected' | 'error';
+  uecpMessage?: string;
+  meters: { peak: number; left: number; right: number; buffered: number; ppm: number; underruns: number; overruns: number; playing: boolean } | null;
+  ps: string;
+  psFrames: string[];
+  rt: string;
+  tags: { type: number; start: number; length: number }[];
+  groups: Record<string, number>;
+}
 export interface NodeConfig {
   publicHost: string;
   listenPort: number | null;
@@ -804,6 +860,7 @@ export interface NodeConfig {
   sourcePlainPort: number | null;
   sourceTlsPort: number | null;
   probe: boolean;
+  fm: FmConfig;
 }
 export type RelayState = 'connecting' | 'connected' | 'error' | 'idle';
 export interface NodeStatus {
@@ -834,6 +891,9 @@ export interface NodeStatus {
   encoders?: number;
   problems?: string[];
   update?: { state: 'idle' | 'running' | 'succeeded' | 'failed'; message?: string; at?: string } | null;
+  ffmpeg?: boolean;
+  soundcards?: { device: string; name: string }[];
+  fm?: FmStatus | null;
   updatedAt?: string;
 }
 export interface NodeItem {
@@ -928,6 +988,8 @@ export interface TopologyNode {
   updateAvailable: boolean;
   relaysUp: number;
   relaysTotal: number;
+  /** FM/MPX node with its station on air. */
+  fmOnAir: boolean;
 }
 /** "local" = this server's own ingest; otherwise an ingest node id. */
 export type IngestRef = 'local' | string;

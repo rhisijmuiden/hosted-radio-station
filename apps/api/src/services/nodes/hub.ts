@@ -7,9 +7,10 @@ import type { NodeStatus } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
 import { getSetting } from '../settings.js';
 import { GeoIp } from '../stats/geoip.js';
+import { fmContext } from './fm.js';
 import { authorizeIngest, recordLive, syncLive } from './ingest.js';
 import { buildPlan, type Node } from './plan.js';
-import { CLOSE, PROTOCOL_VERSION, type AgentMessage, type AgentStats, type ServerMessage } from './protocol.js';
+import { CLOSE, PROTOCOL_VERSION, type AgentMessage, type AgentStats, type FmStatus, type ServerMessage } from './protocol.js';
 
 const PING_MS = 5000;
 /** A ping without an answer after this long counts as a timeout. */
@@ -36,6 +37,9 @@ interface Conn {
   savedAt: number;
   latencyHigh: boolean;
   timer: NodeJS.Timeout;
+  /** FM/MPX: the station it puts on air and the live DJ/show it was told last. */
+  fmStation: string | null;
+  fmSent: string;
 }
 
 /** Compares a secret with the stored (encrypted) one in constant time. */
@@ -50,6 +54,32 @@ export function secretMatches(ctx: AppContext, sealed: string | null, given: str
   const a = Buffer.from(plain);
   const b = Buffer.from(given);
   return a.length === b.length && timingSafeEqual(a, b);
+}
+
+const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : undefined);
+const num = (v: unknown, max = Number.MAX_SAFE_INTEGER) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(-max, Math.min(max, v)) : 0);
+
+/** The FM status of a node, checked field by field (it ends up in the panel). */
+export function sanitizeFm(f: FmStatus): FmStatus {
+  const pick = <T extends string>(v: unknown, allowed: readonly T[], fallback: T): T => (allowed.includes(v as T) ? (v as T) : fallback);
+  const m = f.meters && typeof f.meters === 'object' ? f.meters : null;
+  return {
+    input: pick(f.input, ['idle', 'connecting', 'connected', 'error'] as const, 'idle'),
+    inputMessage: str(f.inputMessage, 300),
+    title: str(f.title, 300) ?? null,
+    output: pick(f.output, ['off', 'starting', 'running', 'error'] as const, 'off'),
+    outputMessage: str(f.outputMessage, 300),
+    uecp: pick(f.uecp, ['off', 'connecting', 'connected', 'error'] as const, 'off'),
+    uecpMessage: str(f.uecpMessage, 300),
+    meters: m
+      ? { peak: num(m.peak, 10), left: num(m.left, 10), right: num(m.right, 10), buffered: num(m.buffered, 3600), ppm: num(m.ppm, 1e6), underruns: num(m.underruns), overruns: num(m.overruns), playing: !!m.playing }
+      : null,
+    ps: str(f.ps, 8) ?? '',
+    psFrames: Array.isArray(f.psFrames) ? f.psFrames.slice(0, 20).map((p) => String(p).slice(0, 8)) : [],
+    rt: str(f.rt, 64) ?? '',
+    tags: Array.isArray(f.tags) ? f.tags.slice(0, 2).map((t) => ({ type: num(t?.type, 63), start: num(t?.start, 64), length: num(t?.length, 64) })) : [],
+    groups: Object.fromEntries(Object.entries(f.groups && typeof f.groups === 'object' ? f.groups : {}).slice(0, 8).map(([k, v]) => [k.slice(0, 4), num(v)])),
+  };
 }
 
 export async function nodeEvent(ctx: AppContext, nodeId: string, kind: string, level: 'info' | 'warning' | 'error' = 'info', details: Record<string, string | number | null> = {}) {
@@ -80,6 +110,8 @@ export class NodeHub {
     this.timers.push(setInterval(() => void this.flushMinute().catch((err) => this.log.warn({ err }, 'saving node health failed')), 60_000));
     // Probe targets depend on which relays are online; plans are cheap to compare.
     this.timers.push(setInterval(() => void this.refreshAll(), 60_000));
+    // Shows start and end on the clock: tell FM nodes about the current one now and then.
+    this.timers.push(setInterval(() => void this.fmRefresh(), 30_000));
     this.timers.push(setInterval(() => void this.cleanup().catch((err) => this.log.warn({ err }, 'cleaning up node health failed')), 3600_000));
     for (const t of this.timers) t.unref();
   }
@@ -163,6 +195,8 @@ export class NodeHub {
       caddy: !!msg.facts?.caddy,
       cores: Number(msg.facts?.cores) || undefined,
       addresses: Array.isArray(msg.facts?.addresses) ? msg.facts.addresses.slice(0, 10).map(String) : [],
+      ffmpeg: !!msg.facts?.ffmpeg,
+      soundcards: Array.isArray(msg.facts?.soundcards) ? msg.facts.soundcards.slice(0, 16).map((c) => ({ device: String(c?.device ?? '').slice(0, 100), name: String(c?.name ?? '').slice(0, 120) })) : [],
       ip,
       country: geo?.country ?? null,
       city: geo?.city ?? null,
@@ -183,6 +217,8 @@ export class NodeHub {
       savedAt: Date.now(),
       latencyHigh: false,
       timer: setInterval(() => this.ping(conn), PING_MS),
+      fmStation: null,
+      fmSent: '',
     };
     conn.timer.unref();
     this.conns.set(node.id, conn);
@@ -276,6 +312,7 @@ export class NodeHub {
         void nodeEvent(this.ctx, c.nodeId, m.update.state === 'succeeded' ? 'update_done' : 'update_failed', m.update.state === 'succeeded' ? 'info' : 'error', { message: m.update.message ?? null });
       }
     }
+    s.fm = m.fm && typeof m.fm === 'object' ? sanitizeFm(m.fm) : null;
     s.updatedAt = new Date().toISOString();
     // Ingest status feeds now playing on this server, so it is saved more often.
     if (Date.now() - c.savedAt > (s.ingest?.length ? 3000 : 10_000)) void this.save(c);
@@ -355,6 +392,31 @@ export class NodeHub {
     if (plan.revision === c.revision) return;
     c.revision = plan.revision;
     this.send(c, { t: 'plan', plan });
+    const station = plan.fm?.station.id ?? null;
+    if (station !== c.fmStation) {
+      c.fmStation = station;
+      c.fmSent = '';
+      if (station) await this.fmSend(c);
+    }
+  }
+
+  /** Sends an FM node who is live and which show runs, when that changed. */
+  private async fmSend(c: Conn) {
+    if (!c.fmStation) return;
+    const now = await fmContext(this.ctx, c.fmStation);
+    const key = JSON.stringify(now);
+    if (key === c.fmSent) return;
+    c.fmSent = key;
+    this.send(c, { t: 'fm', dj: now.dj, show: now.show });
+  }
+
+  /** A DJ went live or off air on a station (from the streams service): its FM nodes update their RadioText. */
+  fmNotify(stationId: string) {
+    for (const c of this.conns.values()) if (c.fmStation === stationId) void this.fmSend(c).catch((err) => this.log.warn({ err }, 'telling an FM node failed'));
+  }
+
+  private async fmRefresh() {
+    for (const c of this.conns.values()) if (c.fmStation) await this.fmSend(c).catch((err) => this.log.warn({ err }, 'telling an FM node failed'));
   }
 
   /** Sends a node its plan again when anything in it changed (after a change in the panel). */

@@ -6,9 +6,10 @@ Nodes are extra servers that work for the main server. A node runs a small agent
 | --- | --- |
 | Relay | Pulls the public streams of its stations from the main server and serves them to listeners. Players and public pages send listeners to the nearest healthy relay. |
 | Source | Takes encoders on `src.<domain>` and passes every connection on to the main server, signed with the node's secret, so the real address of the encoder is kept. |
+| FM/MPX | Puts one station on FM: MPX with stereo and RDS on a 192 kHz sound card or over IP, or RDS to an existing encoder over UECP. Installed with `install-fm.sh`; see [fm.md](fm.md). |
 | Remote probe (every node) | Checks the streams of its stations regularly, on the main server and on the relays, and reports availability and time to first byte. |
 
-Station nodes and FM/MPX nodes follow in later phases.
+Station nodes follow in a later phase.
 
 ## Add a node
 
@@ -30,6 +31,7 @@ Installer options:
 | `--code <code>` | The one-time pairing code. Not needed when the node is already paired (running the installer again updates it). |
 | `--ref <branch>` | Branch to install; later the node follows the main server's version by itself. |
 | `--no-caddy` | No web server on the node: Icecast serves listeners directly on its own port, without HTTPS. Chosen automatically when the main server runs on the same machine. |
+| `--fm` | Also install ffmpeg and the ALSA tools for the FM/MPX role (`install-fm.sh` adds it for you). |
 
 ## Relay settings
 
