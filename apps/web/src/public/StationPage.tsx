@@ -1,8 +1,8 @@
 import clsx from 'clsx';
-import { Headphones, History, Inbox, ListMusic, Share2 } from 'lucide-react';
+import { CalendarDays, Headphones, History, Inbox, ListMusic, Mic, Share2 } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Artwork, Equalizer, HistoryList, LiveBadge, Links, OnDemandList, PlayButton, PoweredBy, QualitySelect, RequestForm, SongLine, Toggles, VolumeControl } from './components';
-import { getJson, seconds, timeAgo, useElapsed, useLang, useLivePlayer, useT, type NowPlaying, type OnDemandItem } from './lib';
+import { getJson, seconds, timeAgo, useElapsed, useLang, useLivePlayer, useT, type NowPlaying, type OnDemandItem, type Show } from './lib';
 
 function Section({ icon, title, subtitle, children, className }: { icon: ReactNode; title: string; subtitle?: string; children: ReactNode; className?: string }) {
   return (
@@ -57,12 +57,85 @@ function useOnDemand(np: NowPlaying | null) {
   return { items, total, more: () => setLimit((l) => l + 12) };
 }
 
+function useSchedule(np: NowPlaying | null) {
+  const [data, setData] = useState<{ timezone: string; onAir: Show | null; upcoming: Show[] } | null>(null);
+  const slug = np?.station.slug;
+  const enabled = !!np?.schedule.enabled;
+  // Refresh when the show on air changes.
+  const current = np?.schedule.show?.start;
+  useEffect(() => {
+    if (!slug || !enabled) return;
+    void getJson<{ timezone: string; onAir: Show | null; upcoming: Show[] }>(`/api/public/stations/${slug}/schedule`)
+      .then(setData)
+      .catch(() => undefined);
+  }, [slug, enabled, current]);
+  return data;
+}
+
+function ScheduleList({ data }: { data: { timezone: string; onAir: Show | null; upcoming: Show[] } }) {
+  const t = useT();
+  const { lang } = useLang();
+  const [limit, setLimit] = useState(8);
+  const tz = data.timezone;
+  const time = (iso: string) => new Intl.DateTimeFormat(lang, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: tz }).format(new Date(iso));
+  const day = (iso: string) => new Intl.DateTimeFormat(lang, { weekday: 'long', day: 'numeric', month: 'long', timeZone: tz }).format(new Date(iso));
+  const own = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const shown = data.upcoming.slice(0, limit);
+  let lastDay = '';
+  return (
+    <div className="flex flex-col gap-3">
+      {data.onAir && (
+        <div className="rounded-md bg-[color-mix(in_srgb,var(--station)_12%,transparent)] p-4">
+          <div className="flex items-center gap-2 text-[11px] font-bold tracking-[0.1em] text-[var(--station)] uppercase">
+            <span className="size-1.5 animate-pulse rounded-full bg-[var(--station)]" /> {t('onNow')} · {time(data.onAir.start)}–{time(data.onAir.end)}
+          </div>
+          <div className="display mt-1 text-lg">{data.onAir.name}</div>
+          {data.onAir.djs.length > 0 && <div className="text-sm text-muted">{t('withDjs', { djs: data.onAir.djs.join(', ') })}</div>}
+          {data.onAir.description && <p className="mt-1 text-sm text-muted">{data.onAir.description}</p>}
+        </div>
+      )}
+      {!shown.length && !data.onAir && <p className="text-sm text-muted">{t('noShows')}</p>}
+      <ul className="flex flex-col">
+        {shown.map((s) => {
+          const d = day(s.start);
+          const header = d !== lastDay;
+          lastDay = d;
+          return (
+            <li key={`${s.name}-${s.start}`}>
+              {header && <div className="mt-2 mb-1 text-[11px] font-bold tracking-[0.08em] text-muted uppercase first:mt-0">{d}</div>}
+              <div className="flex items-start gap-3 rounded-md px-2 py-2 hover:bg-hover">
+                <span className="w-24 shrink-0 pt-0.5 text-xs whitespace-nowrap text-muted tabular-nums">
+                  {time(s.start)}–{time(s.end)}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 text-sm font-semibold">
+                    {s.live && <Mic className="size-3.5 shrink-0 text-[var(--station)]" />}
+                    <span className="truncate">{s.name}</span>
+                  </div>
+                  {s.djs.length > 0 && <div className="truncate text-xs text-muted">{t('withDjs', { djs: s.djs.join(', ') })}</div>}
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      {data.upcoming.length > limit && (
+        <button type="button" onClick={() => setLimit((l) => l + 12)} className="w-full rounded-md py-2 text-[13px] font-semibold text-[var(--station)] hover:bg-hover">
+          {t('showMore')}
+        </button>
+      )}
+      {own !== tz && <p className="text-[11px] text-muted">{t('timesIn', { zone: tz.replace(/_/g, ' ') })}</p>}
+    </div>
+  );
+}
+
 export function StationPage({ np, theme, setTheme }: { np: NowPlaying; theme: 'light' | 'dark'; setTheme: (t: 'light' | 'dark') => void }) {
   const t = useT();
   const { lang } = useLang();
   const player = useLivePlayer(np);
   const elapsed = useElapsed(np.song?.startedAt);
   const onDemand = useOnDemand(np);
+  const schedule = useSchedule(np);
   const hero = useRef<HTMLDivElement>(null);
   const [heroVisible, setHeroVisible] = useState(true);
   const playing = player.state === 'playing';
@@ -120,6 +193,11 @@ export function StationPage({ np, theme, setTheme }: { np: NowPlaying; theme: 'l
                 </span>
               )}
               {np.station.genre && <span className="rounded-full bg-raised/70 px-2.5 py-1 text-[11px] font-semibold text-muted backdrop-blur">{np.station.genre}</span>}
+              {np.schedule.show && (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-raised/70 px-2.5 py-1 text-[11px] font-semibold backdrop-blur">
+                  <CalendarDays className="size-3.5 text-[var(--station)]" /> {np.schedule.show.name}
+                </span>
+              )}
             </div>
             <p className="mt-6 flex items-center gap-2 text-xs font-bold tracking-[0.12em] text-[var(--station)] uppercase">
               <Equalizer playing={playing} />
@@ -165,6 +243,11 @@ export function StationPage({ np, theme, setTheme }: { np: NowPlaying; theme: 'l
           )}
         </div>
         <div className="flex flex-col gap-4">
+          {np.schedule.enabled && schedule && (schedule.onAir || schedule.upcoming.length > 0) && (
+            <Section icon={<CalendarDays className="size-[18px]" />} title={t('schedule')} subtitle={t('scheduleText')}>
+              <ScheduleList data={schedule} />
+            </Section>
+          )}
           {np.requests.enabled && (
             <Section icon={<Inbox className="size-[18px]" />} title={t('requestTitle')} subtitle={t('requestText')}>
               <RequestForm np={np} />

@@ -6,11 +6,13 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import { AccountsCard } from '../components/station/Accounts';
 import { AutodjTab } from '../components/station/AutoDj';
+import { ClocksTab } from '../components/station/Clocks';
 import { LibraryTab } from '../components/station/Library';
 import { PlaylistsTab } from '../components/station/Playlists';
 import { OnDemandTab } from '../components/station/OnDemand';
 import { PublicPageTab } from '../components/station/PublicPage';
 import { RequestsTab, usePendingRequests } from '../components/station/Requests';
+import { ScheduleTab } from '../components/station/Schedule';
 import { StatisticsView } from '../components/stats/StatisticsView';
 import { formatLabel, MountsCard } from '../components/station/Mounts';
 import { OutputsCard, OutputStateBadge } from '../components/station/Outputs';
@@ -19,7 +21,7 @@ import { api, type LiveSession, type StationDetail, type StationStatus, type Ten
 import { formatBytes, formatDate, formatDuration } from '../lib/format';
 import { EditionBadge } from './Stations';
 
-type Tab = 'overview' | 'autodj' | 'library' | 'playlists' | 'statistics' | 'mounts' | 'outputs' | 'accounts' | 'history' | 'public' | 'requests' | 'ondemand' | 'settings';
+type Tab = 'overview' | 'autodj' | 'library' | 'playlists' | 'clocks' | 'schedule' | 'statistics' | 'mounts' | 'outputs' | 'accounts' | 'history' | 'public' | 'requests' | 'ondemand' | 'settings';
 const rank = { dj: 1, manager: 2, owner: 3, superadmin: 4 } as const;
 
 function useStationStatus(id: string) {
@@ -463,6 +465,8 @@ export function StationDetailPage() {
           { value: 'autodj' as const, label: t('stations.tabs.autodj') },
           { value: 'library' as const, label: t('stations.tabs.library') },
           { value: 'playlists' as const, label: t('stations.tabs.playlists') },
+          { value: 'clocks' as const, label: t('stations.tabs.clocks') },
+          { value: 'schedule' as const, label: t('stations.tabs.schedule') },
         ]
       : []),
     ...(manager
@@ -541,6 +545,8 @@ export function StationDetailPage() {
       {tab === 'autodj' && <AutodjTab station={s} canEdit={manager} />}
       {tab === 'library' && <LibraryTab station={s} canEdit={manager} />}
       {tab === 'playlists' && <PlaylistsTab station={s} canEdit={manager} />}
+      {tab === 'clocks' && <ClocksTab station={s} canEdit={manager} />}
+      {tab === 'schedule' && <ScheduleTab station={s} canEdit={manager} />}
       {tab === 'statistics' && (
         <StatisticsView scope={{ stationId: s.id }} mounts={s.mounts.map((m) => m.path)} outputs={s.outputs.filter((o) => o.type !== 'local').map((o) => ({ id: o.id, name: o.name }))} showStation={false} />
       )}

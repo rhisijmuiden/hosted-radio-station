@@ -70,7 +70,7 @@ const playlistBody = z.object({
   /** Feeds its queue; off = only played where an hour clock asks for it (news, commercials, jingles). */
   rotation: z.boolean().default(true),
 });
-const playlistOut = playlistBody.extend({ id: z.uuid(), trackCount: z.number().int(), createdAt: z.date() });
+const playlistOut = playlistBody.extend({ id: z.uuid(), trackCount: z.number().int(), averageSeconds: z.number().nullable(), createdAt: z.date() });
 const sourceStatusOut = z.object({ state: z.enum(['pending', 'ok', 'error']), message: z.string().optional(), checkedAt: z.string().optional() }).nullable();
 const sourceBody = z.object({
   name: z.string().trim().min(1).max(80),
@@ -722,10 +722,10 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
     const counts = await Promise.all(
       lists.map((p) =>
         ctx.db
-          .select({ n: count() })
+          .select({ n: count(), avg: sql<number | null>`avg(${schema.mediaFiles.durationSeconds})::float8` })
           .from(schema.mediaFiles)
           .where(and(eq(schema.mediaFiles.stationId, stationId), inPlaylist(p)))
-          .then((r) => r[0]?.n ?? 0),
+          .then((r) => r[0] ?? { n: 0, avg: null }),
       ),
     );
     return lists.map((p, i) => ({
@@ -737,7 +737,8 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
       folders: p.folders,
       enabled: p.enabled,
       rotation: p.rotation,
-      trackCount: counts[i]!,
+      trackCount: counts[i]!.n,
+      averageSeconds: counts[i]!.avg,
       createdAt: p.createdAt,
     }));
   }

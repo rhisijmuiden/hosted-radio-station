@@ -78,6 +78,8 @@ const schedulerOut = z.object({
   /** The station's wall clock now, in its time zone. */
   now: z.object({ date: z.string(), weekday: z.number().int(), minuteOfDay: z.number().int(), second: z.number().int() }),
   onAir: z.object({ entryId: z.uuid().nullable(), clockId: z.uuid().nullable() }),
+  /** The library tracks the clocks play. */
+  tracks: z.array(z.object({ id: z.uuid(), title: z.string(), artist: z.string(), durationSeconds: z.number().nullable() })),
 });
 
 /** Hour clocks and the weekly schedule of Radio stations (phase 7). */
@@ -102,6 +104,13 @@ export const schedulerRoutes: FastifyPluginAsyncZod = async (app) => {
     ]);
     const now = Date.now();
     const w = wallTime(now, plan.settings.timezone);
+    const mediaIds = [...new Set([...plan.clocks.values()].flatMap((c) => c.items.map((i) => i.mediaId)).filter((v): v is string => !!v))];
+    const tracks = mediaIds.length
+      ? await ctx.db
+          .select({ id: schema.mediaFiles.id, title: schema.mediaFiles.title, artist: schema.mediaFiles.artist, durationSeconds: schema.mediaFiles.durationSeconds })
+          .from(schema.mediaFiles)
+          .where(and(eq(schema.mediaFiles.stationId, station.id), inArray(schema.mediaFiles.id, mediaIds)))
+      : [];
     return {
       settings: plan.settings,
       clocks: [...plan.clocks.values()].sort((a, b) => a.name.localeCompare(b.name)),
@@ -109,6 +118,7 @@ export const schedulerRoutes: FastifyPluginAsyncZod = async (app) => {
       accounts,
       now: { date: w.date, weekday: w.weekday, minuteOfDay: w.minuteOfDay, second: w.second },
       onAir: { entryId: plan.entryAt(now)?.id ?? null, clockId: plan.clockAt(now)?.id ?? null },
+      tracks,
     };
   }
 

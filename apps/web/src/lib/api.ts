@@ -637,10 +637,12 @@ export interface QueueRow {
   id: string;
   queue: QueueName;
   state: 'queued' | 'cued' | 'playing';
-  origin: 'rotation' | 'request' | 'manual';
+  origin: 'rotation' | 'request' | 'manual' | 'clock';
   addedBy: string | null;
   requestId: string | null;
   playlistName: string | null;
+  /** Clock item it came from. */
+  label: string | null;
   startedAt: string | null;
   media: { id: string; title: string; artist: string; album: string; durationSeconds: number | null; location: string; path: string };
 }
@@ -653,6 +655,7 @@ export interface AutodjView {
   nowPlaying: QueueRow | null;
   queues: { q1: QueueRow[]; q2: QueueRow[] };
   library: { tracks: number; enabled: number; playlists: number };
+  schedule: { enabled: boolean; clock: { id: string; name: string; color: string } | null; entry: { id: string; name: string; live: boolean } | null };
 }
 export interface MediaFile {
   id: string;
@@ -707,7 +710,10 @@ export interface Playlist {
   order: 'shuffle' | 'random' | 'sequential';
   folders: PlaylistFolder[];
   enabled: boolean;
+  /** Feeds its queue; off = only for hour clocks. */
+  rotation: boolean;
   trackCount: number;
+  averageSeconds: number | null;
   createdAt: string;
 }
 export type MediaSourceType = 'local' | 'smb' | 'nfs';
@@ -720,4 +726,60 @@ export interface MediaSource {
   status: { state: 'pending' | 'ok' | 'error'; message?: string; checkedAt?: string } | null;
   fileCount: number;
   scannedAt: string | null;
+}
+
+// Phase 7: scheduler
+
+export interface ClockItem {
+  id: string;
+  kind: 'rotation' | 'playlist' | 'track';
+  label: string;
+  playlistId: string | null;
+  mediaId: string | null;
+  /** Tracks (playlist); 0 = until the next timed item. */
+  count: number;
+  /** Minute of the hour; null = after the item before. */
+  at: number | null;
+  hard: boolean;
+}
+export interface Clock {
+  id: string;
+  name: string;
+  color: string;
+  items: ClockItem[];
+  createdAt: string;
+  updatedAt: string;
+}
+export interface ScheduleEntry {
+  id: string;
+  name: string;
+  description: string;
+  clockId: string | null;
+  live: boolean;
+  accountIds: string[];
+  /** ISO weekdays, 1 = Monday. */
+  days: number[];
+  date: string | null;
+  startMinute: number;
+  durationMinutes: number;
+  isPublic: boolean;
+  enabled: boolean;
+  createdAt: string;
+}
+export interface SchedulerSettings {
+  enabled: boolean;
+  timezone: string;
+  defaultClockId: string | null;
+  liveOnlyInShows: boolean;
+  liveEarlyMinutes: number;
+  publicSchedule: boolean;
+}
+export interface SchedulerView {
+  settings: SchedulerSettings;
+  clocks: Clock[];
+  entries: ScheduleEntry[];
+  accounts: { id: string; username: string; displayName: string }[];
+  now: { date: string; weekday: number; minuteOfDay: number; second: number };
+  onAir: { entryId: string | null; clockId: string | null };
+  tracks: { id: string; title: string; artist: string; durationSeconds: number | null }[];
 }

@@ -68,6 +68,15 @@ Phase 6: Radio station with AutoDJ, music library, playlists and two queues.
 | ![Bulk upload](docs/screenshots/phase-6-upload.png) | ![Listeners request songs from the library](docs/screenshots/phase-6-request-library.png) |
 | ![AutoDJ in Dutch, dark](docs/screenshots/phase-6-autodj-dark-nl.png) | ![Library in Dutch, dark](docs/screenshots/phase-6-library-dark-nl.png) |
 
+Phase 7: Scheduler with hour clocks, a weekly schedule and live shows.
+
+| Light | Dark, Dutch |
+| --- | --- |
+| ![Hour clock editor with the dial of the hour](docs/screenshots/phase-7-clocks.png) | ![Hour clocks in Dutch, dark](docs/screenshots/phase-7-clocks-dark-nl.png) |
+| ![Weekly schedule with blocks and live shows](docs/screenshots/phase-7-schedule.png) | ![Schedule in Dutch, dark](docs/screenshots/phase-7-schedule-dark-nl.png) |
+| ![Live show with its DJs](docs/screenshots/phase-7-show-dialog.png) | ![AutoDJ playing the commercials of the hour clock](docs/screenshots/phase-7-autodj.png) |
+| ![Playlists only for hour clocks](docs/screenshots/phase-7-playlists.png) | ![Programme on the public page](docs/screenshots/phase-7-public.png) |
+
 ## Status
 
 | Phase | Name | Status |
@@ -78,7 +87,7 @@ Phase 6: Radio station with AutoDJ, music library, playlists and two queues.
 | 4 | Statistics | Done |
 | 5 | Public pages | Done |
 | 6 | Radio station (AutoDJ) | Done |
-| 7 | Scheduler | Planned |
+| 7 | Scheduler | Done |
 | 8 | Distribution network and orchestration | Planned |
 | 9 | Windows client | Planned |
 | 10 | Hosted service | Planned |
@@ -165,9 +174,11 @@ The upgrade from Distribution.
 
 A tightly programmed station.
 
-- Hour clocks, for example news on the hour, then commercials, then one or two songs.
-- Weekly schedule that decides which clock runs when.
-- Live takeover with automatic fallback to the AutoDJ.
+- Hour clocks: the order of an hour, item by item. An item is music from the queues, tracks from a playlist (a number of them, or until the next timed item) or one library track. Items with a minute are timed: they start at the track change closest to their minute, or exactly on the minute by fading out the track that plays then. Items without a minute follow the one before. A dial shows the hour in the panel.
+- Playlists can be kept out of the queues and used only by the clocks (news, commercials, station IDs).
+- Weekly schedule in the station's time zone: blocks on chosen days or once on a date (one-off blocks win), which may run past midnight. Each block runs a clock; a default clock covers the hours without a block. The AutoDJ picks a clock up in the middle of an hour without replaying items that are long overdue.
+- Live shows with their DJs: when the DJ connects the AutoDJ holds, when the DJ stops the AutoDJ continues with the show's clock. Optionally DJs can only broadcast during their own shows (from a few minutes before).
+- The programme on the public page and in the public API (`/api/public/stations/<slug>/schedule`), with the show on air in now playing.
 
 ### Phase 8: Distribution network and orchestration
 
