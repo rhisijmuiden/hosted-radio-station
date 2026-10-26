@@ -19,7 +19,7 @@ const freePort = async () => {
 
 /** A stand-in for the node's Icecast: takes one source, keeps what it receives. */
 function fakeIcecast() {
-  const got: { head: string; body: Buffer[]; titles: string[] } = { head: '', body: [], titles: [] };
+  const got: { head: string; body: Buffer[]; titles: string[]; puts: number } = { head: '', body: [], titles: [], puts: 0 };
   const server = net.createServer((socket) => {
     let head = '';
     let source = false;
@@ -34,6 +34,7 @@ function fakeIcecast() {
         return socket.end('HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n');
       }
       source = true;
+      got.puts++;
       got.head = head.slice(0, i);
       socket.write('HTTP/1.0 200 OK\r\n\r\n');
       const rest = Buffer.from(head.slice(i + 4), 'latin1');
@@ -192,6 +193,51 @@ test('hands its source back when the stream is pulled again (the station moved b
 
   (back as net.Socket).destroy();
   ok.socket.destroy();
+  receiver.stop();
+  ice.server.close();
+});
+
+test('keeps its source open a moment when the push ends, for a push that comes back or a puller that takes it back', async () => {
+  const ice = fakeIcecast();
+  const icePort = await listen(ice.server);
+  const receiver = new PushReceiver({ icecastPort: () => icePort, secrets: { source: 'src', admin: 'adm' }, lingerMs: 600 });
+  const port = await freePort();
+  const mount = { key: 'studio-fm/live', stationId: 'x', slug: 'studio-fm', path: '/live', name: 'Studio FM', format: 'mp3', url: null, push: { token: 'tok-123' } };
+  await receiver.apply(port, [mount]);
+  await new Promise((r) => setTimeout(r, 200));
+
+  // The station node restarts its stream: the new push continues on the same source connection.
+  const first = await push(port, 'tok-123');
+  first.socket.write(Buffer.from('one;'));
+  await new Promise((r) => setTimeout(r, 100));
+  first.socket.destroy();
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(receiver.connected('studio-fm/live'), false);
+  const again = await push(port, 'tok-123');
+  again.socket.write(Buffer.from('two;'));
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(ice.got.puts, 1);
+  assert.equal(Buffer.concat(ice.got.body).toString(), 'one;two;');
+
+  // The station moves back: the node stops pushing before this relay is told to pull, and still gets the source back.
+  again.socket.destroy();
+  await new Promise((r) => setTimeout(r, 200));
+  let back: net.Socket | null = null;
+  await receiver.apply(port, [{ ...mount, url: 'http://main/listen/studio-fm/live', push: null }], (_key, local) => (back = local));
+  assert.ok(back);
+  assert.equal((back as net.Socket).destroyed, false);
+  (back as net.Socket).destroy();
+
+  // Nobody comes back: after the wait the source closes, so Icecast ends the stream.
+  await receiver.apply(port, [mount]);
+  const last = await push(port, 'tok-123');
+  last.socket.destroy();
+  await new Promise((r) => setTimeout(r, 900));
+  const fresh = await push(port, 'tok-123');
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(ice.got.puts, 3);
+
+  fresh.socket.destroy();
   receiver.stop();
   ice.server.close();
 });

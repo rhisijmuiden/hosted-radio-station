@@ -74,9 +74,12 @@ export abstract class Relay {
     if (this.stopped) return;
     // A run that lasted a while resets the delay.
     this.failures = Date.now() - started > 60_000 ? 0 : this.failures + 1;
-    const delay = Math.min(30_000, 2000 * 2 ** Math.min(this.failures, 4));
     this.set('error', error ?? 'Connection ended');
-    this.retry = setTimeout(() => void this.loop(), delay);
+    this.retry = setTimeout(() => void this.loop(), this.retryDelay(this.failures));
+  }
+
+  protected retryDelay(failures: number) {
+    return Math.min(30_000, 2000 * 2 ** Math.min(failures, 4));
   }
 
   /** Runs until the connection ends; throws with a readable message on failure. */
@@ -313,11 +316,19 @@ export class Pusher extends Relay {
     private readonly mount: Mount,
     log: FastifyBaseLogger,
     /** relay = a push to a relay node of the distribution network (phase 13). */
-    kind: 'push' | 'relay' = 'push',
+    private readonly kind: 'push' | 'relay' = 'push',
   ) {
     super(`${kind}:${output.id}`, kind, view.station.slug, output.name, log);
     this.key = JSON.stringify([output.type, output.config, mount.path, view.station.icecastPort, view.station.name, view.station.genre, view.station.website]);
     this.input = { stationId: view.station.id, mount: mount.path };
+  }
+
+  /**
+   * A relay node keeps its listeners connected for a few seconds after a push ends (LINGER_MS on the node), so a push
+   * to it comes back within a second the first few times.
+   */
+  protected retryDelay(failures: number) {
+    return this.kind === 'relay' && failures <= 3 ? 1000 : super.retryDelay(failures);
   }
 
   private password(enc?: string) {

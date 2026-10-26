@@ -32,11 +32,19 @@ interface Slot {
   opening: Promise<net.Socket> | null;
   /** The last title per priority, so a switch to the backup brings its title along at once. */
   titles: Map<number, string>;
+  /** Set while the source connection waits for a new push (see LINGER_MS). */
+  linger: NodeJS.Timeout | null;
   since: number;
   state: RelayState;
 }
 
 const HEAD_END = /\r?\n\r?\n/;
+/**
+ * How long the source connection stays open after the last push ends, so a push that reconnects (a station node that
+ * restarts its stream) or a puller that takes the stream back finds it open and listeners stay connected. It stays
+ * under Icecast's source timeout of 10 seconds.
+ */
+export const LINGER_MS = 8000;
 const MAX_HEAD = 16 * 1024;
 
 const same = (a: string, b: string) => {
@@ -75,6 +83,7 @@ export class PushReceiver {
       secrets: IcecastSecrets;
       /** An open source connection for this stream left by its puller, so listeners stay connected (phase 12). */
       inherit?: (key: string) => net.Socket | null;
+      lingerMs?: number;
     },
   ) {}
 
@@ -97,7 +106,7 @@ export class PushReceiver {
         this.slots.delete(key);
       } else s.mount = want;
     }
-    for (const [key, m] of wanted) if (!this.slots.has(key)) this.slots.set(key, { mount: m, feeds: [], client: null, local: null, opening: null, titles: new Map(), since: 0, state: { key, state: 'idle', message: 'Waiting for the ingest' } });
+    for (const [key, m] of wanted) if (!this.slots.has(key)) this.slots.set(key, { mount: m, feeds: [], client: null, local: null, opening: null, titles: new Map(), linger: null, since: 0, state: { key, state: 'idle', message: 'Waiting for the ingest' } });
     const listen = wanted.size ? port : null;
     if (listen === this.port) return;
     this.server?.close();
@@ -150,6 +159,7 @@ export class PushReceiver {
   }
 
   private drop(s: Slot) {
+    this.unlinger(s);
     for (const f of s.feeds) f.socket.destroy();
     s.local?.destroy();
     s.feeds = [];
@@ -214,6 +224,8 @@ export class PushReceiver {
 
     // A new push of the same ingest replaces its old one (it reconnected).
     for (const f of slot.feeds.filter((x) => x.priority === priority)) this.remove(slot, f, false, true);
+    if (slot.linger) log.info('ingest back within the wait', { mount: slot.mount.key });
+    this.unlinger(slot);
     if (!slot.local) {
       const inherited = this.ctx.inherit?.(slot.mount.key) ?? null;
       if (inherited) {
@@ -264,6 +276,7 @@ export class PushReceiver {
     local.on('error', () => undefined);
     local.once('close', () => {
       if (slot.local !== local) return;
+      this.unlinger(slot);
       // Icecast dropped the stream: start again with the next push.
       for (const f of slot.feeds) f.socket.destroy();
       slot.feeds = [];
@@ -299,11 +312,22 @@ export class PushReceiver {
     if (!slot.feeds.some((f) => f.priority === feed.priority)) slot.titles.delete(feed.priority);
     if (slot.feeds.length) return this.promote(slot);
     if (replaced) return;
-    // Nobody pushes any more: let Icecast end the stream, so listeners move on or reconnect.
+    // Nobody pushes any more. Keep the source connection a moment for a push that comes back; after that let Icecast
+    // end the stream, so listeners move on or reconnect.
     slot.client = null;
-    const local = slot.local;
-    slot.local = null;
-    local?.destroy();
     slot.state = { key: slot.mount.key, state: 'idle', message: 'The ingest stopped pushing' };
+    if (!slot.local || slot.linger) return;
+    slot.linger = setTimeout(() => {
+      slot.linger = null;
+      if (slot.feeds.length) return;
+      const local = slot.local;
+      slot.local = null;
+      local?.destroy();
+    }, this.ctx.lingerMs ?? LINGER_MS);
+  }
+
+  private unlinger(slot: Slot) {
+    if (slot.linger) clearTimeout(slot.linger);
+    slot.linger = null;
   }
 }

@@ -77,6 +77,9 @@ its relays still have.
   relay's push port over TLS, signing in as `source` with a token derived from the relay's secret. The relay feeds it
   into its own Icecast on the same `/listen/<station>/<mount>` path, so listen URLs look the same everywhere. Titles
   travel with `/admin/metadata` on the same port.
+  When a push ends, the relay keeps its own source open for 8 seconds (under Icecast's 10-second source timeout), so
+  a push that comes back, or the main server's stream after a move back, continues on it and listeners stay
+  connected. The node retries a dropped push every second for the first few attempts.
 - **Listeners and statistics.** Players for a station on a node always go through
   `/api/public/stations/<slug>/listen/<mount>`, which sends them to the nearest healthy relay. The relays report their
   listeners to the main server as they always do, so statistics, GeoIP and the song history are unchanged.
