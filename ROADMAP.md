@@ -134,7 +134,7 @@ Phase 11: FM/MPX and RDS: a node that puts a station on FM, with a live radio di
 | 10 | Hosted service | Done |
 | 11 | FM/MPX and RDS module | Done |
 | 12 | Station nodes | Done |
-| 13 | Orchestrator as control plane | In progress |
+| 13 | Orchestrator as control plane | Done |
 | 14 | Orchestrator redundancy | Planned |
 
 ## Phases

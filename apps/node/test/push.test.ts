@@ -19,14 +19,21 @@ const freePort = async () => {
 
 /** A stand-in for the node's Icecast: takes one source, keeps what it receives. */
 function fakeIcecast() {
-  const got: { head: string; body: Buffer[] } = { head: '', body: [] };
+  const got: { head: string; body: Buffer[]; titles: string[] } = { head: '', body: [], titles: [] };
   const server = net.createServer((socket) => {
     let head = '';
+    let source = false;
     const onData = (d: Buffer) => {
-      if (got.head) return got.body.push(d);
+      if (source) return got.body.push(d);
       head += d.toString('latin1');
       const i = head.indexOf('\r\n\r\n');
       if (i < 0) return;
+      // Title updates (GET /admin/metadata) come on connections of their own.
+      if (head.startsWith('GET ')) {
+        got.titles.push(new URL(head.split(' ')[1]!, 'http://x').searchParams.get('song') ?? '');
+        return socket.end('HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n');
+      }
+      source = true;
       got.head = head.slice(0, i);
       socket.write('HTTP/1.0 200 OK\r\n\r\n');
       const rest = Buffer.from(head.slice(i + 4), 'latin1');
@@ -88,9 +95,7 @@ test('takes a pushed stream with the right token and feeds it into the local Ice
 });
 
 test('keeps the backup ingest on standby and switches to it without dropping the local source', async () => {
-  let sources = 0;
   const ice = fakeIcecast();
-  ice.server.on('connection', () => sources++);
   const icePort = await listen(ice.server);
   const receiver = new PushReceiver({ icecastPort: () => icePort, secrets: { source: 'src', admin: 'adm' } });
   const port = await freePort();
@@ -103,17 +108,28 @@ test('keeps the backup ingest on standby and switches to it without dropping the
   assert.equal(main.status.slice(0, 3), '200');
   main.socket.write(Buffer.from('main;'));
   backup.socket.write(Buffer.from('backup;'));
+  // A title of the backup while it stands by is kept, not shown.
+  await new Promise<void>((resolve) => {
+    const q = new URLSearchParams({ mount: '/listen/studio-fm/live', mode: 'updinfo', song: 'Backup song' });
+    const c = tls.connect({ host: '127.0.0.1', port, rejectUnauthorized: false }, () =>
+      c.write(`GET /admin/metadata?${q} HTTP/1.1\r\nAuthorization: Basic ${Buffer.from('source:tok-123').toString('base64')}\r\nX-Hrs-Priority: 1\r\n\r\n`),
+    );
+    c.once('data', () => (c.destroy(), resolve()));
+  });
   await new Promise((r) => setTimeout(r, 200));
   assert.equal(Buffer.concat(ice.got.body).toString(), 'main;');
+  assert.deepEqual(ice.got.titles, []);
 
   main.socket.destroy();
   await new Promise((r) => setTimeout(r, 200));
   backup.socket.write(Buffer.from('backup;'));
   await new Promise((r) => setTimeout(r, 200));
   assert.equal(Buffer.concat(ice.got.body).toString(), 'main;backup;');
-  assert.equal(sources, 1);
+  assert.equal(ice.got.head.match(/^PUT /gm)?.length, 1);
   assert.equal(receiver.connected('studio-fm/live'), true);
   assert.equal(receiver.states()[0]!.message, 'From the backup ingest');
+  // On the switch the backup's last title comes along.
+  assert.deepEqual(ice.got.titles, ['Backup song']);
 
   backup.socket.destroy();
   receiver.stop();
