@@ -2,6 +2,7 @@ import { buildApp } from './app.js';
 import { createDb, runMigrations } from './db/index.js';
 import { loadConfig } from './lib/config.js';
 import { createContext } from './lib/context.js';
+import { NOWPLAYING_CHANNEL } from './services/public/hub.js';
 import { startBackgroundTasks } from './services/tasks.js';
 
 const config = loadConfig();
@@ -11,6 +12,8 @@ await runMigrations(db);
 const ctx = createContext(config, db);
 const app = await buildApp(ctx);
 const stopTasks = startBackgroundTasks(ctx, app.log);
+// The streams service reports new titles and live DJs; the public live feeds pass them on right away.
+await client.listen(NOWPLAYING_CHANNEL, (stationId) => app.nowPlaying.notify(stationId));
 
 const shutdown = async (signal: string) => {
   app.log.info({ signal }, 'shutting down');

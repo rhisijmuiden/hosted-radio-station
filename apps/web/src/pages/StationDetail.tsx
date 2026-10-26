@@ -1,10 +1,13 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowUpCircle, Headphones, Mic, PlugZap, Radio, Trash2, Upload } from 'lucide-react';
-import { useEffect, useState, type FormEvent } from 'react';
+import { ArrowLeft, ArrowUpCircle, ExternalLink, Headphones, Mic, PlugZap, Radio, Trash2, Upload } from 'lucide-react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import { AccountsCard } from '../components/station/Accounts';
+import { OnDemandTab } from '../components/station/OnDemand';
+import { PublicPageTab } from '../components/station/PublicPage';
+import { RequestsTab, usePendingRequests } from '../components/station/Requests';
 import { StatisticsView } from '../components/stats/StatisticsView';
 import { formatLabel, MountsCard } from '../components/station/Mounts';
 import { OutputsCard, OutputStateBadge } from '../components/station/Outputs';
@@ -13,7 +16,7 @@ import { api, type LiveSession, type StationDetail, type StationStatus, type Ten
 import { formatBytes, formatDate, formatDuration } from '../lib/format';
 import { EditionBadge } from './Stations';
 
-type Tab = 'overview' | 'statistics' | 'mounts' | 'outputs' | 'accounts' | 'history' | 'settings';
+type Tab = 'overview' | 'statistics' | 'mounts' | 'outputs' | 'accounts' | 'history' | 'public' | 'requests' | 'ondemand' | 'settings';
 const rank = { dj: 1, manager: 2, owner: 3, superadmin: 4 } as const;
 
 function useStationStatus(id: string) {
@@ -401,6 +404,7 @@ export function StationDetailPage() {
     enabled: !!station.data,
   });
   const status = useStationStatus(id!);
+  const requests = usePendingRequests(id!);
 
   if (station.isPending) {
     return (
@@ -412,7 +416,7 @@ export function StationDetailPage() {
   if (!station.data) return <Card className="p-8 text-center text-muted">{(station.error as Error)?.message}</Card>;
   const s = station.data;
   const manager = rank[s.role] >= rank.manager;
-  const tabs: { value: Tab; label: string }[] = [
+  const tabs: { value: Tab; label: ReactNode }[] = [
     { value: 'overview', label: t('stations.tabs.overview') },
     ...(manager
       ? [
@@ -423,6 +427,17 @@ export function StationDetailPage() {
       : []),
     { value: 'accounts', label: manager ? t('stations.tabs.accounts') : t('stations.tabs.myAccount') },
     { value: 'history', label: t('stations.tabs.history') },
+    ...(manager ? [{ value: 'public' as const, label: t('stations.tabs.public') }] : []),
+    {
+      value: 'requests',
+      label: (
+        <span className="inline-flex items-center gap-1.5">
+          {t('stations.tabs.requests')}
+          {!!requests.data?.pending && <span className="grid h-[18px] min-w-[18px] place-items-center rounded-full bg-koraal px-1 text-[10px] font-bold text-nacht">{requests.data.pending}</span>}
+        </span>
+      ),
+    },
+    { value: 'ondemand', label: t('stations.tabs.ondemand') },
     ...(manager ? [{ value: 'settings' as const, label: t('stations.tabs.settings') }] : []),
   ];
   const requested = params.get('tab') as Tab | null;
@@ -458,6 +473,13 @@ export function StationDetailPage() {
             </Link>
           </span>
         }
+        actions={
+          <a href={`/public/${s.slug}`} target="_blank" rel="noreferrer">
+            <Button>
+              <ExternalLink className="size-4" /> {t('stations.publicPage')}
+            </Button>
+          </a>
+        }
       />
       <Tabs value={tab} onChange={(v) => setParams(v === 'overview' ? {} : { tab: v }, { replace: true })} tabs={tabs} />
       {tab === 'overview' && (
@@ -476,6 +498,9 @@ export function StationDetailPage() {
       {tab === 'outputs' && <OutputsCard station={s} canEdit={manager} />}
       {tab === 'accounts' && <AccountsCard station={s} />}
       {tab === 'history' && <HistoryCard station={s} />}
+      {tab === 'public' && <PublicPageTab station={s} canEdit={manager} />}
+      {tab === 'requests' && <RequestsTab station={s} canEdit={manager} />}
+      {tab === 'ondemand' && <OnDemandTab station={s} canEdit={manager} />}
       {tab === 'settings' && <SettingsTab station={s} />}
     </>
   );

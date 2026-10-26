@@ -560,3 +560,56 @@ export interface GeoipDatabase {
   cityBuiltAt: string | null;
   hasAsn: boolean;
 }
+
+// Public pages (phase 5)
+
+export type LinkKind = 'instagram' | 'facebook' | 'x' | 'tiktok' | 'youtube' | 'soundcloud' | 'mixcloud' | 'whatsapp';
+export interface PublicPageSettings {
+  enabled: boolean;
+  showListeners: boolean;
+  showHistory: boolean;
+  historyCount: number;
+  artwork: boolean;
+  accentColor: string;
+  theme: 'auto' | 'light' | 'dark';
+  links: Record<LinkKind, string>;
+  requests: { enabled: boolean; onlyWhenLive: boolean; perHour: number; message: string };
+  onDemand: { enabled: boolean };
+  recording: { enabled: boolean; autoPublish: boolean; keepDays: number; minMinutes: number };
+}
+export interface PublicPageInfo {
+  settings: PublicPageSettings;
+  logoUrl: string | null;
+  pageUrl: string;
+  embedBase: string;
+  apiBase: string;
+}
+export type RequestStatus = 'pending' | 'accepted' | 'played' | 'rejected';
+export interface SongRequest {
+  id: string;
+  artist: string;
+  title: string;
+  message: string;
+  requesterName: string;
+  status: RequestStatus;
+  handledBy: string | null;
+  handledAt: string | null;
+  createdAt: string;
+}
+export interface OnDemandItem {
+  id: string;
+  source: 'recording' | 'upload';
+  file: string;
+  title: string;
+  description: string;
+  host: string;
+  contentType: string;
+  sizeBytes: number;
+  durationSeconds: number | null;
+  recordedAt: string | null;
+  publishedAt: string | null;
+  plays: number;
+  createdAt: string;
+  recording: boolean;
+  previewUrl: string;
+}

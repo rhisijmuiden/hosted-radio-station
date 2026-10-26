@@ -3,6 +3,7 @@ import fastifyRateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
+import fastifyWebsocket from '@fastify/websocket';
 import Fastify from 'fastify';
 import {
   hasZodFastifySchemaValidationErrors,
@@ -13,6 +14,7 @@ import {
 } from 'fastify-type-provider-zod';
 import { Redis } from 'ioredis';
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { registerAudit } from './lib/audit.js';
 import { registerAuth, API_KEY_PREFIX, SESSION_COOKIE } from './lib/auth.js';
@@ -25,7 +27,8 @@ import { backupRoutes } from './routes/backups.js';
 import { tenantStreamingRoutes } from './routes/domains.js';
 import { healthRoutes } from './routes/health.js';
 import { internalRoutes } from './routes/internal.js';
-import { publicRoutes } from './routes/public.js';
+import { publicRoutes, renderPublicShell } from './routes/public.js';
+import { stationPublicRoutes } from './routes/station-public.js';
 import { settingsRoutes } from './routes/settings.js';
 import { ssoAdminRoutes, ssoAuthRoutes } from './routes/sso.js';
 import { stationRoutes } from './routes/stations.js';
@@ -33,7 +36,14 @@ import { statsRoutes } from './routes/stats.js';
 import { systemRoutes } from './routes/system.js';
 import { tenantRoutes } from './routes/tenants.js';
 import { userRoutes } from './routes/users.js';
+import { NowPlayingHub } from './services/public/hub.js';
 import { getVersionInfo } from './services/system.js';
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    nowPlaying: NowPlayingHub;
+  }
+}
 
 export async function buildApp(ctx: AppContext) {
   const { config } = ctx;
@@ -47,6 +57,10 @@ export async function buildApp(ctx: AppContext) {
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
   app.decorate('ctx', ctx);
+  const hub = new NowPlayingHub(ctx, app.log);
+  app.decorate('nowPlaying', hub);
+  hub.start();
+  app.addHook('onClose', async () => hub.stop());
 
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof HttpError) {
@@ -67,6 +81,7 @@ export async function buildApp(ctx: AppContext) {
   });
 
   await app.register(fastifyCookie);
+  await app.register(fastifyWebsocket, { options: { maxPayload: 4096 } });
   await app.register(fastifyRateLimit, {
     global: false,
     redis: config.REDIS_URL ? new Redis(config.REDIS_URL, { lazyConnect: false, maxRetriesPerRequest: 1 }) : undefined,
@@ -109,6 +124,7 @@ export async function buildApp(ctx: AppContext) {
   await app.register(backupRoutes, { prefix: '/api/backups' });
   await app.register(auditRoutes, { prefix: '/api/audit' });
   await app.register(stationRoutes, { prefix: '/api/stations' });
+  await app.register(stationPublicRoutes, { prefix: '/api/stations' });
   await app.register(tenantStreamingRoutes, { prefix: '/api/tenants' });
   await app.register(statsRoutes, { prefix: '/api/stats' });
   await app.register(publicRoutes, { prefix: '/api/public' });
@@ -122,7 +138,14 @@ export async function buildApp(ctx: AppContext) {
       // Hashed build assets never change; index.html must always be fresh.
       setHeaders: (res, path) => res.header('cache-control', path.includes('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache'),
     });
-    app.setNotFoundHandler((req, reply) => {
+    // Public station pages and widgets have their own, much smaller app (public.html).
+    const publicShell = resolve(webDist, 'public.html');
+    app.setNotFoundHandler(async (req, reply) => {
+      const pub = req.url.match(/^\/public\/([^/?#]+)(\/embed\/)?/);
+      if ((req.method === 'GET' || req.method === 'HEAD') && pub && existsSync(publicShell)) {
+        const html = await renderPublicShell(ctx, await readFile(publicShell, 'utf8'), pub[1]!.toLowerCase(), !!pub[2]);
+        return reply.header('cache-control', 'no-cache').type('text/html; charset=utf-8').send(html);
+      }
       if ((req.method === 'GET' || req.method === 'HEAD') && !req.url.startsWith('/api/') && !req.url.startsWith('/assets/')) return reply.sendFile('index.html');
       return reply.status(404).send({ error: { code: 'not_found', message: 'Not found' } });
     });
