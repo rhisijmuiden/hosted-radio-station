@@ -1,10 +1,13 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowUpCircle, ExternalLink, Headphones, Mic, PlugZap, Radio, Trash2, Upload } from 'lucide-react';
+import { ArrowDownCircle, ArrowLeft, ArrowUpCircle, ExternalLink, Headphones, Mic, PlugZap, Radio, Trash2, Upload } from 'lucide-react';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import { AccountsCard } from '../components/station/Accounts';
+import { AutodjTab } from '../components/station/AutoDj';
+import { LibraryTab } from '../components/station/Library';
+import { PlaylistsTab } from '../components/station/Playlists';
 import { OnDemandTab } from '../components/station/OnDemand';
 import { PublicPageTab } from '../components/station/PublicPage';
 import { RequestsTab, usePendingRequests } from '../components/station/Requests';
@@ -16,7 +19,7 @@ import { api, type LiveSession, type StationDetail, type StationStatus, type Ten
 import { formatBytes, formatDate, formatDuration } from '../lib/format';
 import { EditionBadge } from './Stations';
 
-type Tab = 'overview' | 'statistics' | 'mounts' | 'outputs' | 'accounts' | 'history' | 'public' | 'requests' | 'ondemand' | 'settings';
+type Tab = 'overview' | 'autodj' | 'library' | 'playlists' | 'statistics' | 'mounts' | 'outputs' | 'accounts' | 'history' | 'public' | 'requests' | 'ondemand' | 'settings';
 const rank = { dj: 1, manager: 2, owner: 3, superadmin: 4 } as const;
 
 function useStationStatus(id: string) {
@@ -278,6 +281,28 @@ function SettingsTab({ station }: { station: StationDetail }) {
     },
     onError: (err) => toast.error((err as Error).message),
   });
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: ['station', station.id] });
+    void qc.invalidateQueries({ queryKey: ['stations'] });
+    void qc.invalidateQueries({ queryKey: ['autodj', station.id] });
+    void qc.invalidateQueries({ queryKey: ['tenant', station.tenantId] });
+  };
+  const upgrade = useMutation({
+    mutationFn: (upgradeCustomer: boolean) => api(`/stations/${station.id}/upgrade`, { method: 'POST', body: { upgradeCustomer } }),
+    onSuccess: () => {
+      refresh();
+      toast.success(t('stations.upgraded'));
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+  const downgrade = useMutation({
+    mutationFn: () => api(`/stations/${station.id}/downgrade`, { method: 'POST' }),
+    onSuccess: () => {
+      refresh();
+      toast.success(t('stations.downgraded'));
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
   const del = useMutation({
     mutationFn: () => api(`/stations/${station.id}`, { method: 'DELETE' }),
     onSuccess: () => {
@@ -347,13 +372,28 @@ function SettingsTab({ station }: { station: StationDetail }) {
           </div>
           {owner && station.edition === 'distribution' && (
             <div className="mt-4">
-              {station.tenantPlan === 'station' ? (
-                <Button variant="primary" loading={patch.isPending} onClick={() => confirm(t('stations.upgradeConfirm')) && patch.mutate({ edition: 'station' })}>
+              {station.tenantPlan === 'station' || station.role === 'superadmin' ? (
+                <Button
+                  variant="primary"
+                  loading={upgrade.isPending}
+                  onClick={() => {
+                    const withPlan = station.tenantPlan !== 'station';
+                    if (confirm(withPlan ? t('stations.upgradeWithPlanConfirm') : t('stations.upgradeConfirm'))) upgrade.mutate(withPlan);
+                  }}
+                >
                   <ArrowUpCircle className="size-4" /> {t('stations.upgrade')}
                 </Button>
               ) : (
                 <p className="text-xs text-muted">{t('stations.upgradeNeedsPlan')}</p>
               )}
+              {station.tenantPlan !== 'station' && station.role === 'superadmin' && <p className="mt-2 text-xs text-muted">{t('stations.upgradeWithPlan')}</p>}
+            </div>
+          )}
+          {owner && station.edition === 'station' && (
+            <div className="mt-4">
+              <Button loading={downgrade.isPending} onClick={() => confirm(t('stations.downgradeConfirm')) && downgrade.mutate()}>
+                <ArrowDownCircle className="size-4" /> {t('stations.downgrade')}
+              </Button>
             </div>
           )}
         </Card>
@@ -418,6 +458,13 @@ export function StationDetailPage() {
   const manager = rank[s.role] >= rank.manager;
   const tabs: { value: Tab; label: ReactNode }[] = [
     { value: 'overview', label: t('stations.tabs.overview') },
+    ...(s.edition === 'station'
+      ? [
+          { value: 'autodj' as const, label: t('stations.tabs.autodj') },
+          { value: 'library' as const, label: t('stations.tabs.library') },
+          { value: 'playlists' as const, label: t('stations.tabs.playlists') },
+        ]
+      : []),
     ...(manager
       ? [
           { value: 'statistics' as const, label: t('stations.tabs.statistics') },
@@ -491,6 +538,9 @@ export function StationDetailPage() {
           </div>
         </div>
       )}
+      {tab === 'autodj' && <AutodjTab station={s} canEdit={manager} />}
+      {tab === 'library' && <LibraryTab station={s} canEdit={manager} />}
+      {tab === 'playlists' && <PlaylistsTab station={s} canEdit={manager} />}
       {tab === 'statistics' && (
         <StatisticsView scope={{ stationId: s.id }} mounts={s.mounts.map((m) => m.path)} outputs={s.outputs.filter((o) => o.type !== 'local').map((o) => ({ id: o.id, name: o.name }))} showStation={false} />
       )}

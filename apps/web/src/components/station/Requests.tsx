@@ -111,6 +111,7 @@ export function RequestsTab({ station, canEdit }: { station: StationDetail; canE
                     <span className="font-semibold">{r.title}</span>
                     <span className="text-muted">{r.artist}</span>
                     <Badge tone={tone[r.status]}>{t(`requests.status.${r.status}`)}</Badge>
+                    {r.mediaId && <Badge tone="neutral">{t('requests.fromLibrary')}</Badge>}
                   </div>
                   {r.message && <p className="mt-1 text-[13px]">“{r.message}”</p>}
                   <div className="mt-1 text-xs text-muted">
