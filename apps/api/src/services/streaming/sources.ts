@@ -1,7 +1,8 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, gt } from 'drizzle-orm';
 import { schema } from '../../db/index.js';
 import { verifyPassword } from '../../lib/auth.js';
 import type { AppContext } from '../../lib/context.js';
+import { sha256 } from '../../lib/crypto.js';
 import { occurrences } from '../scheduler/schedule.js';
 import { schedulerSettings } from '../scheduler/settings.js';
 
@@ -35,6 +36,17 @@ export async function outsideShow(ctx: AppContext, stationId: string, accountId:
   return { opensAt: next ? next.start - early : null, timezone: s.timezone };
 }
 
+/** Encoder passwords handed out to the studio client start with this. */
+export const LIVE_TOKEN_PREFIX = 'hrsl_';
+
+async function validLiveToken(ctx: AppContext, accountId: string, token: string) {
+  const [row] = await ctx.db
+    .select({ id: schema.studioLiveTokens.id })
+    .from(schema.studioLiveTokens)
+    .where(and(eq(schema.studioLiveTokens.hash, sha256(token)), eq(schema.studioLiveTokens.accountId, accountId), gt(schema.studioLiveTokens.expiresAt, new Date())));
+  return !!row;
+}
+
 export type Account = typeof schema.stationAccounts.$inferSelect;
 
 /**
@@ -65,7 +77,7 @@ export async function authenticateSource(
     .where(and(eq(schema.stationAccounts.stationId, stationId), eq(schema.stationAccounts.username, user)));
   if (!account || !account.enabled || !account.canBroadcast) return null;
   if (account.mountIds.length && !account.mountIds.includes(mountId)) return null;
-  if (!(await verifyPassword(account.passwordHash, pass))) return null;
+  if (!(pass.startsWith(LIVE_TOKEN_PREFIX) ? await validLiveToken(ctx, account.id, pass) : await verifyPassword(account.passwordHash, pass))) return null;
   const refusal = await outsideShow(ctx, stationId, account.id);
   if (refusal) {
     onOutsideShow?.(refusal, account);

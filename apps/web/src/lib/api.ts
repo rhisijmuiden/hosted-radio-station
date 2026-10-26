@@ -958,3 +958,38 @@ export interface Topology {
     timeouts24h: number;
   };
 }
+
+export interface StudioRelease {
+  version: string;
+  tag: string;
+  publishedAt: string;
+  notes: string;
+  url: string;
+  installerUrl: string | null;
+  sha256: string | null;
+  size: number | null;
+}
+export interface StudioReleases {
+  repository: string | null;
+  production: StudioRelease | null;
+  test: StudioRelease | null;
+  checkedAt: string | null;
+  error: string | null;
+}
+export interface StudioDevice {
+  id: string;
+  deviceName: string;
+  clientVersion: string | null;
+  apiKeyId: string;
+  lastUsedAt: string | null;
+  createdAt: string;
+}
+export interface StudioLink {
+  code: string;
+  deviceName: string;
+  clientVersion: string | null;
+  ip: string | null;
+  state: 'pending' | 'approved' | 'denied' | 'used' | 'expired';
+  createdAt: string;
+  expiresAt: string;
+}

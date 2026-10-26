@@ -1020,3 +1020,45 @@ export const nodeProbes = pgTable(
   },
   (t) => [primaryKey({ columns: [t.nodeId, t.target] }), index('node_probes_station_idx').on(t.stationId)],
 );
+
+/**
+ * A studio client (Windows) asking to be linked to an account. The client shows `userCode`, the user approves it in the
+ * panel, and the client's next poll (with its device secret) receives a personal API key once.
+ */
+export const studioLinks = pgTable(
+  'studio_links',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** Short code the user compares in the panel, e.g. "KQ7M-3XTR" (stored without the dash). */
+    userCode: text('user_code').notNull(),
+    /** sha256 of the secret only the client knows; it polls with it. */
+    deviceSecretHash: text('device_secret_hash').notNull(),
+    deviceName: text('device_name').notNull(),
+    clientVersion: text('client_version'),
+    ip: text('ip'),
+    /** pending | approved | denied | used */
+    state: text('state').notNull().default('pending'),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    apiKeyId: uuid('api_key_id').references(() => apiKeys.id, { onDelete: 'set null' }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('studio_links_code_idx').on(t.userCode), uniqueIndex('studio_links_secret_idx').on(t.deviceSecretHash)],
+);
+
+/**
+ * Short-lived encoder passwords the studio client gets for a DJ account, so DJs never type their encoder password.
+ * The ingest gateway accepts one as the account's password until it expires.
+ */
+export const studioLiveTokens = pgTable(
+  'studio_live_tokens',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    accountId: uuid('account_id').notNull().references(() => stationAccounts.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    hash: text('hash').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('studio_live_tokens_hash_idx').on(t.hash), index('studio_live_tokens_account_idx').on(t.accountId)],
+);
