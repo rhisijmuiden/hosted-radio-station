@@ -75,18 +75,14 @@ interface Placed {
   size: { w: number; h: number };
 }
 
-/** Where the orchestrator stands: behind the signal flow, apart from the audio. */
-const CORE = new THREE.Vector3(0, 0, -12);
-
 /**
  * Where every block goes. The audio flows left to right: studios, then the ingests, then the relays with their
- * listeners. The orchestrator stands apart behind that flow; it only steers the nodes and carries no audio.
+ * listeners. The orchestrator stands apart in the back left corner, out of that flow; it only steers the nodes and
+ * carries no audio.
  */
 export function layout(data: SceneData): Map<string, Placed> {
   const out = new Map<string, Placed>();
   const put = (n: SceneNode, x: number, z: number) => out.set(n.id, { node: n, pos: new THREE.Vector3(x, 0, z), size: SIZE[n.kind] });
-  const main = data.nodes.find((n) => n.kind === 'main');
-  if (main) put(main, CORE.x, CORE.z);
   // A column along z, centred in front of the orchestrator, bent a little so the far blocks stay in view.
   const column = (list: SceneNode[], x: number, gap: number, bend: number) =>
     list.forEach((n, i) => {
@@ -98,8 +94,6 @@ export function layout(data: SceneData): Map<string, Placed> {
   column(data.nodes.filter((n) => n.kind === 'relay'), 8, 6, 1);
   // FM transmitters are fed by the relays: they stand beyond them, like masts on the horizon.
   column(data.nodes.filter((n) => n.kind === 'fm'), 17, 6, 1);
-  const idle = data.nodes.filter((n) => n.kind === 'node');
-  idle.forEach((n, i) => put(n, CORE.x + (i - (idle.length - 1) / 2) * 3.4, CORE.z - 5));
   // Studios sit left of the ingest they broadcast to.
   const perTarget = new Map<string, number>();
   for (const s of data.nodes.filter((n) => n.kind === 'studio')) {
@@ -112,6 +106,11 @@ export function layout(data: SceneData): Map<string, Placed> {
     if (key === 'main' || !target) put(s, -15, 2 + offset * 1.6);
     else put(s, target.pos.x - 6.5, target.pos.z + offset);
   }
+  // Behind everything, on the far left: the orchestrator, with nodes without a role in a row beside it.
+  const back = Math.min(-4, ...[...out.values()].map((x) => x.pos.z)) - 7;
+  const main = data.nodes.find((n) => n.kind === 'main');
+  if (main) put(main, -17, back - 3);
+  data.nodes.filter((n) => n.kind === 'node').forEach((n, i) => put(n, -11 + i * 3.4, back - 3));
   return out;
 }
 
@@ -344,7 +343,7 @@ export class TopologyScene {
     this.placed = layout(this.data);
     const healthColor = { online: p.online, degraded: p.warning, offline: p.offline, unpaired: p.muted };
 
-    // Ground: a soft grid and a warm glow under this server.
+    // Ground: a soft grid and a warm glow under the orchestrator.
     const extent = Math.max(34, ...[...this.placed.values()].map((x) => Math.max(Math.abs(x.pos.x), Math.abs(x.pos.z)) * 2 + 10));
     const grid = new THREE.GridHelper(Math.ceil(extent / 2) * 2, Math.ceil(extent / 2), p.line, p.line);
     (grid.material as THREE.Material).transparent = true;
@@ -353,7 +352,7 @@ export class TopologyScene {
     this.content.add(grid);
     const glow = new THREE.Mesh(new THREE.PlaneGeometry(14, 14), new THREE.MeshBasicMaterial({ map: this.texture(`glow:${p.koraal}`, () => radialTexture(p.koraal, p.dark ? 0.2 : 0.11)), transparent: true, depthWrite: false }));
     glow.rotation.x = -Math.PI / 2;
-    glow.position.copy(CORE);
+    glow.position.copy(this.placed.get('main')?.pos ?? new THREE.Vector3());
     this.content.add(glow);
     const shadowTex = this.texture('shadow', () => radialTexture('#000000', p.dark ? 0.55 : 0.28));
 
@@ -496,7 +495,8 @@ export class TopologyScene {
       pill.className = `topo-pill ${l.state}`;
       pill.textContent = l.label;
       const obj = new CSS2DObject(pill);
-      obj.position.copy(curve.getPointAt(0.5));
+      // A control pill sits near its node, so the pills don't pile up at the orchestrator.
+      obj.position.copy(curve.getPointAt(l.kind === 'control' ? 0.8 : 0.5));
       this.content.add(obj);
       this.pillEls.set(`${l.from}>${l.to}>${l.kind}`, pill);
     }

@@ -1699,6 +1699,10 @@ export const nl: Translation = {
     unpairedHint: 'Deze nodes wachten op het installatiecommando met hun koppelcode.',
     updateAvailable: 'Update beschikbaar',
     health: { online: 'Online', degraded: 'Verminderd', offline: 'Offline', unpaired: 'Niet gekoppeld' },
+    tree: {
+      online: '{{up}} van {{total}} nodes online',
+      groups: { source: 'Ingest', station: 'Stationnodes', relay: 'Relays', fm: 'FM/MPX' },
+    },
     roles: { relay: 'Relay', source: 'Ingest', station: 'Station node', fm: 'FM/MPX' },
     roleHints: {
       relay: 'Brengt streams naar luisteraars, dicht bij hen in de buurt. Spelers gaan naar de dichtstbijzijnde gezonde relay.',
@@ -2160,6 +2164,9 @@ export const nl: Translation = {
     legend: { stream: 'Live stream', control: 'Alleen besturing (geen audio)', degraded: 'Verminderd', listeners: 'Luisteraars' },
     main: 'Orchestrator',
     orchestrator: 'Orchestrator',
+    controlBus: 'Alleen besturing · geen audio',
+    controlLinesShow: 'Toon de besturingslijnen naar alle nodes',
+    controlLinesHide: 'Verberg de besturingslijnen',
     controlOnly: 'Alleen besturing',
     orchestratorHint: 'Stuurt de nodes aan en deelt de routes uit. De audio gaat van de ingest direct naar de relays; niets daarvan loopt via hier.',
     ingestNodes: 'Ingest-nodes',

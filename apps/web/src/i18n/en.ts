@@ -1697,6 +1697,10 @@ export const en = {
     unpairedHint: 'These nodes are waiting for the install command with their pairing code.',
     updateAvailable: 'Update available',
     health: { online: 'Online', degraded: 'Degraded', offline: 'Offline', unpaired: 'Not paired' },
+    tree: {
+      online: '{{up}} of {{total}} nodes online',
+      groups: { source: 'Ingest', station: 'Station nodes', relay: 'Relays', fm: 'FM/MPX' },
+    },
     roles: { relay: 'Relay', source: 'Ingest', station: 'Station node', fm: 'FM/MPX' },
     roleHints: {
       relay: 'Carries streams to listeners, close to them. Players are sent to the nearest healthy relay.',
@@ -2158,6 +2162,9 @@ export const en = {
     legend: { stream: 'Live stream', control: 'Control only (no audio)', degraded: 'Degraded', listeners: 'Listeners' },
     main: 'Orchestrator',
     orchestrator: 'Orchestrator',
+    controlBus: 'Control only · no audio',
+    controlLinesShow: 'Show the control lines to every node',
+    controlLinesHide: 'Hide the control lines',
     controlOnly: 'Control only',
     orchestratorHint: 'Steers the nodes and hands out the routes. The audio goes from the ingest straight to the relays; none of it passes through here.',
     ingestNodes: 'Ingest nodes',
