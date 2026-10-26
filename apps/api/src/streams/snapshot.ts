@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { schema } from '../db/index.js';
 import type { AppContext } from '../lib/context.js';
 import { getSetting, type StreamingSettings } from '../services/settings.js';
-import type { Mount, Output, Station } from '../services/streaming/state.js';
+import { autodjMount, type Mount, type Output, type Station } from '../services/streaming/state.js';
 
 export interface StationView {
   station: Station;
@@ -15,6 +15,8 @@ export interface StationView {
   sourcePassword: string;
   mounts: Mount[];
   outputs: Output[];
+  /** The mount the AutoDJ feeds, when it plays. Encoders cannot use it. */
+  autodjMount: Mount | null;
 }
 
 /** What the streams service works from: every station with its mounts and outputs, and the customer domains. */
@@ -52,10 +54,12 @@ export async function loadSnapshot(ctx: AppContext): Promise<Snapshot> {
       sourcePassword: ctx.box.decrypt(r.s.icecastSourcePassword),
       mounts: [],
       outputs: [],
+      autodjMount: null,
     });
   }
   for (const m of mounts) stations.get(m.stationId)?.mounts.push(m);
   for (const o of outputs) stations.get(o.stationId)?.outputs.push(o);
+  for (const v of stations.values()) v.autodjMount = autodjMount(v.station, v.mounts);
   const hostTenant = new Map<string, string>();
   for (const d of domains) {
     hostTenant.set(d.ingestHost, d.tenantId);
@@ -81,7 +85,7 @@ export function resolveMount(snap: Snapshot, host: string | null, path: string):
   const tenantId = host ? snap.hostTenant.get(host.toLowerCase().replace(/:\d+$/, '')) : undefined;
   const ok = (view: StationView | undefined, mountPath: string) => {
     if (!view || !view.active || (tenantId && view.tenantId !== tenantId)) return null;
-    const mount = view.mounts.find((m) => m.path === mountPath && m.kind === 'source');
+    const mount = view.mounts.find((m) => m.path === mountPath && m.kind === 'source' && m.id !== view.autodjMount?.id);
     return mount ? { view, mount } : null;
   };
   if (parts.length >= 2) {
@@ -96,4 +100,18 @@ export function resolveMount(snap: Snapshot, host: string | null, path: string):
     if (matches.length === 1) return matches[0]!;
   }
   return null;
+}
+
+/**
+ * Whether listeners of a mount hear something: its own source is on air, or a mount down its fallback chain is (the
+ * AutoDJ behind a live mount). Transcoders and relays of the mount run in both cases.
+ */
+export function heard(view: StationView, mount: Mount, live: Map<string, unknown>) {
+  const byId = new Map(view.mounts.map((m) => [m.id, m]));
+  let cur: Mount | undefined = mount;
+  for (let i = 0; cur && i < 20; i++) {
+    if (live.has(cur.path)) return true;
+    cur = cur.fallbackMountId ? byId.get(cur.fallbackMountId) : undefined;
+  }
+  return false;
 }

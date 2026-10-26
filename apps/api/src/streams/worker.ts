@@ -14,7 +14,8 @@ import { ListenerCollector } from './collector.js';
 import { IngestGateway } from './gateway.js';
 import { Recorder } from './recorder.js';
 import { externalListeners, Pusher, Transcoder, type Relay } from './relays.js';
-import { loadSnapshot, type Snapshot, type StationView } from './snapshot.js';
+import { AutodjController } from './autodj.js';
+import { heard, loadSnapshot, type Snapshot, type StationView } from './snapshot.js';
 
 /**
  * The streams service (hosted-radio-streams): the ingest gateway for encoders, transcoders and relays to external
@@ -25,6 +26,7 @@ export class StreamsWorker {
   private snap: Snapshot | null = null;
   readonly gateway: IngestGateway;
   readonly collector: ListenerCollector;
+  readonly autodj: AutodjController;
   private relays = new Map<string, Relay>();
   /** Per station: mounts on air with their last title. */
   private live = new Map<string, Map<string, MountStats>>();
@@ -43,9 +45,12 @@ export class StreamsWorker {
   ) {
     this.gateway = new IngestGateway(ctx, log as never);
     this.collector = new ListenerCollector(ctx, log, () => this.snap);
+    this.autodj = new AutodjController(ctx, log);
+    this.collector.extraHandler = (req, res) => this.autodj.handle(req, res);
     this.gateway.onBroadcast = (b) => {
       this.reconcile();
       this.notifyNowPlaying(b.stationId);
+      if (this.snap) void this.autodj.sync(this.snap, this.gateway.broadcasts.values());
     };
   }
 
@@ -108,12 +113,12 @@ export class StreamsWorker {
       for (const m of view.mounts) {
         if (m.kind !== 'transcode' || !m.sourceMountId) continue;
         const source = view.mounts.find((x) => x.id === m.sourceMountId);
-        if (source && live.has(source.path)) wanted.set(`transcode:${m.id}`, new Transcoder(view, m, source, this.log as never));
+        if (source && heard(view, source, live)) wanted.set(`transcode:${m.id}`, new Transcoder(view, m, source, this.log as never));
       }
       for (const o of view.outputs) {
         if (o.type === 'local' || !o.enabled || o.config.push === false || !o.mountId) continue;
         const mount = view.mounts.find((x) => x.id === o.mountId);
-        if (mount && live.has(mount.path)) wanted.set(`push:${o.id}`, new Pusher(this.ctx, view, o, mount, this.log as never));
+        if (mount && heard(view, mount, live)) wanted.set(`push:${o.id}`, new Pusher(this.ctx, view, o, mount, this.log as never));
       }
       if (publicSettings(view.station).recording.enabled) {
         const room = view.storageQuotaMb * 1024 * 1024 - (this.storageUsed.get(view.tenantId) ?? 0);
@@ -174,13 +179,15 @@ export class StreamsWorker {
         const now = new Map(stats.map((s) => [s.mount, s]));
         let moved = false;
         if ([...now.keys()].sort().join() !== [...before.keys()].sort().join()) changed = moved = true;
+        const regrouped = moved;
+        this.live.set(view.station.id, now);
         for (const s of stats) {
           const prev = before.get(s.mount);
           if (s.title !== (prev?.title ?? null)) moved = true;
-          if (s.title && s.title !== prev?.title) void this.forwardTitle(view, s.mount, s.title);
+          // When a source comes or goes, mounts that fall back switch to another title too, so send them all again.
+          if (s.title && (regrouped || s.title !== prev?.title)) void this.forwardTitle(view, s.mount, s.title);
           this.enforceBitrate(view, s);
         }
-        this.live.set(view.station.id, now);
         await this.countInternal(view, now);
         await this.collector.observe(view, now, this.internal[view.station.id] ?? {}).catch((err) => this.log.warn({ err }, 'statistics failed'));
         // After the collector, so the new title already has its play with a start time.
@@ -188,6 +195,7 @@ export class StreamsWorker {
       }),
     );
     if (changed) this.reconcile();
+    void this.autodj.sync(snap, this.gateway.broadcasts.values()).catch((err) => this.log.warn({ err }, 'AutoDJ sync failed'));
     await this.collector.flush().catch((err) => this.log.warn({ err }, 'saving listener counts failed'));
     void this.collector.reconcile(snap, this.live).catch((err) => this.log.warn({ err }, 'checking listener sessions failed'));
     if (Date.now() - this.externalPolledAt > 30_000) {
@@ -211,23 +219,42 @@ export class StreamsWorker {
 
   private async titleForTranscode(relay: Transcoder) {
     const view = this.snap?.stations.get(relay.input.stationId);
-    const title = this.live.get(relay.input.stationId)?.get(relay.input.mount)?.title ?? undefined;
+    const title = view && this.heardFrom(view, relay.input.mount)?.title;
     if (!view || !title || relay.setTitle(title)) return;
     await updateMetadata({ port: view.station.icecastPort, adminPassword: view.adminPassword }, relay.output, title).catch(() => undefined);
   }
 
-  /** A new title on a mount goes to the mounts converted from it and to the external servers it feeds. */
+  /**
+   * The mount whose audio listeners of a mount hear: the mount itself while it has a source, else the mount it falls
+   * back to (for example /live without a DJ plays /autodj).
+   */
+  private heardFrom(view: StationView, mountPath: string): MountStats | undefined {
+    const live = this.live.get(view.station.id);
+    let cur = view.mounts.find((m) => m.path === mountPath);
+    for (let i = 0; cur && i < 20; i++) {
+      const stats = live?.get(cur.path);
+      if (stats) return stats;
+      const next: string | null = cur.fallbackMountId;
+      cur = next ? view.mounts.find((m) => m.id === next) : undefined;
+    }
+    return undefined;
+  }
+
+  /**
+   * A new title on a mount goes to the mounts converted from it and to the external servers it feeds, also those of
+   * mounts that fall back to it while they have no source of their own.
+   */
   private async forwardTitle(view: StationView, mountPath: string, title: string) {
-    const mount = view.mounts.find((m) => m.path === mountPath);
-    if (!mount) return;
+    const sources = new Set(view.mounts.filter((m) => m.kind === 'source' && this.heardFrom(view, m.path)?.mount === mountPath).map((m) => m.id));
+    if (!sources.size) return;
     // Ogg (Opus, Vorbis) mounts carry the title inside the stream, so their transcoder takes it; others go through
     // Icecast's /admin/metadata.
-    for (const t of view.mounts.filter((m) => m.kind === 'transcode' && m.sourceMountId === mount.id)) {
+    for (const t of view.mounts.filter((m) => m.kind === 'transcode' && m.sourceMountId && sources.has(m.sourceMountId))) {
       const relay = this.relays.get(`transcode:${t.id}`);
       if (relay instanceof Transcoder && relay.setTitle(title)) continue;
       await updateMetadata({ port: view.station.icecastPort, adminPassword: view.adminPassword }, t.path, title).catch(() => undefined);
     }
-    for (const o of view.outputs.filter((o) => o.mountId === mount.id)) {
+    for (const o of view.outputs.filter((o) => o.mountId && sources.has(o.mountId))) {
       const relay = this.relays.get(`push:${o.id}`);
       if (relay instanceof Pusher) await relay.updateTitle(title).catch((err) => this.log.debug({ err, output: o.name }, 'title update failed'));
     }
@@ -278,6 +305,7 @@ export class StreamsWorker {
       relays: [...this.relays.values()].map((r) => r.state),
       encoders: this.gateway.liveCount,
       internal: this.internal,
+      autodj: this.autodj.snapshot(),
     };
     const path = workerStatusPath(this.ctx);
     await mkdir(dirname(path), { recursive: true });

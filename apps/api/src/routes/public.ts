@@ -2,7 +2,7 @@ import { createHmac } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { and, asc, count, desc, eq, gt, isNotNull, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, ilike, inArray, isNotNull, or, sql } from 'drizzle-orm';
 import type { FastifyReply } from 'fastify';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import type { WebSocket } from '@fastify/websocket';
@@ -10,8 +10,10 @@ import { z } from 'zod';
 import { schema } from '../db/index.js';
 import type { AppContext } from '../lib/context.js';
 import { badRequest, HttpError, notFound } from '../lib/errors.js';
+import { libraryRequests, queueRequest, requestBlocker } from '../services/autodj/requests.js';
+import { autodjSettings } from '../services/autodj/settings.js';
 import { artworkDir } from '../services/public/artwork.js';
-import { findPublicStation, recentlyPlayed, titleMount, type NowPlaying, type PublicStation } from '../services/public/nowplaying.js';
+import { findPublicStation, heardMounts, recentlyPlayed, titleMount, type NowPlaying, type PublicStation } from '../services/public/nowplaying.js';
 import { itemPath } from '../services/public/ondemand.js';
 import { connectionInfo } from '../services/streaming/info.js';
 import { stationStats } from '../services/streaming/state.js';
@@ -73,7 +75,7 @@ export const nowPlayingOut = z.object({
     }),
   ),
   history: z.array(songOut.extend({ playedAt: z.string() })),
-  requests: z.object({ enabled: z.boolean(), open: z.boolean(), message: z.string() }),
+  requests: z.object({ enabled: z.boolean(), open: z.boolean(), message: z.string(), library: z.boolean() }),
   onDemand: z.object({ enabled: z.boolean() }),
   updatedAt: z.string(),
 });
@@ -244,7 +246,7 @@ export const publicRoutes: FastifyPluginAsyncZod = async (app) => {
       const base = (await connectionInfo(ctx, s, [], false)).listenBase;
       reply.header('cache-control', 'public, max-age=10');
       const limit = Math.min(req.query.limit ?? s.settings.historyCount, s.settings.historyCount);
-      return { items: await recentlyPlayed(ctx, hub.artwork, s, base, limit, titleMount(mounts)?.path ?? null) };
+      return { items: await recentlyPlayed(ctx, hub.artwork, s, base, limit, heardMounts(mounts, titleMount(mounts))) };
     },
   );
 
@@ -407,6 +409,60 @@ export const publicRoutes: FastifyPluginAsyncZod = async (app) => {
 
   // Song requests
 
+  app.get(
+    '/stations/:slug/library',
+    {
+      config: { rateLimit: { max: 120, timeWindow: '1 minute' } },
+      schema: {
+        tags: ['Public'],
+        summary: 'Search the library to request a track (stations with the AutoDJ that take requests from the library)',
+        security: [],
+        params: slugParams,
+        querystring: z.object({ q: z.string().trim().min(2).max(100) }),
+        response: {
+          200: z.object({
+            items: z.array(z.object({ id: z.uuid(), artist: z.string(), title: z.string(), album: z.string(), durationSeconds: z.number().nullable(), requestable: z.boolean() })),
+          }),
+        },
+      },
+    },
+    async (req, reply) => {
+      const s = await station(req.params.slug);
+      if (!s.settings.requests.enabled || !libraryRequests(s)) throw new HttpError(403, 'requests_off', 'This station does not take requests from its library');
+      const like = `%${req.query.q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      const rows = await ctx.db
+        .select()
+        .from(schema.mediaFiles)
+        .where(and(eq(schema.mediaFiles.stationId, s.id), eq(schema.mediaFiles.enabled, true), or(ilike(schema.mediaFiles.artist, like), ilike(schema.mediaFiles.title, like))))
+        .orderBy(asc(schema.mediaFiles.artist), asc(schema.mediaFiles.title))
+        .limit(30);
+      const repeat = autodjSettings(s).requests.repeatMinutes * 60_000;
+      const ids = rows.map((r) => r.id);
+      const busy = ids.length
+        ? new Set(
+            [
+              ...(await ctx.db.select({ id: schema.queueItems.mediaId }).from(schema.queueItems).where(inArray(schema.queueItems.mediaId, ids))),
+              ...(await ctx.db
+                .select({ id: schema.songRequests.mediaId })
+                .from(schema.songRequests)
+                .where(and(inArray(schema.songRequests.mediaId, ids), inArray(schema.songRequests.status, ['pending', 'accepted'])))),
+            ].map((r) => r.id),
+          )
+        : new Set();
+      reply.header('cache-control', 'public, max-age=10');
+      return {
+        items: rows.map((r) => ({
+          id: r.id,
+          artist: r.artist,
+          title: r.title,
+          album: r.album,
+          durationSeconds: r.durationSeconds,
+          requestable: !busy.has(r.id) && !(r.lastPlayedAt && Date.now() - r.lastPlayedAt.getTime() < repeat),
+        })),
+      };
+    },
+  );
+
   app.post(
     '/stations/:slug/requests',
     {
@@ -417,14 +473,16 @@ export const publicRoutes: FastifyPluginAsyncZod = async (app) => {
         security: [],
         params: slugParams,
         body: z.object({
-          artist: z.string().trim().min(1).max(120),
-          title: z.string().trim().min(1).max(160),
+          /** A track from the library (stations with the AutoDJ); artist and title then come from the track. */
+          mediaId: z.uuid().optional(),
+          artist: z.string().trim().max(120).default(''),
+          title: z.string().trim().max(160).default(''),
           message: z.string().trim().max(300).default(''),
           name: z.string().trim().max(60).default(''),
           /** Left empty by people; bots fill it in. */
           website: z.string().max(200).optional(),
         }),
-        response: { 200: z.object({ ok: z.literal(true), id: z.uuid().nullable() }) },
+        response: { 200: z.object({ ok: z.literal(true), id: z.uuid().nullable(), queued: z.boolean() }) },
       },
     },
     async (req) => {
@@ -434,7 +492,7 @@ export const publicRoutes: FastifyPluginAsyncZod = async (app) => {
       const np = await hub.current(s.slug);
       if (r.onlyWhenLive && !np?.live) throw new HttpError(403, 'requests_closed', 'Requests are open while a DJ is on air');
       // Pretend success to bots, so they do not try something else.
-      if (req.body.website) return { ok: true as const, id: null };
+      if (req.body.website) return { ok: true as const, id: null, queued: false };
       const hash = requesterHash(ctx.config.APP_SECRET, req.ip);
       const [recent] = await ctx.db
         .select({ n: count() })
@@ -442,19 +500,33 @@ export const publicRoutes: FastifyPluginAsyncZod = async (app) => {
         .where(and(eq(schema.songRequests.stationId, s.id), eq(schema.songRequests.requesterHash, hash), gt(schema.songRequests.createdAt, new Date(Date.now() - 3600_000))));
       if ((recent?.n ?? 0) >= r.perHour) throw new HttpError(429, 'too_many_requests', `You can send ${r.perHour} requests per hour`);
       const strip = (v: string) => v.replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
-      if (!strip(req.body.artist) || !strip(req.body.title)) throw badRequest('Fill in the artist and the title');
+      let artist = strip(req.body.artist);
+      let title = strip(req.body.title);
+      const fromLibrary = !!req.body.mediaId;
+      if (fromLibrary) {
+        if (!libraryRequests(s)) throw badRequest('This station takes requests as free text');
+        const blocked = await requestBlocker(ctx, s, req.body.mediaId!);
+        if (blocked) throw new HttpError(409, 'not_requestable', blocked);
+        const [media] = await ctx.db.select().from(schema.mediaFiles).where(eq(schema.mediaFiles.id, req.body.mediaId!));
+        artist = media!.artist || '—';
+        title = media!.title;
+      } else if (!artist || !title) throw badRequest('Fill in the artist and the title');
+      const auto = fromLibrary && autodjSettings(s).requests.autoQueue;
       const [row] = await ctx.db
         .insert(schema.songRequests)
         .values({
           stationId: s.id,
-          artist: strip(req.body.artist),
-          title: strip(req.body.title),
+          artist,
+          title,
           message: strip(req.body.message),
           requesterName: strip(req.body.name),
           requesterHash: hash,
+          mediaId: req.body.mediaId ?? null,
+          ...(auto ? { status: 'accepted' as const, handledBy: 'AutoDJ', handledAt: new Date() } : {}),
         })
-        .returning({ id: schema.songRequests.id });
-      return { ok: true as const, id: row!.id };
+        .returning();
+      const queued = auto ? await queueRequest(ctx, s, row!, 'AutoDJ').catch(() => false) : false;
+      return { ok: true as const, id: row!.id, queued };
     },
   );
 };

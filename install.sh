@@ -122,18 +122,18 @@ apt-get update -qq
 
 # Mask the services of packages whose job we do per station ourselves, before they are installed: the icecast2
 # package would start an Icecast on port 8000, where the API listens.
-for unit in icecast2.service sftpgo.service; do
+for unit in icecast2.service sftpgo.service liquidsoap.service; do
   [[ "$(systemctl is-enabled "$unit" 2>/dev/null)" == masked ]] || { systemctl disable --now --quiet "$unit" 2>/dev/null || true; systemctl mask --quiet "$unit"; }
 done
 
 KV_PKG=valkey-server
 apt-cache show valkey-server >/dev/null 2>&1 || KV_PKG=redis-server
-apt-get install -y -qq nodejs postgresql caddy "$KV_PKG" restic rclone icecast2 ffmpeg >/dev/null
+apt-get install -y -qq nodejs postgresql caddy "$KV_PKG" restic rclone icecast2 ffmpeg liquidsoap >/dev/null
 KV_SERVICE=$([[ $KV_PKG == valkey-server ]] && echo valkey-server || echo redis-server)
 systemctl enable --now postgresql "$KV_SERVICE" caddy >/dev/null 2>&1 || true
 info "Node.js $(node -v), PostgreSQL $(dpkg-query -W -f='${Version}' postgresql), $KV_PKG $(dpkg-query -W -f='${Version}' "$KV_PKG"), Caddy $(caddy version | awk '{print $1}')"
 info "Backups: restic $(dpkg-query -W -f='${Version}' restic), rclone $(dpkg-query -W -f='${Version}' rclone)"
-info "Streaming: Icecast $(dpkg-query -W -f='${Version}' icecast2), FFmpeg $(dpkg-query -W -f='${Version}' ffmpeg) (SFTPGo follows with the system services)"
+info "Streaming: Icecast $(dpkg-query -W -f='${Version}' icecast2), FFmpeg $(dpkg-query -W -f='${Version}' ffmpeg), Liquidsoap $(dpkg-query -W -f='${Version}' liquidsoap) (SFTPGo follows with the system services)"
 
 if ! command -v pnpm >/dev/null || [[ "$(pnpm -v)" != "$PNPM_VERSION" ]]; then
   npm install -g --silent "pnpm@$PNPM_VERSION" >/dev/null

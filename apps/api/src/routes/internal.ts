@@ -5,6 +5,7 @@ import type { AppContext } from '../lib/context.js';
 import { HttpError } from '../lib/errors.js';
 import { hostAllowed } from '../services/streaming/domains.js';
 import { deniedLogin, sftpgoLogin, stationIdsForLogins } from '../services/streaming/sftpgo.js';
+import { libraryRescanner } from '../services/autodj/library.js';
 import { scanStationStorage } from '../services/streaming/storage.js';
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
@@ -37,6 +38,7 @@ function storageRescanner(ctx: AppContext) {
 export const internalRoutes: FastifyPluginAsyncZod = async (app) => {
   const { ctx } = app;
   const rescan = storageRescanner(ctx);
+  const rescanLibrary = libraryRescanner(ctx);
 
   app.get(
     '/tls-ask',
@@ -73,7 +75,12 @@ export const internalRoutes: FastifyPluginAsyncZod = async (app) => {
     { schema: { hide: true, body: z.object({ action: z.string().optional(), username: z.string().optional() }).passthrough() } },
     async (req) => {
       requireInternal(req);
-      if (req.body.username) for (const id of await stationIdsForLogins(ctx, [req.body.username])) rescan(id);
+      if (req.body.username) {
+        for (const id of await stationIdsForLogins(ctx, [req.body.username])) {
+          rescan(id);
+          rescanLibrary(id);
+        }
+      }
       return { ok: true };
     },
   );

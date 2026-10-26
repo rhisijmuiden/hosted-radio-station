@@ -1,4 +1,5 @@
 import {
+  type AnyPgColumn,
   bigserial,
   bigint,
   doublePrecision,
@@ -275,6 +276,8 @@ export const stations = pgTable(
     publicPage: jsonb('public_page').$type<Record<string, unknown>>().notNull().default({}),
     /** File name of the station logo under DATA_DIR/public/<station id>/. */
     logoFile: text('logo_file'),
+    /** AutoDJ settings of the Radio station edition (phase 6). Read through autodjSchema for defaults. */
+    autodj: jsonb('autodj').$type<Record<string, unknown>>().notNull().default({}),
     createdAt: createdAt(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -556,6 +559,8 @@ export const songRequests = pgTable(
     requesterName: text('requester_name').notNull().default(''),
     /** Keyed hash of the listener's address, to limit requests per listener without keeping the address. */
     requesterHash: text('requester_hash').notNull(),
+    /** The library track the listener picked (Radio station edition); free-text requests have none. */
+    mediaId: uuid('media_id').references((): AnyPgColumn => mediaFiles.id, { onDelete: 'set null' }),
     status: requestStatus('status').notNull().default('pending'),
     handledBy: text('handled_by'),
     handledAt: timestamp('handled_at', { withTimezone: true }),
@@ -598,4 +603,173 @@ export const artworkCache = pgTable('artwork_cache', {
   key: text('key').primaryKey(),
   file: text('file'),
   fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Phase 6: radio station (AutoDJ)
+
+export const mediaSourceType = pgEnum('media_source_type', ['local', 'smb', 'nfs']);
+
+export interface MediaSourceConfig {
+  /** local: a folder on this server (administrators only), e.g. a bind mount from the host. */
+  path?: string;
+  /** smb and nfs: the file server. */
+  host?: string;
+  /** smb: the share, optionally with a sub folder ("music/hardstyle"). */
+  share?: string;
+  /** nfs: the exported path ("/export/music"). */
+  export?: string;
+  username?: string;
+  /** Encrypted. */
+  password?: string;
+  /** smb: Windows domain or workgroup. */
+  domain?: string;
+  /** smb: protocol version (3.0 when empty); nfs: 3, 4, 4.1 or 4.2. */
+  version?: string;
+}
+
+export interface MediaSourceStatus {
+  state: 'pending' | 'ok' | 'error';
+  message?: string;
+  checkedAt?: string;
+}
+
+/**
+ * A music collection outside the station's own storage: a folder on this server, or a Windows/Samba (SMB) or NFS share
+ * that the system helper mounts read-only. The files are indexed where they are, nothing is copied.
+ */
+export const mediaSources = pgTable(
+  'media_sources',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    type: mediaSourceType('type').notNull(),
+    config: jsonb('config').$type<MediaSourceConfig>().notNull().default({}),
+    enabled: boolean('enabled').notNull().default(true),
+    status: jsonb('status').$type<MediaSourceStatus>(),
+    fileCount: integer('file_count').notNull().default(0),
+    scannedAt: timestamp('scanned_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index('media_sources_station_idx').on(t.stationId)],
+);
+
+/**
+ * One audio file in a station's library. `location` is "storage" (the station's own media folder) or the id of a media
+ * source; `path` is relative to it. Tags are read when the file is scanned and can be corrected in the panel.
+ */
+export const mediaFiles = pgTable(
+  'media_files',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    sourceId: uuid('source_id').references(() => mediaSources.id, { onDelete: 'cascade' }),
+    location: text('location').notNull(),
+    path: text('path').notNull(),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull().default(0),
+    mtimeMs: bigint('mtime_ms', { mode: 'number' }).notNull().default(0),
+    title: text('title').notNull(),
+    artist: text('artist').notNull().default(''),
+    album: text('album').notNull().default(''),
+    genre: text('genre').notNull().default(''),
+    year: integer('year'),
+    durationSeconds: doublePrecision('duration_seconds'),
+    bitrateKbps: integer('bitrate_kbps'),
+    /** ReplayGain of the track in dB, from the file's tags; evens out loudness between tracks. */
+    gainDb: doublePrecision('gain_db'),
+    /** Tags changed in the panel are kept when the file is scanned again. */
+    edited: boolean('edited').notNull().default(false),
+    /** false = the AutoDJ never picks it. */
+    enabled: boolean('enabled').notNull().default(true),
+    playCount: integer('play_count').notNull().default(0),
+    lastPlayedAt: timestamp('last_played_at', { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('media_files_path_idx').on(t.stationId, t.location, t.path),
+    index('media_files_artist_idx').on(t.stationId, t.artist),
+    index('media_files_played_idx').on(t.stationId, t.lastPlayedAt),
+  ],
+);
+
+export const autodjQueue = pgEnum('autodj_queue', ['q1', 'q2']);
+export const playlistOrder = pgEnum('playlist_order', ['shuffle', 'random', 'sequential']);
+
+export interface PlaylistFolder {
+  location: string;
+  /** Relative folder; empty = everything in the location. */
+  path: string;
+}
+
+/**
+ * A rotation the AutoDJ picks tracks from. Every playlist feeds one queue (Q1 or Q2); playlists with a higher weight are
+ * picked more often. Tracks are the files of its folders (new files join by themselves) plus the files added by hand.
+ */
+export const playlists = pgTable(
+  'playlists',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    queue: autodjQueue('queue').notNull().default('q1'),
+    weight: integer('weight').notNull().default(5),
+    /** shuffle = least recently played first, random = any track, sequential = in folder and file order. */
+    order: playlistOrder('order').notNull().default('shuffle'),
+    folders: jsonb('folders').$type<PlaylistFolder[]>().notNull().default([]),
+    enabled: boolean('enabled').notNull().default(true),
+    /** Sequential playlists: the last path played, as "location:path". */
+    cursor: text('cursor'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('playlists_station_idx').on(t.stationId)],
+);
+
+export const playlistItems = pgTable(
+  'playlist_items',
+  {
+    playlistId: uuid('playlist_id').notNull().references(() => playlists.id, { onDelete: 'cascade' }),
+    mediaId: uuid('media_id').notNull().references(() => mediaFiles.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.playlistId, t.mediaId] }), index('playlist_items_media_idx').on(t.mediaId)],
+);
+
+export const queueState = pgEnum('queue_state', ['queued', 'cued', 'playing']);
+
+/**
+ * The two AutoDJ queues. `queued` items wait their turn, the `cued` item has been handed to the player (it loads one
+ * track ahead) and the `playing` item is on air. Played items are removed; the play itself is in song_plays.
+ */
+export const queueItems = pgTable(
+  'queue_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    queue: autodjQueue('queue').notNull(),
+    mediaId: uuid('media_id').notNull().references(() => mediaFiles.id, { onDelete: 'cascade' }),
+    position: doublePrecision('position').notNull(),
+    state: queueState('state').notNull().default('queued'),
+    /** rotation (picked from a playlist) | request | manual */
+    origin: text('origin').notNull(),
+    playlistId: uuid('playlist_id').references(() => playlists.id, { onDelete: 'set null' }),
+    requestId: uuid('request_id').references(() => songRequests.id, { onDelete: 'set null' }),
+    addedBy: text('added_by'),
+    cuedAt: timestamp('cued_at', { withTimezone: true }),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index('queue_items_station_idx').on(t.stationId, t.queue, t.position)],
+);
+
+/** Running state of a station's AutoDJ: which queue played last, for the pick rules. */
+export const autodjState = pgTable('autodj_state', {
+  stationId: uuid('station_id')
+    .primaryKey()
+    .references(() => stations.id, { onDelete: 'cascade' }),
+  lastQueue: autodjQueue('last_queue'),
+  /** Tracks played in a row from lastQueue. */
+  streak: integer('streak').notNull().default(0),
+  /** Last time the player asked for a track or reported one. */
+  seenAt: timestamp('seen_at', { withTimezone: true }),
 });

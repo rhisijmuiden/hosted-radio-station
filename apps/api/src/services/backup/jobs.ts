@@ -45,6 +45,9 @@ export function backupPaths(ctx: AppContext) {
       // Icecast logs and process ids of the stations; the configuration is rewritten from the database anyway.
       join(d, 'stations', '*', 'logs'),
       join(d, 'stations', '*', 'icecast.pid'),
+      // Mounted music shares belong to their file server, and the AutoDJ's control socket is not a file.
+      join(d, 'stations', '*', 'sources'),
+      join(d, 'stations', '*', 'autodj.sock'),
       // GeoIP databases are downloaded again after a restore.
       join(d, 'geoip'),
     ],
