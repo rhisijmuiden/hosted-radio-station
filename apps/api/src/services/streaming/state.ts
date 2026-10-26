@@ -60,6 +60,7 @@ async function internalReaderCounts(ctx: AppContext): Promise<WorkerStatus['inte
 
 /** Live mounts of a station with their listeners, not counting the transcoders and relays reading them. */
 export async function stationStats(ctx: AppContext, station: Station): Promise<MountStats[] | null> {
+  if (station.nodeId) return nodeStationStats(station);
   try {
     const [stats, internal] = await Promise.all([
       fetchStats({ port: station.icecastPort, adminPassword: ctx.box.decrypt(station.icecastAdminPassword) }),
@@ -70,6 +71,25 @@ export async function stationStats(ctx: AppContext, station: Station): Promise<M
   } catch {
     return null;
   }
+}
+
+/** Live mounts of a station on a station node, as the node last reported them (null when it has been quiet for a minute). */
+export function nodeStationStats(station: Station): MountStats[] | null {
+  const r = station.nodeRuntime;
+  if (!r || Date.now() - new Date(r.updatedAt).getTime() > 60_000) return null;
+  return r.mounts.map((m) => ({
+    mount: m.mount,
+    listeners: m.listeners,
+    listenerPeak: m.listenerPeak ?? m.listeners,
+    title: m.title,
+    bitrateKbps: m.bitrateKbps,
+    contentType: m.contentType,
+    sourceIp: null,
+    userAgent: null,
+    streamStart: m.streamStart ?? null,
+    bytesRead: 0,
+    bytesSent: 0,
+  }));
 }
 
 export async function loadStation(ctx: AppContext, stationId: string) {
@@ -125,7 +145,7 @@ export function autodjMount(station: Station, mounts: Mount[]) {
 /** Writes (or removes) the Liquidsoap script of the station's AutoDJ; the system helper (re)starts the player. */
 async function writeAutodjScript(ctx: AppContext, station: Station, mounts: Mount[]) {
   const path = autodjScriptPath(ctx, station.id);
-  const mount = autodjMount(station, mounts);
+  const mount = station.nodeId ? null : autodjMount(station, mounts);
   if (!mount) {
     await rm(path, { force: true });
     return;
@@ -202,7 +222,8 @@ export async function buildStreamsState(ctx: AppContext): Promise<StreamsState> 
     .innerJoin(schema.tenants, eq(schema.tenants.id, schema.tenantDomains.tenantId))
     .where(and(eq(schema.tenantDomains.status, 'verified'), eq(schema.tenants.active, true)));
 
-  const enabled = (r: (typeof stations)[number]) => r.s.enabled && r.tenantActive;
+  // A station on a station node runs there; its server here stays off.
+  const enabled = (r: (typeof stations)[number]) => r.s.enabled && r.tenantActive && !r.s.nodeId;
   const sftpgoEnv = await renderSftpgoEnv(ctx, streaming);
   const autodj: StreamsState['autodj'] = [];
   for (const r of stations) {

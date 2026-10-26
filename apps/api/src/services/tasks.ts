@@ -45,37 +45,45 @@ export async function housekeeping(ctx: AppContext) {
 export function startBackgroundTasks(ctx: AppContext, log: FastifyBaseLogger) {
   const safe = (name: string, fn: () => Promise<unknown>) => () =>
     void fn().catch((err) => log.error({ err }, `${name} failed`));
-  const scheduler = setInterval(safe('backup scheduler', () => tickScheduler(ctx)), 60_000);
+  // A station node (phase 12) leaves billing, customer domains, backups and GeoIP to the main server.
+  const main = !ctx.config.STATION_NODE;
+  const only = <T>(make: () => T) => (main ? make() : undefined);
+  const scheduler = only(() => setInterval(safe('backup scheduler', () => tickScheduler(ctx)), 60_000));
   // Hosted service: renewals, reminders and suspensions every ten minutes; webhook retries every minute.
-  const billing = setInterval(safe('billing', () => billingTick(ctx)), 10 * 60_000);
-  const webhooks = setInterval(safe('webhooks', async () => {
-    await requeueStuck(ctx);
-    await deliverDue(ctx);
-  }), 60_000);
-  setTimeout(safe('billing', () => billingTick(ctx)), 50_000).unref();
+  const billing = only(() => setInterval(safe('billing', () => billingTick(ctx)), 10 * 60_000));
+  const webhooks = only(() =>
+    setInterval(safe('webhooks', async () => {
+      await requeueStuck(ctx);
+      await deliverDue(ctx);
+    }), 60_000),
+  );
+  if (main) setTimeout(safe('billing', () => billingTick(ctx)), 50_000).unref();
   const house = setInterval(safe('housekeeping', () => housekeeping(ctx)), 6 * 3600_000);
   const storage = setInterval(safe('storage scan', () => scanAllStorage(ctx)), 6 * 3600_000);
-  const domains = setInterval(
-    safe('domain check', async () => {
-      if (await recheckDomains(ctx)) await applyStreams(ctx);
-    }),
-    5 * 60_000,
+  const domains = only(() =>
+    setInterval(
+      safe('domain check', async () => {
+        if (await recheckDomains(ctx)) await applyStreams(ctx);
+      }),
+      5 * 60_000,
+    ),
   );
   const hourly = setInterval(safe('listener figures', () => rollupHourly(ctx)), 5 * 60_000);
-  const geoip = setInterval(safe('GeoIP update', () => maybeUpdateGeoip(ctx)), 6 * 3600_000);
+  const geoip = only(() => setInterval(safe('GeoIP update', () => maybeUpdateGeoip(ctx)), 6 * 3600_000));
   // Files uploaded into the stations' "ondemand" folders.
   const ondemand = setInterval(safe('on-demand scan', () => scanAllOnDemand(ctx)), 5 * 60_000);
   // Music libraries of Radio stations (new files on shares and server folders; uploads trigger their own scan).
   const library = setInterval(safe('library scan', () => scanAllLibraries(ctx)), 30 * 60_000);
   setTimeout(safe('listener figures', () => rollupHourly(ctx, new Date(Date.now() - 2 * 86400_000))), 20_000).unref();
-  setTimeout(safe('GeoIP update', () => maybeUpdateGeoip(ctx)), 15_000).unref();
+  if (main) setTimeout(safe('GeoIP update', () => maybeUpdateGeoip(ctx)), 15_000).unref();
   setTimeout(safe('housekeeping', () => housekeeping(ctx)), 30_000).unref();
   setTimeout(safe('stream configuration', () => applyAllStreams(ctx)), 3_000).unref();
   setTimeout(safe('storage scan', () => scanAllStorage(ctx)), 60_000).unref();
   setTimeout(safe('on-demand scan', () => scanAllOnDemand(ctx)), 45_000).unref();
   setTimeout(safe('library scan', () => scanAllLibraries(ctx)), 90_000).unref();
-  for (const t of [scheduler, house, storage, domains, hourly, geoip, ondemand, library, billing, webhooks]) t.unref();
+  const timers = [scheduler, house, storage, domains, hourly, geoip, ondemand, library, billing, webhooks].filter((t) => t !== undefined);
+  for (const t of timers) t.unref();
   return () => {
-    for (const t of [scheduler, house, storage, domains, hourly, geoip, ondemand, library, billing, webhooks]) clearInterval(t);
+    for (const t of timers) clearInterval(t);
   };
 }

@@ -4,6 +4,7 @@ import net from 'node:net';
 import { AGENT, listClients, localMount, updateTitle, type IcecastSecrets } from './icecast.js';
 import { log } from './log.js';
 import type { AgentReport, RelayMount } from './protocol.js';
+import { PushReceiver } from './push.js';
 
 type RelayState = AgentReport['relays'][number];
 
@@ -62,7 +63,7 @@ export class IcyReader {
 }
 
 /** Logs in as the source of a mount on the node's own Icecast server (HTTP PUT). */
-function sourceConnection(port: number, mount: string, password: string, headers: Record<string, string>): Promise<net.Socket> {
+export function sourceConnection(port: number, mount: string, password: string, headers: Record<string, string>): Promise<net.Socket> {
   return new Promise((resolve, reject) => {
     const socket = net.connect({ host: '127.0.0.1', port });
     socket.once('error', (err) => reject(new Error(`local Icecast: ${err.message}`)));
@@ -159,7 +160,7 @@ class Puller {
   }
 
   private async run() {
-    const res = await get(this.mount.url, { 'user-agent': `${AGENT} ${this.ctx.nodeId}`, 'icy-metadata': '1' });
+    const res = await get(this.mount.url!, { 'user-agent': `${AGENT} ${this.ctx.nodeId}`, 'icy-metadata': '1' });
     this.res = res;
     if (res.statusCode !== 200) {
       res.resume();
@@ -217,15 +218,22 @@ interface Client {
  */
 export class RelayManager {
   private pullers = new Map<string, Puller>();
+  /** Streams that station nodes push here instead (phase 12). */
+  readonly push: PushReceiver;
+  private mounts: RelayMount[] = [];
   private clients = new Map<string, Client>();
   /** Listeners that left since the last report. */
   private ended: { key: string; id: string; endedAt: string }[] = [];
   private lastCheck = 0;
 
-  constructor(private readonly ctx: { icecastPort: () => number; secrets: IcecastSecrets; nodeId: string; trustClientHeader: boolean }) {}
+  constructor(private readonly ctx: { icecastPort: () => number; secrets: IcecastSecrets; nodeId: string; trustClientHeader: boolean }) {
+    this.push = new PushReceiver(ctx);
+  }
 
-  apply(mounts: RelayMount[]) {
-    const wanted = new Map(mounts.map((m) => [m.key, m]));
+  apply(mounts: RelayMount[], pushPort: number | null = null) {
+    this.mounts = mounts;
+    void this.push.apply(pushPort, mounts).catch((err) => log.error('push port failed', { err }));
+    const wanted = new Map(mounts.filter((m) => m.url).map((m) => [m.key, m]));
     for (const [key, p] of this.pullers) {
       const want = wanted.get(key);
       if (!want || JSON.stringify(want) !== JSON.stringify(p.mount)) {
@@ -244,6 +252,7 @@ export class RelayManager {
   stopAll() {
     for (const p of this.pullers.values()) p.stop();
     this.pullers.clear();
+    this.push.stop();
     for (const k of [...this.clients.keys()]) this.drop(k);
   }
 
@@ -275,13 +284,15 @@ export class RelayManager {
     if (Date.now() - this.lastCheck < 55_000) return;
     this.lastCheck = Date.now();
     const port = this.ctx.icecastPort();
-    for (const [key, p] of this.pullers) {
-      if (p.state.state !== 'connected') {
+    const live = (m: RelayMount) => (m.push ? this.push.connected(m.key) : this.pullers.get(m.key)?.state.state === 'connected');
+    for (const m of this.mounts) {
+      const key = m.key;
+      if (!live(m)) {
         for (const k of [...this.clients.keys()]) if (k.startsWith(`${key}#`)) this.drop(k);
         continue;
       }
       try {
-        const list = await listClients(port, this.ctx.secrets.admin, localMount(p.mount));
+        const list = await listClients(port, this.ctx.secrets.admin, localMount(m));
         const ids = new Set(list.map((c) => c.id));
         for (const k of [...this.clients.keys()]) if (k.startsWith(`${key}#`) && !ids.has(k.slice(key.length + 1)) && Date.now() - this.clients.get(k)!.since > 10_000) this.drop(k);
         for (const c of list) {
@@ -317,7 +328,8 @@ export class RelayManager {
   }
 
   states(): RelayState[] {
-    return [...this.pullers.values()].map((p) => ({ ...p.state, listeners: [...this.clients.values()].filter((c) => c.key === p.mount.key).length }));
+    const count = (key: string) => [...this.clients.values()].filter((c) => c.key === key).length;
+    return [...[...this.pullers.values()].map((p) => p.state), ...this.push.states()].map((s) => ({ ...s, listeners: count(s.key) }));
   }
 
   reportClients(): AgentReport['clients'] {

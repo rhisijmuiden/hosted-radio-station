@@ -161,7 +161,7 @@ export class IngestGateway {
     else this.servers.get('tls')?.server.close();
     if (snap.streaming.ingestPlainPort) wanted.set('plain', { port: snap.streaming.ingestPlainPort, kind: 'plain' });
     for (const v of snap.stations.values()) {
-      if (!v.active || !v.station.legacyPort) continue;
+      if (!v.active || v.onNode || !v.station.legacyPort) continue;
       wanted.set(`legacy:${v.station.id}:0`, { port: v.station.legacyPort, kind: 'legacy', stationId: v.station.id });
       wanted.set(`legacy:${v.station.id}:1`, { port: v.station.legacyPort + 1, kind: 'legacy', stationId: v.station.id });
     }
@@ -333,7 +333,7 @@ export class IngestGateway {
       view.mounts.find((m) => m.path === clean && m.kind === 'source') ??
       view.mounts.find((m) => m.id === view.station.legacyMountId) ??
       view.mounts.find((m) => m.kind === 'source');
-    return mount && view.active ? { view, mount } : null;
+    return mount && view.active && !view.onNode ? { view, mount } : null;
   }
 
   private async refuse(socket: net.Socket, ip: string) {
@@ -483,7 +483,7 @@ export class IngestGateway {
 
   private async handleLegacy(socket: net.Socket, ip: string, stationId: string) {
     const view = this.snap!.stations.get(stationId);
-    if (!view?.active) return socket.destroy();
+    if (!view?.active || view.onNode) return socket.destroy();
     const first = await readUntil(socket, '\n');
     const line = first.head.replace(/\r$/, '');
     if (/^[A-Z]+ \S+ HTTP\/1\.[01]$/.test(line)) {

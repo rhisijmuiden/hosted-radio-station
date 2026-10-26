@@ -35,7 +35,7 @@ test('icecast config has a mount with listener hooks per carried stream', () => 
     name: 'Relay <AMS>',
     hostname: 'relay.example.com',
     layout: { bind: '127.0.0.1', port: 8100 },
-    mounts: [{ key: 'harder/live', stationId: 'x', slug: 'harder', path: '/live', name: 'Harder.fm', format: 'mp3', url: 'http://main/listen/harder/live' }],
+    mounts: [{ key: 'harder/live', stationId: 'x', slug: 'harder', path: '/live', name: 'Harder.fm', format: 'mp3', url: 'http://main/listen/harder/live', push: null }],
     maxListeners: 0,
     secrets: { source: 's', admin: 'a' },
   });

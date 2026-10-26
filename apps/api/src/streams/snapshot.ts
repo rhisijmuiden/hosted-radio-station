@@ -9,6 +9,8 @@ export interface StationView {
   tenantId: string;
   /** Station and customer are both active. */
   active: boolean;
+  /** The station runs on a station node: no encoders, jobs or Icecast here, only statistics from what the node reports. */
+  onNode: boolean;
   maxBitrateKbps: number;
   storageQuotaMb: number;
   adminPassword: string;
@@ -60,6 +62,7 @@ export async function loadSnapshot(ctx: AppContext): Promise<Snapshot> {
       station: r.s,
       tenantId: r.s.tenantId,
       active: r.s.enabled && r.active,
+      onNode: !!r.s.nodeId,
       maxBitrateKbps: r.limits.maxBitrateKbps,
       storageQuotaMb: r.limits.storageQuotaMb,
       adminPassword: ctx.box.decrypt(r.s.icecastAdminPassword),
@@ -71,7 +74,7 @@ export async function loadSnapshot(ctx: AppContext): Promise<Snapshot> {
   }
   for (const m of mounts) stations.get(m.stationId)?.mounts.push(m);
   for (const o of outputs) stations.get(o.stationId)?.outputs.push(o);
-  for (const v of stations.values()) v.autodjMount = autodjMount(v.station, v.mounts);
+  for (const v of stations.values()) v.autodjMount = v.onNode ? null : autodjMount(v.station, v.mounts);
   const hostTenant = new Map<string, string>();
   for (const d of domains) {
     hostTenant.set(d.ingestHost, d.tenantId);
@@ -97,7 +100,7 @@ export function resolveMount(snap: Snapshot, host: string | null, path: string):
   const parts = clean.split('/').filter(Boolean);
   const tenantId = host ? snap.hostTenant.get(host.toLowerCase().replace(/:\d+$/, '')) : undefined;
   const ok = (view: StationView | undefined, mountPath: string) => {
-    if (!view || !view.active || (tenantId && view.tenantId !== tenantId)) return null;
+    if (!view || !view.active || view.onNode || (tenantId && view.tenantId !== tenantId)) return null;
     const mount = view.mounts.find((m) => m.path === mountPath && m.kind === 'source' && m.id !== view.autodjMount?.id);
     return mount ? { view, mount } : null;
   };
