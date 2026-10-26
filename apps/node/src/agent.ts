@@ -191,9 +191,10 @@ export class Agent {
       icecastPort: layout.port,
       icecastBind: layout.bind,
       certHosts: [...new Set([plan.web.publicHost, ...(plan.source?.hosts ?? [])].filter((h): h is string => !!h))].sort(),
+      station: !!plan.station,
     });
     // Give Icecast a moment to read the new mounts before the streams come in.
-    setTimeout(() => this.relay?.apply(mounts), current !== body ? 1500 : 0);
+    setTimeout(() => this.relay?.apply(mounts, plan.relay?.pushPort ?? null), current !== body ? 1500 : 0);
     await this.source.apply(plan.source);
     this.prober.apply(plan.probes);
     // Plans of older main servers have no fm field.
@@ -239,7 +240,7 @@ export class Agent {
         listeners: this.relay?.listenerCount ?? 0,
         encoders: this.source.encoders,
         icmp: this.icmp,
-        problems: [...(apply?.problems ?? []), ...this.source.problems, ...this.fm.problemList].slice(0, 10),
+        problems: [...(apply?.problems ?? []), ...this.source.problems, ...(this.relay?.push.problems ?? []), ...this.fm.problemList].slice(0, 10),
         update: this.update ? { state: this.update.state, message: this.update.message, at: this.update.at } : null,
         revision: this.plan?.revision ?? null,
         fm: this.fm.status(),

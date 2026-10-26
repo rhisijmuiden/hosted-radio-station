@@ -65,6 +65,8 @@ export interface Tenant {
   limits: TenantLimits;
   active: boolean;
   externalRef: string | null;
+  /** Station node where new stations of this customer start (phase 12). */
+  stationNodeId: string | null;
   createdAt: string;
   memberCount: number;
 }
@@ -269,7 +271,23 @@ export interface Station {
   legacyPort: number | null;
   legacyMountId: string | null;
   storageBytes: number;
+  /** The station node that runs the station (phase 12), or null for this server. */
+  nodeId: string | null;
+  nodeOnline: boolean | null;
+  nodeSeenAt: string | null;
+  nodeMove: StationMove | null;
   createdAt: string;
+}
+export interface StationMove {
+  direction: 'to_node' | 'to_main';
+  nodeId: string;
+  state: 'copying' | 'failed';
+  files: number;
+  filesDone: number;
+  bytes: number;
+  bytesDone: number;
+  message?: string;
+  startedAt: string;
 }
 export interface StationListItem extends Station {
   onAir: boolean;
@@ -791,7 +809,7 @@ export interface SchedulerView {
 
 // Nodes (distribution network)
 
-export type NodeRole = 'relay' | 'source' | 'fm';
+export type NodeRole = 'relay' | 'source' | 'station' | 'fm';
 /** FM/MPX settings of a node (phase 11). Shares are 0..1 of 100% modulation. */
 export interface FmConfig {
   stationId: string | null;
@@ -856,6 +874,10 @@ export interface NodeConfig {
   sourcePlainPort: number | null;
   sourceTlsPort: number | null;
   probe: boolean;
+  /** Relay: where station nodes push their streams (TLS). */
+  pushPort: number;
+  /** Station node: its address on the studio network, for encoders and RHIS Studio there. */
+  lanAddress: string;
   fm: FmConfig;
 }
 export type RelayState = 'connecting' | 'connected' | 'error' | 'idle';

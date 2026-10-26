@@ -32,3 +32,5 @@ process.on('SIGTERM', () => void shutdown('SIGTERM'));
 process.on('SIGINT', () => void shutdown('SIGINT'));
 
 await app.listen({ host: config.HOST, port: config.PORT });
+// A station node (phase 12) connects to its main server once it answers requests itself.
+await app.stationNode?.start();

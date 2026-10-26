@@ -16,6 +16,7 @@ import { ScheduleTab } from '../components/station/Schedule';
 import { StatisticsView } from '../components/stats/StatisticsView';
 import { formatLabel, MountsCard } from '../components/station/Mounts';
 import { OutputsCard, OutputStateBadge } from '../components/station/Outputs';
+import { NodeOfflineBanner, PlacementCard } from '../components/station/Placement';
 import { Badge, Button, Card, CardHeader, CopyField, Fact, Field, Input, PageHeader, Select, Spinner, Switch, Table, Tabs, Textarea } from '../components/ui';
 import { api, type LiveSession, type StationDetail, type StationStatus, type Tenant } from '../lib/api';
 import { formatBytes, formatDate, formatDuration } from '../lib/format';
@@ -421,6 +422,7 @@ function SettingsTab({ station }: { station: StationDetail }) {
             )}
           </Card>
         )}
+        {owner && <PlacementCard station={station} />}
         {owner && (
           <Card className="border-offline/30 p-5">
             <h2 className="display text-base text-offline">{t('stations.delete')}</h2>
@@ -532,6 +534,7 @@ export function StationDetailPage() {
           </a>
         }
       />
+      <NodeOfflineBanner station={s} />
       <Tabs value={tab} onChange={(v) => setParams(v === 'overview' ? {} : { tab: v }, { replace: true })} tabs={tabs} />
       {tab === 'overview' && (
         <div className="grid items-start gap-4 xl:grid-cols-[1.3fr_1fr]">

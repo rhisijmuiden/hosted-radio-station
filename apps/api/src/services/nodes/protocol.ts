@@ -24,8 +24,10 @@ export interface RelayMount {
   path: string;
   name: string;
   format: string;
-  /** Where the node pulls the stream from (the main server's listen route). */
-  url: string;
+  /** Where the node pulls the stream from (the main server's listen route). Null when a station node pushes it. */
+  url: string | null;
+  /** A station node delivers this stream to the node's push port, signing in with this token. */
+  push: { token: string } | null;
 }
 
 export interface ProbeTarget {
@@ -46,7 +48,12 @@ export interface NodePlan {
     /** Port for listeners without a domain (or without a web server on the node). Null = the agent's default. */
     listenPort: number | null;
   };
-  relay: { maxListeners: number; mounts: RelayMount[] } | null;
+  relay: {
+    maxListeners: number;
+    mounts: RelayMount[];
+    /** Where station nodes deliver their streams (TLS). */
+    pushPort: number | null;
+  } | null;
   source: {
     plainPort: number | null;
     tlsPort: number | null;
@@ -56,6 +63,8 @@ export interface NodePlan {
     hosts: string[];
   } | null;
   probes: { intervalSeconds: number; targets: ProbeTarget[] } | null;
+  /** Station node: the full server next to the agent runs the stations (it gets them itself from the main server). */
+  station: { stations: number } | null;
   /** FM/MPX role (phase 11). */
   fm: FmPlan | null;
   update: { branch: string | null; commit: string | null; auto: boolean };

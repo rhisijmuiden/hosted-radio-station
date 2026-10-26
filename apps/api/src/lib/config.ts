@@ -31,6 +31,11 @@ const schema = z.object({
   /** Port of the listener hook in the streams service (behind LISTENER_HOOK_URL). */
   LISTENER_HOOK_PORT: z.coerce.number().int().default(8098),
   CADDYFILE: z.string().default('/etc/caddy/Caddyfile'),
+  /**
+   * Set on a station node (phase 12): JSON file with the main server and the node's id and secret. This server then
+   * runs the stations the main server gives it and reports back; it has no panel of its own.
+   */
+  STATION_NODE: z.string().default(''),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 

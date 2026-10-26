@@ -55,6 +55,24 @@ const stationOut = z.object({
   legacyPort: z.number().int().nullable(),
   legacyMountId: z.uuid().nullable(),
   storageBytes: z.number(),
+  /** The station node that runs the station (phase 12), or null for this server. */
+  nodeId: z.uuid().nullable(),
+  nodeOnline: z.boolean().nullable(),
+  /** Last report of the station node, as an ISO time. */
+  nodeSeenAt: z.string().nullable(),
+  nodeMove: z
+    .object({
+      direction: z.enum(['to_node', 'to_main']),
+      nodeId: z.uuid(),
+      state: z.enum(['copying', 'failed']),
+      files: z.number(),
+      filesDone: z.number(),
+      bytes: z.number(),
+      bytesDone: z.number(),
+      message: z.string().optional(),
+      startedAt: z.string(),
+    })
+    .nullable(),
   createdAt: z.date(),
 });
 const liveOut = z.object({
@@ -177,7 +195,7 @@ const statusOut = z.object({
   outputs: z.array(outputOut.pick({ id: true, name: true, type: true, enabled: true, status: true })),
 });
 
-const toStationOut = (s: Station, tenantName: string): z.infer<typeof stationOut> => ({
+const toStationOut = (s: Station, tenantName: string, online?: (nodeId: string) => boolean): z.infer<typeof stationOut> => ({
   id: s.id,
   tenantId: s.tenantId,
   tenantName,
@@ -192,6 +210,10 @@ const toStationOut = (s: Station, tenantName: string): z.infer<typeof stationOut
   legacyPort: s.legacyPort,
   legacyMountId: s.legacyMountId,
   storageBytes: s.storageBytes,
+  nodeId: s.nodeId,
+  nodeOnline: s.nodeId && online ? online(s.nodeId) : null,
+  nodeSeenAt: s.nodeId ? (s.nodeRuntime?.updatedAt ?? null) : null,
+  nodeMove: s.nodeMove ?? null,
   createdAt: s.createdAt,
 });
 const toMountOut = (m: Mount): z.infer<typeof mountOut> => ({
@@ -258,7 +280,7 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
     const local = loaded.outputs.some((o) => o.type === 'local' && o.enabled);
     const conn = await connectionInfo(ctx, loaded.station, loaded.mounts, local);
     return {
-      ...toStationOut(loaded.station, tenant!.name),
+      ...toStationOut(loaded.station, tenant!.name, (id) => app.stationTunnels.online(id)),
       tenantPlan: tenant!.plan,
       mounts: loaded.mounts.map(toMountOut),
       outputs: loaded.outputs.map(toOutputOut),
@@ -319,7 +341,7 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
       const live = new Set(onAir.map((r) => r.id));
       const stats = await Promise.all(rows.map((r) => (r.station.enabled ? stationStats(ctx, r.station) : Promise.resolve(null))));
       return rows.map((r, i) => ({
-        ...toStationOut(r.station, r.tenantName),
+        ...toStationOut(r.station, r.tenantName, (id) => app.stationTunnels.online(id)),
         onAir: live.has(r.station.id) || !!stats[i]?.length,
         listeners: stats[i] ? stats[i]!.reduce((n, m) => n + m.listeners, 0) : null,
         mountCount: mc.get(r.station.id) ?? 0,
@@ -394,6 +416,16 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
         throw err;
       }
       if (station.edition === 'station') station = (await upgradeStation(ctx, station)).station;
+      // A customer with a station node: new stations run there from the start (there is no library to copy yet).
+      if (tenant.stationNodeId) {
+        const [node] = await ctx.db.select().from(schema.nodes).where(eq(schema.nodes.id, tenant.stationNodeId));
+        if (node?.pairedAt && node.roles.includes('station')) {
+          await ctx.db
+            .update(schema.stations)
+            .set({ nodeId: node.id, nodeRuntime: { updatedAt: new Date().toISOString(), mounts: [], autodj: null, encoders: 0, relays: {}, revision: null, syncedAt: null } })
+            .where(eq(schema.stations.id, station.id));
+        }
+      }
       Object.assign(req.auditInfo, { tenantId: tenant.id, targetId: station.id, details: { name: station.name, slug: station.slug } });
       await apply(req, station.id);
       reply.status(201);

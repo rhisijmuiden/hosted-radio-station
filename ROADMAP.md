@@ -133,7 +133,7 @@ Phase 11: FM/MPX and RDS: a node that puts a station on FM, with a live radio di
 | 9 | Windows client | Done |
 | 10 | Hosted service | Done |
 | 11 | FM/MPX and RDS module | Done |
-| 12 | Station nodes | In progress |
+| 12 | Station nodes | Done |
 | 13 | Orchestrator as control plane | Planned |
 | 14 | Orchestrator redundancy | Planned |
 
@@ -279,8 +279,15 @@ How to set up an FM node: [docs/fm.md](docs/fm.md).
 
 A node role that runs complete stations at the customer's site or in the datacenter.
 
-- The station's music library, AutoDJ, hour clocks and live assist run locally on the node; the main server stays the orchestrator.
-- Configuration is edited centrally and pushed to the node; the node pushes its audio outbound to the assigned relays.
+- The station's music library, AutoDJ, hour clocks, scheduler and live assist run on the node; the main server stays the orchestrator, with the panel, the customers and the statistics.
+- Settings are edited centrally and pushed to the node as a package; everything the node owns (library, playlists, clocks, schedule, queues, requests, on-demand, broadcasts) is mirrored back, so the panel and the public pages keep working while the node is offline (read-only).
+- Panel and public requests for a station on a node travel through a WebSocket tunnel to the node, as the signed-in user.
+- The node pushes its public streams straight to the relay nodes that carry the station (TLS, a token per mount), so listeners never connect to the studio and the listen URLs stay the same.
+- Moving a station to a node, or back, copies the music library first and switches over only when the copy is complete, so listeners hear no gap; a lost node can be taken over on the main server.
+- A customer can be linked to a station node: new stations start there, and existing stations move in one go.
+- The node installs and updates the station software by itself, in the version of the main server.
+
+How it works and how to set one up: [docs/station-nodes.md](docs/station-nodes.md).
 
 ### Phase 13: Orchestrator as control plane
 

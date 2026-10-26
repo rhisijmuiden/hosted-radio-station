@@ -45,6 +45,8 @@ export const tenants = pgTable('tenants', {
   active: boolean('active').notNull().default(true),
   /** Free-form reference to an external system, e.g. the customer id on the RHIS website. */
   externalRef: text('external_ref'),
+  /** Station node the customer's stations run on (phase 12): new stations start there. Null = this server. */
+  stationNodeId: uuid('station_node_id').references((): AnyPgColumn => nodes.id, { onDelete: 'set null' }),
   createdAt: createdAt(),
 });
 
@@ -247,6 +249,46 @@ export const backupRuns = pgTable(
 /** distribution = streaming, live input and public pages; station = adds the AutoDJ, queues and scheduler (phase 6). */
 export const stationEdition = pgEnum('station_edition', ['distribution', 'station']);
 
+/** A mount on air on a station node, as the node reports it (the same figures Icecast gives here). */
+export interface StationNodeMount {
+  mount: string;
+  title: string | null;
+  listeners: number;
+  bitrateKbps: number | null;
+  contentType: string | null;
+  listenerPeak?: number;
+  streamStart?: string | null;
+}
+
+/** Live state of a station that runs on a station node, reported by the node every few seconds. */
+export interface StationNodeRuntime {
+  updatedAt: string;
+  mounts: StationNodeMount[];
+  /** The AutoDJ player answered recently / is held for a live DJ. */
+  autodj: { connected: boolean; paused: boolean; seenAt: string | null } | null;
+  /** Encoders connected to the node for this station. */
+  encoders: number;
+  /** Pushes to the relay nodes: relay node id → state. */
+  relays: Record<string, { state: 'idle' | 'connecting' | 'connected' | 'error'; message?: string }>;
+  /** Last package revision the node applied, and the last full mirror sync. */
+  revision: string | null;
+  syncedAt: string | null;
+}
+
+/** Moving a station between this server and a station node, with its media files. */
+export interface StationNodeMove {
+  /** to_node: from this server to `nodeId`; to_main: back to this server. */
+  direction: 'to_node' | 'to_main';
+  nodeId: string;
+  state: 'copying' | 'failed';
+  files: number;
+  filesDone: number;
+  bytes: number;
+  bytesDone: number;
+  message?: string;
+  startedAt: string;
+}
+
 /**
  * A radio station. Every station has its own Icecast server on this machine (bound to localhost, port `icecastPort`).
  * Encoders deliver through the ingest gateway; listeners connect through the web server or the station's outputs.
@@ -285,10 +327,16 @@ export const stations = pgTable(
     autodj: jsonb('autodj').$type<Record<string, unknown>>().notNull().default({}),
     /** Hour clocks and weekly schedule (phase 7). Read through schedulerSchema for defaults. */
     scheduler: jsonb('scheduler').$type<Record<string, unknown>>().notNull().default({}),
+    /** Station node that runs this station (phase 12). Null = this server runs it. */
+    nodeId: uuid('node_id').references((): AnyPgColumn => nodes.id, { onDelete: 'set null' }),
+    /** What the station node reported last about the station: mounts on air, titles, AutoDJ, sync. */
+    nodeRuntime: jsonb('node_runtime').$type<StationNodeRuntime>(),
+    /** A move between this server and a station node that is under way or failed. */
+    nodeMove: jsonb('node_move').$type<StationNodeMove>(),
     createdAt: createdAt(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index('stations_tenant_idx').on(t.tenantId)],
+  (t) => [index('stations_tenant_idx').on(t.tenantId), index('stations_node_idx').on(t.nodeId)],
 );
 
 export const mountKind = pgEnum('mount_kind', ['source', 'transcode']);
@@ -347,6 +395,9 @@ export interface OutputConfig {
   push?: boolean;
   /** Address listeners use on the external server, for public pages. */
   publicUrl?: string;
+  /** A relay node a station node pushes to (made by the main server, phase 12); its certificate may be self-signed. */
+  relayNodeId?: string;
+  insecureTls?: boolean;
 }
 
 export interface OutputStatus {
@@ -865,7 +916,7 @@ export const scheduleEntries = pgTable(
 
 // Phase 8: distribution network and orchestration
 
-export const NODE_ROLES = ['relay', 'source', 'fm'] as const;
+export const NODE_ROLES = ['relay', 'source', 'station', 'fm'] as const;
 export type NodeRole = (typeof NODE_ROLES)[number];
 
 /** Settings of a node, made in the panel. Read through nodeConfigSchema for defaults. */
@@ -883,6 +934,10 @@ export interface NodeConfig {
   sourceTlsPort?: number | null;
   /** Check the streams of the stations from this node. */
   probe?: boolean;
+  /** Relay: port where station nodes deliver their streams (TLS). */
+  pushPort?: number | null;
+  /** Station: address of the node on the studio's own network, for RHIS Studio (e.g. 192.168.1.20). */
+  lanAddress?: string;
   /** FM/MPX (phase 11): station, RDS, audio, output and UECP. See fmConfigSchema. */
   fm?: Record<string, unknown>;
 }

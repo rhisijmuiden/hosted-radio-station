@@ -45,12 +45,20 @@ import { userRoutes } from './routes/users.js';
 import { NowPlayingHub } from './services/public/hub.js';
 import { NodeHub } from './services/nodes/hub.js';
 import { listenRedirectRoutes, nodeAgentRoutes, nodeRoutes } from './routes/nodes.js';
+import { stationNodeAgentRoutes, stationPlacementRoutes, tenantStationNodeRoutes } from './routes/station-nodes.js';
+import { stationNodeInternalRoutes } from './routes/station-node-internal.js';
+import { StationTunnels } from './services/stationnode/hub.js';
+import { StationNodeLink } from './services/stationnode/link.js';
+import { registerStationProxy } from './services/stationnode/proxy.js';
 import { getVersionInfo } from './services/system.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
     nowPlaying: NowPlayingHub;
     nodes: NodeHub;
+    stationTunnels: StationTunnels;
+    /** On a station node: the link with the main server (started by server.ts). */
+    stationNode: StationNodeLink | null;
   }
 }
 
@@ -74,6 +82,13 @@ export async function buildApp(ctx: AppContext) {
   app.decorate('nodes', nodeHub);
   await nodeHub.start();
   app.addHook('onClose', async () => nodeHub.stop());
+  const tunnels = new StationTunnels(app.log);
+  app.decorate('stationTunnels', tunnels);
+  // Before the server waits for its connections to end: tunnels stay open otherwise.
+  app.addHook('preClose', async () => tunnels.stop());
+  const link = config.STATION_NODE ? new StationNodeLink(ctx, app.log) : null;
+  app.decorate('stationNode', link);
+  app.addHook('onClose', async () => link?.stop());
 
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof HttpError) {
@@ -95,8 +110,9 @@ export async function buildApp(ctx: AppContext) {
 
   await app.register(fastifyCookie);
   await app.register(fastifyWebsocket, {
-    // Node agents send their health with problems and FM status in one message; 16 KB leaves room.
-    options: { maxPayload: 16_384 },
+    // Node agents send their health with problems and FM status in one message; station node tunnels carry body data
+    // in frames of up to 128 KiB (phase 12).
+    options: { maxPayload: 256 * 1024 },
     // A client that breaks the protocol (e.g. "Invalid WebSocket frame: invalid status code 1006" from a browser that
     // went away) is the client's problem, not an error of this server.
     errorHandler: (err, socket, req) => {
@@ -136,6 +152,8 @@ export async function buildApp(ctx: AppContext) {
 
   registerAuth(app);
   registerAudit(app);
+  // Requests for stations that run on a station node go to that node (phase 12).
+  if (!config.STATION_NODE) registerStationProxy(app, tunnels);
   await app.register(healthRoutes, { prefix: '/api' });
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(ssoAuthRoutes, { prefix: '/api/auth/sso' });
@@ -162,7 +180,11 @@ export async function buildApp(ctx: AppContext) {
   await app.register(provisioningRoutes, { prefix: '/api/provisioning' });
   await app.register(nodeAgentRoutes, { prefix: '/api/nodes' });
   await app.register(nodeRoutes, { prefix: '/api/nodes' });
+  await app.register(stationNodeAgentRoutes, { prefix: '/api/nodes/agent/station' });
+  await app.register(stationPlacementRoutes, { prefix: '/api/stations' });
+  await app.register(tenantStationNodeRoutes, { prefix: '/api/tenants' });
   await app.register(internalRoutes, { prefix: '/api/internal' });
+  if (link) await app.register(stationNodeInternalRoutes, { prefix: '/api/internal/station-node', link });
 
   // In production the API also serves the built admin panel (single-page app).
   const webDist = config.WEB_DIST ? resolve(config.WEB_DIST) : null;

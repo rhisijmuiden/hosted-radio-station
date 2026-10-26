@@ -116,7 +116,7 @@ export async function scanOnDemand(ctx: AppContext, stationId: string) {
 
 /** Removes unpublished recordings that are older than the station's retention. */
 export async function pruneRecordings(ctx: AppContext) {
-  const stations = await ctx.db.select({ id: schema.stations.id, publicPage: schema.stations.publicPage }).from(schema.stations);
+  const stations = await ctx.db.select({ id: schema.stations.id, publicPage: schema.stations.publicPage }).from(schema.stations).where(isNull(schema.stations.nodeId));
   for (const s of stations) {
     const { keepDays } = publicSettings(s).recording;
     if (!keepDays) continue;
@@ -140,7 +140,7 @@ export async function pruneRecordings(ctx: AppContext) {
 }
 
 export async function scanAllOnDemand(ctx: AppContext) {
-  for (const { id } of await ctx.db.select({ id: schema.stations.id }).from(schema.stations)) await scanOnDemand(ctx, id);
+  for (const { id } of await ctx.db.select({ id: schema.stations.id }).from(schema.stations).where(isNull(schema.stations.nodeId))) await scanOnDemand(ctx, id);
 }
 
 /** Recordings that were still running when the streams service stopped: keep what was recorded as a draft. */

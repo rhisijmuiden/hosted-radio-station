@@ -12,7 +12,7 @@ import { emailSchema, LOCALES, okOut, passwordSchema, planSchema, roleSchema, to
 
 const meOut = z.object({
   user: userOut,
-  via: z.enum(['session', 'api_key']),
+  via: z.enum(['session', 'api_key', 'tunnel']),
   memberships: z.array(
     z.object({
       tenantId: z.uuid(),

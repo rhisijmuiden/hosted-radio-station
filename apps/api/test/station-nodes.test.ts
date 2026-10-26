@@ -1,0 +1,158 @@
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { createServer, type AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { eq } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { schema } from '../src/db/index.js';
+import { mediaDir } from '../src/services/streaming/icecast.js';
+import { login, setup } from './helpers.js';
+
+const NODE_DB = process.env.TEST_NODE_DATABASE_URL ?? 'postgres://hosted_radio:dev@localhost/hosted_radio_node_test';
+
+let main: Awaited<ReturnType<typeof setup>>;
+let node: Awaited<ReturnType<typeof setup>>;
+let admin: { cookie: string };
+let owner: { cookie: string };
+let tenantId: string;
+let stationId: string;
+let nodeId: string;
+
+const freePort = () =>
+  new Promise<number>((resolve) => {
+    const s = createServer().listen(0, '127.0.0.1', () => {
+      const port = (s.address() as AddressInfo).port;
+      s.close(() => resolve(port));
+    });
+  });
+
+async function until<T>(what: string, fn: () => Promise<T | null | undefined | false>, ms = 40_000): Promise<T> {
+  const end = Date.now() + ms;
+  for (;;) {
+    const v = await fn();
+    if (v) return v;
+    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}
+
+const mainStation = async () => (await main.db.select().from(schema.stations).where(eq(schema.stations.id, stationId)))[0]!;
+
+beforeAll(async () => {
+  main = await setup();
+  admin = await login(main.app, 'admin@example.com', 'admin-password');
+  const res = await main.app.inject({
+    method: 'POST',
+    url: '/api/tenants',
+    headers: admin,
+    payload: {
+      name: 'Studio Klant',
+      slug: 'studio',
+      plan: 'station',
+      limits: { maxStations: 2, maxListeners: 100, maxBitrateKbps: 192, storageQuotaMb: 100, maxNodes: 1 },
+      owner: { email: 'owner@studio.nl', name: 'Owner', password: 'owner-password' },
+    },
+  });
+  tenantId = res.json().id;
+  owner = await login(main.app, 'owner@studio.nl', 'owner-password');
+  const st = await main.app.inject({ method: 'POST', url: '/api/stations', headers: owner, payload: { tenantId, name: 'Studio FM', slug: 'studio-fm', edition: 'station' } });
+  expect(st.statusCode).toBe(201);
+  stationId = st.json().id;
+  // A song in the library of the station on the main server.
+  mkdirSync(join(mediaDir(main.ctx, stationId), 'music'), { recursive: true });
+  writeFileSync(join(mediaDir(main.ctx, stationId), 'music', 'song.mp3'), Buffer.alloc(300_000, 7));
+
+  await main.app.listen({ port: 0, host: '127.0.0.1' });
+  const base = `http://127.0.0.1:${(main.app.server.address() as AddressInfo).port}`;
+
+  const created = await main.app.inject({ method: 'POST', url: '/api/nodes', headers: admin, payload: { name: 'Studio node', roles: ['station'] } });
+  expect(created.statusCode).toBe(201);
+  nodeId = created.json().node.id;
+  const pairing = created.json().pairing.code.toLowerCase().replace(/-/g, '');
+  const paired = await main.app.inject({ method: 'POST', url: '/api/nodes/pair', payload: { code: pairing, hostname: 'studio-node' } });
+  expect(paired.statusCode).toBe(200);
+  const dir = mkdtempSync(join(tmpdir(), 'hrs-station-node-'));
+  const linkFile = join(dir, 'station-node.json');
+  writeFileSync(linkFile, JSON.stringify({ server: base, nodeId, secret: paired.json().secret }));
+
+  // The station node: a second installation with its own database, linked to the main server.
+  const port = await freePort();
+  node = await setup({ DATABASE_URL: NODE_DB, STATION_NODE: linkFile, PORT: String(port) });
+  await node.app.listen({ port, host: '127.0.0.1' });
+  await node.app.stationNode!.start();
+}, 60_000);
+
+afterAll(async () => {
+  node?.app.stationNode?.stop();
+  await node?.close();
+  // Keep-alive connections of the node's requests would hold the server open.
+  main?.app.server.closeAllConnections();
+  await main?.close();
+}, 60_000);
+
+describe('station nodes', () => {
+  it('moves a station with its library to the node, which then runs it', async () => {
+    const res = await main.app.inject({ method: 'PUT', url: `/api/stations/${stationId}/placement`, headers: admin, payload: { nodeId } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().move.direction).toBe('to_node');
+
+    await until('the switch-over', async () => (await mainStation()).nodeId === nodeId);
+    // The node took the library, the tables and the settings.
+    const file = join(mediaDir(node.ctx, stationId), 'music', 'song.mp3');
+    expect(existsSync(file)).toBe(true);
+    expect(readFileSync(file).length).toBe(300_000);
+    const [local] = await until('the station on the node', async () => {
+      const rows = await node.db.select().from(schema.stations).where(eq(schema.stations.id, stationId));
+      return rows[0]?.enabled ? rows : null;
+    });
+    expect(local!.slug).toBe('studio-fm');
+    const playlists = await node.db.select().from(schema.playlists).where(eq(schema.playlists.stationId, stationId));
+    expect(playlists.map((p) => p.name)).toEqual(['All music']);
+    // Users came along without passwords.
+    const users = await node.db.select().from(schema.users);
+    expect(users.map((u) => u.email).sort()).toEqual(['admin@example.com', 'owner@studio.nl']);
+    expect(users.every((u) => u.passwordHash === null)).toBe(true);
+    // The first full report from the node.
+    await until('the first full report', async () => (await mainStation()).nodeRuntime?.syncedAt);
+  }, 90_000);
+
+  it('passes panel requests through the tunnel and mirrors the changes back', async () => {
+    const created = await main.app.inject({
+      method: 'POST',
+      url: `/api/stations/${stationId}/playlists`,
+      headers: owner,
+      payload: { name: 'Night', queue: 'q1', weight: 3, order: 'shuffle', folders: [] },
+    });
+    expect(created.statusCode).toBe(201);
+    const id = created.json().id;
+    // Made on the node, not here...
+    expect((await node.db.select().from(schema.playlists).where(eq(schema.playlists.id, id))).length).toBe(1);
+    // ...and back here within a few seconds.
+    await until('the mirror', async () => (await main.db.select().from(schema.playlists).where(eq(schema.playlists.id, id))).length === 1);
+    const list = await main.app.inject({ method: 'GET', url: `/api/stations/${stationId}/playlists`, headers: owner });
+    expect(list.statusCode).toBe(200);
+    expect(list.json().map((p: { name: string }) => p.name).sort()).toEqual(['All music', 'Night']);
+    // The node refuses identities that did not come through its tunnel.
+    const direct = await node.app.inject({ method: 'GET', url: `/api/stations/${stationId}/playlists`, headers: { 'x-hrs-tunnel': 'guess', 'x-hrs-tunnel-user': main.admin.id } });
+    expect(direct.statusCode).toBe(401);
+  }, 60_000);
+
+  it('keeps settings central and refuses to delete the node while it runs stations', async () => {
+    const put = await main.app.inject({ method: 'PATCH', url: `/api/stations/${stationId}`, headers: owner, payload: { description: 'Live from the studio' } });
+    expect(put.statusCode).toBe(200);
+    await until('the new package', async () => (await node.db.select().from(schema.stations).where(eq(schema.stations.id, stationId)))[0]?.description === 'Live from the studio');
+    const del = await main.app.inject({ method: 'DELETE', url: `/api/nodes/${nodeId}`, headers: admin });
+    expect(del.statusCode).toBe(409);
+  }, 60_000);
+
+  it('moves the station back with what was made on the node', async () => {
+    writeFileSync(join(mediaDir(node.ctx, stationId), 'music', 'new.mp3'), Buffer.alloc(1000, 1));
+    const res = await main.app.inject({ method: 'PUT', url: `/api/stations/${stationId}/placement`, headers: admin, payload: { nodeId: null } });
+    expect(res.statusCode).toBe(200);
+    await until('the move back', async () => (await mainStation()).nodeId === null && !(await mainStation()).nodeMove);
+    expect(existsSync(join(mediaDir(main.ctx, stationId), 'music', 'new.mp3'))).toBe(true);
+    expect((await main.db.select().from(schema.playlists).where(eq(schema.playlists.stationId, stationId))).length).toBe(2);
+    // The node lets go of it.
+    await until('the node to remove it', async () => (await node.db.select().from(schema.stations)).length === 0);
+  }, 90_000);
+});

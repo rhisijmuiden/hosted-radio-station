@@ -12,7 +12,7 @@ import { badRequest, conflict, forbidden, HttpError, notFound } from '../lib/err
 import { okOut } from '../lib/schemas.js';
 import { nodeEvent } from '../services/nodes/hub.js';
 import { hashCode, installCommand, newPairingCode, PAIRING_HOURS } from '../services/nodes/pairing.js';
-import { carried, nodeConfigPatch, nodeConfigSchema, nodeSettings, relayBaseUrl, storedConfig, type Node } from '../services/nodes/plan.js';
+import { carried, nodeConfigPatch, nodeConfigSchema, nodeSettings, relayBaseUrl, relaysByStation, storedConfig, type Node } from '../services/nodes/plan.js';
 import { authenticateNode, reportSchema, storeReport } from '../services/nodes/report.js';
 import { forgetRelays, pickRelay } from '../services/nodes/routing.js';
 import { getSetting, nodesSchema, putSetting } from '../services/settings.js';
@@ -291,6 +291,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
           if (n >= allowed) throw conflict(allowed ? `Your plan allows ${allowed} own node(s)` : 'Your plan does not include own nodes; ask your provider');
         }
       } else requireSuperadmin(req);
+      if (req.body.roles.includes('station') && new Set(req.body.roles).size > 1) throw badRequest('A station node has no other roles; its streams go to relay nodes');
       const [node] = await ctx.db
         .insert(schema.nodes)
         .values({ name: req.body.name, location: req.body.location, tenantId: tenantId ?? null, roles: [...new Set(req.body.roles)], config: storedConfig({}) })
@@ -330,6 +331,11 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         if (node.tenantId && st.tenantId !== node.tenantId) throw badRequest('A node of a customer can only put that customer\'s stations on air');
       }
       const roles = b.roles ? ([...new Set(b.roles)] as NodeRole[]) : node.roles;
+      if (roles.includes('station') && roles.length > 1) throw badRequest('A station node has no other roles; its streams go to relay nodes');
+      if (node.roles.includes('station') && !roles.includes('station')) {
+        const [running] = await ctx.db.select({ n: sql<number>`count(*)::int` }).from(schema.stations).where(eq(schema.stations.nodeId, node.id));
+        if (running && running.n > 0) throw conflict('Stations still run on this node; move them back to this server first');
+      }
       const c = nodeSettings({ config });
       if (roles.includes('source') && c.sourcePlainPort && c.sourcePlainPort === c.sourceTlsPort) throw badRequest('Use two different ports for encoders');
       const [updated] = await ctx.db
@@ -396,6 +402,8 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
 
   app.delete('/:id', { config: { audit: 'node.delete' }, schema: { tags: ['Nodes'], summary: 'Remove a node', params: nodeParams, response: { 200: okOut } } }, async (req) => {
     const node = await nodeAccess(ctx, req, req.params.id, 'owner');
+    const [running] = await ctx.db.select({ n: sql<number>`count(*)::int` }).from(schema.stations).where(eq(schema.stations.nodeId, node.id));
+    if (running && running.n > 0) throw conflict('Stations still run on this node; move them back to this server first');
     hub.disconnect(node.id);
     await ctx.db.delete(schema.nodes).where(eq(schema.nodes.id, node.id));
     Object.assign(req.auditInfo, { tenantId: node.tenantId, targetId: node.id, details: { name: node.name } });
@@ -513,7 +521,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       getSetting(ctx, 'nodes'),
       getVersionInfo(ctx),
       ctx.db
-        .select({ id: schema.stations.id, name: schema.stations.name, slug: schema.stations.slug, tenantId: schema.stations.tenantId })
+        .select({ id: schema.stations.id, name: schema.stations.name, slug: schema.stations.slug, tenantId: schema.stations.tenantId, nodeId: schema.stations.nodeId })
         .from(schema.stations)
         .innerJoin(schema.tenants, eq(schema.tenants.id, schema.stations.tenantId))
         .where(and(eq(schema.stations.enabled, true), eq(schema.tenants.active, true), scope ? inArray(schema.stations.tenantId, scope.length ? scope : ['00000000-0000-0000-0000-000000000000']) : undefined)),
@@ -525,6 +533,8 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
     const nodes = allNodes.filter((n) => {
       if (!scopeSet) return true;
       if (n.tenantId && scopeSet.has(n.tenantId)) return true;
+      // A shared station node that runs one of the customer's stations belongs in its picture too.
+      if (!n.tenantId && n.pairedAt && stations.some((s) => s.nodeId === n.id)) return true;
       return !n.tenantId && n.pairedAt && carried(n, stations).size > 0;
     });
     const [live, samples] = await Promise.all([
@@ -572,7 +582,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         encoders: status.encoders ?? 0,
         country: status.country ?? null,
         city: status.city ?? null,
-        stations: carriedIds.length,
+        stations: n.roles.includes('station') ? stations.filter((s) => s.nodeId === n.id).length : carriedIds.length,
         updateAvailable: !!status.commit && !!v.commit && status.commit !== v.commit,
         relaysUp: status.relays?.filter((r) => r.state === 'connected').length ?? 0,
         relaysTotal: status.relays?.length ?? 0,
@@ -590,6 +600,20 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       if (n.roles.includes('source') && (status.encoders ?? 0) > 0) links.push({ from: n.id, to: 'main', kind: 'stream', active: n.online, degraded: n.degraded, rttMs: n.rttMs, loss: n.loss });
       // An FM node pulls its station from this server and puts it on air.
       if (n.roles.includes('fm') && status.fm?.input === 'connected') links.push({ from: 'main', to: n.id, kind: 'stream', active: n.online, degraded: n.degraded, rttMs: n.rttMs, loss: n.loss });
+    }
+    // A station node pushes the streams of its stations straight to the relays that carry them.
+    const relayMap = await relaysByStation(ctx);
+    for (const n of nodeOutList) {
+      if (!n.paired || !n.roles.includes('station')) continue;
+      const mine = stations.filter((s) => s.nodeId === n.id);
+      const runtime = mine.length ? await ctx.db.select({ runtime: schema.stations.nodeRuntime }).from(schema.stations).where(inArray(schema.stations.id, mine.map((s) => s.id))) : [];
+      const states = new Map<string, string>();
+      for (const r of runtime) for (const [relayId, st] of Object.entries(r.runtime?.relays ?? {})) if (st.state === 'connected' || !states.has(relayId)) states.set(relayId, st.state);
+      for (const relayId of new Set(mine.flatMap((s) => (relayMap.get(s.id) ?? []).map((r: Node) => r.id)))) {
+        if (!nodeOutList.some((x) => x.id === relayId)) continue;
+        const state = states.get(relayId);
+        links.push({ from: n.id, to: relayId, kind: 'stream', active: n.online && state === 'connected', degraded: state === 'error', rttMs: null, loss: null });
+      }
     }
     const studios = live.map((l) => {
       const station = stations.find((s) => s.id === l.stationId)!;
@@ -733,17 +757,19 @@ export const listenRedirectRoutes: FastifyPluginAsyncZod = async (app) => {
       const slug = req.params.slug.toLowerCase();
       const path = `/${req.params['*']}`;
       const [row] = await ctx.db
-        .select({ id: schema.stations.id, tenantId: schema.stations.tenantId, enabled: schema.stations.enabled })
+        .select({ id: schema.stations.id, tenantId: schema.stations.tenantId, enabled: schema.stations.enabled, nodeId: schema.stations.nodeId })
         .from(schema.stations)
         .where(eq(schema.stations.slug, slug));
       const [mount] = row ? await ctx.db.select().from(schema.stationMounts).where(and(eq(schema.stationMounts.stationId, row.id), eq(schema.stationMounts.path, path), eq(schema.stationMounts.isPublic, true))) : [];
       if (!row || !row.enabled || !mount) return reply.status(404).send({ error: { code: 'not_found', message: 'Stream not found' } });
       const settings = await getSetting(ctx, 'nodes');
       let target: string | null = null;
-      if (settings.routeListeners) {
+      // A station on a station node (phase 12) only exists on its relays, whatever the setting says.
+      if (settings.routeListeners || row.nodeId) {
         await app.nodes.geo.refresh().catch(() => undefined);
         target = await pickRelay(ctx, row.id, slug, path, app.nodes.geo.lookup(req.ip));
       }
+      if (!target && row.nodeId) return reply.status(503).header('cache-control', 'no-store').send({ error: { code: 'no_relay', message: 'This stream has no relay available right now' } });
       const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
       return reply
         .header('cache-control', 'no-store')

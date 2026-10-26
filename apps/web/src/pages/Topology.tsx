@@ -44,9 +44,11 @@ function useLayout(userId: string): [Layout, (l: Layout) => void] {
   ];
 }
 
-type Filter = 'all' | 'relays' | 'sources' | 'problems' | 'mine' | 'streams';
+type Filter = 'all' | 'relays' | 'sources' | 'stations' | 'problems' | 'mine' | 'streams';
 
-const kindOf = (n: TopologyNode): SceneKind => (n.roles.includes('relay') ? 'relay' : n.roles.includes('source') ? 'source' : n.roles.includes('fm') ? 'fm' : 'node');
+const kindOf = (n: TopologyNode): SceneKind =>
+  n.roles.includes('station') ? 'station' : n.roles.includes('relay') ? 'relay' : n.roles.includes('source') ? 'source' : n.roles.includes('fm') ? 'fm' : 'node';
+
 const healthOf = (n: TopologyNode): SceneHealth => (!n.paired ? 'unpaired' : !n.online ? 'offline' : n.degraded ? 'degraded' : 'online');
 const healthTone = { online: 'online', degraded: 'warning', offline: 'offline', unpaired: 'neutral' } as const;
 
@@ -120,6 +122,7 @@ function NodePanel({ node, open }: { node: TopologyNode; open: boolean }) {
         rows={[
           [t('nodes.detail.timeouts24h'), node.timeouts24h ?? 0, (node.timeouts24h ?? 0) > 0],
           [t('nodes.detail.loss'), node.online ? formatPct(node.loss ?? 0) : '—', (node.loss ?? 0) > 0.05],
+          ...(node.roles.includes('station') ? ([[t('topology.stationsOnNode'), String(node.stations), false]] as [ReactNode, ReactNode, boolean][]) : []),
           ...(node.roles.includes('relay') ? ([[t('topology.streamsRelayed'), t('topology.relayCount', { up: node.relaysUp, total: node.relaysTotal, stations: node.stations }), node.relaysUp < node.relaysTotal]] as [ReactNode, ReactNode, boolean][]) : []),
           [t('nodes.detail.place'), [node.city, node.country].filter(Boolean).join(', ') || node.location || '—'],
           [t('nodes.detail.version'), node.version ? `v${node.version}${node.updateAvailable ? ` · ${t('nodes.updateAvailable')}` : ''}` : '—', node.updateAvailable],
@@ -214,12 +217,12 @@ export function TopologyPage() {
   const tenants = useQuery({ queryKey: ['tenants'], queryFn: () => api<Tenant[]>('/tenants'), enabled: admin });
   const data = topo.data;
   const customer = data?.view === 'customer';
-  const filters: Filter[] = customer ? ['all', 'mine', 'streams'] : ['all', 'relays', 'sources', 'problems'];
+  const filters: Filter[] = customer ? ['all', 'mine', 'streams'] : ['all', 'relays', 'sources', 'stations', 'problems'];
 
   const scene = useMemo<SceneData>(() => {
     if (!data) return { nodes: [], links: [] };
     const matches = (n: TopologyNode) =>
-      filter === 'all' || filter === 'streams' || (filter === 'relays' && n.roles.includes('relay')) || (filter === 'sources' && n.roles.includes('source')) || (filter === 'problems' && (n.degraded || !n.online)) || (filter === 'mine' && n.own);
+      filter === 'all' || filter === 'streams' || (filter === 'relays' && n.roles.includes('relay')) || (filter === 'sources' && n.roles.includes('source')) || (filter === 'stations' && n.roles.includes('station')) || (filter === 'problems' && (n.degraded || !n.online)) || (filter === 'mine' && n.own);
     const nodes: SceneData['nodes'] = [
       { id: 'main', kind: 'main', label: t('topology.main'), meta: `${t('topology.orchestrator')} · v${data.main.version}`, health: 'online', listeners: data.main.listeners, dim: false },
       ...data.nodes.map((n) => {
@@ -232,10 +235,12 @@ export function TopologyPage() {
               ? t('topology.listenersCount', { count: n.listeners })
               : kind === 'source'
                 ? t('topology.encodersCount', { count: n.encoders })
-                : kind === 'fm'
-                  ? n.fmOnAir
-                    ? t('topology.fmOnAir')
-                    : t('topology.fmOff')
+                : kind === 'station'
+                  ? t('topology.stationsCount', { count: n.stations })
+                  : kind === 'fm'
+                    ? n.fmOnAir
+                      ? t('topology.fmOnAir')
+                      : t('topology.fmOff')
                   : n.location || t('nodes.noRoles');
         return { id: n.id, kind, label: customer && n.own ? t('topology.myNode', { name: n.name }) : n.name, meta, health: healthOf(n), listeners: n.online ? n.listeners : 0, dim: !matches(n), own: customer && n.own };
       }),
