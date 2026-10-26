@@ -48,6 +48,8 @@ describe('audit log', () => {
     await t.app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'admin@example.com', password: 'wrong' } });
     const created = await t.app.inject({ method: 'POST', url: '/api/tenants', headers: admin, payload: { name: 'Harder.fm', slug: 'harder-fm' } });
     const tenantId = created.json().id;
+    // Entries are written after the response has gone out.
+    await new Promise((r) => setTimeout(r, 200));
     const res = await t.app.inject({ url: '/api/audit?limit=20', headers: admin });
     expect(res.statusCode).toBe(200);
     const actions = res.json().items.map((i: { action: string; success: boolean }) => `${i.action}:${i.success}`);
