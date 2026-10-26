@@ -7,6 +7,7 @@ import type { AppContext } from '../../lib/context.js';
 import { getSetting } from '../settings.js';
 import { platformHost } from '../streaming/state.js';
 import { getVersionInfo, type VersionInfo } from '../system.js';
+import { buildFmPlan, fmConfigSchema } from './fm.js';
 import type { NodePlan, ProbeTarget, RelayMount } from './protocol.js';
 
 export type Node = typeof schema.nodes.$inferSelect;
@@ -27,8 +28,18 @@ export const nodeConfigSchema = z.object({
   sourcePlainPort: z.number().int().min(1024).max(65535).nullable().default(8010),
   sourceTlsPort: z.number().int().min(1024).max(65535).nullable().default(8443),
   probe: z.boolean().default(true),
+  fm: fmConfigSchema.default(fmConfigSchema.parse({})),
 });
 export type NodeSettings = z.infer<typeof nodeConfigSchema>;
+
+/** The same object with every field optional and without defaults: a change sends only what it changes. */
+function patchOf<T extends z.ZodRawShape>(shape: T) {
+  return z.object(Object.fromEntries(Object.entries(shape).map(([k, v]) => [k, ((v instanceof z.ZodDefault ? v.unwrap() : v) as z.ZodType).optional()])) as unknown as { [K in keyof T]: z.ZodOptional<T[K] extends z.ZodDefault<infer I> ? I : T[K]> });
+}
+
+/** Body of a settings change from the panel or the API. */
+export const nodeConfigPatch = patchOf(nodeConfigSchema.shape).extend({ fm: patchOf(fmConfigSchema.shape).optional() });
+export type NodeConfigPatch = z.infer<typeof nodeConfigPatch>;
 
 export const nodeSettings = (node: Pick<Node, 'config'>): NodeSettings => nodeConfigSchema.parse(node.config ?? {});
 
@@ -98,7 +109,7 @@ const baseUrl = (ctx: AppContext) => ctx.config.PUBLIC_URL.replace(/\/$/, '');
 /** What a node must do now. */
 export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> {
   const c = nodeSettings(node);
-  const roles = node.roles.filter((r): r is NodeRole => r === 'relay' || r === 'source');
+  const roles = node.roles.filter((r): r is NodeRole => r === 'relay' || r === 'source' || r === 'fm');
   const [settings, v, stations] = await Promise.all([getSetting(ctx, 'nodes'), version(ctx), servableStations(ctx, node.tenantId)]);
   const ids = stations.map((s) => s.id);
   const mounts = ids.length
@@ -159,6 +170,8 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
     probes = { intervalSeconds: settings.probeIntervalSeconds, targets: targets.slice(0, 50) };
   }
 
+  const fm = roles.includes('fm') ? await buildFmPlan(ctx, c.fm, base, stations) : null;
+
   const plan: Omit<NodePlan, 'revision'> = {
     nodeId: node.id,
     name: node.name,
@@ -167,12 +180,14 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
     relay,
     source,
     probes,
+    fm,
     update: { branch: v.branch, commit: v.commit, auto: settings.autoUpdate },
   };
   return { ...plan, revision: createHash('sha256').update(JSON.stringify(plan)).digest('hex').slice(0, 16) };
 }
 
 /** Validates settings from the panel and returns the stored form. */
-export function storedConfig(input: Partial<NodeSettings>, current: NodeConfig = {}): NodeConfig {
-  return nodeConfigSchema.parse({ ...current, ...input });
+export function storedConfig(input: NodeConfigPatch, current: NodeConfig = {}): NodeConfig {
+  const fm = input.fm ? { ...(current.fm ?? {}), ...input.fm } : current.fm;
+  return nodeConfigSchema.parse({ ...current, ...input, fm });
 }
