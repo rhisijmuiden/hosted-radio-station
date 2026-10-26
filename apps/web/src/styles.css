@@ -146,3 +146,122 @@ body {
 .topo-pill.down {
   color: var(--status-offline);
 }
+
+/* Topology, flat (2D) view: lanes, cards and animated lines. */
+.topo-lane {
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--lucht) 5%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--lucht) 22%, transparent);
+}
+.topo-lane-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--ink-muted);
+}
+.topo-card {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 11px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface-raised);
+  color: var(--ink);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.14);
+  transition: box-shadow 0.15s, opacity 0.2s;
+}
+.topo-card small {
+  color: var(--ink-muted);
+}
+.topo-card:hover {
+  box-shadow: 0 0 0 1px var(--koraal), 0 6px 18px rgb(0 0 0 / 0.14);
+}
+.topo-card.selected {
+  box-shadow: 0 0 0 2px var(--koraal), 0 0 24px color-mix(in srgb, var(--koraal) 45%, transparent);
+}
+.topo-card.own {
+  border-color: var(--koraal);
+}
+.topo-card.core {
+  border-color: var(--koraal);
+  background: var(--nacht);
+  color: #fff;
+}
+:root[data-theme='dark'] .topo-card.core {
+  background: #22325a;
+}
+.topo-card.core small {
+  color: #c9d3e6;
+}
+.topo-card.audience {
+  background: transparent;
+  border-style: dashed;
+  box-shadow: none;
+}
+.topo-card-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--chip);
+}
+.topo-card-icon svg {
+  width: 17px;
+  height: 17px;
+}
+.topo-card.core .topo-card-icon {
+  background: #2c3d68;
+  color: var(--koraal);
+}
+.topo-edge {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+.topo-edge.base {
+  stroke: color-mix(in srgb, var(--lucht) 30%, transparent);
+}
+.topo-edge.stream {
+  stroke: var(--koraal);
+  stroke-dasharray: 6 16;
+  animation: topo-flow 1.2s linear infinite;
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--koraal) 50%, transparent));
+}
+.topo-edge.control {
+  stroke: var(--lucht);
+  stroke-dasharray: 3 9;
+  opacity: 0.85;
+  animation: topo-flow 2s linear infinite;
+}
+.topo-edge.listen {
+  stroke: var(--lucht);
+  stroke-dasharray: 2 8;
+  opacity: 0.8;
+  animation: topo-flow 1.6s linear infinite;
+}
+.topo-edge.degraded {
+  stroke: var(--status-warning);
+}
+.topo-edge.down,
+.topo-edge.idle {
+  animation: none;
+  opacity: 0.45;
+}
+.topo-edge.down {
+  stroke: var(--status-offline);
+}
+@keyframes topo-flow {
+  to {
+    stroke-dashoffset: -22;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .topo-edge {
+    animation: none !important;
+  }
+}
