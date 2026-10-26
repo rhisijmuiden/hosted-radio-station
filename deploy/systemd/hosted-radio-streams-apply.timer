@@ -1,0 +1,10 @@
+[Unit]
+Description=Hosted Radio Station: renew certificates for encoders and FTPS, and check station servers
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1h
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

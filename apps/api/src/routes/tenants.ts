@@ -6,6 +6,9 @@ import { canGrant, hashPassword, requireSuperadmin, requireTenantRole, requireUs
 import { badRequest, conflict, forbidden, isUniqueViolation, notFound } from '../lib/errors.js';
 import { sendInvite } from '../services/accounts.js';
 import { mailConfigured } from '../services/mail.js';
+import { stationDir } from '../services/streaming/icecast.js';
+import { applyStreams } from '../services/streaming/state.js';
+import { rm } from 'node:fs/promises';
 import {
   emailSchema,
   idParam,
@@ -173,6 +176,8 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
           .returning();
         if (!t) throw notFound('Customer');
         req.auditInfo.details = { changed: Object.keys(req.body).filter((k) => req.body[k as keyof typeof req.body] !== undefined) };
+        // Suspending a customer takes its stations off the air; reactivating brings them back.
+        if (adminOnly.active !== undefined) await applyStreams(ctx, { by: access.user.email });
         return { ...t, memberCount: (await memberCounts([t.id])).get(t.id) ?? 0 };
       } catch (err) {
         if (isUniqueViolation(err)) throw conflict('A customer with this short name already exists');
@@ -185,9 +190,14 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
     '/:id',
     { config: { audit: 'tenant.delete' }, schema: { tags: ['Customers'], summary: 'Delete a customer (administrators only)', params: idParam, response: { 200: okOut } } },
     async (req) => {
-      requireSuperadmin(req);
+      const auth = requireSuperadmin(req);
+      const stations = await ctx.db.select({ id: schema.stations.id }).from(schema.stations).where(eq(schema.stations.tenantId, req.params.id));
       const deleted = await ctx.db.delete(schema.tenants).where(eq(schema.tenants.id, req.params.id)).returning();
       if (!deleted.length) throw notFound('Customer');
+      if (stations.length) {
+        await applyStreams(ctx, { by: auth.user.email });
+        for (const s of stations) await rm(stationDir(ctx, s.id), { recursive: true, force: true }).catch(() => undefined);
+      }
       return { ok: true as const };
     },
   );

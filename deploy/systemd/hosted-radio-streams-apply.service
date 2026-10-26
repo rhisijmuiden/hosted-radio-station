@@ -1,0 +1,8 @@
+[Unit]
+Description=Hosted Radio Station: start and stop station servers, listen routes, certificates, file upload
+After=caddy.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/hosted-radio/deploy/bin/hrs-streams-apply
+TimeoutStartSec=5min

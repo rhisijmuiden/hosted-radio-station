@@ -1,0 +1,21 @@
+[Unit]
+Description=Hosted Radio Station streams (encoder ingest, transcoders, relays)
+After=network-online.target postgresql.service hosted-radio-api.service
+Wants=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=hosted-radio
+Group=hosted-radio
+EnvironmentFile=/etc/hosted-radio/hosted-radio.env
+WorkingDirectory=/opt/hosted-radio/apps/api
+ExecStart=/usr/bin/node dist/streams/main.js
+Restart=always
+RestartSec=3
+# Encoders reconnect on their own; give running transcoders a moment to stop.
+TimeoutStopSec=15
+NoNewPrivileges=true
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -22,9 +22,13 @@ import { apiKeyRoutes } from './routes/api-keys.js';
 import { auditRoutes } from './routes/audit.js';
 import { authRoutes } from './routes/auth.js';
 import { backupRoutes } from './routes/backups.js';
+import { tenantStreamingRoutes } from './routes/domains.js';
 import { healthRoutes } from './routes/health.js';
+import { internalRoutes } from './routes/internal.js';
+import { publicRoutes } from './routes/public.js';
 import { settingsRoutes } from './routes/settings.js';
 import { ssoAdminRoutes, ssoAuthRoutes } from './routes/sso.js';
+import { stationRoutes } from './routes/stations.js';
 import { systemRoutes } from './routes/system.js';
 import { tenantRoutes } from './routes/tenants.js';
 import { userRoutes } from './routes/users.js';
@@ -103,6 +107,10 @@ export async function buildApp(ctx: AppContext) {
   await app.register(systemRoutes, { prefix: '/api/system' });
   await app.register(backupRoutes, { prefix: '/api/backups' });
   await app.register(auditRoutes, { prefix: '/api/audit' });
+  await app.register(stationRoutes, { prefix: '/api/stations' });
+  await app.register(tenantStreamingRoutes, { prefix: '/api/tenants' });
+  await app.register(publicRoutes, { prefix: '/api/public' });
+  await app.register(internalRoutes, { prefix: '/api/internal' });
 
   // In production the API also serves the built admin panel (single-page app).
   const webDist = config.WEB_DIST ? resolve(config.WEB_DIST) : null;
