@@ -36,12 +36,12 @@ export class StationTunnels {
           return;
         }
         link.alive = false;
-        socket.ping();
+        // A heartbeat as a message, which the node answers: proxies such as Cloudflare answer pings themselves.
+        if (socket.readyState === 1) socket.send(JSON.stringify({ t: 'hb' }));
       }, 15_000),
     };
     link.timer.unref();
     this.links.set(nodeId, link);
-    socket.on('pong', () => (link.alive = true));
     socket.on('message', (data, isBinary) => {
       link.alive = true;
       peer.handle(data as Buffer, isBinary);

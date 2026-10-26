@@ -43,7 +43,8 @@ On the station's Settings tab, **Where it runs** shows the current place and mov
   over to the node's push, so listeners stay connected; they may hear a short jump in the audio. After the switch the
   node takes the latest state of the tables once more.
 - **Back to this server**: the main server fetches the files the node has and this server misses, asks the node for one
-  last full report, and then takes the station over.
+  last full report, and then takes the station over. The relays keep their listeners connected here too: the stream
+  they pull from this server continues on the connection the node's push had.
 - **Take over here** (only while the node is unreachable) switches the station back without copying. Everything the
   node made since its last report is lost; use it when a node is gone for good.
 
@@ -67,7 +68,8 @@ its relays still have.
   `POST /api/nodes/agent/station/mirror` every few seconds, with the state of each station (mounts, listeners, AutoDJ,
   pushes, storage). At start and once a day it sends everything, which also removes what is gone.
 - **Tunnel.** The node opens a WebSocket to `/api/nodes/agent/station/tunnel` and signs in with its header and again in
-  its first message (a proxy such as Cloudflare may drop the header on an upgrade). Panel and public requests for its
+  its first message (a proxy such as Cloudflare may drop the header on an upgrade). A heartbeat message every 15 seconds,
+  which the node answers, keeps it open; WebSocket pings are not used, because such a proxy answers them itself. Panel and public requests for its
   stations (library, playlists, clocks, schedule, requests, on-demand, live, status) are passed through it as the
   signed-in user; the node only believes that identity from its own tunnel. The station's own settings (AutoDJ and
   scheduler) are edited on the main server and travel with the package.

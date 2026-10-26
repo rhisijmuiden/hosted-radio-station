@@ -78,11 +78,21 @@ export class PushReceiver {
     },
   ) {}
 
-  async apply(port: number | null, mounts: RelayMount[]) {
+  /**
+   * `handBack`: a stream that is pulled again (its station moved back from a station node) gets the open source
+   * connection of its slot, so listeners stay connected.
+   */
+  async apply(port: number | null, mounts: RelayMount[], handBack?: (key: string, local: net.Socket) => void) {
     const wanted = new Map(mounts.filter((m) => m.push).map((m) => [m.key, m]));
+    const pulled = new Set(mounts.filter((m) => m.url).map((m) => m.key));
     for (const [key, s] of this.slots) {
       const want = wanted.get(key);
       if (!want || want.push!.token !== s.mount.push!.token || want.path !== s.mount.path) {
+        const local = s.local;
+        if (!want && handBack && local && !local.destroyed && pulled.has(key)) {
+          s.local = null;
+          handBack(key, local);
+        }
         this.drop(s);
         this.slots.delete(key);
       } else s.mount = want;

@@ -169,3 +169,29 @@ test('takes over the source a puller kept open, so listeners stay connected when
   receiver.stop();
   ice.server.close();
 });
+
+test('hands its source back when the stream is pulled again (the station moved back from its station node)', async () => {
+  const ice = fakeIcecast();
+  const icePort = await listen(ice.server);
+  const receiver = new PushReceiver({ icecastPort: () => icePort, secrets: { source: 'src', admin: 'adm' } });
+  const port = await freePort();
+  const mount = { key: 'studio-fm/live', stationId: 'x', slug: 'studio-fm', path: '/live', name: 'Studio FM', format: 'mp3', url: null, push: { token: 'tok-123' } };
+  await receiver.apply(port, [mount]);
+  await new Promise((r) => setTimeout(r, 200));
+  const ok = await push(port, 'tok-123');
+  ok.socket.write(Buffer.from('pushed;'));
+  await new Promise((r) => setTimeout(r, 200));
+
+  let back: net.Socket | null = null;
+  await receiver.apply(port, [{ ...mount, url: 'http://main/listen/studio-fm/live', push: null }], (_key, local) => (back = local));
+  assert.ok(back);
+  (back as net.Socket).write(Buffer.from('pulled;'));
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(ice.got.head.match(/^PUT /gm)?.length, 1);
+  assert.equal(Buffer.concat(ice.got.body).toString(), 'pushed;pulled;');
+
+  (back as net.Socket).destroy();
+  ok.socket.destroy();
+  receiver.stop();
+  ice.server.close();
+});
