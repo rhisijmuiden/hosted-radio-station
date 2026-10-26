@@ -1,10 +1,11 @@
+import http from 'node:http';
 import { eq } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import { schema } from '../../db/index.js';
 import type { StationNodeMove } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
-import { mediaDir } from '../streaming/icecast.js';
-import { applyStreams, type Station } from '../streaming/state.js';
+import { INTERNAL_AGENT, mediaDir } from '../streaming/icecast.js';
+import { applyStreams, autodjMount, type Station } from '../streaming/state.js';
 import { missingFiles, receiveFile, type FileEntry } from './files.js';
 import type { StationTunnels } from './hub.js';
 import { nodeRequest, readJson } from './proxy.js';
@@ -19,6 +20,24 @@ export async function finishMoveToNode(ctx: AppContext, s: Station, nodeId: stri
     .set({ nodeId, nodeMove: null, nodeRuntime: { updatedAt: new Date().toISOString(), mounts: [], autodj: null, encoders: 0, relays: {}, revision: null, syncedAt: null } })
     .where(eq(schema.stations.id, s.id));
   await applyStreams(ctx, { stationIds: [s.id], by: 'station node' });
+}
+
+/** Waits until the station's Icecast here plays `mount` (or, without an AutoDJ, answers at all). */
+async function waitOnAir(port: number, mount: string | null, timeoutMs: number) {
+  const until = Date.now() + timeoutMs;
+  while (Date.now() < until) {
+    const status = await new Promise<number>((resolve) => {
+      const req = http.get({ host: '127.0.0.1', port, path: mount ?? '/', headers: { 'user-agent': `${INTERNAL_AGENT} warm-up` }, timeout: 2000 }, (res) => {
+        res.destroy();
+        resolve(res.statusCode ?? 0);
+      });
+      req.once('timeout', () => req.destroy());
+      req.once('error', () => resolve(0));
+    });
+    if (mount ? status === 200 : status > 0) return true;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return false;
 }
 
 async function setMove(ctx: AppContext, stationId: string, patch: Partial<StationNodeMove>) {
@@ -65,11 +84,21 @@ export async function moveToMain(ctx: AppContext, tunnels: StationTunnels, stati
     await readJson(await nodeRequest(tunnels, nodeId, 'POST', `/api/internal/station-node/flush/${s.id}`, { body: '{}', timeoutMs: 600_000 }));
     const [now] = await ctx.db.select({ move: schema.stations.nodeMove }).from(schema.stations).where(eq(schema.stations.id, s.id));
     if (now?.move?.direction !== 'to_main') return;
+    // Make before break: start the station here first and switch over once it is on air, so the relays find it at once.
+    if (!(await setMove(ctx, s.id, { warm: true }))) return;
+    await applyStreams(ctx, { stationIds: [s.id], by });
+    const [warm] = await ctx.db.select().from(schema.stations).where(eq(schema.stations.id, s.id));
+    const mounts = await ctx.db.select().from(schema.stationMounts).where(eq(schema.stationMounts.stationId, s.id));
+    // Without the system helpers nothing starts the station here (development, tests).
+    const on = warm && ctx.config.SYSTEM_HELPERS === '1' ? await waitOnAir(s.icecastPort, autodjMount(warm, mounts)?.path ?? null, 60_000) : true;
+    if (!on) log.warn({ station: s.slug }, 'the station did not come on air here in time; switching over anyway');
     await ctx.db.update(schema.stations).set({ nodeId: null, nodeMove: null, nodeRuntime: null }).where(eq(schema.stations.id, s.id));
     await applyStreams(ctx, { stationIds: [s.id], by });
     log.info({ station: s.slug, files: todo.length }, 'station moved back from its station node');
   } catch (err) {
     log.warn({ err, stationId }, 'moving a station back from its station node failed');
-    await setMove(ctx, stationId, { state: 'failed', message: (err as Error).message.slice(0, 300) }).catch(() => undefined);
+    // The station stays on its node: stop what a warm-up started here.
+    const warm = await setMove(ctx, stationId, { state: 'failed', warm: false, message: (err as Error).message.slice(0, 300) }).catch(() => false);
+    if (warm) await applyStreams(ctx, { stationIds: [stationId], by }).catch(() => undefined);
   }
 }

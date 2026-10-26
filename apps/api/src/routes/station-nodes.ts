@@ -280,6 +280,8 @@ export const stationPlacementRoutes: FastifyPluginAsyncZod = async (app) => {
       await requireTenantRole(ctx, req, s.tenantId, 'owner');
       req.auditInfo.tenantId = s.tenantId;
       await ctx.db.update(schema.stations).set({ nodeMove: null }).where(eq(schema.stations.id, s.id));
+      // A move back that already warmed up here: the station stays on its node, so stop it here again.
+      if (s.nodeMove?.warm) await applyStreams(ctx, { stationIds: [s.id], by: req.auth?.user.email });
       return { ok: true as const };
     },
   );

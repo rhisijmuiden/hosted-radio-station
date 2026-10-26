@@ -241,3 +241,29 @@ test('keeps its source open a moment when the push ends, for a push that comes b
   receiver.stop();
   ice.server.close();
 });
+
+test('a puller keeps its source open when the pulled stream ends, so listeners stay connected when it comes back', async () => {
+  const { createServer } = await import('node:http');
+  const { RelayManager } = await import('../src/relay.js');
+  const ice = fakeIcecast();
+  const icePort = await listen(ice.server);
+  // The main server's stream: ends after the first chunk, then plays again.
+  let served = 0;
+  const main = createServer((_req, res) => {
+    served++;
+    res.writeHead(200, { 'content-type': 'audio/mpeg' });
+    if (served === 1) return res.end('first;');
+    res.write('second;');
+  });
+  const mainPort = await listen(main);
+  const relay = new RelayManager({ icecastPort: () => icePort, secrets: { source: 'src', admin: 'adm' }, nodeId: 'n', trustClientHeader: false });
+  relay.apply([{ key: 'studio-fm/live', stationId: 'x', slug: 'studio-fm', path: '/live', name: 'Studio FM', format: 'mp3', url: `http://127.0.0.1:${mainPort}/listen/studio-fm/live`, push: null }]);
+  await new Promise((r) => setTimeout(r, 1800));
+  assert.ok(served >= 2);
+  assert.equal(ice.got.puts, 1);
+  assert.equal(Buffer.concat(ice.got.body).toString(), 'first;second;');
+  relay.stopAll();
+  main.closeAllConnections();
+  main.close();
+  ice.server.close();
+});

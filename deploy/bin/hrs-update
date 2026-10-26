@@ -66,6 +66,17 @@ main() {
   status running "Building"
   "$INSTALL_DIR/deploy/bin/hrs-build" >> "$LOG" 2>&1 || rollback "The build failed."
   "$INSTALL_DIR/deploy/bin/hrs-install-units" >> "$LOG" 2>&1 || rollback "Installing the system units failed."
+  # Web server configurations written before stream_close_delay: add it, so a reload keeps the WebSockets open.
+  local cf=/etc/caddy/Caddyfile
+  if grep -q '^# Managed by Hosted Radio Station' "$cf" 2>/dev/null && ! grep -q 'stream_close_delay' "$cf"; then
+    cp "$cf" "$cf.bak"
+    sed -i 's/^\(\t\treverse_proxy 127\.0\.0\.1:8000 {\)$/\1\n\t\t\tstream_close_delay 1h/' "$cf"
+    if caddy validate --adapter caddyfile --config "$cf" >> "$LOG" 2>&1; then
+      systemctl reload caddy >> "$LOG" 2>&1 || true
+    else
+      cp "$cf.bak" "$cf"; log "Could not add stream_close_delay to the web server configuration"
+    fi
+  fi
 
   status running "Restarting"
   log "Restarting the API (database migrations run on start)…"

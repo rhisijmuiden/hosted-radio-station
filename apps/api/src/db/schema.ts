@@ -287,6 +287,8 @@ export interface StationNodeMove {
   bytesDone: number;
   message?: string;
   startedAt: string;
+  /** to_main: this server already runs the station's Icecast and AutoDJ, just before it takes the station over. */
+  warm?: boolean;
 }
 
 /**

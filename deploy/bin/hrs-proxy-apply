@@ -42,6 +42,8 @@ main() {
 
   # Every site serves the same routes: listener streams per station (written by hrs-streams-apply), then the panel
   # and API. Internal hooks are for local services only.
+  # stream_close_delay keeps WebSockets (node control connections, station node tunnels) open when Caddy reloads, which
+  # happens whenever the listen routes change.
   local routes='	handle /api/internal/* {
 		respond 404
 	}
@@ -50,6 +52,7 @@ main() {
 		encode zstd gzip
 		reverse_proxy 127.0.0.1:8000 {
 			flush_interval -1
+			stream_close_delay 1h
 		}
 	}'
   # Icecast reports listeners (statistics) to the streams service through this local site. When the streams service
