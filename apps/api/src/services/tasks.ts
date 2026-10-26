@@ -4,6 +4,8 @@ import { schema } from '../db/index.js';
 import type { AppContext } from '../lib/context.js';
 import { scanAllLibraries } from './autodj/library.js';
 import { tickScheduler } from './backup/jobs.js';
+import { billingTick } from './billing/engine.js';
+import { deliverDue, pruneDeliveries, requeueStuck } from './billing/webhooks.js';
 import { pruneRecordings, scanAllOnDemand } from './public/ondemand.js';
 import { getSetting } from './settings.js';
 import { maybeUpdateGeoip, pruneStatistics, rollupHourly } from './stats/maintenance.js';
@@ -23,6 +25,8 @@ export async function housekeeping(ctx: AppContext) {
     await ctx.db.delete(schema.auditLog).where(lt(schema.auditLog.at, new Date(now.getTime() - retentionDays * 86400_000)));
   }
   await pruneStatistics(ctx);
+  await pruneDeliveries(ctx);
+  await ctx.db.delete(schema.idempotencyKeys).where(lt(schema.idempotencyKeys.createdAt, new Date(now.getTime() - 30 * 86400_000)));
   await pruneRecordings(ctx);
   // Keep the run history readable: the last 500 runs.
   await ctx.db.delete(schema.backupRuns).where(
@@ -42,6 +46,13 @@ export function startBackgroundTasks(ctx: AppContext, log: FastifyBaseLogger) {
   const safe = (name: string, fn: () => Promise<unknown>) => () =>
     void fn().catch((err) => log.error({ err }, `${name} failed`));
   const scheduler = setInterval(safe('backup scheduler', () => tickScheduler(ctx)), 60_000);
+  // Hosted service: renewals, reminders and suspensions every ten minutes; webhook retries every minute.
+  const billing = setInterval(safe('billing', () => billingTick(ctx)), 10 * 60_000);
+  const webhooks = setInterval(safe('webhooks', async () => {
+    await requeueStuck(ctx);
+    await deliverDue(ctx);
+  }), 60_000);
+  setTimeout(safe('billing', () => billingTick(ctx)), 50_000).unref();
   const house = setInterval(safe('housekeeping', () => housekeeping(ctx)), 6 * 3600_000);
   const storage = setInterval(safe('storage scan', () => scanAllStorage(ctx)), 6 * 3600_000);
   const domains = setInterval(
@@ -63,8 +74,8 @@ export function startBackgroundTasks(ctx: AppContext, log: FastifyBaseLogger) {
   setTimeout(safe('storage scan', () => scanAllStorage(ctx)), 60_000).unref();
   setTimeout(safe('on-demand scan', () => scanAllOnDemand(ctx)), 45_000).unref();
   setTimeout(safe('library scan', () => scanAllLibraries(ctx)), 90_000).unref();
-  for (const t of [scheduler, house, storage, domains, hourly, geoip, ondemand, library]) t.unref();
+  for (const t of [scheduler, house, storage, domains, hourly, geoip, ondemand, library, billing, webhooks]) t.unref();
   return () => {
-    for (const t of [scheduler, house, storage, domains, hourly, geoip, ondemand, library]) clearInterval(t);
+    for (const t of [scheduler, house, storage, domains, hourly, geoip, ondemand, library, billing, webhooks]) clearInterval(t);
   };
 }

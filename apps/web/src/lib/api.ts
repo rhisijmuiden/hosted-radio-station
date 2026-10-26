@@ -48,7 +48,7 @@ export interface UserDetail extends User {
 export interface Me {
   user: User;
   via: 'session' | 'api_key';
-  memberships: { tenantId: string; tenantName: string; tenantSlug: string; plan: Plan; role: Role }[];
+  memberships: { tenantId: string; tenantName: string; tenantSlug: string; plan: Plan; role: Role; billed: boolean }[];
 }
 export interface TenantLimits {
   maxStations: number;
@@ -80,6 +80,7 @@ export interface ApiKey {
   tenantId: string | null;
   tenantName: string | null;
   readOnly: boolean;
+  scope: 'full' | 'provisioning';
   lastUsedAt: string | null;
   expiresAt: string | null;
   createdAt: string;
@@ -993,3 +994,194 @@ export interface StudioLink {
   createdAt: string;
   expiresAt: string;
 }
+
+// Phase 10: hosted service
+
+export interface Localized {
+  en: string;
+  nl: string;
+}
+export interface Package {
+  id: string;
+  code: string;
+  name: string;
+  description: Localized;
+  features: Localized[];
+  edition: Plan;
+  limits: TenantLimits;
+  currency: string;
+  priceMonthCents: number;
+  priceYearCents: number | null;
+  setupFeeCents: number;
+  trialDays: number;
+  public: boolean;
+  active: boolean;
+  sortOrder: number;
+  subscriberCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+export type PackageInput = Omit<Package, 'id' | 'subscriberCount' | 'createdAt' | 'updatedAt'>;
+export type SubscriptionStatus = 'trialing' | 'active' | 'past_due' | 'suspended' | 'cancelled';
+export type BillingInterval = 'month' | 'year';
+export interface BillingContact {
+  company: string;
+  name: string;
+  email: string;
+  address: string;
+  postcode: string;
+  city: string;
+  country: string;
+  vatNumber: string;
+  reference: string;
+}
+interface PackageBrief {
+  id: string;
+  code: string;
+  name: string;
+  edition: Plan;
+  currency: string;
+}
+export interface Subscription {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  tenantSlug: string;
+  package: PackageBrief;
+  pendingPackage: PackageBrief | null;
+  interval: BillingInterval;
+  pendingInterval: BillingInterval | null;
+  status: SubscriptionStatus;
+  trialEndsAt: string | null;
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  cancelAtPeriodEnd: boolean;
+  cancelledAt: string | null;
+  suspendedAt: string | null;
+  customPriceCents: number | null;
+  discountPercent: number;
+  customLimits: boolean;
+  billing: BillingContact;
+  locale: string;
+  notes: string;
+  priceCents: number;
+  monthlyCents: number;
+  createdAt: string;
+}
+export interface SubscriptionInfo {
+  subscription: Subscription | null;
+  billingEnabled: boolean;
+  mollie: boolean;
+  next: { at: string; subtotalCents: number; vatCents: number; totalCents: number; vatRate: number } | null;
+}
+export interface InvoiceLine {
+  description: string;
+  quantity: number;
+  unitCents: number;
+  amountCents: number;
+}
+export interface Invoice {
+  id: string;
+  number: string;
+  tenantId: string | null;
+  tenantName: string;
+  subscriptionId: string | null;
+  status: 'open' | 'paid' | 'void';
+  overdue: boolean;
+  issuedAt: string;
+  dueAt: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+  currency: string;
+  lines: InvoiceLine[];
+  subtotalCents: number;
+  vatRate: number;
+  vatScheme: 'standard' | 'reverse_charge' | 'export';
+  vatCents: number;
+  totalCents: number;
+  buyer: BillingContact;
+  locale: string;
+  notes: string;
+  paidAt: string | null;
+  paymentMethod: string | null;
+  paymentRef: string | null;
+  payable: boolean;
+  sentAt: string | null;
+  remindedAt: string | null;
+  publicUrl: string;
+}
+export interface InvoicePage {
+  total: number;
+  items: Invoice[];
+}
+export interface BillingOverview {
+  enabled: boolean;
+  mrrCents: number;
+  arrCents: number;
+  subscriptions: Record<SubscriptionStatus, number>;
+  openInvoices: number;
+  openCents: number;
+  overdueCents: number;
+  paidLast30Cents: number;
+}
+export interface BillingSettings {
+  enabled: boolean;
+  company: {
+    company: string;
+    name: string;
+    email: string;
+    phone: string;
+    address: string;
+    postcode: string;
+    city: string;
+    country: string;
+    vatNumber: string;
+    cocNumber: string;
+    iban: string;
+    bic: string;
+    website: string;
+  };
+  invoicePrefix: string;
+  vatRate: number;
+  reverseCharge: boolean;
+  paymentTermDays: number;
+  reminderAfterDays: number;
+  suspendAfterDays: number;
+  emailInvoices: boolean;
+  bccEmail: string;
+  footer: string;
+  mollie: { enabled: boolean; apiKey: string };
+}
+export interface Webhook {
+  id: string;
+  name: string;
+  url: string;
+  events: string[];
+  active: boolean;
+  createdAt: string;
+  lastDelivery: { state: string; event: string; responseStatus: number | null; at: string } | null;
+  secret?: string;
+}
+export interface WebhookDelivery {
+  id: string;
+  event: string;
+  state: 'pending' | 'sending' | 'delivered' | 'failed';
+  attempts: number;
+  responseStatus: number | null;
+  error: string | null;
+  nextAttemptAt: string;
+  deliveredAt: string | null;
+  createdAt: string;
+  payload: Record<string, unknown>;
+}
+export const WEBHOOK_EVENTS = [
+  'customer.created',
+  'subscription.created',
+  'subscription.updated',
+  'subscription.cancelled',
+  'subscription.suspended',
+  'subscription.resumed',
+  'invoice.created',
+  'invoice.paid',
+  'invoice.overdue',
+] as const;

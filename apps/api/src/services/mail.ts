@@ -42,7 +42,15 @@ export function renderEmail(opts: { title: string; paragraphs: string[]; action?
 
 export async function sendMail(
   ctx: AppContext,
-  msg: { to: string; subject: string; title: string; paragraphs: string[]; action?: { label: string; url: string } },
+  msg: {
+    to: string;
+    subject: string;
+    title: string;
+    paragraphs: string[];
+    action?: { label: string; url: string };
+    bcc?: string;
+    attachments?: { filename: string; content: Buffer; contentType: string }[];
+  },
   smtpOverride?: SmtpSettings,
 ) {
   const smtp = smtpOverride ?? (await getSetting(ctx, 'smtp'));
@@ -53,9 +61,11 @@ export async function sendMail(
     from: { name: smtp.fromName, address: smtp.fromAddress },
     replyTo: smtp.replyTo || undefined,
     to: msg.to,
+    bcc: msg.bcc || undefined,
     subject: msg.subject,
     html,
     text,
+    attachments: msg.attachments,
   });
   return { messageId: info.messageId, response: info.response };
 }

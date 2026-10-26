@@ -1,4 +1,4 @@
-import { count, eq } from 'drizzle-orm';
+import { count, eq, sql } from 'drizzle-orm';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { schema } from '../db/index.js';
@@ -14,7 +14,15 @@ const meOut = z.object({
   user: userOut,
   via: z.enum(['session', 'api_key']),
   memberships: z.array(
-    z.object({ tenantId: z.uuid(), tenantName: z.string(), tenantSlug: z.string(), plan: planSchema, role: roleSchema }),
+    z.object({
+      tenantId: z.uuid(),
+      tenantName: z.string(),
+      tenantSlug: z.string(),
+      plan: planSchema,
+      role: roleSchema,
+      /** The customer has a subscription of the hosted service (phase 10). */
+      billed: z.boolean(),
+    }),
   ),
 });
 
@@ -32,9 +40,11 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
         tenantSlug: schema.tenants.slug,
         plan: schema.tenants.plan,
         role: schema.memberships.role,
+        billed: sql<boolean>`${schema.subscriptions.id} is not null`,
       })
       .from(schema.memberships)
       .innerJoin(schema.tenants, eq(schema.tenants.id, schema.memberships.tenantId))
+      .leftJoin(schema.subscriptions, eq(schema.subscriptions.tenantId, schema.tenants.id))
       .where(eq(schema.memberships.userId, userId))
       .orderBy(schema.tenants.name);
   }

@@ -153,6 +153,55 @@ export const nodesSchema = z.object({
 });
 export type NodesSettings = z.infer<typeof nodesSchema>;
 
+/** The hosted service: who sends the invoices, VAT, payment terms, dunning and online payments (phase 10). */
+export const billingSettingsSchema = z.object({
+  /** Off = packages and subscriptions can be prepared, but no invoices are made and nobody is suspended. */
+  enabled: z.boolean().default(false),
+  company: z
+    .object({
+      company: z.string().trim().max(200).default(''),
+      name: z.string().trim().max(200).default(''),
+      email: z.string().trim().max(200).default(''),
+      phone: z.string().trim().max(50).default(''),
+      address: z.string().trim().max(300).default(''),
+      postcode: z.string().trim().max(20).default(''),
+      city: z.string().trim().max(100).default(''),
+      country: z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/, 'Use a two-letter country code').default('NL'),
+      vatNumber: z.string().trim().max(30).default(''),
+      /** Chamber of Commerce (KvK) number. */
+      cocNumber: z.string().trim().max(30).default(''),
+      iban: z.string().trim().max(40).default(''),
+      bic: z.string().trim().max(15).default(''),
+      website: z.string().trim().max(200).default(''),
+    })
+    .default({ company: '', name: '', email: '', phone: '', address: '', postcode: '', city: '', country: 'NL', vatNumber: '', cocNumber: '', iban: '', bic: '', website: '' }),
+  /** Invoice numbers are <prefix><year>-<sequence>, e.g. HRS-2026-0001. */
+  invoicePrefix: z.string().trim().max(12).regex(/^[A-Za-z0-9-]*$/, 'Use letters, digits and dashes').default('HRS-'),
+  /** VAT percentage for customers in the seller's country, and for consumers in the EU. */
+  vatRate: z.number().min(0).max(50).default(21),
+  /** EU business customers with a VAT number in another country get 0% with "VAT reverse charged". */
+  reverseCharge: z.boolean().default(true),
+  paymentTermDays: z.number().int().min(0).max(90).default(14),
+  /** Days after the due date before the first reminder. */
+  reminderAfterDays: z.number().int().min(1).max(60).default(3),
+  /** Days after the due date before stations of the customer go off the air. 0 = never suspend automatically. */
+  suspendAfterDays: z.number().int().min(0).max(180).default(14),
+  /** E-mail invoices to the billing address when they are made. */
+  emailInvoices: z.boolean().default(true),
+  /** Copy of every invoice e-mail, e.g. for the bookkeeping. */
+  bccEmail: z.string().trim().refine((v) => v === '' || z.email().safeParse(v).success, 'Invalid e-mail address').default(''),
+  /** Text at the bottom of every invoice. */
+  footer: z.string().trim().max(500).default(''),
+  mollie: z
+    .object({
+      /** Online payment with iDEAL, cards, Bancontact and more through Mollie. */
+      enabled: z.boolean().default(false),
+      apiKey: z.string().trim().max(100).default(''),
+    })
+    .default({ enabled: false, apiKey: '' }),
+});
+export type BillingSettings = z.infer<typeof billingSettingsSchema>;
+
 const registry = {
   smtp: { schema: smtpSchema, secrets: ['password', 'dkim.privateKey'] },
   proxy: { schema: proxySchema, secrets: [] },
@@ -162,6 +211,7 @@ const registry = {
   streaming: { schema: streamingSchema, secrets: [] },
   statistics: { schema: statisticsSchema, secrets: ['geoip.maxmindLicenseKey'] },
   nodes: { schema: nodesSchema, secrets: [] },
+  billing: { schema: billingSettingsSchema, secrets: ['mollie.apiKey'] },
 } as const;
 type Registry = typeof registry;
 export type SettingKey = keyof Registry;

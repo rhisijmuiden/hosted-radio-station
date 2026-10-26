@@ -9,6 +9,8 @@ import { forbidden, unauthorized } from './errors.js';
 export const SESSION_COOKIE = 'hrs_session';
 const SESSION_DAYS = 14;
 export const API_KEY_PREFIX = 'hrs_';
+/** Lets the provisioning API call other routes in-process (app.inject) with the website's key. Never leaves the process. */
+export const INTERNAL_CALL_TOKEN = randomToken();
 
 export type Role = (typeof schema.memberRole.enumValues)[number];
 const roleRank: Record<Role, number> = { dj: 1, manager: 2, owner: 3 };
@@ -19,6 +21,8 @@ export interface AuthInfo {
   /** Set when an API key is limited to one tenant. */
   keyTenantId: string | null;
   readOnly: boolean;
+  /** full, or provisioning (a website key that may only use the sign-up API). */
+  scope: string;
 }
 
 declare module 'fastify' {
@@ -80,7 +84,7 @@ export function registerAuth(app: FastifyInstance) {
           ),
         );
       if (!row || !row.user.active) throw unauthorized();
-      req.auth = { user: row.user, via: 'api_key', keyTenantId: row.key.tenantId, readOnly: row.key.readOnly };
+      req.auth = { user: row.user, via: 'api_key', keyTenantId: row.key.tenantId, readOnly: row.key.readOnly, scope: row.key.scope };
       void db.update(schema.apiKeys).set({ lastUsedAt: new Date() }).where(eq(schema.apiKeys.id, row.key.id)).execute();
       return;
     }
@@ -91,13 +95,21 @@ export function registerAuth(app: FastifyInstance) {
       .from(schema.sessions)
       .innerJoin(schema.users, eq(schema.users.id, schema.sessions.userId))
       .where(and(eq(schema.sessions.id, sha256(token)), gt(schema.sessions.expiresAt, new Date())));
-    if (row?.user.active) req.auth = { user: row.user, via: 'session', keyTenantId: null, readOnly: false };
+    if (row?.user.active) req.auth = { user: row.user, via: 'session', keyTenantId: null, readOnly: false, scope: 'full' };
   });
 
   // Read-only API keys may only use safe methods.
   app.addHook('preHandler', async (req) => {
     if (req.auth?.readOnly && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
       throw forbidden('This API key is read-only');
+    }
+    if (
+      req.auth?.scope === 'provisioning' &&
+      !req.url.startsWith('/api/provisioning/') &&
+      !req.url.startsWith('/api/public/') &&
+      req.headers['x-hrs-internal'] !== INTERNAL_CALL_TOKEN
+    ) {
+      throw forbidden('This API key may only use the provisioning API');
     }
   });
 }
