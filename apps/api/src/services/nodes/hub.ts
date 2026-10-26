@@ -7,6 +7,7 @@ import type { NodeStatus } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
 import { getSetting } from '../settings.js';
 import { GeoIp } from '../stats/geoip.js';
+import { authorizeIngest, recordLive, syncLive } from './ingest.js';
 import { buildPlan, type Node } from './plan.js';
 import { CLOSE, PROTOCOL_VERSION, type AgentMessage, type AgentStats, type ServerMessage } from './protocol.js';
 
@@ -23,6 +24,7 @@ interface Minute {
 
 interface Conn {
   nodeId: string;
+  tenantId: string | null;
   socket: WebSocket;
   status: NodeStatus;
   seq: number;
@@ -170,6 +172,7 @@ export class NodeHub {
     };
     const conn: Conn = {
       nodeId: node.id,
+      tenantId: node.tenantId,
       socket,
       status,
       seq: 0,
@@ -189,6 +192,8 @@ export class NodeHub {
     this.send(conn, { t: 'welcome', nodeId: node.id, name: node.name, serverTime: new Date().toISOString() });
     await this.pushPlan(conn, { ...node, status });
     this.ping(conn);
+    // Other nodes may route to this one (spare relays, push targets that need its address).
+    this.replanSoon();
     return conn;
   }
 
@@ -218,6 +223,17 @@ export class NodeHub {
       c.status.rttMs = Math.round((last.reduce((a, b) => a + b, 0) / last.length) * 10) / 10;
     } else if (msg.t === 'stats') {
       this.onStats(c, msg);
+    } else if (msg.t === 'auth') {
+      void authorizeIngest(this.ctx, { id: c.nodeId, tenantId: c.tenantId }, msg)
+        .catch((err) => {
+          this.log.warn({ err }, 'checking an encoder log-in failed');
+          return { t: 'auth_result' as const, id: msg.id, ok: false, message: 'The log-in could not be checked right now.' };
+        })
+        .then((r) => this.send(c, r));
+    } else if (msg.t === 'live') {
+      void recordLive(this.ctx, { id: c.nodeId, tenantId: c.tenantId }, msg).catch((err) => this.log.warn({ err }, 'logging a broadcast on a node failed'));
+    } else if (msg.t === 'live_sync') {
+      void syncLive(this.ctx, c.nodeId, Array.isArray(msg.sessionIds) ? msg.sessionIds.map(String) : []).catch((err) => this.log.warn({ err }, 'syncing broadcasts of a node failed'));
     } else if (msg.t === 'event' && typeof msg.kind === 'string' && /^[a-z_]{1,40}$/.test(msg.kind)) {
       const level = msg.level === 'warning' || msg.level === 'error' ? msg.level : 'info';
       const details: Record<string, string | number | null> = {};
@@ -241,6 +257,17 @@ export class NodeHub {
     s.listeners = num(m.listeners);
     s.encoders = num(m.encoders);
     s.icmp = m.icmp && typeof m.icmp === 'object' ? { rttMs: num(m.icmp.rttMs) ?? null, loss: num(m.icmp.loss, 1) ?? 0 } : null;
+    if (Array.isArray(m.ingest)) {
+      const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : null);
+      s.ingest = m.ingest.slice(0, 200).map((x) => ({
+        stationId: String(x.stationId).slice(0, 36),
+        mount: String(x.mount).slice(0, 100),
+        title: str(x.title, 300),
+        bitrateKbps: num(x.bitrateKbps, 10_000) ?? null,
+        contentType: str(x.contentType, 60),
+        pushing: Array.isArray(x.pushing) ? x.pushing.slice(0, 50).map((p) => String(p).slice(0, 36)) : [],
+      }));
+    } else delete s.ingest;
     s.problems = Array.isArray(m.problems) ? m.problems.slice(0, 10).map((p) => String(p).slice(0, 300)) : [];
     if (m.update && typeof m.update === 'object') {
       const prev = s.update?.state;
@@ -250,7 +277,8 @@ export class NodeHub {
       }
     }
     s.updatedAt = new Date().toISOString();
-    if (Date.now() - c.savedAt > 10_000) void this.save(c);
+    // Ingest status feeds now playing on this server, so it is saved more often.
+    if (Date.now() - c.savedAt > (s.ingest?.length ? 3000 : 10_000)) void this.save(c);
   }
 
   private async save(c: Conn) {
@@ -265,11 +293,13 @@ export class NodeHub {
   private async gone(c: Conn) {
     clearInterval(c.timer);
     this.conns.delete(c.nodeId);
-    c.status = { ...c.status, online: false, updatedAt: new Date().toISOString() };
+    c.status = { ...c.status, online: false, ingest: [], updatedAt: new Date().toISOString() };
     await this.writeMinute(c).catch(() => undefined);
     await this.ctx.db.update(schema.nodes).set({ status: c.status, lastSeenAt: new Date() }).where(eq(schema.nodes.id, c.nodeId)).catch(() => undefined);
     await nodeEvent(this.ctx, c.nodeId, 'offline', 'warning');
     this.log.info({ node: c.nodeId }, 'node disconnected');
+    // Spare relays step in, ingests stop pushing to it.
+    this.replanSoon();
   }
 
   /** Removes health figures and events older than the retention. */
@@ -347,6 +377,18 @@ export class NodeHub {
       }
     })();
     return this.refreshing;
+  }
+
+  private replanTimer: NodeJS.Timeout | null = null;
+
+  /** Re-plans all nodes shortly, once for a burst of changes (several nodes connecting after a restart). */
+  replanSoon() {
+    if (this.replanTimer) return;
+    this.replanTimer = setTimeout(() => {
+      this.replanTimer = null;
+      void this.refreshAll();
+    }, 2000);
+    this.replanTimer.unref();
   }
 
   /** Asks a node to update to the version of this server now. Returns false when it is not connected. */

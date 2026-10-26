@@ -332,6 +332,8 @@ export const stations = pgTable(
     nodeRuntime: jsonb('node_runtime').$type<StationNodeRuntime>(),
     /** A move between this server and a station node that is under way or failed. */
     nodeMove: jsonb('node_move').$type<StationNodeMove>(),
+    /** Which ingest takes the encoders and which relays it feeds (phase 13). Read through routingSchema for defaults. */
+    routing: jsonb('routing').$type<Record<string, unknown>>().notNull().default({}),
     createdAt: createdAt(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -397,6 +399,9 @@ export interface OutputConfig {
   /** A relay node a station node pushes to (made by the main server, phase 12); its certificate may be self-signed. */
   relayNodeId?: string;
   insecureTls?: boolean;
+  /** Pushes to relay nodes (phase 13), in memory only: the push token itself and the ingest priority (0 = main). */
+  token?: string;
+  priority?: number;
 }
 
 export interface OutputStatus {
@@ -468,6 +473,8 @@ export const liveSessions = pgTable(
     bytesIn: bigint('bytes_in', { mode: 'number' }).notNull().default(0),
     /** disconnected | kicked | bitrate | restart | error */
     endReason: text('end_reason'),
+    /** The encoder is on air on an ingest node (phase 13), which keeps this row up to date; else on this server. */
+    onNode: boolean('on_node').notNull().default(false),
   },
   (t) => [index('live_sessions_station_idx').on(t.stationId, t.startedAt)],
 );
@@ -975,10 +982,23 @@ export interface NodeStatus {
   relays?: { key: string; state: 'connecting' | 'connected' | 'error' | 'idle'; message?: string; bitrateKbps?: number | null; listeners?: number }[];
   /** Source: encoders connected through this node. */
   encoders?: number;
+  /** Ingest (phase 13): the station mounts on air on this node, with their title. */
+  ingest?: NodeIngestMount[];
   /** Errors applying the configuration on the node (web server, ports). */
   problems?: string[];
   update?: { state: 'idle' | 'running' | 'succeeded' | 'failed'; message?: string; at?: string } | null;
   updatedAt?: string;
+}
+
+/** A mount on air on an ingest node. */
+export interface NodeIngestMount {
+  stationId: string;
+  mount: string;
+  title: string | null;
+  bitrateKbps: number | null;
+  contentType: string | null;
+  /** Relay nodes the mount is pushed to right now. */
+  pushing: string[];
 }
 
 /** A listener on a relay node, as the node reported it. */

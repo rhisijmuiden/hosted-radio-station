@@ -3,11 +3,13 @@ import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/
 import { join } from 'node:path';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { schema } from '../../db/index.js';
+import type { NodeStatus } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
 import { conflict } from '../../lib/errors.js';
 import { autodjScriptPath, renderScript, scriptHash } from '../autodj/liquidsoap.js';
 import { autodjActive, autodjSettings } from '../autodj/settings.js';
 import { relaysByStation } from '../nodes/plan.js';
+import { ingestNodes, ingestsOf, stationRouting } from '../nodes/routing-rules.js';
 import { getSetting, type StreamingSettings } from '../settings.js';
 import { fetchStats, icecastConfigPath, icecastPidPath, mediaDir, renderIcecastConfig, stationDir, type MountStats } from './icecast.js';
 import { renderSftpgoEnv } from './sftpgo.js';
@@ -61,6 +63,28 @@ async function internalReaderCounts(ctx: AppContext): Promise<WorkerStatus['inte
 /** Live mounts of a station with their listeners, not counting the transcoders and relays reading them. */
 export async function stationStats(ctx: AppContext, station: Station): Promise<MountStats[] | null> {
   if (station.nodeId) return nodeStationStats(station);
+  const routing = stationRouting(station);
+  const nodes = ingestNodes(routing);
+  if (nodes.length) {
+    // Ingest nodes (phase 13): the mounts of the best ingest that is on air, this server's own one included.
+    const rows = await ctx.db.select({ id: schema.nodes.id, status: schema.nodes.status }).from(schema.nodes).where(inArray(schema.nodes.id, nodes.map((n) => n.ref)));
+    const fresh = (st: NodeStatus | undefined) => !!st?.online && (!st.updatedAt || Date.now() - new Date(st.updatedAt).getTime() < 30_000);
+    for (const i of ingestsOf(routing)) {
+      if (i.ref === 'local') {
+        const own = await localStats(ctx, station);
+        if (own?.length) return own;
+        continue;
+      }
+      const st = rows.find((r) => r.id === i.ref)?.status;
+      const list = fresh(st) ? (st!.ingest ?? []).filter((m) => m.stationId === station.id) : [];
+      if (list.length) return list.map((m) => ({ mount: m.mount, listeners: 0, listenerPeak: 0, title: m.title, bitrateKbps: m.bitrateKbps, contentType: m.contentType, sourceIp: null, userAgent: null, streamStart: null, bytesRead: 0, bytesSent: 0 }));
+    }
+    return [];
+  }
+  return localStats(ctx, station);
+}
+
+async function localStats(ctx: AppContext, station: Station): Promise<MountStats[] | null> {
   try {
     const [stats, internal] = await Promise.all([
       fetchStats({ port: station.icecastPort, adminPassword: ctx.box.decrypt(station.icecastAdminPassword) }),

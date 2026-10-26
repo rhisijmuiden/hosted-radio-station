@@ -19,7 +19,7 @@ export const workerStatusSchema = z.object({
   relays: z.array(
     z.object({
       id: z.string(),
-      kind: z.enum(['transcode', 'push', 'monitor', 'record']),
+      kind: z.enum(['transcode', 'push', 'monitor', 'record', 'relay']),
       station: z.string(),
       name: z.string(),
       state: z.string(),
@@ -32,6 +32,8 @@ export const workerStatusSchema = z.object({
   internal: z.record(z.string(), z.record(z.string(), z.number())).default({}),
   /** Per station id: the AutoDJ player as the streams service sees it. */
   autodj: z.record(z.string(), z.object({ seenAt: z.string().nullable(), paused: z.boolean(), reachable: z.boolean() })).default({}),
+  /** Per station id: mounts with a source on this server (its ingest role, phase 13). */
+  onAir: z.record(z.string(), z.array(z.string())).default({}),
 });
 export type WorkerStatus = z.infer<typeof workerStatusSchema>;
 

@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { dataPath, ports, writeAtomic } from './config.js';
-import type { RelayMount } from './protocol.js';
+import type { IngestStation, RelayMount } from './protocol.js';
 
 /** The user agent of everything the node itself sends; the main server leaves it out of its statistics. */
 export const AGENT = 'Hosted Radio Station node';
@@ -41,9 +41,36 @@ export interface IcecastLayout {
 /** Mount name on the node: the same path as the listen route of the main server, so URLs look alike. */
 export const localMount = (m: Pick<RelayMount, 'slug' | 'path'>) => `/listen/${m.slug}${m.path}`;
 
-export function renderIcecastConfig(input: { name: string; hostname: string; layout: IcecastLayout; mounts: RelayMount[]; maxListeners: number; secrets: IcecastSecrets }): string {
+/** Mount of an ingest stream on the node (phase 13). Only the agent reads it: the web server never passes it on. */
+export const ingestMount = (slug: string, path: string) => `/ingest/${slug}${path}`;
+
+export function renderIcecastConfig(input: { name: string; hostname: string; layout: IcecastLayout; mounts: RelayMount[]; ingest?: IngestStation[]; maxListeners: number; secrets: IcecastSecrets }): string {
   const { mounts, layout } = input;
+  const ingest = input.ingest ?? [];
   const hook = `http://127.0.0.1:${ports.hooks}/hook`;
+  // Ingest mounts: fallbacks as on the main server, and only readers on the node itself (relay pushes, transcoders).
+  const ingestXml = ingest
+    .flatMap((s) =>
+      s.mounts.map((m) =>
+        [
+          `  <mount type="normal">`,
+          `    <mount-name>${xml(ingestMount(s.slug, m.path))}</mount-name>`,
+          `    <stream-name>${xml(m.name ? `${s.name} – ${m.name}` : s.name)}</stream-name>`,
+          `    <public>0</public>`,
+          m.format === 'mp3' || m.format === 'aac' ? `    <charset>UTF-8</charset>` : '',
+          m.fallbackPath ? `    <fallback-mount>${xml(ingestMount(s.slug, m.fallbackPath))}</fallback-mount>\n    <fallback-override>1</fallback-override>` : '',
+          `    <authentication type="url">`,
+          `      <option name="listener_add" value="${xml(`${hook}/ingest`)}" />`,
+          `      <option name="auth_header" value="icecast-auth-user: 1" />`,
+          `    </authentication>`,
+          `  </mount>`,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      ),
+    )
+    .join('\n');
+  const ingestCount = ingest.reduce((n, s) => n + s.mounts.length, 0);
   const mountXml = mounts
     .map((m) =>
       [
@@ -65,7 +92,7 @@ export function renderIcecastConfig(input: { name: string; hostname: string; lay
         .join('\n'),
     )
     .join('\n');
-  const clients = input.maxListeners ? input.maxListeners + mounts.length + 10 : 100_000;
+  const clients = input.maxListeners ? input.maxListeners + mounts.length + ingestCount * 20 + 10 : 100_000;
   const dir = icecastDir();
   return `<!-- Managed by the Hosted Radio Station node agent. Changes are overwritten. -->
 <icecast>
@@ -74,7 +101,7 @@ export function renderIcecastConfig(input: { name: string; hostname: string; lay
   <hostname>${xml(input.hostname)}</hostname>
   <limits>
     <clients>${clients}</clients>
-    <sources>${mounts.length + 2}</sources>
+    <sources>${mounts.length + ingestCount + 2}</sources>
     <queue-size>1048576</queue-size>
     <client-timeout>30</client-timeout>
     <header-timeout>15</header-timeout>
@@ -96,6 +123,7 @@ export function renderIcecastConfig(input: { name: string; hostname: string; lay
     <header name="Access-Control-Allow-Origin" value="*" />
   </http-headers>
 ${mountXml}
+${ingestXml}
   <fileserve>1</fileserve>
   <paths>
     <basedir>/usr/share/icecast2</basedir>
@@ -166,3 +194,32 @@ export const listClients = async (port: number, password: string, mount: string)
 
 export const updateTitle = (port: number, password: string, mount: string, title: string) =>
   admin(port, password, `/admin/metadata?${new URLSearchParams({ mount, mode: 'updinfo', song: title, charset: 'UTF-8' })}`);
+
+export interface MountStat {
+  mount: string;
+  title: string | null;
+  bitrateKbps: number | null;
+  contentType: string | null;
+}
+
+const unxml = (v: string) => v.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+
+/** Parses /admin/stats: the mounts with a source, their title and bitrate. Exported for tests. */
+export function parseStats(body: string): MountStat[] {
+  return [...body.matchAll(/<source mount="([^"]+)">([\s\S]*?)<\/source>/gi)]
+    .filter((m) => /<source_ip>|<stream_start>|<server_type>/i.test(m[2]!))
+    .map((m) => {
+      const b = m[2]!;
+      const title = tag(b, 'title');
+      const artist = tag(b, 'artist');
+      const br = Number(tag(b, 'audio_bitrate')) / 1000 || Number(tag(b, 'bitrate')) || Number(tag(b, 'ice-bitrate')) || null;
+      return {
+        mount: unxml(m[1]!),
+        title: title ? unxml(artist ? `${artist} - ${title}` : title) : null,
+        bitrateKbps: br ? Math.round(br) : null,
+        contentType: tag(b, 'server_type') || null,
+      };
+    });
+}
+
+export const mountStats = async (port: number, password: string) => parseStats(await admin(port, password, '/admin/stats'));

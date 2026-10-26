@@ -37,11 +37,11 @@ function fakeIcecast() {
   return { server, got };
 }
 
-function push(port: number, token: string, mount = '/listen/studio-fm/live') {
+function push(port: number, token: string, mount = '/listen/studio-fm/live', priority?: number) {
   return new Promise<{ socket: tls.TLSSocket; status: string }>((resolve, reject) => {
     const socket = tls.connect({ host: '127.0.0.1', port, rejectUnauthorized: false }, () => {
       socket.write(
-        [`PUT ${mount} HTTP/1.1`, `Authorization: Basic ${Buffer.from(`source:${token}`).toString('base64')}`, 'Content-Type: audio/mpeg', 'Ice-Audio-Info: bitrate=128', 'Expect: 100-continue', '', ''].join('\r\n'),
+        [`PUT ${mount} HTTP/1.1`, `Authorization: Basic ${Buffer.from(`source:${token}`).toString('base64')}`, 'Content-Type: audio/mpeg', 'Ice-Audio-Info: bitrate=128', ...(priority === undefined ? [] : [`X-Hrs-Priority: ${priority}`]), 'Expect: 100-continue', '', ''].join('\r\n'),
       );
     });
     let text = '';
@@ -83,6 +83,39 @@ test('takes a pushed stream with the right token and feeds it into the local Ice
   ok.socket.destroy();
   await new Promise((r) => setTimeout(r, 200));
   assert.equal(receiver.connected('studio-fm/live'), false);
+  receiver.stop();
+  ice.server.close();
+});
+
+test('keeps the backup ingest on standby and switches to it without dropping the local source', async () => {
+  let sources = 0;
+  const ice = fakeIcecast();
+  ice.server.on('connection', () => sources++);
+  const icePort = await listen(ice.server);
+  const receiver = new PushReceiver({ icecastPort: () => icePort, secrets: { source: 'src', admin: 'adm' } });
+  const port = await freePort();
+  await receiver.apply(port, [{ key: 'studio-fm/live', stationId: 'x', slug: 'studio-fm', path: '/live', name: 'Studio FM', format: 'mp3', url: null, push: { token: 'tok-123' } }]);
+  await new Promise((r) => setTimeout(r, 200));
+
+  const backup = await push(port, 'tok-123', undefined, 1);
+  assert.equal(backup.status.slice(0, 3), '200');
+  const main = await push(port, 'tok-123', undefined, 0);
+  assert.equal(main.status.slice(0, 3), '200');
+  main.socket.write(Buffer.from('main;'));
+  backup.socket.write(Buffer.from('backup;'));
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(Buffer.concat(ice.got.body).toString(), 'main;');
+
+  main.socket.destroy();
+  await new Promise((r) => setTimeout(r, 200));
+  backup.socket.write(Buffer.from('backup;'));
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(Buffer.concat(ice.got.body).toString(), 'main;backup;');
+  assert.equal(sources, 1);
+  assert.equal(receiver.connected('studio-fm/live'), true);
+  assert.equal(receiver.states()[0]!.message, 'From the backup ingest');
+
+  backup.socket.destroy();
   receiver.stop();
   ice.server.close();
 });

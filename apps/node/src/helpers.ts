@@ -17,6 +17,8 @@ export interface WebState {
   certHosts: string[];
   /** The node has the station node role: the root helper installs and links the station runtime (phase 12). */
   station: boolean;
+  /** The node makes converted mounts as an ingest: the root helper installs ffmpeg when it is missing (phase 13). */
+  ffmpeg: boolean;
 }
 
 export interface JobStatus {

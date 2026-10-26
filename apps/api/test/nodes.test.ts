@@ -196,7 +196,10 @@ describe('nodes', () => {
     const topo = (await t.app.inject({ method: 'GET', url: '/api/nodes/topology', headers: admin })).json();
     expect(topo.view).toBe('admin');
     expect(topo.nodes.find((n: { id: string }) => n.id === node.id)).toMatchObject({ online: true, listeners: 2, relaysUp: 1 });
-    expect(topo.links).toEqual(expect.arrayContaining([expect.objectContaining({ from: node.id, to: 'main', kind: 'control' }), expect.objectContaining({ from: 'main', to: node.id, kind: 'stream' })]));
+    // The orchestrator only has control lines (phase 13); this server's own ingest and relay roles are shown apart.
+    expect(topo.links).toEqual(expect.arrayContaining([expect.objectContaining({ from: node.id, to: 'main', kind: 'control' }), expect.objectContaining({ from: 'local:ingest', to: 'main', kind: 'control' })]));
+    expect(topo.links.filter((l: { kind: string; from: string; to: string }) => l.kind === 'stream' && (l.from === 'main' || l.to === 'main'))).toEqual([]);
+    expect(topo.nodes.filter((n: { local: boolean }) => n.local).map((n: { id: string }) => n.id)).toEqual(['local:ingest', 'local:relay']);
 
     // The station page counts the listeners on the relay with the mount they listen to.
     const status = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/status`, headers: admin })).json();
@@ -239,7 +242,7 @@ describe('nodes', () => {
     // My setup: own node by name, the platform relay that carries the station without its name.
     const topo = (await t.app.inject({ method: 'GET', url: '/api/nodes/topology', headers: owner })).json();
     expect(topo.view).toBe('customer');
-    expect(topo.nodes.map((n: { name: string }) => n.name).sort()).toEqual(['Relay · Amsterdam', 'Relay · London', 'harder-01']);
+    expect(topo.nodes.filter((n: { local: boolean }) => !n.local).map((n: { name: string }) => n.name).sort()).toEqual(['Relay · Amsterdam', 'Relay · London', 'harder-01']);
   });
 
   it('routes encoders of a customer domain through its source node', async () => {

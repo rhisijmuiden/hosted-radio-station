@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import tls from 'node:tls';
 import { dataPath } from './config.js';
 import { log } from './log.js';
+import type { EncoderRequest, IngestManager } from './ingest.js';
 import type { NodePlan } from './protocol.js';
 
 type SourcePlan = NonNullable<NodePlan['source']>;
@@ -18,6 +19,52 @@ export function signPreamble(secret: string, p: { nodeId: string; via: 'tls' | '
   const host = p.host || '-';
   const sig = createHmac('sha256', secret).update(`1|${p.nodeId}|${ts}|${p.via}|${p.ip}|${host}`).digest('hex');
   return `HRSNODE 1 ${p.nodeId} ${ts} ${p.via} ${p.ip} ${host} ${sig}\r\n`;
+}
+
+const HEADER_LIMIT = 16 * 1024;
+
+/** Reads an encoder's request head (up to the empty line). */
+function readHead(socket: net.Socket): Promise<{ head: string; rest: Buffer }> {
+  return new Promise((resolve, reject) => {
+    let buf = Buffer.alloc(0);
+    const timer = setTimeout(() => done(new Error('header timeout')), 15_000);
+    const onData = (chunk: Buffer) => {
+      buf = Buffer.concat([buf, chunk]);
+      const i = buf.indexOf('\r\n\r\n');
+      if (i >= 0) return done(null, i);
+      if (buf.length > HEADER_LIMIT) done(new Error('header too large'));
+    };
+    const onEnd = () => done(new Error('closed'));
+    function done(err: Error | null, i = 0) {
+      clearTimeout(timer);
+      socket.off('data', onData);
+      socket.off('end', onEnd);
+      socket.pause();
+      if (err) reject(err);
+      else resolve({ head: buf.subarray(0, i).toString('latin1'), rest: buf.subarray(i + 4) });
+    }
+    socket.on('data', onData);
+    socket.once('end', onEnd);
+    socket.resume();
+  });
+}
+
+/** Parses an HTTP request head. Exported for tests. */
+export function parseHead(head: string, rest: Buffer): EncoderRequest | null {
+  const lines = head.split(/\r?\n/);
+  const m = lines[0]!.match(/^([A-Z]+) (\S+) (HTTP\/1\.[01])$/);
+  if (!m) return null;
+  const headers = new Map<string, string>();
+  const rawHeaders: [string, string][] = [];
+  for (const line of lines.slice(1)) {
+    const i = line.indexOf(':');
+    if (i <= 0) continue;
+    const k = line.slice(0, i).trim();
+    const v = line.slice(i + 1).trim();
+    rawHeaders.push([k, v]);
+    headers.set(k.toLowerCase(), v);
+  }
+  return { method: m[1]!, path: m[2]!, version: m[3]!, headers, rawHeaders, rest };
 }
 
 interface Listener {
@@ -39,6 +86,9 @@ export class SourceForwarder {
   private certStamp = '';
   private active = new Map<net.Socket, number>();
   problems: string[] = [];
+
+  /** The ingest role (phase 13), set by the agent. */
+  ingest: IngestManager | null = null;
 
   constructor(private readonly node: { nodeId: string; secret: string }) {}
 
@@ -112,6 +162,21 @@ export class SourceForwarder {
     client.setNoDelay(true);
     const ip = (client.remoteAddress ?? '').replace(/^::ffff:/, '');
     const host = via === 'tls' ? (client as tls.TLSSocket).servername || null : null;
+    client.on('error', () => client.destroy());
+    client.on('close', () => this.active.delete(client));
+    void readHead(client)
+      .then(({ head, rest }) => {
+        const req = parseHead(head, rest);
+        const name = host || req?.headers.get('host')?.replace(/:\d+$/, '') || null;
+        // Stations routed to this node (phase 13) are taken here; the audio never goes to the main server.
+        if (req && this.ingest?.takes(req, name)) return this.ingest.handle(client, req, via, ip || '0.0.0.0', name);
+        this.passOn(client, plan, via, ip, host, Buffer.concat([Buffer.from(`${head}\r\n\r\n`, 'latin1'), rest]));
+      })
+      .catch(() => client.destroy());
+  }
+
+  /** Passes an encoder on to the ingest gateway of the main server, for stations that take encoders there. */
+  private passOn(client: net.Socket, plan: SourcePlan, via: 'tls' | 'plain', ip: string, host: string | null, first: Buffer) {
     const up = plan.upstream;
     const upstream = up.tls ? tls.connect({ host: up.host, port: up.port, servername: net.isIP(up.host) ? undefined : up.host }) : net.connect({ host: up.host, port: up.port });
     upstream.setNoDelay(true);
@@ -120,9 +185,9 @@ export class SourceForwarder {
       client.destroy();
       upstream.destroy();
     };
-    client.pause();
     upstream.once(up.tls ? 'secureConnect' : 'connect', () => {
       upstream.write(signPreamble(this.node.secret, { nodeId: this.node.nodeId, via, ip: ip || '0.0.0.0', host }));
+      upstream.write(first);
       client.pipe(upstream);
       upstream.pipe(client);
       client.resume();
@@ -132,7 +197,6 @@ export class SourceForwarder {
       if (!client.destroyed) client.end('HTTP/1.0 503 Service Unavailable\r\nContent-Type: text/plain\r\n\r\nThe main server cannot be reached right now.\r\n');
       end();
     });
-    client.on('error', end);
     client.on('close', end);
     upstream.on('close', end);
   }

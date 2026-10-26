@@ -15,6 +15,7 @@ import { getSetting, SECRET_MASK } from '../services/settings.js';
 import { killSource, stationDir } from '../services/streaming/icecast.js';
 import { connectionInfo } from '../services/streaming/info.js';
 import { cachedRelays } from '../services/nodes/routing.js';
+import { stationRouting } from '../services/nodes/routing-rules.js';
 import { allocatePort, applyStreams, loadStation, newInternalPassword, stationStats, type Mount, type Output, type Station } from '../services/streaming/state.js';
 
 const stationParams = z.object({ id: z.uuid() });
@@ -156,6 +157,9 @@ const accountOut = z.object({
 const connectionOut = z.object({
   ingestHost: z.string(),
   node: z.object({ id: z.uuid(), name: z.string() }).nullable(),
+  backup: z
+    .object({ host: z.string(), node: z.object({ id: z.uuid(), name: z.string() }).nullable(), tls: z.object({ port: z.number(), available: z.boolean() }), plain: z.object({ port: z.number() }).nullable() })
+    .nullable(),
   tls: z.object({ port: z.number(), available: z.boolean() }),
   plain: z.object({ port: z.number() }).nullable(),
   legacy: z.object({ port: z.number(), sourcePort: z.number(), mount: z.string().nullable() }).nullable(),
@@ -497,7 +501,12 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
       if (edition && edition !== station.edition) {
         // The same as the upgrade and downgrade actions: the AutoDJ mount, fallback and first playlist come with it.
         const [fresh] = await ctx.db.select().from(schema.stations).where(eq(schema.stations.id, station.id));
-        if (edition === 'station') await upgradeStation(ctx, fresh!);
+        if (edition === 'station') {
+          // The AutoDJ plays on this server, so it becomes the main ingest again (an ingest node can stay as backup).
+          const r = stationRouting(fresh!);
+          if (r.ingest !== 'local') await ctx.db.update(schema.stations).set({ routing: { ...r, ingest: 'local', backupIngest: r.backupIngest ?? r.ingest } }).where(eq(schema.stations.id, station.id));
+          await upgradeStation(ctx, fresh!);
+        }
         else await downgradeStation(ctx, fresh!);
         req.auditInfo.details.edition = { from: station.edition, to: edition };
       }

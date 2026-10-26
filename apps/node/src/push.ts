@@ -13,10 +13,23 @@ import { sourceConnection } from './relay.js';
 
 type RelayState = AgentReport['relays'][number];
 
+interface Feed {
+  socket: net.Socket;
+  /** 0 = the main ingest (or a station node), 1 = a backup ingest. */
+  priority: number;
+  since: number;
+  bitrateKbps: number | null;
+}
+
 interface Slot {
   mount: RelayMount;
-  client: net.Socket | null;
+  /** Every ingest pushing this stream now; the best one feeds Icecast, the others stand by. */
+  feeds: Feed[];
+  /** The one feeding Icecast. */
+  client: Feed | null;
   local: net.Socket | null;
+  /** The source connection being opened, so two ingests that arrive together share it. */
+  opening: Promise<net.Socket> | null;
   since: number;
   state: RelayState;
 }
@@ -65,7 +78,7 @@ export class PushReceiver {
         this.slots.delete(key);
       } else s.mount = want;
     }
-    for (const [key, m] of wanted) if (!this.slots.has(key)) this.slots.set(key, { mount: m, client: null, local: null, since: 0, state: { key, state: 'idle', message: 'Waiting for the station node' } });
+    for (const [key, m] of wanted) if (!this.slots.has(key)) this.slots.set(key, { mount: m, feeds: [], client: null, local: null, opening: null, since: 0, state: { key, state: 'idle', message: 'Waiting for the ingest' } });
     const listen = wanted.size ? port : null;
     if (listen === this.port) return;
     this.server?.close();
@@ -118,8 +131,9 @@ export class PushReceiver {
   }
 
   private drop(s: Slot) {
-    s.client?.destroy();
+    for (const f of s.feeds) f.socket.destroy();
     s.local?.destroy();
+    s.feeds = [];
     s.client = null;
     s.local = null;
   }
@@ -163,11 +177,14 @@ export class PushReceiver {
     const [user, pass] = auth.startsWith('Basic ') ? Buffer.from(auth.slice(6), 'base64').toString('utf8').split(/:(.*)/s) : [];
     const slotOf = (mount: string) => [...this.slots.values()].find((s) => localMount(s.mount) === mount);
 
+    const priority = Math.max(0, Math.min(9, Number(headers.get('x-hrs-priority')) || 0));
+
     if (method === 'GET' && url.pathname === '/admin/metadata') {
       const slot = slotOf(url.searchParams.get('mount') ?? '');
       if (!slot || user !== 'source' || !pass || !same(pass, slot.mount.push!.token)) return this.reply(socket, '401 Unauthorized');
       const song = url.searchParams.get('song');
-      if (song && slot.local) await updateTitle(this.ctx.icecastPort(), this.ctx.secrets.admin, localMount(slot.mount), song).catch(() => undefined);
+      // Titles of an ingest that stands by would not match the audio.
+      if (song && slot.local && (!slot.client || priority <= slot.client.priority)) await updateTitle(this.ctx.icecastPort(), this.ctx.secrets.admin, localMount(slot.mount), song).catch(() => undefined);
       return this.reply(socket, '200 OK');
     }
     if (method !== 'PUT' && method !== 'SOURCE') return this.reply(socket, '405 Method Not Allowed');
@@ -175,37 +192,83 @@ export class PushReceiver {
     if (!slot) return this.reply(socket, '404 Not Found');
     if (user !== 'source' || !pass || !same(pass, slot.mount.push!.token)) return this.reply(socket, '401 Unauthorized');
 
-    // A new push replaces the old one (the station node reconnected).
-    this.drop(slot);
-    let local: net.Socket;
-    try {
-      local = await sourceConnection(this.ctx.icecastPort(), localMount(slot.mount), this.ctx.secrets.source, {
-        'Content-Type': headers.get('content-type') ?? 'audio/mpeg',
-        'Ice-Name': headers.get('ice-name') ?? slot.mount.name,
-        'Ice-Public': '0',
-        ...(headers.get('ice-audio-info') ? { 'Ice-Audio-Info': headers.get('ice-audio-info')! } : {}),
-      });
-    } catch (err) {
-      slot.state = { key: slot.mount.key, state: 'error', message: (err as Error).message };
-      return this.reply(socket, '503 Service Unavailable');
+    // A new push of the same ingest replaces its old one (it reconnected).
+    for (const f of slot.feeds.filter((x) => x.priority === priority)) this.remove(slot, f, false, true);
+    if (!slot.local) {
+      try {
+        slot.opening ??= this.openLocal(slot, headers).finally(() => (slot.opening = null));
+        slot.local = await slot.opening;
+      } catch (err) {
+        slot.state = { key: slot.mount.key, state: 'error', message: (err as Error).message };
+        return this.reply(socket, '503 Service Unavailable');
+      }
     }
     if (headers.get('expect')?.toLowerCase() === '100-continue') socket.write('HTTP/1.1 100 Continue\r\n\r\n');
     this.reply(socket, '200 OK', false);
-    slot.client = socket;
-    slot.local = local;
+    const feed: Feed = { socket, priority, since: Date.now(), bitrateKbps: Number(headers.get('ice-audio-info')?.match(/bitrate=(\d+)/)?.[1]) || null };
+    slot.feeds.push(feed);
+    log.info('ingest pushing', { mount: slot.mount.key, from: socket.remoteAddress, priority });
+    // Audio of a feed that stands by is read and dropped, so it can take over without a gap.
+    socket.on('data', (d: Buffer) => {
+      if (slot.client === feed && slot.local && !slot.local.write(d)) {
+        socket.pause();
+        slot.local.once('drain', () => socket.resume());
+      }
+    });
+    socket.once('close', () => this.remove(slot, feed, true));
+    if (rest.length && (!slot.client || priority < slot.client.priority)) slot.local?.write(rest);
+    this.promote(slot);
+  }
+
+  /** The source connection into the node's own Icecast; it stays open while any ingest pushes. */
+  private async openLocal(slot: Slot, headers: Map<string, string>) {
+    const local = await sourceConnection(this.ctx.icecastPort(), localMount(slot.mount), this.ctx.secrets.source, {
+      'Content-Type': headers.get('content-type') ?? 'audio/mpeg',
+      'Ice-Name': headers.get('ice-name') ?? slot.mount.name,
+      'Ice-Public': '0',
+      ...(headers.get('ice-audio-info') ? { 'Ice-Audio-Info': headers.get('ice-audio-info')! } : {}),
+    });
     slot.since = Date.now();
-    const br = Number(headers.get('ice-audio-info')?.match(/bitrate=(\d+)/)?.[1]) || null;
-    slot.state = { key: slot.mount.key, state: 'connected', bitrateKbps: br };
-    log.info('station node pushing', { mount: slot.mount.key, from: socket.remoteAddress });
-    if (rest.length) local.write(rest);
-    socket.pipe(local);
-    const end = (why: string) => {
-      if (slot.client !== socket) return;
-      this.drop(slot);
-      slot.state = { key: slot.mount.key, state: 'idle', message: why };
-    };
-    socket.once('close', () => end('The station node stopped pushing'));
-    local.once('close', () => end('The local Icecast dropped the stream'));
     local.on('error', () => undefined);
+    local.once('close', () => {
+      if (slot.local !== local) return;
+      // Icecast dropped the stream: start again with the next push.
+      for (const f of slot.feeds) f.socket.destroy();
+      slot.feeds = [];
+      slot.client = null;
+      slot.local = null;
+      slot.state = { key: slot.mount.key, state: 'idle', message: 'The local Icecast dropped the stream' };
+    });
+    return local;
+  }
+
+  /** Lets the best feed (lowest priority number, then the newest) feed Icecast. */
+  private promote(slot: Slot) {
+    const best = [...slot.feeds].sort((a, b) => a.priority - b.priority || b.since - a.since)[0] ?? null;
+    if (best !== slot.client) {
+      if (best && slot.client) log.info('switching ingest', { mount: slot.mount.key, from: slot.client.priority, to: best.priority });
+      slot.client?.socket.resume();
+      slot.client = best;
+      best?.socket.resume();
+    }
+    slot.state = best
+      ? { key: slot.mount.key, state: 'connected', bitrateKbps: best.bitrateKbps, ...(best.priority > 0 ? { message: 'From the backup ingest' } : {}) }
+      : { key: slot.mount.key, state: 'idle', message: 'The ingest stopped pushing' };
+  }
+
+  private remove(slot: Slot, feed: Feed, closed: boolean, replaced = false) {
+    const i = slot.feeds.indexOf(feed);
+    if (i < 0) return;
+    slot.feeds.splice(i, 1);
+    if (slot.client === feed) slot.client = null;
+    if (!closed) feed.socket.destroy();
+    if (slot.feeds.length) return this.promote(slot);
+    if (replaced) return;
+    // Nobody pushes any more: let Icecast end the stream, so listeners move on or reconnect.
+    slot.client = null;
+    const local = slot.local;
+    slot.local = null;
+    local?.destroy();
+    slot.state = { key: slot.mount.key, state: 'idle', message: 'The ingest stopped pushing' };
   }
 }
