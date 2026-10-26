@@ -111,6 +111,13 @@ Phase 10: Hosted service: packages, subscriptions, invoices with VAT and online 
 | ![Subscription on the customer page](docs/screenshots/phase-10-customer-admin.png) | ![Packages in Dutch, dark theme](docs/screenshots/phase-10-packages-dark-nl.png) |
 | ![Billing settings: company, VAT, reminders, Mollie](docs/screenshots/phase-10-settings.png) | ![Signed webhooks for the website](docs/screenshots/phase-10-webhooks.png) |
 
+Phase 11: FM/MPX and RDS: a node that puts a station on FM, with a live radio display of the PS and RadioText, modulation meters and the signal chain. Taken on the test server with MPX over IP.
+
+| FM node | FM node, Dutch |
+| --- | --- |
+| ![FM node on air: PS, RadioText, RT+ tags, levels and signal chain](docs/screenshots/phase-11-fm-overview-light-en.png) | ![FM node on air in Dutch, dark theme](docs/screenshots/phase-11-fm-overview-dark-nl.png) |
+| ![FM settings: station, RDS, output, audio and UECP](docs/screenshots/phase-11-fm-settings-light-en.png) | ![FM settings in Dutch, dark theme](docs/screenshots/phase-11-fm-settings-dark-nl.png) |
+
 ## Status
 
 | Phase | Name | Status |
@@ -125,7 +132,7 @@ Phase 10: Hosted service: packages, subscriptions, invoices with VAT and online 
 | 8 | Distribution network and orchestration | Done |
 | 9 | Windows client | Done |
 | 10 | Hosted service | Done |
-| 11 | FM/MPX and RDS module | Planned |
+| 11 | FM/MPX and RDS module | Done |
 | 12 | Station nodes | In progress |
 | 13 | Orchestrator as control plane | Planned |
 | 14 | Orchestrator redundancy | Planned |
@@ -260,10 +267,13 @@ How it works and the API: [docs/hosted-service.md](docs/hosted-service.md).
 
 A separate LXC package for FM broadcasters.
 
-- Runs as the FM/MPX role on a node: its own Debian 13 LXC with the node installer, paired with a one-time pairing code and updated from the main server.
-- Receives a station stream and generates a complete MPX signal (stereo encoder plus RDS).
-- RDS PS, RadioText and RadioText+ filled automatically from now-playing data, so FM receivers show the right song titles.
-- Output through a 192 kHz sound card or as MPX over IP, or control of an existing RDS encoder over UECP.
+- Runs as the FM/MPX role on a node: its own Debian 13 LXC with its own installer (`install-fm.sh`), paired with a one-time pairing code and updated from the main server.
+- Receives a station stream and generates a complete MPX signal at 192 kHz: stereo encoder (pilot and 38 kHz subcarrier), pre-emphasis, limiter, 15 kHz low-pass and RDS.
+- RDS PS, RadioText and RadioText+ filled automatically from the titles in the stream (in step with the music) and the live DJ or show, plus PI, PTY, TP/TA, alternative frequencies and clock time. Fixed or scrolling PS.
+- Output through a 192 kHz sound card or as MPX over IP (RTP, L24 192 kHz, with the SDP in the panel), or control of an existing RDS encoder over UECP (TCP, UDP or serial).
+- A live radio display in the panel with modulation and audio meters, and the transmitter in the topology. Pilot and RDS stay on air while the stream is away; the node corrects the clock drift between the stream and the sound card.
+
+How to set up an FM node: [docs/fm.md](docs/fm.md).
 
 ### Phase 12: Station nodes
 

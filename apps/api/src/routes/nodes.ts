@@ -12,7 +12,7 @@ import { badRequest, conflict, forbidden, HttpError, notFound } from '../lib/err
 import { okOut } from '../lib/schemas.js';
 import { nodeEvent } from '../services/nodes/hub.js';
 import { hashCode, installCommand, newPairingCode, PAIRING_HOURS } from '../services/nodes/pairing.js';
-import { carried, nodeConfigSchema, nodeSettings, relayBaseUrl, storedConfig, type Node } from '../services/nodes/plan.js';
+import { carried, nodeConfigPatch, nodeConfigSchema, nodeSettings, relayBaseUrl, storedConfig, type Node } from '../services/nodes/plan.js';
 import { authenticateNode, reportSchema, storeReport } from '../services/nodes/report.js';
 import { forgetRelays, pickRelay } from '../services/nodes/routing.js';
 import { getSetting, nodesSchema, putSetting } from '../services/settings.js';
@@ -53,6 +53,27 @@ const statusOut = z
     encoders: z.number().optional(),
     problems: z.array(z.string()).optional(),
     update: z.object({ state: z.enum(['idle', 'running', 'succeeded', 'failed']), message: z.string().optional(), at: z.string().optional() }).nullish(),
+    ffmpeg: z.boolean().optional(),
+    soundcards: z.array(z.object({ device: z.string(), name: z.string() })).optional(),
+    fm: z
+      .object({
+        input: z.enum(['idle', 'connecting', 'connected', 'error']),
+        inputMessage: z.string().optional(),
+        title: z.string().nullable(),
+        output: z.enum(['off', 'starting', 'running', 'error']),
+        outputMessage: z.string().optional(),
+        uecp: z.enum(['off', 'connecting', 'connected', 'error']),
+        uecpMessage: z.string().optional(),
+        meters: z
+          .object({ peak: z.number(), left: z.number(), right: z.number(), buffered: z.number(), ppm: z.number(), underruns: z.number(), overruns: z.number(), playing: z.boolean() })
+          .nullable(),
+        ps: z.string(),
+        psFrames: z.array(z.string()),
+        rt: z.string(),
+        tags: z.array(z.object({ type: z.number(), start: z.number(), length: z.number() })),
+        groups: z.record(z.string(), z.number()),
+      })
+      .nullish(),
     updatedAt: z.string().optional(),
   });
 
@@ -85,13 +106,13 @@ const createBody = z.object({
   name: z.string().trim().min(1).max(80),
   location: z.string().trim().max(80).default(''),
   tenantId: z.uuid().nullish(),
-  roles: z.array(roleSchema).max(2).default([]),
+  roles: z.array(roleSchema).max(NODE_ROLES.length).default([]),
 });
 const updateBody = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   location: z.string().trim().max(80).optional(),
-  roles: z.array(roleSchema).max(2).optional(),
-  config: nodeConfigSchema.partial().optional(),
+  roles: z.array(roleSchema).max(NODE_ROLES.length).optional(),
+  config: nodeConfigPatch.optional(),
 });
 
 const eventOut = z.object({ id: z.number(), at: z.date(), level: z.string(), kind: z.string(), details: z.record(z.string(), z.union([z.string(), z.number(), z.null()])) });
@@ -187,11 +208,11 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
     });
   }
 
-  async function newPairing(node: Pick<Node, 'id'>) {
+  async function newPairing(node: Pick<Node, 'id' | 'roles'>) {
     const code = newPairingCode();
     const expiresAt = new Date(Date.now() + PAIRING_HOURS * 3600_000);
     await ctx.db.update(schema.nodes).set({ pairingCodeHash: hashCode(code), pairingExpiresAt: expiresAt, updatedAt: new Date() }).where(eq(schema.nodes.id, node.id));
-    return { code, expiresAt, command: await installCommand(ctx, code) };
+    return { code, expiresAt, command: await installCommand(ctx, code, node.roles.includes('fm')) };
   }
 
   /** After a change of roles or carried stations: listen routes here, routing, and the plans of all nodes. */
@@ -302,6 +323,11 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         const own = await ctx.db.select({ id: schema.stations.id }).from(schema.stations).where(eq(schema.stations.tenantId, node.tenantId));
         const ids = new Set(own.map((s) => s.id));
         if (b.config.relayStations.some((id) => !ids.has(id))) throw badRequest('A node of a customer can only carry that customer\'s stations');
+      }
+      if (b.config?.fm?.stationId) {
+        const [st] = await ctx.db.select({ tenantId: schema.stations.tenantId }).from(schema.stations).where(eq(schema.stations.id, b.config.fm.stationId));
+        if (!st) throw badRequest('Unknown station');
+        if (node.tenantId && st.tenantId !== node.tenantId) throw badRequest('A node of a customer can only put that customer\'s stations on air');
       }
       const roles = b.roles ? ([...new Set(b.roles)] as NodeRole[]) : node.roles;
       const c = nodeSettings({ config });
@@ -523,7 +549,8 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
     const nodeOutList = nodes.map((n) => {
       const status = hub.liveStatus(n.id) ?? { ...n.status, online: false };
       const carriedIds = [...carried(n, stations)];
-      const degraded = status.online && ((status.rttMs ?? 0) > settings.latencyWarnMs || (status.loss ?? 0) > 0.05 || (status.problems?.length ?? 0) > 0 || !!status.relays?.some((r) => r.state === 'error'));
+      const fmError = !!status.fm && (status.fm.input === 'error' || status.fm.output === 'error' || status.fm.uecp === 'error');
+      const degraded = status.online && ((status.rttMs ?? 0) > settings.latencyWarnMs || (status.loss ?? 0) > 0.05 || (status.problems?.length ?? 0) > 0 || !!status.relays?.some((r) => r.state === 'error') || fmError);
       const own = !!n.tenantId && !!scopeSet?.has(n.tenantId);
       return {
         id: n.id,
@@ -549,6 +576,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         updateAvailable: !!status.commit && !!v.commit && status.commit !== v.commit,
         relaysUp: status.relays?.filter((r) => r.state === 'connected').length ?? 0,
         relaysTotal: status.relays?.length ?? 0,
+        fmOnAir: !!status.online && !!status.fm && (status.fm.meters?.playing === true || (status.fm.output === 'off' && status.fm.uecp === 'connected')),
       };
     });
 
@@ -560,6 +588,8 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       links.push({ from: n.id, to: 'main', kind: 'control', active: n.online, degraded: n.degraded, rttMs: n.rttMs, loss: n.loss });
       if (n.roles.includes('relay') && n.relaysUp > 0) links.push({ from: 'main', to: n.id, kind: 'stream', active: n.online, degraded: n.degraded, rttMs: n.rttMs, loss: n.loss });
       if (n.roles.includes('source') && (status.encoders ?? 0) > 0) links.push({ from: n.id, to: 'main', kind: 'stream', active: n.online, degraded: n.degraded, rttMs: n.rttMs, loss: n.loss });
+      // An FM node pulls its station from this server and puts it on air.
+      if (n.roles.includes('fm') && status.fm?.input === 'connected') links.push({ from: 'main', to: n.id, kind: 'stream', active: n.online, degraded: n.degraded, rttMs: n.rttMs, loss: n.loss });
     }
     const studios = live.map((l) => {
       const station = stations.find((s) => s.id === l.stationId)!;
@@ -620,6 +650,7 @@ const topologyOut = z.object({
       updateAvailable: z.boolean(),
       relaysUp: z.number(),
       relaysTotal: z.number(),
+      fmOnAir: z.boolean(),
     }),
   ),
   studios: z.array(z.object({ id: z.string(), station: z.string(), stationId: z.string(), account: z.string(), mount: z.string(), via: z.string(), nodeId: z.string().nullable(), since: z.date() })),
