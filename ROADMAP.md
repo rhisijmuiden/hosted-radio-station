@@ -77,7 +77,7 @@ Phase 6: Radio station with AutoDJ, music library, playlists and two queues.
 | 3 | Distribution | Done |
 | 4 | Statistics | Done |
 | 5 | Public pages | Done |
-| 6 | Radio station (AutoDJ) | In test |
+| 6 | Radio station (AutoDJ) | Done |
 | 7 | Scheduler | Planned |
 | 8 | Distribution network and orchestration | Planned |
 | 9 | Windows client | Planned |
