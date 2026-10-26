@@ -117,12 +117,19 @@ export class NodeHub {
     for (const t of this.timers) t.unref();
   }
 
+  /**
+   * Before the server closes (preClose, while the WebSockets are still open): tells every agent it restarts. Caddy keeps
+   * the agent's side open after the close itself and drops its code, so the agent would only notice by its watchdog.
+   */
+  async announceRestart() {
+    for (const c of this.conns.values()) this.send(c, { t: 'restart' });
+    if (this.conns.size) await new Promise((r) => setTimeout(r, 200));
+  }
+
   async stop() {
     for (const t of this.timers) clearInterval(t);
     for (const c of this.conns.values()) {
       clearInterval(c.timer);
-      // Said in a message too: Caddy keeps the agent's side of the WebSocket open after this close.
-      this.send(c, { t: 'restart' });
       c.socket.close(1001, 'server restarting');
     }
     this.conns.clear();
