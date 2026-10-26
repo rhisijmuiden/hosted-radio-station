@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { useSystemInfo } from '../components/InfoDialog';
 import { Badge, Button, Card, CardHeader, PageHeader, Table } from '../components/ui';
-import { api, type ApiKey, type BackupTarget, type ProxySettings, type SmtpSettings, type StationListItem, type Tenant, type UserDetail } from '../lib/api';
+import { api, type ApiKey, type BackupTarget, type ProxySettings, type SmtpSettings, type StationListItem, type StatsLive, type Tenant, type UserDetail } from '../lib/api';
 import { isAdmin, useMe } from '../lib/auth';
 import { formatRelative, shortCommit } from '../lib/format';
 import { StationsTable } from './Stations';
@@ -53,6 +53,7 @@ function AdminDashboard() {
     .at(-1);
   const backupFailing = (backups.data ?? []).some((b) => b.lastRun?.state === 'failed');
   const info = useSystemInfo();
+  const live = useQuery({ queryKey: ['stats', 'live', {}], queryFn: () => api<StatsLive>('/stats/live'), refetchInterval: 15_000 });
 
   const list = tenants.data ?? [];
   const steps = [
@@ -85,7 +86,13 @@ function AdminDashboard() {
           tone="muted"
         />
         <Stat label={t('dashboard.users')} value={users.data?.length ?? '…'} note={t('dashboard.adminCount', { count: users.data?.filter((u) => u.isSuperadmin).length ?? 0 })} tone="muted" />
-        <Stat label={t('dashboard.apiKeys')} value={keys.data?.length ?? '…'} note={t('dashboard.apiKeysNote')} tone="muted" />
+        <Link to="/statistics">
+          <Stat
+            label={t('dashboard.listenersNow')}
+            value={live.data ? live.data.total : '…'}
+            note={t('dashboard.listenersCountries', { count: live.data?.countries.filter((c) => c.key).length ?? 0 })}
+          />
+        </Link>
       </section>
 
       <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
