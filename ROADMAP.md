@@ -86,6 +86,15 @@ Phase 8: Distribution network with nodes (relays, source nodes, remote probes) a
 | ![Node detail: machine, connection and relayed streams](docs/screenshots/phase-8-node-detail.png) | ![Health of a node over time](docs/screenshots/phase-8-node-health.png) |
 | ![Remote probes from a node](docs/screenshots/phase-8-node-probes.png) | ![Topology, light theme](docs/screenshots/phase-8-topology-admin-light.png) |
 
+Phase 9: RHIS Studio, the Windows client: live assist, live broadcasting from the sound card or mixing desk, and a cart wall.
+
+| Studio client | Studio client, Dutch |
+| --- | --- |
+| ![Live assist: now playing, Q1 and Q2, library](docs/screenshots/phase-9-assist.png) | ![Live assist in Dutch, dark theme](docs/screenshots/phase-9-assist-dark-nl.png) |
+| ![Going live with meters and show title](docs/screenshots/phase-9-live.png) | ![Cart wall on F1–F12](docs/screenshots/phase-9-carts.png) |
+| ![Sound card, channels and routing](docs/screenshots/phase-9-settings.png) | ![Info with update channel](docs/screenshots/phase-9-info.png) |
+| ![Linking the PC: the code in the client](docs/screenshots/phase-9-sign-in.png) | ![Approving the PC in the panel](docs/screenshots/phase-9-panel-link.png) |
+
 ## Status
 
 | Phase | Name | Status |
@@ -98,7 +107,7 @@ Phase 8: Distribution network with nodes (relays, source nodes, remote probes) a
 | 6 | Radio station (AutoDJ) | Done |
 | 7 | Scheduler | Done |
 | 8 | Distribution network and orchestration | Done |
-| 9 | Windows client | Planned |
+| 9 | Windows client | In test |
 | 10 | Hosted service | Planned |
 | 11 | FM/MPX and RDS module | Planned |
 | 12 | Open source edition | Planned |
@@ -212,6 +221,8 @@ Live assist from the studio PC.
 - Control Q1 and Q2, play live and broadcast from the PC.
 - Talks to the server through the API and a direct audio channel.
 - Sound card passthrough: pick any input of the studio sound card (ASIO/WASAPI) and send it live to the server, so studios can broadcast from a real mixing desk.
+
+How to install and use the client: [docs/studio.md](docs/studio.md).
 
 ### Phase 10: Hosted service
 
