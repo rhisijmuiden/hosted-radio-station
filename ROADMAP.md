@@ -228,6 +228,7 @@ Scale out with remote nodes; the main server becomes the orchestrator.
 - Topology view: an interactive, modern 3D-style map (WebGL) of how studios, source servers, stations, relays and listeners connect, with animated stream flows and live health, latency, ping timeouts and packet loss between each node and the main server.
 - Bring your own node: customers can register their own node. It shows up in their customer panel with the same topology view, limited to their own setup: node health, distribution status and connection quality to the main server.
 - Updates come from the main server: nodes follow the main server's version and channel, and update from the panel.
+- Controlled node updates: a new version is never rolled out to all nodes at once. Choose per node or group: automatically in a maintenance window, rolling (one node at a time, listeners moved to another relay first, next node only after a health check), or manually. Nodes can stay on their current version, and a failed update rolls back.
 - Remote probes that monitor stream availability from other locations.
 
 How to add and run nodes: [docs/nodes.md](docs/nodes.md).
