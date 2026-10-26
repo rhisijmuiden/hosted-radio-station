@@ -14,8 +14,9 @@ Fixes found while testing 1.0.0.
   main server runs.
 - After `install.sh` the Info page shows that install instead of the log of an older update.
 - Relay nodes no longer point at stations that were deleted before 1.0.0 cleaned this up.
-- Nodes are back online within seconds after a restart of the main server, instead of about 35 seconds (needs the node
-  update to 1.0.1).
+- Nodes are back online within seconds after a restart of the main server, instead of about 35 seconds: the server
+  tells them it restarts, because Caddy keeps their connection open after the server closed it (needs the node update
+  to 1.0.1).
 
 ## 1.0.0 (26 October 2026)
 

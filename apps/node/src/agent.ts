@@ -184,8 +184,16 @@ export class Agent {
    */
   private watchdog() {
     const ws = this.ws;
-    if (!ws || this.stopped || Date.now() - this.heardAt < 30_000) return;
+    // The server pings every 5 seconds.
+    if (!ws || this.stopped || Date.now() - this.heardAt < 15_000) return;
     log.warn('no answer from the main server; reconnecting', { state: ws.readyState });
+    this.reconnect(1000);
+  }
+
+  /** Drops the connection without waiting for its close event, and connects again after `delay` ms. */
+  private reconnect(delay: number) {
+    const ws = this.ws;
+    if (!ws) return;
     this.ws = null;
     this.ready = false;
     ws.onclose = null;
@@ -194,7 +202,7 @@ export class Agent {
     } catch {
       // already closing
     }
-    setTimeout(() => this.connect(), 1000);
+    setTimeout(() => this.connect(), delay);
   }
 
   private send(msg: AgentMessage) {
@@ -236,6 +244,10 @@ export class Agent {
         return;
       case 'fm':
         return this.fm.setContext({ dj: msg.dj, show: msg.show });
+      case 'restart':
+        log.info('the main server restarts; reconnecting');
+        this.retries = 0;
+        return this.reconnect(1000 + Math.floor(Math.random() * 500));
     }
   }
 
