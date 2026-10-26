@@ -1,7 +1,6 @@
 import { eq, isNotNull } from 'drizzle-orm';
 import { schema } from '../db/index.js';
 import type { AppContext } from '../lib/context.js';
-import { carried } from '../services/nodes/plan.js';
 import { getSetting, type StreamingSettings } from '../services/settings.js';
 import { autodjMount, type Mount, type Output, type Station } from '../services/streaming/state.js';
 
@@ -31,8 +30,6 @@ export interface Snapshot {
   hostTenant: Map<string, string>;
   /** Paired source nodes that may pass encoders on to this server, with their secret. */
   sourceNodes: Map<string, { id: string; tenantId: string | null; secret: string }>;
-  /** Stations that relay nodes pull from this server (their readers are not listeners). */
-  relayed: Set<string>;
 }
 
 export async function loadSnapshot(ctx: AppContext): Promise<Snapshot> {
@@ -72,9 +69,6 @@ export async function loadSnapshot(ctx: AppContext): Promise<Snapshot> {
       autodjMount: null,
     });
   }
-  const relayed = new Set<string>();
-  const all = rows.map((r) => ({ id: r.s.id, tenantId: r.s.tenantId }));
-  for (const n of nodes) for (const id of carried(n, all)) relayed.add(id);
   for (const m of mounts) stations.get(m.stationId)?.mounts.push(m);
   for (const o of outputs) stations.get(o.stationId)?.outputs.push(o);
   for (const v of stations.values()) v.autodjMount = autodjMount(v.station, v.mounts);
@@ -91,7 +85,6 @@ export async function loadSnapshot(ctx: AppContext): Promise<Snapshot> {
     bySlug: new Map([...stations.values()].map((v) => [v.station.slug, v])),
     hostTenant,
     sourceNodes,
-    relayed,
   };
 }
 

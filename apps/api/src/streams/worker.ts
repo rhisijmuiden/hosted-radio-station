@@ -205,14 +205,14 @@ export class StreamsWorker {
     }
   }
 
-  /** Counts the readers of our own jobs on the mounts they read, so the panel can leave them out of listener counts. */
+  /**
+   * Counts the readers of our own jobs (transcoders, relays, relay nodes), so the panel can leave them out of listener
+   * counts. Every mount on air is checked: a reader of a mount that is off air lands on its fallback mount.
+   */
   private async countInternal(view: StationView, live: Map<string, MountStats>) {
-    const read = new Set([...this.relays.values()].filter((r) => r.input.stationId === view.station.id && live.has(r.input.mount)).map((r) => r.input.mount));
-    // Relay nodes read every public mount of the stations they carry.
-    if (this.snap?.relayed.has(view.station.id)) for (const m of view.mounts) if (m.isPublic && live.has(m.path)) read.add(m.path);
     const counts: Record<string, number> = {};
     await Promise.all(
-      [...read].map(async (mount) => {
+      [...live.keys()].map(async (mount) => {
         counts[mount] = await internalReaders({ port: view.station.icecastPort, adminPassword: view.adminPassword }, mount).catch(() => 0);
       }),
     );
