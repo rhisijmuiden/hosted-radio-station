@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { AlertTriangle, ArrowLeft, ArrowUpCircle, CheckCircle2, KeyRound, Link2Off, Radio, Trash2, XCircle } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CheckCircle2, KeyRound, Link2Off, Radio, Trash2, XCircle } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
 import { formatBps, formatMs, formatPct, formatUptime, HealthBadge, nodeHealth, PairingPanel, RoleBadges } from '../components/nodes/common';
 import { FmOnAir, FmSettingsCards } from '../components/nodes/FmPanel';
+import { NodeUpdateCard, NodeUpdateSettings } from '../components/nodes/updates';
 import { AreaChart, ChartLegend } from '../components/stats/charts';
 import { Badge, Button, Card, CardHeader, Dialog, EmptyState, Fact, Field, Input, PageHeader, Spinner, Switch, Table, Tabs } from '../components/ui';
 import i18n from '../i18n';
@@ -148,7 +149,7 @@ function NodeStations({ node }: { node: NodeItem }) {
   );
 }
 
-function Overview({ node, warnMs }: { node: NodeItem; warnMs: number }) {
+function Overview({ node, warnMs, canEdit }: { node: NodeItem; warnMs: number; canEdit: boolean }) {
   const { t } = useTranslation();
   const s = node.status;
   const relays = s.relays ?? [];
@@ -177,6 +178,7 @@ function Overview({ node, warnMs }: { node: NodeItem; warnMs: number }) {
       )}
       {/* An FM node is about what it has on air: that comes first. */}
       {node.roles.includes('fm') && <FmOnAir node={node} />}
+      {node.paired && <NodeUpdateCard node={node} canEdit={canEdit} />}
       <div className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
         <Card>
           <CardHeader title={t('nodes.detail.machine')} />
@@ -335,7 +337,7 @@ function Events({ node }: { node: NodeItem }) {
   );
 }
 
-function SettingsForm({ node }: { node: NodeItem }) {
+function SettingsForm({ node, admin }: { node: NodeItem; admin: boolean }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const stations = useQuery({ queryKey: ['stations', 'all'], queryFn: () => api<StationListItem[]>('/stations') });
@@ -453,6 +455,7 @@ function SettingsForm({ node }: { node: NodeItem }) {
           </div>
         </Card>
       )}
+      <NodeUpdateSettings node={node} value={c} onChange={set} admin={admin} />
       {roles.includes('station') && (
         <Card>
           <CardHeader title={t('nodes.detail.stationSettings')} description={t('nodes.detail.stationSettingsHint')} />
@@ -505,14 +508,6 @@ export function NodeDetailPage() {
     },
     onError: (err) => toast.error((err as Error).message),
   });
-  const update = useMutation({
-    mutationFn: () => api(`/nodes/${id}/update`, { method: 'POST' }),
-    onSuccess: () => {
-      toast.success(t('nodes.detail.updateStarted'));
-      refresh();
-    },
-    onError: (err) => toast.error((err as Error).message),
-  });
   const remove = useMutation({
     mutationFn: () => api(`/nodes/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
@@ -558,11 +553,6 @@ export function NodeDetailPage() {
         actions={
           canEdit && (
             <>
-              {n.paired && n.updateAvailable && (
-                <Button variant="primary" disabled={!s.online} loading={update.isPending || s.update?.state === 'running'} onClick={() => update.mutate()}>
-                  <ArrowUpCircle className="size-4" /> {t('nodes.detail.updateNow')}
-                </Button>
-              )}
               <Button onClick={() => newCode.mutate()} loading={newCode.isPending}>
                 <KeyRound className="size-4" /> {n.paired ? t('nodes.detail.repair') : t('nodes.detail.newCode')}
               </Button>
@@ -633,10 +623,10 @@ export function NodeDetailPage() {
           ...(canEdit ? [{ value: 'settings' as const, label: t('nodes.detail.tabs.settings') }] : []),
         ]}
       />
-      {tab === 'overview' && <Overview node={n} warnMs={warnMs} />}
+      {tab === 'overview' && <Overview node={n} warnMs={warnMs} canEdit={canEdit} />}
       {tab === 'probes' && <Probes node={n} />}
       {tab === 'events' && <Events node={n} />}
-      {tab === 'settings' && canEdit && <SettingsForm node={n} />}
+      {tab === 'settings' && canEdit && <SettingsForm node={n} admin={admin} />}
 
       <Dialog open={!!pairing && n.paired} onClose={() => setPairing(null)} wide title={t('nodes.detail.repairTitle')} description={t('nodes.detail.repairHint')}>
         {pairing && <PairingPanel pairing={pairing} />}

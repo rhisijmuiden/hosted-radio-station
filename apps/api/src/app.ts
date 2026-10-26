@@ -45,6 +45,7 @@ import { tenantRoutes } from './routes/tenants.js';
 import { userRoutes } from './routes/users.js';
 import { NowPlayingHub } from './services/public/hub.js';
 import { NodeHub } from './services/nodes/hub.js';
+import { NodeUpdater } from './services/nodes/updates.js';
 import { listenRedirectRoutes, nodeAgentRoutes, nodeRoutes } from './routes/nodes.js';
 import { stationNodeAgentRoutes, stationPlacementRoutes, tenantStationNodeRoutes } from './routes/station-nodes.js';
 import { stationNodeInternalRoutes } from './routes/station-node-internal.js';
@@ -57,6 +58,7 @@ declare module 'fastify' {
   interface FastifyInstance {
     nowPlaying: NowPlayingHub;
     nodes: NodeHub;
+    nodeUpdates: NodeUpdater;
     stationTunnels: StationTunnels;
     /** On a station node: the link with the main server (started by server.ts). */
     stationNode: StationNodeLink | null;
@@ -83,6 +85,10 @@ export async function buildApp(ctx: AppContext) {
   app.decorate('nodes', nodeHub);
   await nodeHub.start();
   app.addHook('onClose', async () => nodeHub.stop());
+  const nodeUpdates = new NodeUpdater(ctx, nodeHub, app.log);
+  app.decorate('nodeUpdates', nodeUpdates);
+  await nodeUpdates.start();
+  app.addHook('onClose', async () => nodeUpdates.stop());
   const tunnels = new StationTunnels(app.log);
   app.decorate('stationTunnels', tunnels);
   // Before the server waits for its connections to end: tunnels stay open otherwise.

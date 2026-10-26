@@ -947,6 +947,10 @@ export interface NodeConfig {
   lanAddress?: string;
   /** FM/MPX (phase 11): station, RDS, audio, output and UECP. See fmConfigSchema. */
   fm?: Record<string, unknown>;
+  /** How the node gets new versions (see nodeConfigSchema). */
+  updatePolicy?: 'inherit' | 'rolling' | 'window' | 'manual';
+  updateGroup?: string | null;
+  updateWindow?: { days: number[]; start: string; end: string } | null;
 }
 
 /** What a node reported last, kept with the node so every process (API, streams) can read it. */
@@ -997,6 +1001,8 @@ export interface NodeStatus {
   soundcards?: { device: string; name: string }[];
   fm?: FmStatus | null;
   updatedAt?: string;
+  /** When the last bulk report (relays, listeners) came in. */
+  reportedAt?: string;
 }
 
 /** A mount on air on an ingest node. */

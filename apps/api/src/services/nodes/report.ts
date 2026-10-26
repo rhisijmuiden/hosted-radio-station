@@ -96,8 +96,9 @@ export async function storeReport(ctx: AppContext, hub: NodeHub, node: Node, rep
     .filter((r) => resolve(r.key))
     .map((r) => ({ key: r.key, state: r.state, message: r.message, bitrateKbps: r.bitrateKbps ?? null, listeners: perKey.get(r.key) ?? 0 }));
   const live = hub.liveStatus(node.id);
-  const status: NodeStatus = { ...(live ?? node.status), relays, listeners: clients.length };
-  if (live) Object.assign(live, { relays, listeners: clients.length });
+  const reportedAt = new Date().toISOString();
+  const status: NodeStatus = { ...(live ?? node.status), relays, listeners: clients.length, reportedAt };
+  if (live) Object.assign(live, { relays, listeners: clients.length, reportedAt });
   await ctx.db.update(schema.nodes).set({ clients, status, lastSeenAt: new Date() }).where(eq(schema.nodes.id, node.id));
 
   // Listeners that left: their session ends when they really left, not when the statistics notice they are gone.

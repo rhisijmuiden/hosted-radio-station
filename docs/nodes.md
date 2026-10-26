@@ -91,7 +91,24 @@ Next to the 3D map there are two flat views (the switch **3D / 2D → / 2D ↓**
 
 ## Updates
 
-Nodes follow the version and channel of the main server: when the main server is updated, the nodes update themselves (Nodes → Network settings → **Update nodes automatically**). With that off, use **Update now** on the node page. A failed update is rolled back.
+Nodes get the version of the main server, but never all at once. After the main server is updated, the nodes follow **one at a time**, each according to its update policy (Nodes → **Update policy**):
+
+| Policy | When the node updates |
+|---|---|
+| Rolling (default) | Right away, in turn. |
+| Maintenance window | Only within the days and hours you set (e.g. Mon–Fri 02:00–05:00, in the time zone you choose). |
+| Manual | Never by itself: the node stays on its version until someone clicks **Update now**. |
+
+A policy can be set for the whole network, per **update group** (groups go in their order, so put a test or canary group first), or on the node itself (node → Settings → Updates). FM nodes default to Manual and station nodes to Maintenance window, because they put audio on air themselves.
+
+One update goes like this:
+
+1. **Moving listeners** (relays): the node gets no new listeners, and the ones on it are disconnected one by one over the drain time (default 60 s). Their players reconnect through the listen link, which sends them to another relay (or the main server).
+2. **Updating**: the node downloads, builds and restarts. The node itself rolls back when the build fails, the agent does not start, or it cannot reach the main server within 90 seconds.
+3. **Checking** (default 2 minutes): the node must be online, without new problems, with every stream it relayed before connected again (and its FM output running again).
+4. Only then does the next node start. A node that fails the check is put back on its previous version, and automatic updates **pause** until you click **Resume** on the Nodes page. That version is not tried on that node again by itself.
+
+**Update now** puts a node in line whatever its policy (it still waits for a running update, and is checked and rolled back the same way). **Roll back** puts a node back on the version it had before its last update. **Pause** stops automatic updates for all nodes. The main server keeps accepting nodes of the previous version, so nodes may stay behind for as long as you like.
 
 ## On the node
 

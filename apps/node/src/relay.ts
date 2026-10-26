@@ -1,7 +1,7 @@
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
-import { AGENT, listClients, localMount, updateTitle, type IcecastSecrets } from './icecast.js';
+import { AGENT, killClient, listClients, localMount, updateTitle, type IcecastSecrets } from './icecast.js';
 import { log } from './log.js';
 import type { AgentReport, RelayMount } from './protocol.js';
 import { PushReceiver } from './push.js';
@@ -244,6 +244,7 @@ export class RelayManager {
   /** Listeners that left since the last report. */
   private ended: { key: string; id: string; endedAt: string }[] = [];
   private lastCheck = 0;
+  private draining: NodeJS.Timeout[] = [];
 
   constructor(private readonly ctx: { icecastPort: () => number; secrets: IcecastSecrets; nodeId: string; trustClientHeader: boolean }) {
     this.push = new PushReceiver({ ...ctx, inherit: (key) => this.takeHandover(key) });
@@ -274,6 +275,26 @@ export class RelayManager {
     }
   }
 
+  /**
+   * Before an update: disconnects the listeners one by one, spread over `seconds`, so their players reconnect through
+   * the listen route (which now picks another relay) instead of all at once when the node restarts. 0 = stop.
+   */
+  drain(seconds: number) {
+    for (const t of this.draining) clearTimeout(t);
+    this.draining = [];
+    if (seconds <= 0) return;
+    const list = [...this.clients.values()];
+    const step = list.length ? (seconds * 1000 * 0.8) / list.length : 0;
+    list.forEach((c, i) => {
+      const m = this.mounts.find((x) => x.key === c.key);
+      if (!m) return;
+      const t = setTimeout(() => void killClient(this.ctx.icecastPort(), this.ctx.secrets.admin, localMount(m), c.id).catch((err) => log.debug('moving a listener failed', { err })), Math.round(i * step));
+      t.unref();
+      this.draining.push(t);
+    });
+    log.info('moving listeners to other relays before an update', { listeners: list.length, seconds });
+  }
+
   /** The source connection a puller kept open for the push of the same stream (see apply). */
   private takeHandover(key: string): net.Socket | null {
     const h = this.handing.get(key);
@@ -284,6 +305,7 @@ export class RelayManager {
   }
 
   stopAll() {
+    this.drain(0);
     for (const key of [...this.handing.keys()]) this.takeHandover(key)?.destroy();
     for (const p of this.pullers.values()) p.stop();
     this.pullers.clear();

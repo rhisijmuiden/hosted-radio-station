@@ -56,9 +56,25 @@ main() {
   "$INSTALL_DIR/deploy/node/bin/hrs-node-install-units" >> "$LOG" 2>&1 || rollback "Installing the system units failed."
 
   status running "Restarting"
+  local restarted new_commit
+  restarted=$(date +%s)
+  new_commit=$(git rev-parse HEAD)
   systemctl restart hrs-node
   sleep 3
   systemctl is-active --quiet hrs-node || rollback "The new version did not start."
+  # Agents that report their connection (agent-state.json) must reach the main server again, or the update is undone.
+  if grep -q 'agent-state.json' "$INSTALL_DIR/apps/node/dist/agent.js" 2>/dev/null; then
+    status running "Connecting"
+    local state="$RUN/agent-state.json" ok="" at
+    for _ in $(seq 1 45); do
+      if [[ -f "$state" && "$(jq -r '.commit // empty' "$state" 2>/dev/null || true)" == "$new_commit" ]]; then
+        at=$(date -d "$(jq -r '.connectedAt // empty' "$state" 2>/dev/null || true)" +%s 2>/dev/null || echo 0)
+        if (( at >= restarted )); then ok=1; break; fi
+      fi
+      sleep 2
+    done
+    [[ -n "$ok" ]] || rollback "The new version did not connect to the main server within 90 seconds."
+  fi
   # A station node (phase 12) runs the same version of the station runtime.
   if grep -q '^STATION_NODE=' /etc/hosted-radio/hosted-radio.env 2>/dev/null; then
     status running "Updating the station node runtime"

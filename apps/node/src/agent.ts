@@ -45,6 +45,8 @@ export class Agent {
   private icmp: { rttMs: number | null; loss: number } | null = null;
   private layout: IcecastLayout | null = null;
   private update: JobStatus | null = null;
+  /** Id of the update this agent asked for, until the root helper reports on it (an older status file is not news). */
+  private updateId: string | null = null;
   /** The commit an automatic update was last asked for, so a failing update is not repeated forever. */
   private autoTried: string | null = null;
   private readonly version = readVersion();
@@ -205,6 +207,8 @@ export class Agent {
         this.retries = 0;
         this.ready = true;
         log.info('connected to the main server', { name: msg.name });
+        // The update helper waits for this after a restart: a new version that cannot reach the server is rolled back.
+        await writeAtomic(dataPath('run', 'agent-state.json'), JSON.stringify({ commit: this.version.commit, connectedAt: new Date().toISOString() }), 0o644).catch(() => undefined);
         this.flushLive();
         return;
       case 'auth_result': {
@@ -222,6 +226,10 @@ export class Agent {
         return;
       case 'update':
         return this.startUpdate(msg.branch, msg.commit, 'requested');
+      case 'drain':
+        this.relay?.drain(msg.seconds);
+        if (msg.seconds > 0) this.event('draining', 'info', { seconds: msg.seconds, listeners: this.relay?.listenerCount ?? 0 });
+        return;
       case 'fm':
         return this.fm.setContext({ dj: msg.dj, show: msg.show });
     }
@@ -281,7 +289,7 @@ export class Agent {
   private async startUpdate(branch: string | null, commit: string | null, why: string) {
     if (commit && commit === this.version.commit) return;
     log.info('updating the node', { branch, commit: commit?.slice(0, 7), why });
-    await requestUpdate(branch, commit);
+    this.updateId = await requestUpdate(branch, commit);
     this.update = { state: 'running', message: 'Starting', at: new Date().toISOString() };
     this.event('update_started', 'info', { commit: commit?.slice(0, 7) ?? null, why });
   }
@@ -298,7 +306,10 @@ export class Agent {
   private sendStats() {
     void (async () => {
       const [apply, update] = await Promise.all([applyStatus(), updateStatus()]);
-      if (update) this.update = update;
+      if (update && (!this.updateId || update.id === this.updateId)) {
+        this.update = update;
+        this.updateId = null;
+      }
       const s = this.sampler.sample();
       this.send({
         t: 'stats',

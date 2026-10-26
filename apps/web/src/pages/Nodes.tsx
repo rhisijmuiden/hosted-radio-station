@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { formatBps, formatMs, HealthBadge, nodeHealth, PairingPanel, RoleBadges } from '../components/nodes/common';
+import { RolloutCard, UpdateBadge } from '../components/nodes/updates';
 import { Badge, Button, Card, Dialog, EmptyState, Field, Input, PageHeader, Select, Spinner, Switch, Table } from '../components/ui';
 import { api, ApiError, type NodeItem, type NodePairing, type NodeRole, type NodesSettings, type Tenant } from '../lib/api';
 import { isAdmin, useMe } from '../lib/auth';
@@ -185,7 +186,6 @@ function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void 
         </div>
       ) : (
         <div className="flex flex-col gap-4">
-          <Switch checked={draft.autoUpdate} onChange={(autoUpdate) => set({ autoUpdate })} label={t('nodes.settings.autoUpdate')} description={t('nodes.settings.autoUpdateHint')} />
           <Switch checked={draft.routeListeners} onChange={(routeListeners) => set({ routeListeners })} label={t('nodes.settings.routeListeners')} description={t('nodes.settings.routeListenersHint')} />
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label={t('nodes.settings.probeInterval')} hint={t('nodes.settings.probeIntervalHint')}>
@@ -246,6 +246,8 @@ export function NodesPage() {
           </>
         }
       />
+
+      {admin && <RolloutCard />}
 
       {!!list.length && (
         <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -315,10 +317,15 @@ export function NodesPage() {
                   </td>
                   <td className="text-[13px] whitespace-nowrap">
                     {s.version ? <span className="font-mono">v{s.version}</span> : '—'}
-                    {n.updateAvailable && (
+                    {n.updateAvailable && n.update.state === 'upToDate' && (
                       <span className="ml-1.5 inline-flex align-middle" title={t('nodes.updateAvailable')}>
                         <ArrowUpCircle className="size-4 text-koraal" />
                       </span>
+                    )}
+                    {n.paired && (
+                      <div className="mt-0.5">
+                        <UpdateBadge update={n.update} available={n.updateAvailable} />
+                      </div>
                     )}
                   </td>
                   <td className={clsx('text-[13px] tabular-nums whitespace-nowrap', s.online && (s.rttMs ?? 0) > warnMs && 'font-semibold text-warning')}>
