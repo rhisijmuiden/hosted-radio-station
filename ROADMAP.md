@@ -136,6 +136,7 @@ Phase 11: FM/MPX and RDS: a node that puts a station on FM, with a live radio di
 | 12 | Station nodes | In progress |
 | 13 | Orchestrator as control plane | Planned |
 | 14 | Orchestrator redundancy | Planned |
+| 15 | Installer menu and node enrollment | Planned |
 
 ## Phases
 
@@ -300,6 +301,15 @@ Optional high availability for the main server, switched on in the panel when yo
 - Automatic failover through a floating IP (VRRP) or DNS failover, with a witness (a node or probe) to prevent split-brain.
 - Nodes know both orchestrators and switch over by themselves. Because the orchestrator carries no audio (phase 13), streams keep running while it is unreachable.
 - Status, replication lag and a failover test in the panel and in the topology view; updates and backups coordinated across both servers.
+
+### Phase 15: Installer menu and node enrollment
+
+One installer with a menu, for the standalone Debian 13 install and the Proxmox LXC install.
+
+- Text-based menu (whiptail) to choose what to install: **Orchestrator**, **Node** or **All-in-one** (orchestrator plus ingest and relay on one machine). Non-interactive flags (`--orchestrator`, `--node`) stay available for automation.
+- A node installs only the bare agent; services such as Icecast are rolled out once a role is assigned in the panel.
+- Enrollment: the installer asks for the orchestrator address, the node registers and shows a short code on screen. It appears under "Pending nodes" in the panel with hostname, IP and the same code, and only gets its keys after you accept it. A preferred role can be picked in the menu and is applied after acceptance.
+- Pairing codes from the panel keep working for scripted installs; pending registrations expire after 24 hours and open registration can be switched off.
 
 ## Future ideas
 
