@@ -52,7 +52,8 @@ done
 REPO=${REPO:-$REPO_DEFAULT}
 SERVER=${SERVER%/}
 [[ "$REF" =~ ^[A-Za-z0-9._/-]+$ ]] || fail "Invalid --ref"
-[[ -z "$SERVER" || "$SERVER" =~ ^https?://[A-Za-z0-9.:\[\]-]+(/.*)?$ ]] || fail "Invalid --server: use https://your-main-server"
+server_re='^https?://[][A-Za-z0-9.:-]+(/.*)?$'
+[[ -z "$SERVER" || "$SERVER" =~ $server_re ]] || fail "Invalid --server: use https://your-main-server"
 [[ -f "$CONF_DIR/node.json" || ( -n "$SERVER" && -n "$CODE" ) ]] || fail "Give --server and --code (create the node in the panel under Infrastructure → Nodes)."
 
 printf '%s\n' "${C_CORAL}  ____  _   _ ___ ____  ${C_RESET}"
