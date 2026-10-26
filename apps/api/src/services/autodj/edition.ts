@@ -45,7 +45,8 @@ export async function upgradeStation(ctx: AppContext, station: Station) {
       await tx.update(schema.stationMounts).set({ fallbackMountId: mount!.id }).where(eq(schema.stationMounts.id, listenMount.id));
     }
     const [{ n }] = (await tx.select({ n: count() }).from(schema.playlists).where(eq(schema.playlists.stationId, station.id))) as [{ n: number }];
-    if (n === 0) {
+    // A station node makes the first playlist itself: playlists belong to the node (phase 12).
+    if (n === 0 && !station.nodeId) {
       await tx.insert(schema.playlists).values({ stationId: station.id, name: 'All music', queue: 'q1', weight: 5, order: 'shuffle', folders: [{ location: STORAGE, path: '' }] });
     }
     const [updated] = await tx
@@ -68,7 +69,7 @@ export async function downgradeStation(ctx: AppContext, station: Station) {
         .set({ fallbackMountId: null })
         .where(and(eq(schema.stationMounts.stationId, station.id), eq(schema.stationMounts.fallbackMountId, settings.mountId)));
     }
-    await tx.delete(schema.queueItems).where(eq(schema.queueItems.stationId, station.id));
+    if (!station.nodeId) await tx.delete(schema.queueItems).where(eq(schema.queueItems.stationId, station.id));
     await tx
       .update(schema.stations)
       .set({ edition: 'distribution', autodj: { ...settings, enabled: false }, updatedAt: new Date() })

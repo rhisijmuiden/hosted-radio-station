@@ -2,6 +2,8 @@ import { eq, isNotNull } from 'drizzle-orm';
 import { schema } from '../db/index.js';
 import type { AppContext } from '../lib/context.js';
 import { getSetting, type StreamingSettings } from '../services/settings.js';
+import { pairedRelays, pushTarget, pushToken, relaysOf } from '../services/nodes/plan.js';
+import { ingestNodes, localIngest, localPriority, pushedRouting, stationRouting } from '../services/nodes/routing-rules.js';
 import { autodjMount, type Mount, type Output, type Station } from '../services/streaming/state.js';
 
 export interface StationView {
@@ -9,6 +11,8 @@ export interface StationView {
   tenantId: string;
   /** Station and customer are both active. */
   active: boolean;
+  /** The station runs on a station node: no encoders, jobs or Icecast here, only statistics from what the node reports. */
+  onNode: boolean;
   maxBitrateKbps: number;
   storageQuotaMb: number;
   adminPassword: string;
@@ -17,6 +21,12 @@ export interface StationView {
   outputs: Output[];
   /** The mount the AutoDJ feeds, when it plays. Encoders cannot use it. */
   autodjMount: Mount | null;
+  /**
+   * Where encoders deliver (phase 13). `local` = this server's own ingest takes them (as main or backup ingest);
+   * `nodes` = ingest nodes with their priority. `pushes` = the relays this server feeds when it is one of several
+   * ingests (one synthetic output per relay and public mount).
+   */
+  ingest: { local: boolean; priority: number; nodes: { id: string; priority: number }[]; pushes: Output[] };
 }
 
 /** What the streams service works from: every station with its mounts and outputs, and the customer domains. */
@@ -33,7 +43,7 @@ export interface Snapshot {
 }
 
 export async function loadSnapshot(ctx: AppContext): Promise<Snapshot> {
-  const [streaming, proxy, rows, mounts, outputs, domains, nodes] = await Promise.all([
+  const [streaming, proxy, rows, mounts, outputs, domains, nodes, relays] = await Promise.all([
     getSetting(ctx, 'streaming'),
     getSetting(ctx, 'proxy'),
     ctx.db
@@ -44,6 +54,7 @@ export async function loadSnapshot(ctx: AppContext): Promise<Snapshot> {
     ctx.db.select().from(schema.stationOutputs),
     ctx.db.select().from(schema.tenantDomains).where(eq(schema.tenantDomains.status, 'verified')),
     ctx.db.select({ id: schema.nodes.id, tenantId: schema.nodes.tenantId, roles: schema.nodes.roles, config: schema.nodes.config, secret: schema.nodes.secret }).from(schema.nodes).where(isNotNull(schema.nodes.secret)),
+    pairedRelays(ctx),
   ]);
   const sourceNodes: Snapshot['sourceNodes'] = new Map();
   for (const n of nodes) {
@@ -60,6 +71,7 @@ export async function loadSnapshot(ctx: AppContext): Promise<Snapshot> {
       station: r.s,
       tenantId: r.s.tenantId,
       active: r.s.enabled && r.active,
+      onNode: !!r.s.nodeId,
       maxBitrateKbps: r.limits.maxBitrateKbps,
       storageQuotaMb: r.limits.storageQuotaMb,
       adminPassword: ctx.box.decrypt(r.s.icecastAdminPassword),
@@ -67,11 +79,37 @@ export async function loadSnapshot(ctx: AppContext): Promise<Snapshot> {
       mounts: [],
       outputs: [],
       autodjMount: null,
+      ingest: { local: true, priority: 0, nodes: [], pushes: [] },
     });
   }
   for (const m of mounts) stations.get(m.stationId)?.mounts.push(m);
   for (const o of outputs) stations.get(o.stationId)?.outputs.push(o);
-  for (const v of stations.values()) v.autodjMount = autodjMount(v.station, v.mounts);
+  for (const v of stations.values()) {
+    v.autodjMount = v.onNode ? null : autodjMount(v.station, v.mounts);
+    const r = stationRouting(v.station);
+    v.ingest = { local: !v.onNode && localIngest(r), priority: localPriority(r) ?? 0, nodes: ingestNodes(r).map((i) => ({ id: i.ref, priority: i.priority })), pushes: [] };
+    // Next to an ingest node this server pushes to the relays itself; alone it lets them pull.
+    if (v.ingest.local && pushedRouting(r)) {
+      for (const relay of relaysOf(v.station, relays)) {
+        const t = pushTarget(relay as (typeof relays)[number], null);
+        if (!t) continue;
+        for (const m of v.mounts.filter((x) => x.isPublic)) {
+          const key = `${v.station.slug}${m.path}`;
+          v.ingest.pushes.push({
+            id: `${relay.id}:${m.id}`,
+            stationId: v.station.id,
+            type: 'icecast',
+            name: `Relay ${t.name}`,
+            enabled: true,
+            mountId: m.id,
+            config: { host: t.host, port: t.port, tls: true, insecureTls: t.insecureTls, mount: `/listen/${key}`, username: 'source', token: pushToken(ctx, relay as (typeof relays)[number], key), priority: v.ingest.priority, push: true, relayNodeId: relay.id },
+            status: null,
+            createdAt: v.station.createdAt,
+          } as Output);
+        }
+      }
+    }
+  }
   const hostTenant = new Map<string, string>();
   for (const d of domains) {
     hostTenant.set(d.ingestHost, d.tenantId);
@@ -97,7 +135,7 @@ export function resolveMount(snap: Snapshot, host: string | null, path: string):
   const parts = clean.split('/').filter(Boolean);
   const tenantId = host ? snap.hostTenant.get(host.toLowerCase().replace(/:\d+$/, '')) : undefined;
   const ok = (view: StationView | undefined, mountPath: string) => {
-    if (!view || !view.active || (tenantId && view.tenantId !== tenantId)) return null;
+    if (!view || !view.active || view.onNode || !view.ingest.local || (tenantId && view.tenantId !== tenantId)) return null;
     const mount = view.mounts.find((m) => m.path === mountPath && m.kind === 'source' && m.id !== view.autodjMount?.id);
     return mount ? { view, mount } : null;
   };

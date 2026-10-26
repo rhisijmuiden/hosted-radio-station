@@ -12,16 +12,18 @@ import { PlaylistsTab } from '../components/station/Playlists';
 import { OnDemandTab } from '../components/station/OnDemand';
 import { PublicPageTab } from '../components/station/PublicPage';
 import { RequestsTab, usePendingRequests } from '../components/station/Requests';
+import { RoutingCard } from '../components/station/Routing';
 import { ScheduleTab } from '../components/station/Schedule';
 import { StatisticsView } from '../components/stats/StatisticsView';
 import { formatLabel, MountsCard } from '../components/station/Mounts';
 import { OutputsCard, OutputStateBadge } from '../components/station/Outputs';
+import { NodeOfflineBanner, PlacementCard } from '../components/station/Placement';
 import { Badge, Button, Card, CardHeader, CopyField, Fact, Field, Input, PageHeader, Select, Spinner, Switch, Table, Tabs, Textarea } from '../components/ui';
 import { api, type LiveSession, type StationDetail, type StationStatus, type Tenant } from '../lib/api';
 import { formatBytes, formatDate, formatDuration } from '../lib/format';
 import { EditionBadge } from './Stations';
 
-type Tab = 'overview' | 'autodj' | 'library' | 'playlists' | 'clocks' | 'schedule' | 'statistics' | 'mounts' | 'outputs' | 'accounts' | 'history' | 'public' | 'requests' | 'ondemand' | 'settings';
+type Tab = 'overview' | 'autodj' | 'library' | 'playlists' | 'clocks' | 'schedule' | 'statistics' | 'mounts' | 'outputs' | 'routing' | 'accounts' | 'history' | 'public' | 'requests' | 'ondemand' | 'settings';
 const rank = { dj: 1, manager: 2, owner: 3, superadmin: 4 } as const;
 
 function useStationStatus(id: string) {
@@ -152,8 +154,23 @@ function ConnectionCard({ station }: { station: StationDetail }) {
             {c.plain && <CopyField label={t('connection.plainPort')} value={String(c.plain.port)} />}
             {mount && <CopyField label={t('connection.mount')} value={mount.encoderMount} />}
           </div>
+          {c.node && <p className="mt-2 text-xs text-muted">{t('connection.viaNode', { name: c.node.name })}</p>}
           <p className="mt-2 text-xs text-muted">{t('connection.credentials')}</p>
         </div>
+        {c.backup && (
+          <div>
+            <div className="mb-2 flex items-center gap-2 text-[13px] font-semibold">
+              {t('connection.backup')}
+              {c.backup.tls.available ? <Badge tone="online">TLS</Badge> : <Badge tone="warning">{t('connection.selfSigned')}</Badge>}
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <CopyField label={t('connection.server')} value={c.backup.host} />
+              <CopyField label={t('connection.tlsPort')} value={String(c.backup.tls.port)} />
+              {c.backup.plain && <CopyField label={t('connection.plainPort')} value={String(c.backup.plain.port)} />}
+            </div>
+            <p className="mt-2 text-xs text-muted">{t('connection.backupHint')}</p>
+          </div>
+        )}
         {c.legacy && (
           <div>
             <div className="mb-2 text-[13px] font-semibold">{t('connection.legacy')}</div>
@@ -421,6 +438,7 @@ function SettingsTab({ station }: { station: StationDetail }) {
             )}
           </Card>
         )}
+        {owner && <PlacementCard station={station} />}
         {owner && (
           <Card className="border-offline/30 p-5">
             <h2 className="display text-base text-offline">{t('stations.delete')}</h2>
@@ -474,6 +492,7 @@ export function StationDetailPage() {
           { value: 'statistics' as const, label: t('stations.tabs.statistics') },
           { value: 'mounts' as const, label: t('stations.tabs.mounts') },
           { value: 'outputs' as const, label: t('stations.tabs.outputs') },
+          { value: 'routing' as const, label: t('stations.tabs.routing') },
         ]
       : []),
     { value: 'accounts', label: manager ? t('stations.tabs.accounts') : t('stations.tabs.myAccount') },
@@ -532,6 +551,7 @@ export function StationDetailPage() {
           </a>
         }
       />
+      <NodeOfflineBanner station={s} />
       <Tabs value={tab} onChange={(v) => setParams(v === 'overview' ? {} : { tab: v }, { replace: true })} tabs={tabs} />
       {tab === 'overview' && (
         <div className="grid items-start gap-4 xl:grid-cols-[1.3fr_1fr]">
@@ -552,6 +572,7 @@ export function StationDetailPage() {
       )}
       {tab === 'mounts' && <MountsCard station={s} canEdit={manager} maxBitrate={tenant.data?.limits.maxBitrateKbps ?? 320} />}
       {tab === 'outputs' && <OutputsCard station={s} canEdit={manager} />}
+      {tab === 'routing' && <RoutingCard station={s} />}
       {tab === 'accounts' && <AccountsCard station={s} />}
       {tab === 'history' && <HistoryCard station={s} />}
       {tab === 'public' && <PublicPageTab station={s} canEdit={manager} />}

@@ -4,6 +4,7 @@ import net from 'node:net';
 import { AGENT, killClient, listClients, localMount, updateTitle, type IcecastSecrets } from './icecast.js';
 import { log } from './log.js';
 import type { AgentReport, RelayMount } from './protocol.js';
+import { PushReceiver } from './push.js';
 
 type RelayState = AgentReport['relays'][number];
 
@@ -62,7 +63,7 @@ export class IcyReader {
 }
 
 /** Logs in as the source of a mount on the node's own Icecast server (HTTP PUT). */
-function sourceConnection(port: number, mount: string, password: string, headers: Record<string, string>): Promise<net.Socket> {
+export function sourceConnection(port: number, mount: string, password: string, headers: Record<string, string>): Promise<net.Socket> {
   return new Promise((resolve, reject) => {
     const socket = net.connect({ host: '127.0.0.1', port });
     socket.once('error', (err) => reject(new Error(`local Icecast: ${err.message}`)));
@@ -120,6 +121,8 @@ class Puller {
   private res: http.IncomingMessage | null = null;
   private sock: net.Socket | null = null;
   private title: string | null = null;
+  /** The stream moves to a push (a station node took the station over): keep the source open for it. */
+  private handing = false;
 
   constructor(
     readonly mount: RelayMount,
@@ -139,6 +142,19 @@ class Puller {
     this.sock?.destroy();
   }
 
+  /** Keeps the source connection into Icecast open, also when the pulled stream ends, until a push takes it. */
+  handOver() {
+    this.handing = true;
+  }
+
+  /** The open source connection, for the push that takes this stream over; the puller stops without closing it. */
+  takeSource(): net.Socket | null {
+    const sock = this.sock && !this.sock.destroyed ? this.sock : null;
+    this.sock = null;
+    this.stop();
+    return sock;
+  }
+
   private async loop() {
     if (this.stopped) return;
     this.state = { key: this.mount.key, state: 'connecting' };
@@ -150,6 +166,8 @@ class Puller {
       this.state = { key: this.mount.key, state: 'error', message: (err as Error).message };
     }
     this.res?.destroy();
+    // Handing over: Icecast keeps the listeners for a few seconds without data, until the push arrives.
+    if (this.handing && this.sock && !this.sock.destroyed) return;
     this.sock?.destroy();
     if (this.stopped) return;
     this.failures = Date.now() - started > 60_000 ? 0 : this.failures + 1;
@@ -159,7 +177,7 @@ class Puller {
   }
 
   private async run() {
-    const res = await get(this.mount.url, { 'user-agent': `${AGENT} ${this.ctx.nodeId}`, 'icy-metadata': '1' });
+    const res = await get(this.mount.url!, { 'user-agent': `${AGENT} ${this.ctx.nodeId}`, 'icy-metadata': '1' });
     this.res = res;
     if (res.statusCode !== 200) {
       res.resume();
@@ -217,21 +235,36 @@ interface Client {
  */
 export class RelayManager {
   private pullers = new Map<string, Puller>();
+  /** Pullers of streams that a station node now pushes, kept until its push takes over their source connection. */
+  private handing = new Map<string, { puller: Puller; timer: NodeJS.Timeout }>();
+  /** Streams that station nodes push here instead (phase 12). */
+  readonly push: PushReceiver;
+  private mounts: RelayMount[] = [];
   private clients = new Map<string, Client>();
   /** Listeners that left since the last report. */
   private ended: { key: string; id: string; endedAt: string }[] = [];
   private lastCheck = 0;
   private draining: NodeJS.Timeout[] = [];
 
-  constructor(private readonly ctx: { icecastPort: () => number; secrets: IcecastSecrets; nodeId: string; trustClientHeader: boolean }) {}
+  constructor(private readonly ctx: { icecastPort: () => number; secrets: IcecastSecrets; nodeId: string; trustClientHeader: boolean }) {
+    this.push = new PushReceiver({ ...ctx, inherit: (key) => this.takeHandover(key) });
+  }
 
-  apply(mounts: RelayMount[]) {
-    const wanted = new Map(mounts.map((m) => [m.key, m]));
+  apply(mounts: RelayMount[], pushPort: number | null = null) {
+    this.mounts = mounts;
+    void this.push.apply(pushPort, mounts).catch((err) => log.error('push port failed', { err }));
+    const wanted = new Map(mounts.filter((m) => m.url).map((m) => [m.key, m]));
+    const pushed = new Set(mounts.filter((m) => m.push && !m.url).map((m) => m.key));
     for (const [key, p] of this.pullers) {
       const want = wanted.get(key);
       if (!want || JSON.stringify(want) !== JSON.stringify(p.mount)) {
-        p.stop();
         this.pullers.delete(key);
+        // The station moved to a station node: its push takes over this source, so listeners stay connected.
+        if (!want && pushed.has(key) && !this.push.connected(key)) {
+          p.handOver();
+          this.handing.get(key)?.puller.stop();
+          this.handing.set(key, { puller: p, timer: setTimeout(() => this.takeHandover(key)?.destroy(), 30_000) });
+        } else p.stop();
       }
     }
     for (const [key, m] of wanted) {
@@ -253,19 +286,30 @@ export class RelayManager {
     const list = [...this.clients.values()];
     const step = list.length ? (seconds * 1000 * 0.8) / list.length : 0;
     list.forEach((c, i) => {
-      const p = this.pullers.get(c.key);
-      if (!p) return;
-      const t = setTimeout(() => void killClient(this.ctx.icecastPort(), this.ctx.secrets.admin, localMount(p.mount), c.id).catch((err) => log.debug('moving a listener failed', { err })), Math.round(i * step));
+      const m = this.mounts.find((x) => x.key === c.key);
+      if (!m) return;
+      const t = setTimeout(() => void killClient(this.ctx.icecastPort(), this.ctx.secrets.admin, localMount(m), c.id).catch((err) => log.debug('moving a listener failed', { err })), Math.round(i * step));
       t.unref();
       this.draining.push(t);
     });
     log.info('moving listeners to other relays before an update', { listeners: list.length, seconds });
   }
 
+  /** The source connection a puller kept open for the push of the same stream (see apply). */
+  private takeHandover(key: string): net.Socket | null {
+    const h = this.handing.get(key);
+    if (!h) return null;
+    this.handing.delete(key);
+    clearTimeout(h.timer);
+    return h.puller.takeSource();
+  }
+
   stopAll() {
     this.drain(0);
+    for (const key of [...this.handing.keys()]) this.takeHandover(key)?.destroy();
     for (const p of this.pullers.values()) p.stop();
     this.pullers.clear();
+    this.push.stop();
     for (const k of [...this.clients.keys()]) this.drop(k);
   }
 
@@ -297,13 +341,15 @@ export class RelayManager {
     if (Date.now() - this.lastCheck < 55_000) return;
     this.lastCheck = Date.now();
     const port = this.ctx.icecastPort();
-    for (const [key, p] of this.pullers) {
-      if (p.state.state !== 'connected') {
+    const live = (m: RelayMount) => (m.push ? this.push.connected(m.key) : this.pullers.get(m.key)?.state.state === 'connected');
+    for (const m of this.mounts) {
+      const key = m.key;
+      if (!live(m)) {
         for (const k of [...this.clients.keys()]) if (k.startsWith(`${key}#`)) this.drop(k);
         continue;
       }
       try {
-        const list = await listClients(port, this.ctx.secrets.admin, localMount(p.mount));
+        const list = await listClients(port, this.ctx.secrets.admin, localMount(m));
         const ids = new Set(list.map((c) => c.id));
         for (const k of [...this.clients.keys()]) if (k.startsWith(`${key}#`) && !ids.has(k.slice(key.length + 1)) && Date.now() - this.clients.get(k)!.since > 10_000) this.drop(k);
         for (const c of list) {
@@ -339,7 +385,8 @@ export class RelayManager {
   }
 
   states(): RelayState[] {
-    return [...this.pullers.values()].map((p) => ({ ...p.state, listeners: [...this.clients.values()].filter((c) => c.key === p.mount.key).length }));
+    const count = (key: string) => [...this.clients.values()].filter((c) => c.key === key).length;
+    return [...[...this.pullers.values()].map((p) => p.state), ...this.push.states()].map((s) => ({ ...s, listeners: count(s.key) }));
   }
 
   reportClients(): AgentReport['clients'] {

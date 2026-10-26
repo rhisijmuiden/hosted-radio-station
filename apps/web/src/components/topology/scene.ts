@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 
-export type SceneKind = 'main' | 'relay' | 'source' | 'fm' | 'node' | 'studio';
+export type SceneKind = 'main' | 'relay' | 'source' | 'station' | 'fm' | 'node' | 'studio';
 export type SceneHealth = 'online' | 'degraded' | 'offline' | 'unpaired';
 
 export interface SceneNode {
@@ -54,6 +54,7 @@ const ICONS: Record<SceneKind, string> = {
   relay: '<circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/>',
   source: '<rect x="4" y="4" width="16" height="7" rx="2"/><rect x="4" y="13" width="16" height="7" rx="2"/><path d="M8 7.5h.01M8 16.5h.01"/>',
   node: '<rect x="4" y="4" width="16" height="7" rx="2"/><rect x="4" y="13" width="16" height="7" rx="2"/><path d="M8 7.5h.01M8 16.5h.01"/>',
+  station: '<circle cx="12" cy="11" r="2"/><path d="M8.5 7a6 6 0 0 0 0 8M15.5 7a6 6 0 0 1 0 8M9 21l3-8 3 8"/>',
   fm: '<path d="M4.9 16.1C1 12.2 1 5.8 4.9 1.9M7.8 4.7a6.14 6.14 0 0 0-.8 7.5M16.2 4.8c2 2 2.26 5.11.8 7.47M19.1 1.9a9.96 9.96 0 0 1 0 14.1"/><circle cx="12" cy="9" r="2"/><path d="M9.5 18h5M8 22l4-11 4 11"/>',
   studio: '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/>',
 };
@@ -62,6 +63,7 @@ const SIZE: Record<SceneKind, { w: number; h: number }> = {
   main: { w: 3, h: 2.2 },
   relay: { w: 2.2, h: 1.1 },
   source: { w: 2.2, h: 1.3 },
+  station: { w: 2.4, h: 1.5 },
   node: { w: 2.2, h: 0.9 },
   fm: { w: 2.2, h: 1.6 },
   studio: { w: 1.8, h: 0.5 },
@@ -73,27 +75,32 @@ interface Placed {
   size: { w: number; h: number };
 }
 
-/** Where every block goes: this server in the middle, relays fanned out to the right, sources left, FM behind, studios further left. */
+/** Where the orchestrator stands: behind the signal flow, apart from the audio. */
+const CORE = new THREE.Vector3(0, 0, -12);
+
+/**
+ * Where every block goes. The audio flows left to right: studios, then the ingests, then the relays with their
+ * listeners. The orchestrator stands apart behind that flow; it only steers the nodes and carries no audio.
+ */
 export function layout(data: SceneData): Map<string, Placed> {
   const out = new Map<string, Placed>();
   const put = (n: SceneNode, x: number, z: number) => out.set(n.id, { node: n, pos: new THREE.Vector3(x, 0, z), size: SIZE[n.kind] });
   const main = data.nodes.find((n) => n.kind === 'main');
-  if (main) put(main, 0, 0);
-  const fan = (list: SceneNode[], center: number, spread: number, radius: number) => {
-    const r = radius + Math.max(0, list.length - 5) * 0.9;
+  if (main) put(main, CORE.x, CORE.z);
+  // A column along z, centred in front of the orchestrator, bent a little so the far blocks stay in view.
+  const column = (list: SceneNode[], x: number, gap: number, bend: number) =>
     list.forEach((n, i) => {
-      const a = list.length === 1 ? center : center - spread / 2 + (spread * i) / (list.length - 1);
-      put(n, Math.cos(a) * r, Math.sin(a) * r);
+      const k = i - (list.length - 1) / 2;
+      put(n, x + bend * Math.abs(k) * Math.abs(k) * 0.12, 2 + k * gap);
     });
-  };
-  const deg = Math.PI / 180;
-  fan(data.nodes.filter((n) => n.kind === 'relay'), 0, Math.min(150, 40 + data.nodes.filter((n) => n.kind === 'relay').length * 22) * deg, 10);
-  fan(data.nodes.filter((n) => n.kind === 'source'), Math.PI, Math.min(120, 30 + data.nodes.filter((n) => n.kind === 'source').length * 25) * deg, 7.5);
-  // FM transmitters stand behind this server, like masts on the horizon.
-  fan(data.nodes.filter((n) => n.kind === 'fm'), -Math.PI / 2, Math.min(100, 20 + data.nodes.filter((n) => n.kind === 'fm').length * 20) * deg, 15);
+  // Station nodes push to the relays like an ingest does, so they stand in the same column.
+  column(data.nodes.filter((n) => n.kind === 'source' || n.kind === 'station'), -7, 6, -1);
+  column(data.nodes.filter((n) => n.kind === 'relay'), 8, 6, 1);
+  // FM transmitters are fed by the relays: they stand beyond them, like masts on the horizon.
+  column(data.nodes.filter((n) => n.kind === 'fm'), 17, 6, 1);
   const idle = data.nodes.filter((n) => n.kind === 'node');
-  idle.forEach((n, i) => put(n, (i - (idle.length - 1) / 2) * 3.4, 9 + (main ? 0 : 0)));
-  // Studios connected to this server sit in a column on the left; studios on a node sit beside that node.
+  idle.forEach((n, i) => put(n, CORE.x + (i - (idle.length - 1) / 2) * 3.4, CORE.z - 5));
+  // Studios sit left of the ingest they broadcast to.
   const perTarget = new Map<string, number>();
   for (const s of data.nodes.filter((n) => n.kind === 'studio')) {
     const link = data.links.find((l) => l.from === s.id);
@@ -101,12 +108,9 @@ export function layout(data: SceneData): Map<string, Placed> {
     const key = target && target.node.kind !== 'main' ? target.node.id : 'main';
     const k = perTarget.get(key) ?? 0;
     perTarget.set(key, k + 1);
-    if (key === 'main' || !target) {
-      put(s, -13.5, (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 2.6);
-    } else {
-      // Beside the node, away from this server, so the labels do not overlap.
-      put(s, target.pos.x + (target.pos.x >= 0 ? 5.5 : -5.5), target.pos.z - 1 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 2.6);
-    }
+    const offset = (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 1.6;
+    if (key === 'main' || !target) put(s, -15, 2 + offset * 1.6);
+    else put(s, target.pos.x - 6.5, target.pos.z + offset);
   }
   return out;
 }
@@ -147,7 +151,7 @@ interface Pulse {
 }
 
 /**
- * The live topology as a WebGL scene: blocks per server, arcs with moving dots for streams and the control channel,
+ * The live topology as a WebGL scene: blocks per server, arcs with moving dots for streams and dashed control lines,
  * listener clouds around relays and HTML labels that follow the camera. Drag to rotate, scroll to zoom.
  */
 export class TopologyScene {
@@ -341,14 +345,15 @@ export class TopologyScene {
     const healthColor = { online: p.online, degraded: p.warning, offline: p.offline, unpaired: p.muted };
 
     // Ground: a soft grid and a warm glow under this server.
-    const extent = Math.max(30, ...[...this.placed.values()].map((x) => Math.hypot(x.pos.x, x.pos.z) * 2 + 10));
+    const extent = Math.max(34, ...[...this.placed.values()].map((x) => Math.max(Math.abs(x.pos.x), Math.abs(x.pos.z)) * 2 + 10));
     const grid = new THREE.GridHelper(Math.ceil(extent / 2) * 2, Math.ceil(extent / 2), p.line, p.line);
     (grid.material as THREE.Material).transparent = true;
     (grid.material as THREE.Material).opacity = p.dark ? 0.55 : 0.8;
     grid.position.y = -0.01;
     this.content.add(grid);
-    const glow = new THREE.Mesh(new THREE.PlaneGeometry(26, 26), new THREE.MeshBasicMaterial({ map: this.texture(`glow:${p.koraal}`, () => radialTexture(p.koraal, p.dark ? 0.2 : 0.11)), transparent: true, depthWrite: false }));
+    const glow = new THREE.Mesh(new THREE.PlaneGeometry(14, 14), new THREE.MeshBasicMaterial({ map: this.texture(`glow:${p.koraal}`, () => radialTexture(p.koraal, p.dark ? 0.2 : 0.11)), transparent: true, depthWrite: false }));
     glow.rotation.x = -Math.PI / 2;
+    glow.position.copy(CORE);
     this.content.add(glow);
     const shadowTex = this.texture('shadow', () => radialTexture('#000000', p.dark ? 0.55 : 0.28));
 
@@ -463,11 +468,16 @@ export class TopologyScene {
     mid.add(side);
     const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
     const color = l.state === 'degraded' ? p.warning : l.state === 'down' ? p.offline : l.kind === 'stream' ? p.koraal : p.lucht;
-    const tube = new THREE.Mesh(
-      new THREE.TubeGeometry(curve, 48, l.kind === 'stream' ? 0.05 : 0.03, 6, false),
-      new THREE.MeshBasicMaterial({ color: l.state === 'down' ? p.muted : color, transparent: true, opacity: l.dim ? 0.12 : l.state === 'down' ? 0.25 : l.kind === 'stream' ? 0.4 : 0.32, depthWrite: false }),
-    );
-    this.content.add(tube);
+    const opacity = l.dim ? 0.12 : l.state === 'down' ? 0.25 : l.kind === 'stream' ? 0.4 : 0.55;
+    if (l.kind === 'stream') {
+      const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 48, 0.05, 6, false), new THREE.MeshBasicMaterial({ color: l.state === 'down' ? p.muted : color, transparent: true, opacity, depthWrite: false }));
+      this.content.add(tube);
+    } else {
+      // Control only: a dashed line, so it never reads as audio.
+      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(curve.getPoints(48)), new THREE.LineDashedMaterial({ color: l.state === 'down' ? p.muted : color, dashSize: 0.35, gapSize: 0.25, transparent: true, opacity, depthWrite: false }));
+      line.computeLineDistances();
+      this.content.add(line);
+    }
     if (l.state !== 'down' && !l.dim) {
       const n = l.kind === 'stream' ? 4 : 1;
       const dots: THREE.Mesh[] = [];

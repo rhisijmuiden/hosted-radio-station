@@ -37,6 +37,8 @@ export const tenantOut = z.object({
   limits: tenantLimitsSchema,
   active: z.boolean(),
   externalRef: z.string().nullable(),
+  /** Station node where new stations of this customer start (phase 12). */
+  stationNodeId: z.uuid().nullable(),
   createdAt: z.date(),
 });
 

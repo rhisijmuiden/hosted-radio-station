@@ -35,7 +35,7 @@ test('icecast config has a mount with listener hooks per carried stream', () => 
     name: 'Relay <AMS>',
     hostname: 'relay.example.com',
     layout: { bind: '127.0.0.1', port: 8100 },
-    mounts: [{ key: 'harder/live', stationId: 'x', slug: 'harder', path: '/live', name: 'Harder.fm', format: 'mp3', url: 'http://main/listen/harder/live' }],
+    mounts: [{ key: 'harder/live', stationId: 'x', slug: 'harder', path: '/live', name: 'Harder.fm', format: 'mp3', url: 'http://main/listen/harder/live', push: null }],
     maxListeners: 0,
     secrets: { source: 's', admin: 'a' },
   });
@@ -62,7 +62,7 @@ test('draining before an update disconnects the listeners one by one', async () 
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
   const port = (server.address() as { port: number }).port;
   const relay = new RelayManager({ icecastPort: () => port, secrets: { source: 's', admin: 'a' }, nodeId: 'n', trustClientHeader: false });
-  relay.apply([{ key: 'harder/live', stationId: 'x', slug: 'harder', path: '/live', name: 'Harder', format: 'mp3', url: `http://127.0.0.1:${port}/listen/harder/live` }]);
+  relay.apply([{ key: 'harder/live', stationId: 'x', slug: 'harder', path: '/live', name: 'Harder', format: 'mp3', url: `http://127.0.0.1:${port}/listen/harder/live`, push: null }]);
   for (const id of ['1', '2', '3']) relay.hook('add', new URLSearchParams({ mount: '/listen/harder/live', client: id, agent: 'VLC/3.0', ip: '203.0.113.1' }));
   assert.equal(relay.listenerCount, 3);
   const start = Date.now();

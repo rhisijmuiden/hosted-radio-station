@@ -75,6 +75,11 @@ main() {
     done
     [[ -n "$ok" ]] || rollback "The new version did not connect to the main server within 90 seconds."
   fi
+  # A station node (phase 12) runs the same version of the station runtime.
+  if grep -q '^STATION_NODE=' /etc/hosted-radio/hosted-radio.env 2>/dev/null; then
+    status running "Updating the station node runtime"
+    "$INSTALL_DIR/install.sh" --station-node --ref "$branch" >> "$LOG" 2>&1 || { status failed "The node was updated, but updating the station node runtime failed; see the log."; exit 1; }
+  fi
   status succeeded "Updated to $(git log -1 --format='%h' HEAD)."
   log "Done."
 }

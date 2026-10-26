@@ -4,13 +4,15 @@
 #   - starts Icecast for the relayed streams, and restarts it when its port changed
 #   - writes the web server configuration (Caddy) for listeners: HTTPS on the node's host name, plain HTTP on a port
 #   - fetches certificates for the node's host name and customer encoder names into /var/lib/hrs-node/certs
+#   - installs and links the station node runtime when the node has the station node role (phase 12)
+#   - installs ffmpeg when the node makes converted mounts as an ingest (phase 13)
 # Everything in the state file ends up in root-run configuration, so it is validated strictly. Safe to run repeatedly.
 set -Eeuo pipefail
 
 main() {
   local DATA=/var/lib/hrs-node RUN=/var/lib/hrs-node/run
   local STATE="$RUN/apply-state.json" APPLIED="$RUN/apply-applied.json" STATUS="$RUN/apply-status.json" LOG="$RUN/apply.log"
-  local CERTS="$DATA/certs" CADDY_CERTS=/var/lib/caddy/.local/share/caddy/certificates CADDYFILE=/etc/caddy/Caddyfile
+  local CERTS="$DATA/certs" CADDY_CERTS=/var/lib/caddy/.local/share/caddy/certificates CADDYFILE=/etc/caddy/Caddyfile INSTALL=/opt/hrs-node
   local id
   id=$(jq -r '.id // empty' "$RUN/apply-request.json" 2>/dev/null | tr -cd 'A-Za-z0-9-' | cut -c1-64 || true)
   rm -f "$RUN/apply-request.json"
@@ -22,8 +24,11 @@ main() {
   status() { # status <state> <message>
     local p='[]'
     [[ ${#problems[@]} -gt 0 ]] && p=$(printf '%s\n' "${problems[@]}" | jq -R . | jq -s .)
-    jq -n --arg id "$id" --arg state "$1" --arg message "$2" --arg t "$(date -Is)" --argjson problems "$p" \
-      '{id:$id, state:$state, message:$message, problems:$problems, at:$t}' > "$STATUS.tmp"
+    # A failure carries the end of the log, so it can be read in the panel without logging in to the node.
+    local log_tail='[]'
+    [[ "$1" == failed ]] && log_tail=$(tail -n 20 "$LOG" | cut -c1-200 | jq -R . | jq -s .)
+    jq -n --arg id "$id" --arg state "$1" --arg message "$2" --arg t "$(date -Is)" --argjson problems "$p" --argjson log "$log_tail" \
+      '{id:$id, state:$state, message:$message, problems:$problems, log:$log, at:$t}' > "$STATUS.tmp"
     chown hrs-node: "$STATUS.tmp"; mv "$STATUS.tmp" "$STATUS"
   }
   status running "Applying"
@@ -118,6 +123,51 @@ main() {
       -keyout "$CERTS/default.key" -out "$CERTS/default.crt" >/dev/null 2>&1
     chown hrs-node:hrs-node "$CERTS/default.key" "$CERTS/default.crt"
     chmod 0600 "$CERTS/default.key"; chmod 0640 "$CERTS/default.crt"
+  fi
+
+  # 4. Station node (phase 12): the full Hosted Radio Station runtime runs the stations the main server places here.
+  local station station_file=/etc/hosted-radio/station-node.json
+  station=$(jq -r '.station // false' "$STATE")
+  if [[ "$station" == true ]]; then
+    local link
+    link=$(jq -c '{server, nodeId, secret}' /etc/hrs-node/node.json)
+    install -d -m 0750 /etc/hosted-radio
+    if [[ -f /etc/hosted-radio/hosted-radio.env ]] && ! grep -q '^STATION_NODE=' /etc/hosted-radio/hosted-radio.env; then
+      # Never turn the main server itself into a station node.
+      problems+=("This machine runs the main server; a station node needs a container of its own")
+    elif [[ ! -f /etc/hosted-radio/hosted-radio.env ]]; then
+      echo "$link" > "$station_file"; chmod 0640 "$station_file"
+      status running "Installing the station node runtime (this takes a few minutes)"
+      log "Installing the station node runtime"
+      if "$INSTALL/install.sh" --station-node --ref "$(git -C "$INSTALL" rev-parse --abbrev-ref HEAD)" >> "$LOG" 2>&1; then
+        log "Station node runtime installed"
+      else
+        problems+=("Installing the station node runtime failed (see $LOG)")
+      fi
+    fi
+    if [[ -f /etc/hosted-radio/hosted-radio.env ]] && grep -q '^STATION_NODE=' /etc/hosted-radio/hosted-radio.env; then
+      local old
+      old=$(cat "$station_file" 2>/dev/null || true)
+      if [[ "$old" != "$link" ]]; then
+        echo "$link" > "$station_file"
+        log "Station node link changed, restarting the runtime"
+        systemctl restart hosted-radio-api >> "$LOG" 2>&1 || problems+=("The station node runtime did not start")
+      fi
+      chown root:hosted-radio "$station_file"; chmod 0640 "$station_file"
+      systemctl is-active --quiet hosted-radio-api || systemctl enable --now hosted-radio-api hosted-radio-streams >> "$LOG" 2>&1 || problems+=("The station node runtime did not start")
+    fi
+  elif [[ -f "$station_file" ]] && grep -q '^STATION_NODE=' /etc/hosted-radio/hosted-radio.env 2>/dev/null; then
+    log "No station node role any more: stopping the station runtime (its data stays)"
+    rm -f "$station_file"
+    systemctl disable --now hosted-radio-api hosted-radio-streams >> "$LOG" 2>&1 || true
+    systemctl stop 'hosted-radio-icecast@*' 'hosted-radio-autodj@*' >> "$LOG" 2>&1 || true
+  fi
+
+  # 5. Ingest (phase 13): converted mounts are made on the node with ffmpeg, which older nodes do not have yet.
+  if [[ "$(jq -r '.ffmpeg // false' "$STATE")" == true ]] && ! command -v ffmpeg >/dev/null; then
+    status running "Installing ffmpeg for converted mounts"
+    log "Installing ffmpeg"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg >> "$LOG" 2>&1 || problems+=("Installing ffmpeg failed (see $LOG)")
   fi
 
   cp "$STATE" "$APPLIED"

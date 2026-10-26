@@ -103,6 +103,52 @@ function Charts({ node }: { node: NodeItem }) {
 
 const relayTone = { connected: 'online', connecting: 'warning', idle: 'neutral', error: 'offline' } as const;
 
+/** Stations a station node runs or is taking over (phase 12). */
+function NodeStations({ node }: { node: NodeItem }) {
+  const { t } = useTranslation();
+  const stations = useQuery({ queryKey: ['stations', 'all'], queryFn: () => api<StationListItem[]>('/stations'), refetchInterval: 10_000 });
+  const mine = (stations.data ?? []).filter((s) => s.nodeId === node.id || s.nodeMove?.nodeId === node.id);
+  return (
+    <Card>
+      <CardHeader title={t('nodes.detail.stationsTitle')} description={t('nodes.detail.stationsHint')} />
+      {!mine.length ? (
+        <div className="px-5 py-8 text-center text-[13px] text-muted">{t('nodes.detail.noNodeStations')}</div>
+      ) : (
+        <Table head={[t('nav.stations'), t('fields.status'), t('nodes.detail.lastReport'), t('nodes.cols.listeners')]}>
+          {mine.map((s) => {
+            const m = s.nodeMove;
+            const pct = m && m.bytes ? Math.round((m.bytesDone / m.bytes) * 100) : null;
+            return (
+              <tr key={s.id}>
+                <td>
+                  <Link to={`/stations/${s.id}`} className="font-semibold hover:underline">
+                    {s.name}
+                  </Link>
+                  <div className="text-xs text-muted">{s.tenantName}</div>
+                </td>
+                <td>
+                  {m ? (
+                    <Badge tone={m.state === 'failed' ? 'offline' : 'accent'} dot>
+                      {m.state === 'failed' ? t('nodes.detail.moveFailed') : m.direction === 'to_node' ? t('nodes.detail.movingHere', { pct: pct ?? 0 }) : t('nodes.detail.movingAway', { pct: pct ?? 0 })}
+                    </Badge>
+                  ) : (
+                    <Badge tone={s.nodeOnline ? 'online' : 'warning'} dot>
+                      {s.nodeOnline ? t('nodes.detail.runsHere') : t('nodes.detail.runsHereOffline')}
+                    </Badge>
+                  )}
+                  {m?.message && <div className="mt-1 text-xs text-muted">{m.message}</div>}
+                </td>
+                <td className="text-[13px] text-muted">{s.nodeSeenAt ? formatRelative(s.nodeSeenAt) : '—'}</td>
+                <td className="text-[13px] tabular-nums">{s.listeners ?? '—'}</td>
+              </tr>
+            );
+          })}
+        </Table>
+      )}
+    </Card>
+  );
+}
+
 function Overview({ node, warnMs, canEdit }: { node: NodeItem; warnMs: number; canEdit: boolean }) {
   const { t } = useTranslation();
   const s = node.status;
@@ -120,6 +166,12 @@ function Overview({ node, warnMs, canEdit }: { node: NodeItem; warnMs: number; c
                   <li key={p}>{p}</li>
                 ))}
               </ul>
+              {!!s.applyLog?.length && (
+                <details className="mt-2 text-[12px]">
+                  <summary className="cursor-pointer text-muted hover:text-ink">{t('nodes.detail.applyLog')}</summary>
+                  <pre className="mt-1 max-h-64 overflow-auto rounded-md bg-chip p-2 font-mono text-[11.5px] whitespace-pre-wrap">{s.applyLog.join('\n')}</pre>
+                </details>
+              )}
             </div>
           </div>
         </Card>
@@ -200,6 +252,7 @@ function Overview({ node, warnMs, canEdit }: { node: NodeItem; warnMs: number; c
           )}
         </Card>
       )}
+      {node.roles.includes('station') && <NodeStations node={node} />}
       <Charts node={node} />
     </div>
   );
@@ -352,6 +405,9 @@ function SettingsForm({ node, admin }: { node: NodeItem; admin: boolean }) {
               <Field label={t('nodes.fields.maxListeners')} hint={t('nodes.fields.maxListenersHint')}>
                 <Input type="number" min={0} value={c.maxListeners} onChange={(e) => set({ maxListeners: Number(e.target.value) })} />
               </Field>
+              <Field label={t('nodes.fields.pushPort')} hint={t('nodes.fields.pushPortHint')}>
+                <Input type="number" min={1024} max={65535} value={c.pushPort ?? ''} placeholder="8001" onChange={(e) => set({ pushPort: port(e.target.value) ?? 8001 })} />
+              </Field>
             </div>
             <div>
               <div className="mb-2 text-[13px] font-semibold">{t('nodes.fields.relayStations')}</div>
@@ -400,6 +456,17 @@ function SettingsForm({ node, admin }: { node: NodeItem; admin: boolean }) {
         </Card>
       )}
       <NodeUpdateSettings node={node} value={c} onChange={set} admin={admin} />
+      {roles.includes('station') && (
+        <Card>
+          <CardHeader title={t('nodes.detail.stationSettings')} description={t('nodes.detail.stationSettingsHint')} />
+          <div className="grid gap-3 p-5 sm:grid-cols-2">
+            <Field label={t('nodes.fields.lanAddress')} hint={t('nodes.fields.lanAddressHint')}>
+              <Input value={c.lanAddress ?? ''} placeholder="192.168.1.20" onChange={(e) => set({ lanAddress: e.target.value.trim() })} />
+            </Field>
+            <p className="text-xs text-muted sm:col-span-2">{t('nodes.detail.stationInstall')}</p>
+          </div>
+        </Card>
+      )}
       <div className="flex justify-end">
         <Button variant="primary" type="submit" loading={save.isPending}>
           {t('common.save')}
