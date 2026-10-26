@@ -116,7 +116,7 @@ describe('nodes', () => {
     // A change of settings is pushed as a new plan.
     const next = a.nextNew('plan');
     const patch = await t.app.inject({ method: 'PATCH', url: `/api/nodes/${node.id}`, headers: admin, payload: { config: { publicHost: 'relay-fra.example.com', maxListeners: 500 } } });
-    expect(patch.statusCode).toBe(200);
+    expect(patch.json()).toMatchObject({ id: node.id });
     const p2 = ((await next).plan as Record<string, any>);
     expect(p2.web.publicHost).toBe('relay-fra.example.com');
     expect(p2.relay.maxListeners).toBe(500);
@@ -307,6 +307,20 @@ describe('nodes', () => {
     // The audio comes from this server's relay role (or a relay of the station), never from the orchestrator.
     expect(topo.links).toContainEqual(expect.objectContaining({ from: 'local:relay', to: node.id, kind: 'stream' }));
     a.ws.close();
+  });
+
+  it('takes a deleted station out of the relay nodes that carried it', async () => {
+    // Room in the customer's listener budget for a second station.
+    await t.db.update(schema.stations).set({ maxListeners: 50 }).where(eq(schema.stations.id, stationId));
+    const created = await t.app.inject({ method: 'POST', url: '/api/stations', headers: admin, payload: { tenantId, name: 'Tmp FM', slug: 'tmp-fm' } });
+    expect(created.json()).toMatchObject({ name: 'Tmp FM' });
+    const tmp = created.json();
+    const { node } = await pair(admin, { name: 'list-relay', roles: ['relay'] });
+    const patch = await t.app.inject({ method: 'PATCH', url: `/api/nodes/${node.id}`, headers: admin, payload: { config: { relayStations: [stationId, tmp.id] } } });
+    expect(patch.json()).toMatchObject({ id: node.id });
+    expect((await t.app.inject({ method: 'DELETE', url: `/api/stations/${tmp.id}`, headers: owner })).statusCode).toBe(200);
+    const [row] = await t.db.select().from(schema.nodes).where(eq(schema.nodes.id, node.id));
+    expect(row!.config.relayStations).toEqual([stationId]);
   });
 
   it('signs and checks the encoder preamble', () => {
