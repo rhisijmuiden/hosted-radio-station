@@ -120,7 +120,9 @@ Phase 10: Hosted service: packages, subscriptions, invoices with VAT and online 
 | 9 | Windows client | Done |
 | 10 | Hosted service | Done |
 | 11 | FM/MPX and RDS module | Planned |
-| 12 | Open source edition | Planned |
+| 12 | Station nodes | In progress |
+| 13 | Open source edition | Postponed |
+| 14 | Orchestrator redundancy | Planned |
 
 ## Phases
 
@@ -256,8 +258,24 @@ A separate LXC package for FM broadcasters.
 - RDS PS, RadioText and RadioText+ filled automatically from now-playing data, so FM receivers show the right song titles.
 - Output through a 192 kHz sound card or as MPX over IP, or control of an existing RDS encoder over UECP.
 
-### Phase 12: Open source edition
+### Phase 12: Station nodes
+
+A node role that runs complete stations at the customer's site or in the datacenter.
+
+- The station's music library, AutoDJ, hour clocks and live assist run locally on the node; the main server stays the orchestrator.
+- Configuration is edited centrally and pushed to the node; the node pushes its audio outbound to the assigned relays.
+
+### Phase 13: Open source edition
 
 A community edition on its own branch.
 
 - "Powered by RHIS" built in by default, with the house style (logo, colours, fonts) customisable per installation.
+
+### Phase 14: Orchestrator redundancy
+
+Optional high availability for the main server, switched on in the panel when you need it.
+
+- A standby orchestrator on a second Debian 13 LXC, paired like a node, with continuous database replication and synchronised configuration and files.
+- Automatic failover through a floating IP (VRRP) or DNS failover, with a witness (a node or probe) to prevent split-brain.
+- Nodes know both orchestrators and switch over by themselves; relays and station nodes keep streaming on their last configuration while the orchestrator is unreachable.
+- Status, replication lag and a failover test in the panel and in the topology view; updates and backups coordinated across both servers.
