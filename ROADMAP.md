@@ -77,14 +77,15 @@ Phase 7: Scheduler with hour clocks, a weekly schedule and live shows.
 | ![Live show with its DJs](docs/screenshots/phase-7-show-dialog.png) | ![AutoDJ playing the commercials of the hour clock](docs/screenshots/phase-7-autodj.png) |
 | ![Playlists only for hour clocks](docs/screenshots/phase-7-playlists.png) | ![Programme on the public page](docs/screenshots/phase-7-public.png) |
 
-Phase 8: Distribution network with nodes (relays, source nodes, remote probes) and a live 3D topology.
+Phase 8: Distribution network with nodes (relays, source nodes, remote probes), a live 3D topology and flat 2D flow views (left to right or top to bottom). Taken on the test server with two real relay nodes.
 
 | Administrator | Customer, Dutch |
 | --- | --- |
-| ![Topology of the whole network](docs/screenshots/phase-8-topology-admin-dark.png) | ![My setup: the customer's own node and its studio](docs/screenshots/phase-8-topology-customer-nl.png) |
-| ![Nodes with status, version, latency, listeners, CPU and traffic](docs/screenshots/phase-8-nodes.png) | ![My nodes in Dutch](docs/screenshots/phase-8-my-nodes-nl.png) |
+| ![Topology of the whole network](docs/screenshots/phase-8-topology-dark.png) | ![My setup: the customer's own nodes and streams](docs/screenshots/phase-8-my-setup.png) |
+| ![Nodes with status, version, latency, listeners, CPU and traffic](docs/screenshots/phase-8-nodes.png) | ![Add a node and get a pairing code](docs/screenshots/phase-8-add-node.png) |
 | ![Node detail: machine, connection and relayed streams](docs/screenshots/phase-8-node-detail.png) | ![Health of a node over time](docs/screenshots/phase-8-node-health.png) |
-| ![Remote probes from a node](docs/screenshots/phase-8-node-probes.png) | ![Topology, light theme](docs/screenshots/phase-8-topology-admin-light.png) |
+| ![Remote probes from a node](docs/screenshots/phase-8-node-probes.png) | ![Topology, light theme](docs/screenshots/phase-8-topology-light.png) |
+| ![Topology, flat left to right](docs/screenshots/phase-8-topology-flat-lr-dark.png) | ![Topology, flat top to bottom](docs/screenshots/phase-8-topology-flat-tb-light.png) |
 
 Phase 9: RHIS Studio, the Windows client: live assist, live broadcasting from the sound card or mixing desk, and a cart wall.
 
@@ -93,7 +94,12 @@ Phase 9: RHIS Studio, the Windows client: live assist, live broadcasting from th
 | ![Live assist: now playing, Q1 and Q2, library](docs/screenshots/phase-9-assist.png) | ![Live assist in Dutch, dark theme](docs/screenshots/phase-9-assist-dark-nl.png) |
 | ![Going live with meters and show title](docs/screenshots/phase-9-live.png) | ![Cart wall on F1–F12](docs/screenshots/phase-9-carts.png) |
 | ![Sound card, channels and routing](docs/screenshots/phase-9-settings.png) | ![Info with update channel](docs/screenshots/phase-9-info.png) |
-| ![Linking the PC: the code in the client](docs/screenshots/phase-9-sign-in.png) | ![Approving the PC in the panel](docs/screenshots/phase-9-panel-link.png) |
+| ![Linking the PC: the code in the client](docs/screenshots/phase-9-sign-in.png) | |
+
+| Panel | Panel, Dutch |
+| --- | --- |
+| ![Windows client page with download channels and linked PCs](docs/screenshots/phase-9-studio.png) | ![Windows client page in Dutch, dark theme](docs/screenshots/phase-9-studio-dark-nl.png) |
+| ![Approving a studio PC in the panel](docs/screenshots/phase-9-link.png) | ![Approving a studio PC in Dutch, dark theme](docs/screenshots/phase-9-link-dark-nl.png) |
 
 Phase 10: Hosted service: packages, subscriptions, invoices with VAT and online payment, and the provisioning API for the website.
 
@@ -120,7 +126,9 @@ Phase 10: Hosted service: packages, subscriptions, invoices with VAT and online 
 | 9 | Windows client | Done |
 | 10 | Hosted service | Done |
 | 11 | FM/MPX and RDS module | Planned |
-| 12 | Open source edition | Planned |
+| 12 | Station nodes | In progress |
+| 13 | Open source edition | Postponed |
+| 14 | Orchestrator redundancy | Planned |
 
 ## Phases
 
@@ -256,8 +264,24 @@ A separate LXC package for FM broadcasters.
 - RDS PS, RadioText and RadioText+ filled automatically from now-playing data, so FM receivers show the right song titles.
 - Output through a 192 kHz sound card or as MPX over IP, or control of an existing RDS encoder over UECP.
 
-### Phase 12: Open source edition
+### Phase 12: Station nodes
+
+A node role that runs complete stations at the customer's site or in the datacenter.
+
+- The station's music library, AutoDJ, hour clocks and live assist run locally on the node; the main server stays the orchestrator.
+- Configuration is edited centrally and pushed to the node; the node pushes its audio outbound to the assigned relays.
+
+### Phase 13: Open source edition
 
 A community edition on its own branch.
 
 - "Powered by RHIS" built in by default, with the house style (logo, colours, fonts) customisable per installation.
+
+### Phase 14: Orchestrator redundancy
+
+Optional high availability for the main server, switched on in the panel when you need it.
+
+- A standby orchestrator on a second Debian 13 LXC, paired like a node, with continuous database replication and synchronised configuration and files.
+- Automatic failover through a floating IP (VRRP) or DNS failover, with a witness (a node or probe) to prevent split-brain.
+- Nodes know both orchestrators and switch over by themselves; relays and station nodes keep streaming on their last configuration while the orchestrator is unreachable.
+- Status, replication lag and a failover test in the panel and in the topology view; updates and backups coordinated across both servers.
