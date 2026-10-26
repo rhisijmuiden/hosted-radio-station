@@ -150,6 +150,16 @@ export const nodesSchema = z.object({
   latencyWarnMs: z.number().int().min(5).max(5000).default(150),
   /** How long node health per minute is kept. */
   metricsRetentionDays: z.number().int().min(1).max(365).default(30),
+  /**
+   * Where source nodes pass encoders on to this server, when its public name does not carry raw TCP (e.g. behind
+   * Cloudflare): an IP address or host name the nodes reach directly. Empty = the public name.
+   */
+  ingestAddress: z
+    .string()
+    .trim()
+    .max(253)
+    .regex(/^$|^[A-Za-z0-9.:-]+$/, 'Use an IP address or host name')
+    .default(''),
 });
 export type NodesSettings = z.infer<typeof nodesSchema>;
 

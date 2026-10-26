@@ -1890,6 +1890,8 @@ export const en = {
       latencyWarnHint: 'A node with a higher round trip is shown as degraded.',
       retention: 'Keep health for (days)',
       retentionHint: 'Health per minute is removed after this.',
+      ingestAddress: 'Direct address of this server',
+      ingestAddressHint: 'Where source nodes pass encoders on to, when the public name does not carry raw TCP (for example behind Cloudflare). Empty = the public name.',
       saved: 'Network settings saved',
     },
     detail: {

@@ -211,7 +211,12 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
     source = {
       plainPort: c.sourcePlainPort,
       tlsPort: c.sourceTlsPort,
-      upstream: { host: tls ? proxy.domain : host, port: port ?? streaming.ingestTlsPort, tls },
+      // A direct address (Nodes → settings) skips a public name that only carries web traffic, such as a CDN.
+      upstream: settings.ingestAddress
+        ? streaming.ingestPlainPort
+          ? { host: settings.ingestAddress, port: streaming.ingestPlainPort, tls: false }
+          : { host: settings.ingestAddress, port: streaming.ingestTlsPort, tls: true }
+        : { host: tls ? proxy.domain : host, port: port ?? streaming.ingestTlsPort, tls },
       hosts: domains.filter((d) => d.nodeId === node.id).map((d) => d.host).sort(),
     };
     ingest = await ingestPlan(ctx, node, stations, allMounts, relays, domains);
