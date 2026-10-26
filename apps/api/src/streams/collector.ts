@@ -202,7 +202,8 @@ export class ListenerCollector {
       await this.ctx.db
         .update(schema.listenerSessions)
         .set({ endedAt, durationSeconds: Math.max(0, Math.round((at - s.startedAt) / 1000)) })
-        .where(eq(schema.listenerSessions.id, s.id));
+        // A node may have closed it already with the moment the listener really left.
+        .where(and(eq(schema.listenerSessions.id, s.id), isNull(schema.listenerSessions.endedAt)));
     } else {
       // Opened before this service started and not loaded (or already closed): close by key.
       await this.ctx.db

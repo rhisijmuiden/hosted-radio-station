@@ -137,8 +137,9 @@ export class SourceForwarder {
     upstream.on('close', end);
   }
 
-  /** Picks up renewed certificates. */
-  refreshCertificates() {
-    return this.loadCertificates();
+  /** Picks up new and renewed certificates, and opens the TLS port once the first certificate is there. */
+  async refreshCertificates() {
+    await this.loadCertificates();
+    if (this.plan?.tlsPort && this.defaultCert && !this.secure) await this.apply(this.plan);
   }
 }
