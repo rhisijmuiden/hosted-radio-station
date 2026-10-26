@@ -33,6 +33,7 @@ main() {
   [[ -z "$domain" || "$domain" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]] || invalid "Invalid domain"
   [[ -z "$email" || "$email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}$ ]] || invalid "Invalid e-mail address"
   [[ "$port" =~ ^[0-9]{1,5}$ && $port -ge 1 && $port -le 65535 ]] || invalid "Invalid port"
+  [[ "$port" != 8099 ]] || invalid "Port 8099 is used for listener statistics; choose another port"
   local ip
   for ip in $trusted; do
     [[ "$ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}(/[0-9]{1,2})?$ || "$ip" =~ ^[0-9A-Fa-f:]+(/[0-9]{1,3})?$ ]] || invalid "Invalid trusted proxy: $ip"
@@ -51,6 +52,17 @@ main() {
 			flush_interval -1
 		}
 	}'
+  # Icecast reports listeners (statistics) to the streams service through this local site. When the streams service
+  # is down, the site answers "allowed" itself, so listening never depends on it.
+  local hooks='# hosted-radio-hooks: listener statistics from the station servers
+http://127.0.0.1:8099 {
+	bind 127.0.0.1
+	reverse_proxy 127.0.0.1:8098
+	handle_errors {
+		header icecast-auth-user 1
+		respond "ok" 200
+	}
+}'
   local tmp public_url
   tmp=$(mktemp)
   [[ -f /etc/caddy/hosted-radio-streams.caddy ]] || echo "# Listen routes, written by hrs-streams-apply." > /etc/caddy/hosted-radio-streams.caddy
@@ -70,10 +82,12 @@ main() {
       printf '\nhttps:// {\n\ttls {\n\t\ton_demand\n\t}\n\timport hrs\n}\n'
       # Plain HTTP on the IP address keeps the panel reachable while DNS is not ready (and is all there is without a domain).
       printf '\nhttp:// {\n\timport hrs\n}\n'
+      printf '\n%s\n' "$hooks"
     else
       printf '{\n\tauto_https off\n\tservers {\n\t\ttrusted_proxies static %s\n\t\tclient_ip_headers X-Forwarded-For X-Real-IP\n\t}\n}\n' "$trusted"
       printf '\n(hrs) {\n%s\n}\n' "$routes"
       printf '\n:%s {\n\timport hrs\n}\n' "$port"
+      printf '\n%s\n' "$hooks"
     fi
   } > "$tmp"
   log "New configuration:"; cat "$tmp" >> "$LOG"

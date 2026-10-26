@@ -4,6 +4,7 @@ import { schema } from '../db/index.js';
 import type { AppContext } from '../lib/context.js';
 import { tickScheduler } from './backup/jobs.js';
 import { getSetting } from './settings.js';
+import { maybeUpdateGeoip, pruneStatistics, rollupHourly } from './stats/maintenance.js';
 import { recheckDomains } from './streaming/domains.js';
 import { applyAllStreams, applyStreams } from './streaming/state.js';
 import { scanAllStorage } from './streaming/storage.js';
@@ -19,6 +20,7 @@ export async function housekeeping(ctx: AppContext) {
   if (retentionDays > 0) {
     await ctx.db.delete(schema.auditLog).where(lt(schema.auditLog.at, new Date(now.getTime() - retentionDays * 86400_000)));
   }
+  await pruneStatistics(ctx);
   // Keep the run history readable: the last 500 runs.
   await ctx.db.delete(schema.backupRuns).where(
     and(
@@ -29,8 +31,8 @@ export async function housekeeping(ctx: AppContext) {
 }
 
 /**
- * Timers of the API process: the backup scheduler every minute, DNS checks of customer domains every five minutes,
- * housekeeping and media folder sizes every six hours. On start every station configuration is rewritten, so a new
+ * Timers of the API process: the backup scheduler every minute, DNS checks of customer domains and the hourly listener
+ * figures every five minutes, housekeeping, media folder sizes and the GeoIP database every six hours. On start every station configuration is rewritten, so a new
  * version's template takes effect.
  */
 export function startBackgroundTasks(ctx: AppContext, log: FastifyBaseLogger) {
@@ -45,11 +47,15 @@ export function startBackgroundTasks(ctx: AppContext, log: FastifyBaseLogger) {
     }),
     5 * 60_000,
   );
+  const hourly = setInterval(safe('listener figures', () => rollupHourly(ctx)), 5 * 60_000);
+  const geoip = setInterval(safe('GeoIP update', () => maybeUpdateGeoip(ctx)), 6 * 3600_000);
+  setTimeout(safe('listener figures', () => rollupHourly(ctx, new Date(Date.now() - 2 * 86400_000))), 20_000).unref();
+  setTimeout(safe('GeoIP update', () => maybeUpdateGeoip(ctx)), 15_000).unref();
   setTimeout(safe('housekeeping', () => housekeeping(ctx)), 30_000).unref();
   setTimeout(safe('stream configuration', () => applyAllStreams(ctx)), 3_000).unref();
   setTimeout(safe('storage scan', () => scanAllStorage(ctx)), 60_000).unref();
-  for (const t of [scheduler, house, storage, domains]) t.unref();
+  for (const t of [scheduler, house, storage, domains, hourly, geoip]) t.unref();
   return () => {
-    for (const t of [scheduler, house, storage, domains]) clearInterval(t);
+    for (const t of [scheduler, house, storage, domains, hourly, geoip]) clearInterval(t);
   };
 }

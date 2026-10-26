@@ -102,12 +102,19 @@ export async function writeStationConfig(ctx: AppContext, stationId: string) {
     adminPassword: ctx.box.decrypt(station.icecastAdminPassword),
     sourcePassword: ctx.box.decrypt(station.icecastSourcePassword),
     internalClients,
+    listenerHook: (await listenerHooksEnabled(ctx)) ? ctx.config.LISTENER_HOOK_URL.replace(/\/$/, '') : null,
   });
   const path = icecastConfigPath(ctx, station.id);
   const current = await readFile(path, 'utf8').catch(() => null);
   if (current === body) return;
   await writeAtomic(path, body);
   await signalIcecast(ctx, station.id, 'SIGHUP');
+}
+
+/** The hooks are only switched on once the web server forwards them (marker written by hrs-proxy-apply). */
+export async function listenerHooksEnabled(ctx: AppContext) {
+  if (ctx.config.LISTENER_HOOKS !== 'auto') return ctx.config.LISTENER_HOOKS === 'on';
+  return (await readFile(ctx.config.CADDYFILE, 'utf8').catch(() => '')).includes('hosted-radio-hooks');
 }
 
 async function signalIcecast(ctx: AppContext, stationId: string, signal: NodeJS.Signals) {

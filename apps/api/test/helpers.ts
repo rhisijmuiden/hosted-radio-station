@@ -18,6 +18,7 @@ export async function setup(env: Record<string, string> = {}) {
     APP_SECRET: 'test-secret-test-secret-test-secret-123',
     INSTALL_DIR: join(import.meta.dirname, '../../..'),
     DATA_DIR: mkdtempSync(join(tmpdir(), 'hrs-test-')),
+    CADDYFILE: '/nonexistent',
     ...env,
   });
   const { db, client } = createDb(config.DATABASE_URL);
