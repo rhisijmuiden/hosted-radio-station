@@ -118,6 +118,23 @@ Phase 11: FM/MPX and RDS: a node that puts a station on FM, with a live radio di
 | ![FM node on air: PS, RadioText, RT+ tags, levels and signal chain](docs/screenshots/phase-11-fm-overview-light-en.png) | ![FM node on air in Dutch, dark theme](docs/screenshots/phase-11-fm-overview-dark-nl.png) |
 | ![FM settings: station, RDS, output, audio and UECP](docs/screenshots/phase-11-fm-settings-light-en.png) | ![FM settings in Dutch, dark theme](docs/screenshots/phase-11-fm-settings-dark-nl.png) |
 
+Phase 12: Station nodes: a station that runs on a node at the studio, moved there from its settings page, a customer linked to a station node, and the node pushing its streams to the relays. Taken on the test server with radionode3 as station node.
+
+| English, light | Dutch, dark |
+| --- | --- |
+| ![Station settings: where it runs, and moving it to a station node](docs/screenshots/phase-12-where-it-runs-light-en.png) | ![Where it runs, in Dutch, dark theme](docs/screenshots/phase-12-where-it-runs-dark-nl.png) |
+| ![Station node detail with the stations it runs](docs/screenshots/phase-12-station-node-light-en.png) | ![Station node detail in Dutch, dark theme](docs/screenshots/phase-12-station-node-dark-nl.png) |
+| ![Customer linked to a station node](docs/screenshots/phase-12-customer-station-node-light-en.png) | ![Customer linked to a station node, in Dutch, dark theme](docs/screenshots/phase-12-customer-station-node-dark-nl.png) |
+| ![Topology with the station node pushing to the relays](docs/screenshots/phase-12-topology-light-en.png) | ![Topology with the station node, in Dutch, dark theme](docs/screenshots/phase-12-topology-dark-nl.png) |
+
+Phase 13: Orchestrator as control plane: audio runs from the studio through the ingest node to the relays, and the orchestrator is linked to every node by control lines only. Per station you choose the ingest node, a backup ingest and the relays.
+
+| English, light | Dutch, dark |
+| --- | --- |
+| ![2D topology: audio via ingest to relays, control lines only to the orchestrator](docs/screenshots/phase-13-topology-2d-light-en.png) | ![2D topology in Dutch, dark theme](docs/screenshots/phase-13-topology-2d-dark-nl.png) |
+| ![3D topology with the orchestrator as control plane](docs/screenshots/phase-13-topology-3d-light-en.png) | ![3D topology in Dutch, dark theme](docs/screenshots/phase-13-topology-3d-dark-nl.png) |
+| ![Per-station routing: ingest node, backup ingest and relays](docs/screenshots/phase-13-routing-light-en.png) | ![Per-station routing in Dutch, dark theme](docs/screenshots/phase-13-routing-dark-nl.png) |
+
 ## Status
 
 | Phase | Name | Status |
