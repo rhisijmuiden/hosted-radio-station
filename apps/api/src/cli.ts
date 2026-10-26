@@ -20,6 +20,7 @@ Usage:
                                                 Set a new password and sign the user out everywhere
 
   hrs set-setting <key> <json>                  Store an instance setting (proxy, update, smtp), used by install.sh
+  hrs get-setting proxy                         Print the web server setting as JSON, used by the system scripts
 
   hrs backup list                               Backup locations and the latest runs
   hrs backup run <location> [full|incremental]  Back up now (as root, in this terminal)
@@ -69,6 +70,9 @@ try {
       console.log(`Password for ${email} has been reset.`);
     }
     if (generated) console.log(`Password: ${password}`);
+  } else if (command === 'get-setting') {
+    if (positionals[1] !== 'proxy') throw new Error('Key must be proxy');
+    console.log(JSON.stringify(await getSetting(createContext(config, db), 'proxy')));
   } else if (command === 'set-setting') {
     const [, key, json] = positionals;
     if (key !== 'proxy' && key !== 'update' && key !== 'smtp') throw new Error('Key must be proxy, update or smtp');
