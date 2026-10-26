@@ -6,7 +6,7 @@ import { and, eq } from 'drizzle-orm';
 import { schema } from '../db/index.js';
 import type { AppContext } from '../lib/context.js';
 import { autodjSocketPath, autodjToken } from '../services/autodj/liquidsoap.js';
-import { nextTrack, playerStarted, trackStarted } from '../services/autodj/planner.js';
+import { flushForClock, nextTrack, playerStarted, trackStarted } from '../services/autodj/planner.js';
 import { autodjSettings } from '../services/autodj/settings.js';
 import type { LiveBroadcast } from './recorder.js';
 import type { Snapshot, StationView } from './snapshot.js';
@@ -176,8 +176,13 @@ export class AutodjController {
   async command(raw: string) {
     try {
       const { stationId, command } = JSON.parse(raw) as { stationId?: string; command?: string };
-      if (!stationId || !/^[0-9a-f-]{36}$/.test(stationId) || command !== 'skip') return;
-      await playerCommand(autodjSocketPath(this.ctx, stationId), 'skip');
+      if (!stationId || !/^[0-9a-f-]{36}$/.test(stationId)) return;
+      if (command === 'skip') await playerCommand(autodjSocketPath(this.ctx, stationId), 'skip');
+      // The clock or schedule changed: a hard timed item may need the track that is loaded ahead out of the way.
+      if (command === 'replan' && (await flushForClock(this.ctx, stationId))) {
+        await playerCommand(autodjSocketPath(this.ctx, stationId), 'flush');
+        this.log.info({ stationId }, 'Dropped the track loaded ahead for a timed clock item');
+      }
     } catch (err) {
       this.log.warn({ err }, 'AutoDJ command failed');
     }

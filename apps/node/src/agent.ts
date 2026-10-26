@@ -77,7 +77,7 @@ export class Agent {
     this.timers.push(setInterval(() => void this.relay?.check(), 15_000));
     this.timers.push(setInterval(() => void this.source.refreshCertificates(), 30_000));
     this.timers.push(setInterval(() => void this.pingMain(), 60_000));
-    this.timers.push(setInterval(() => this.watchdog(), 5000));
+    this.timers.push(setInterval(() => this.watchdog(), 1000));
     void this.pingMain();
     this.connect();
     log.info('node agent started', { node: this.file.nodeId, server: this.file.server, version: this.version.version, commit: this.version.commit?.slice(0, 7) });
@@ -153,7 +153,12 @@ export class Agent {
       this.ws = null;
       this.ready = false;
       if (this.stopped) return;
-      let delay = Math.min(30_000, 1000 * 2 ** Math.min(this.retries++, 5));
+      // A restart of the main server takes a few seconds (1001 = it said so): try again soon, a little apart per node,
+      // and only slow down to every 30 s when it stays away for about two minutes.
+      // 1005 = closed without a code: what reaches the agent through Caddy when the server closed with 1001.
+      if (ev.code === 1001 || ev.code === 1005) this.retries = 0;
+      const n = this.retries++;
+      let delay = (n < 30 ? Math.min(5000, 1000 * (n + 1)) : 30_000) + Math.floor(Math.random() * 500);
       if (ev.code === CLOSE.unauthorized) {
         // Unpaired or removed in the panel: stop serving, and look again now and then in case it was a mistake.
         log.error('the main server does not accept this node; pair it again with "hrs-node pair"', { reason: ev.reason });
@@ -180,8 +185,18 @@ export class Agent {
    */
   private watchdog() {
     const ws = this.ws;
-    if (!ws || this.stopped || Date.now() - this.heardAt < 30_000) return;
+    // The server pings every 5 seconds; a connection attempt that hangs (seen through Caddy while the server restarts)
+    // is given 4 seconds.
+    const limit = ws?.readyState === WebSocket.CONNECTING ? 4000 : 15_000;
+    if (!ws || this.stopped || Date.now() - this.heardAt < limit) return;
     log.warn('no answer from the main server; reconnecting', { state: ws.readyState });
+    this.reconnect(1000);
+  }
+
+  /** Drops the connection without waiting for its close event, and connects again after `delay` ms. */
+  private reconnect(delay: number) {
+    const ws = this.ws;
+    if (!ws) return;
     this.ws = null;
     this.ready = false;
     ws.onclose = null;
@@ -190,7 +205,7 @@ export class Agent {
     } catch {
       // already closing
     }
-    setTimeout(() => this.connect(), 1000);
+    setTimeout(() => this.connect(), delay);
   }
 
   private send(msg: AgentMessage) {
@@ -232,6 +247,10 @@ export class Agent {
         return;
       case 'fm':
         return this.fm.setContext({ dj: msg.dj, show: msg.show });
+      case 'restart':
+        log.info('the main server restarts; reconnecting');
+        this.retries = 0;
+        return this.reconnect(1000 + Math.floor(Math.random() * 500));
     }
   }
 

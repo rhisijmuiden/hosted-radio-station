@@ -279,6 +279,8 @@ export type ServerMessage =
   | { t: 'welcome'; nodeId: string; name: string; serverTime: string }
   | { t: 'plan'; plan: NodePlan }
   | { t: 'ping'; seq: number }
+  /** The main server restarts: reconnect soon. A proxy in between (Caddy) may keep the WebSocket open after the server closed it. */
+  | { t: 'restart' }
   | { t: 'update'; branch: string | null; commit: string | null }
   /**
    * An update of this node is coming: no new listeners are sent here, and the agent moves the ones it has over this

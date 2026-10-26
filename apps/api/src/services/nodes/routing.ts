@@ -32,6 +32,13 @@ export async function forgetStations(ctx: AppContext, stationIds: string[]) {
   return changed;
 }
 
+/** At start: takes stations that no longer exist out of the relay nodes' lists (deleted before 1.0.1 cleaned up). */
+export async function forgetMissingStations(ctx: AppContext) {
+  const known = new Set((await ctx.db.select({ id: schema.stations.id }).from(schema.stations)).map((s) => s.id));
+  const listed = (await ctx.db.select({ config: schema.nodes.config }).from(schema.nodes)).flatMap((n) => (Array.isArray(n.config.relayStations) ? n.config.relayStations : []));
+  return forgetStations(ctx, [...new Set(listed.filter((id) => !known.has(id)))]);
+}
+
 /** Scores this close to the best one count as equally good. */
 const NEAR = 0.1;
 

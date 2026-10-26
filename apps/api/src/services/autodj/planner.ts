@@ -5,8 +5,9 @@ import type { Db } from '../../db/index.js';
 import type { AppContext } from '../../lib/context.js';
 import { badRequest, notFound } from '../../lib/errors.js';
 import type { Station } from '../streaming/state.js';
-import { decide, skipItem, type ClockState } from '../scheduler/clock.js';
+import { anchorOf, decide, skipItem, type ClockState } from '../scheduler/clock.js';
 import { loadSchedule } from '../scheduler/runtime.js';
+import { hourStart } from '../scheduler/time.js';
 import { filePath, locationRoot, type MediaFile, type MediaSource } from './library.js';
 import { autodjSettings, type AutodjSettings } from './settings.js';
 
@@ -323,6 +324,50 @@ export async function nextTrack(
       return { uri: requestUri({ id: pick.item.id, queue: pick.item.queue }, pick.media, full, s), itemId: pick.item.id, cutAt: scheduled?.cutAt ?? null, skipped };
     }
     return null;
+  });
+}
+
+/**
+ * The clock or schedule changed while the player runs (issue #27). The player loads its next track when the one before
+ * starts, so a hard timed item that now falls before the playing track ends would wait for that loaded track and start
+ * late. Then the loaded track goes back into the queue and true is returned: the player must drop it and ask again, so
+ * the planner cues the item with a cut on its minute.
+ */
+export async function flushForClock(ctx: AppContext, stationId: string, now = Date.now()): Promise<boolean> {
+  return ctx.db.transaction(async (tx) => {
+    await lock(tx, stationId);
+    const [station] = await tx.select().from(schema.stations).where(eq(schema.stations.id, stationId));
+    if (!station) return false;
+    const schedule = await loadSchedule(tx, station);
+    if (!schedule.settings.enabled) return false;
+    const rows = await tx
+      .select({ item: schema.queueItems, duration: schema.mediaFiles.durationSeconds })
+      .from(schema.queueItems)
+      .innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.queueItems.mediaId))
+      .where(and(eq(schema.queueItems.stationId, stationId), inArray(schema.queueItems.state, ['cued', 'playing'])));
+    const playing = rows.find((r) => r.item.state === 'playing');
+    if (!playing?.item.startedAt || !rows.some((r) => r.item.state === 'cued')) return false;
+    const ends = playing.item.startedAt.getTime() + Math.max(0, (playing.duration ?? 0) - autodjSettings(station).crossfadeSeconds) * 1000;
+    const [row] = await tx.select().from(schema.autodjState).where(eq(schema.autodjState.stationId, stationId));
+    const h = hourStart(now, schedule.settings.timezone);
+    const needed = [
+      { hour: h, clock: schedule.clockAt(now) },
+      { hour: h + 3_600_000, clock: schedule.clockAt(h + 3_600_000) },
+    ].some(({ hour, clock }) =>
+      clock?.items.some((item, i) => {
+        const a = anchorOf(clock.items, i);
+        if (a === null || !item.hard) return false;
+        const time = hour + a * 60_000;
+        // Past already, or the playing track ends before it: the next request handles it as usual.
+        if (time <= now - 5000 || ends <= time + 1000) return false;
+        // The clock already played it this hour.
+        const started = row?.clockHour?.getTime() === hour && row.clockId === clock.id && (row.clockStep > i || (row.clockStep === i && row.clockDone > 0));
+        return !started;
+      }),
+    );
+    if (!needed) return false;
+    await tx.update(schema.queueItems).set({ state: 'queued', cuedAt: null }).where(and(eq(schema.queueItems.stationId, stationId), eq(schema.queueItems.state, 'cued')));
+    return true;
   });
 }
 

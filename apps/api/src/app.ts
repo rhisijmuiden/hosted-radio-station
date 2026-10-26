@@ -46,13 +46,14 @@ import { userRoutes } from './routes/users.js';
 import { NowPlayingHub } from './services/public/hub.js';
 import { NodeHub } from './services/nodes/hub.js';
 import { NodeUpdater } from './services/nodes/updates.js';
+import { forgetMissingStations } from './services/nodes/routing.js';
 import { listenRedirectRoutes, nodeAgentRoutes, nodeRoutes } from './routes/nodes.js';
 import { stationNodeAgentRoutes, stationPlacementRoutes, tenantStationNodeRoutes } from './routes/station-nodes.js';
 import { stationNodeInternalRoutes } from './routes/station-node-internal.js';
 import { StationTunnels } from './services/stationnode/hub.js';
 import { StationNodeLink } from './services/stationnode/link.js';
 import { registerStationProxy } from './services/stationnode/proxy.js';
-import { getVersionInfo } from './services/system.js';
+import { runningVersion } from './services/system.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -76,14 +77,26 @@ export async function buildApp(ctx: AppContext) {
 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
+  // A proxy (Cloudflare) can pass an empty POST on as a chunked request without a content type, which Fastify
+  // answers with 415. Such a request has no body: accept it. Anything with a body or an unknown type stays 415.
+  app.addContentTypeParser('*', { parseAs: 'buffer' }, (req, body, done) => {
+    if (!req.headers['content-type'] && (body as Buffer).length === 0) return done(null, undefined);
+    const err = new Error('Unsupported Media Type') as Error & { statusCode: number };
+    err.statusCode = 415;
+    done(err, undefined);
+  });
   app.decorate('ctx', ctx);
   const hub = new NowPlayingHub(ctx, app.log);
   app.decorate('nowPlaying', hub);
   hub.start();
   app.addHook('onClose', async () => hub.stop());
+  // Nodes still pointing at a station that is gone get their lists cleaned before their plans go out.
+  await forgetMissingStations(ctx).catch((err) => app.log.warn({ err }, 'cleaning up node station lists failed'));
   const nodeHub = new NodeHub(ctx, app.log);
   app.decorate('nodes', nodeHub);
   await nodeHub.start();
+  // Before @fastify/websocket closes the sockets (its own preClose comes later, it is registered later).
+  app.addHook('preClose', async () => nodeHub.announceRestart());
   app.addHook('onClose', async () => nodeHub.stop());
   const nodeUpdates = new NodeUpdater(ctx, nodeHub, app.log);
   app.decorate('nodeUpdates', nodeUpdates);
@@ -135,7 +148,8 @@ export async function buildApp(ctx: AppContext) {
     nameSpace: 'hrs-rl-',
   });
 
-  const { version } = await getVersionInfo(ctx);
+  // Read once now: the version this process runs (see runningVersion).
+  const { version } = await runningVersion(ctx);
   await app.register(fastifySwagger, {
     openapi: {
       info: {
