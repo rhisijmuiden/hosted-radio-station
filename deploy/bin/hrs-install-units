@@ -68,6 +68,12 @@ for unit in hosted-radio-api hosted-radio-streams; do
 done
 [[ $sandbox -eq 1 ]] || echo "Note: this container does not allow systemd sandboxing; running the services without it."
 
+systemctl daemon-reload
+systemctl enable --quiet hosted-radio-api.service hosted-radio-streams.service hosted-radio-update.path hosted-radio-proxy.path \
+  hosted-radio-backup.path hosted-radio-streams-apply.path hosted-radio-streams-apply.timer
+systemctl start hosted-radio-update.path hosted-radio-proxy.path hosted-radio-backup.path hosted-radio-streams-apply.path \
+  hosted-radio-streams-apply.timer
+
 # Caddyfiles written before phase 3 lack the listen routes of the stations: write them again from the stored setting.
 if grep -q 'Managed by Hosted Radio Station' /etc/caddy/Caddyfile 2>/dev/null && ! grep -q 'hosted-radio-streams.caddy' /etc/caddy/Caddyfile; then
   if proxy=$(/usr/local/bin/hrs get-setting proxy 2>/dev/null) && [[ -n "$proxy" ]]; then
@@ -76,9 +82,3 @@ if grep -q 'Managed by Hosted Radio Station' /etc/caddy/Caddyfile 2>/dev/null &&
     "$INSTALL_DIR/deploy/bin/hrs-proxy-apply" || echo "Warning: rewriting the web server configuration failed; apply it under Web server."
   fi
 fi
-
-systemctl daemon-reload
-systemctl enable --quiet hosted-radio-api.service hosted-radio-streams.service hosted-radio-update.path hosted-radio-proxy.path \
-  hosted-radio-backup.path hosted-radio-streams-apply.path hosted-radio-streams-apply.timer
-systemctl start hosted-radio-update.path hosted-radio-proxy.path hosted-radio-backup.path hosted-radio-streams-apply.path \
-  hosted-radio-streams-apply.timer
