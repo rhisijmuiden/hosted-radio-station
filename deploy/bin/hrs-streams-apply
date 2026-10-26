@@ -78,7 +78,8 @@ main() {
       log "Listen routes changed, reloading the web server"
       systemctl reload caddy >>"$LOG" 2>&1 || { log "Reloading Caddy failed"; problems=1; }
     else
-      log "Listen routes written; apply Settings → Web server once to activate them"
+      log "Listen routes written, but the web server configuration does not include them yet: apply it once under Web server"
+      problems=1
     fi
   fi
   rm -f "$tmp"
