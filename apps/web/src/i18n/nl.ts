@@ -20,7 +20,7 @@ export const nl: Translation = {
     noResults: 'Niets gevonden',
   },
   nav: {
-    hostedService: 'Hosted service',
+    hostedService: 'Hostingdienst',
     billingOverview: 'Overzicht',
     packages: 'Pakketten',
     invoices: 'Facturen',
