@@ -75,7 +75,7 @@ export const contactSchema = z.object({
   postcode: z.string().trim().max(20).default(''),
   city: z.string().trim().max(100).default(''),
   country: z.string().trim().toUpperCase().refine((v) => v === '' || /^[A-Z]{2}$/.test(v), 'Use a two-letter country code').default(''),
-  vatNumber: z.string().trim().toUpperCase().max(30).transform((v) => v.replace(/\s/g, '')).default(''),
+  vatNumber: z.string().trim().toUpperCase().max(30).transform((v) => v.replace(/[\s.-]/g, '')).default(''),
   reference: z.string().trim().max(100).default(''),
 });
 
@@ -712,9 +712,9 @@ export const billingRoutes: FastifyPluginAsyncZod = async (app) => {
     { schema: { tags: ['Webhooks'], summary: 'Send a "webhook.test" event now', params: idParam, response: { 200: deliveryOut } } },
     async (req) => {
       requireSuperadmin(req);
-      const [rows] = [await emitEvent(ctx, 'webhook.test', { message: 'Test from Hosted Radio Station' }, req.params.id)];
+      const rows = await emitEvent(ctx, 'webhook.test', { message: 'Test from Hosted Radio Station' }, req.params.id);
       if (!rows.length) throw badRequest('Switch the webhook on first');
-      await deliverDue(ctx, [rows[0]!.id]);
+      await rows.sent;
       const [d] = await ctx.db.select().from(schema.webhookDeliveries).where(eq(schema.webhookDeliveries.id, rows[0]!.id));
       return d!;
     },

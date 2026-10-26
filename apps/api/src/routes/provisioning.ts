@@ -114,7 +114,7 @@ export const provisioningRoutes: FastifyPluginAsyncZod = async (app) => {
           req.auditInfo.skip = true;
           // The stored answer is already JSON (dates as strings): send it as it is.
           return reply
-            .status(200)
+            .status(seen.statusCode === 200 ? 200 : 201)
             .header('idempotent-replayed', 'true')
             .type('application/json; charset=utf-8')
             .serializer((p: unknown) => JSON.stringify(p))
@@ -222,7 +222,7 @@ export const provisioningRoutes: FastifyPluginAsyncZod = async (app) => {
       if (idemKey) {
         await ctx.db
           .insert(schema.idempotencyKeys)
-          .values({ key: `signup:${idemKey}`, requestHash, statusCode: 201, response: JSON.parse(JSON.stringify(out)) })
+          .values({ key: `signup:${idemKey}`, requestHash, statusCode: 201, response: JSON.parse(JSON.stringify(signupOut.parse(out))) })
           .onConflictDoNothing();
       }
       req.auditInfo = { tenantId: tenant.id, targetType: 'tenant', targetId: tenant.id, details: { package: pkg.code, owner: user.email, via: auth.scope } };

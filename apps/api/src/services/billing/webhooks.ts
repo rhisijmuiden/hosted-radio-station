@@ -29,14 +29,14 @@ export function signPayload(secret: string, body: string, at = Math.floor(Date.n
 export async function emitEvent(ctx: AppContext, event: WebhookEvent, data: Record<string, unknown>, onlyWebhookId?: string) {
   const hooks = await ctx.db.select().from(schema.webhooks).where(eq(schema.webhooks.active, true));
   const targets = hooks.filter((h) => (onlyWebhookId ? h.id === onlyWebhookId : h.events.includes('*') || h.events.includes(event)));
-  if (!targets.length) return [];
+  if (!targets.length) return Object.assign([] as (typeof schema.webhookDeliveries.$inferSelect)[], { sent: Promise.resolve(undefined) });
   const createdAt = new Date().toISOString();
   const rows = await ctx.db
     .insert(schema.webhookDeliveries)
     .values(targets.map((h) => ({ webhookId: h.id, event, payload: { id: randomUUID(), event, createdAt, data } })))
     .returning();
-  void deliverDue(ctx, rows.map((r) => r.id)).catch(() => undefined);
-  return rows;
+  const sent = deliverDue(ctx, rows.map((r) => r.id)).catch(() => undefined);
+  return Object.assign(rows, { sent });
 }
 
 async function deliverOne(ctx: AppContext, delivery: typeof schema.webhookDeliveries.$inferSelect, hook: typeof schema.webhooks.$inferSelect) {
@@ -85,20 +85,38 @@ async function deliverOne(ctx: AppContext, delivery: typeof schema.webhookDelive
   return false;
 }
 
-/** Delivers the given deliveries, or every pending one that is due. */
+/** Delivers the given deliveries, or every pending one that is due. Each row is claimed first, so it goes out once. */
 export async function deliverDue(ctx: AppContext, ids?: string[]) {
-  const where = ids
+  const due = ids
     ? and(eq(schema.webhookDeliveries.state, 'pending'), inArray(schema.webhookDeliveries.id, ids))
     : and(eq(schema.webhookDeliveries.state, 'pending'), lte(schema.webhookDeliveries.nextAttemptAt, new Date()));
-  const rows = await ctx.db
-    .select({ d: schema.webhookDeliveries, h: schema.webhooks })
-    .from(schema.webhookDeliveries)
-    .innerJoin(schema.webhooks, eq(schema.webhooks.id, schema.webhookDeliveries.webhookId))
-    .where(where)
-    .limit(100);
+  const pick = ctx.db.select({ id: schema.webhookDeliveries.id }).from(schema.webhookDeliveries).where(due).limit(100);
+  const claimed = await ctx.db
+    .update(schema.webhookDeliveries)
+    .set({ state: 'sending', nextAttemptAt: new Date() })
+    .where(and(eq(schema.webhookDeliveries.state, 'pending'), inArray(schema.webhookDeliveries.id, pick)))
+    .returning();
+  if (!claimed.length) return { attempted: 0, delivered: 0 };
+  const hooks = await ctx.db
+    .select()
+    .from(schema.webhooks)
+    .where(inArray(schema.webhooks.id, [...new Set(claimed.map((d) => d.webhookId))]));
+  const byId = new Map(hooks.map((h) => [h.id, h]));
   let ok = 0;
-  for (const r of rows) if (await deliverOne(ctx, r.d, r.h)) ok++;
-  return { attempted: rows.length, delivered: ok };
+  for (const d of claimed) {
+    const hook = byId.get(d.webhookId);
+    if (!hook) continue;
+    if (await deliverOne(ctx, d, hook)) ok++;
+  }
+  return { attempted: claimed.length, delivered: ok };
+}
+
+/** Puts deliveries that were being sent when the server stopped back in the queue. */
+export async function requeueStuck(ctx: AppContext) {
+  await ctx.db
+    .update(schema.webhookDeliveries)
+    .set({ state: 'pending' })
+    .where(and(eq(schema.webhookDeliveries.state, 'sending'), lte(schema.webhookDeliveries.nextAttemptAt, new Date(Date.now() - 10 * 60_000))));
 }
 
 /** Removes delivered and failed deliveries older than 30 days. */

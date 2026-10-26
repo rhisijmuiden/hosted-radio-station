@@ -1165,7 +1165,7 @@ export interface Webhook {
 export interface WebhookDelivery {
   id: string;
   event: string;
-  state: 'pending' | 'delivered' | 'failed';
+  state: 'pending' | 'sending' | 'delivered' | 'failed';
   attempts: number;
   responseStatus: number | null;
   error: string | null;
