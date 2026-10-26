@@ -129,7 +129,6 @@ Phase 10: Hosted service: packages, subscriptions, invoices with VAT and online 
 | 12 | Station nodes | In progress |
 | 13 | Orchestrator as control plane | Planned |
 | 14 | Orchestrator redundancy | Planned |
-| 15 | Open source edition | Postponed |
 
 ## Phases
 
@@ -291,7 +290,11 @@ Optional high availability for the main server, switched on in the panel when yo
 - Nodes know both orchestrators and switch over by themselves. Because the orchestrator carries no audio (phase 13), streams keep running while it is unreachable.
 - Status, replication lag and a failover test in the panel and in the topology view; updates and backups coordinated across both servers.
 
-### Phase 15: Open source edition
+## Future ideas
+
+Not scheduled in a phase yet.
+
+### Open source edition
 
 A community edition on its own branch.
 
