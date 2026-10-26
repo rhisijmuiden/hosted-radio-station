@@ -6,12 +6,13 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { OutputConfig } from '../db/schema.js';
 import type { AppContext } from '../lib/context.js';
 import { CONTENT_TYPES, INTERNAL_AGENT } from '../services/streaming/icecast.js';
+import { splitTitle } from '../services/public/artwork.js';
 import type { Mount, Output } from '../services/streaming/state.js';
 import type { StationView } from './snapshot.js';
 
 export interface RelayState {
   id: string;
-  kind: 'transcode' | 'push' | 'monitor';
+  kind: 'transcode' | 'push' | 'monitor' | 'record';
   station: string;
   name: string;
   state: 'idle' | 'connecting' | 'connected' | 'error';
@@ -89,12 +90,22 @@ const codecArgs: Record<Mount['format'], (kbps: number) => string[]> = {
   vorbis: (k) => ['-c:a', 'libvorbis', '-b:a', `${k}k`, '-ar', '44100', '-f', 'ogg'],
 };
 
+const OGG_FORMATS: Mount['format'][] = ['opus', 'vorbis'];
+/** Raw audio between the decoder and the encoder of an Ogg mount. */
+const PCM = ['-f', 's16le', '-ar', '48000', '-ac', '2'];
+
 /** Makes a converted mount (another format or bitrate) from a source mount on the same Icecast server, with ffmpeg. */
 export class Transcoder extends Relay {
   readonly key: string;
   readonly input: { stationId: string; mount: string };
-  private child: ChildProcess | null = null;
+  /** The title playing now, so an Ogg encoder (re)started by this job carries it from its first page. */
+  titleOf?: () => string | undefined;
+  private children = new Set<ChildProcess>();
   private socket: net.Socket | null = null;
+  /** Ogg mounts only: the encoder feeding the mount now, and the title inside its stream. */
+  private encoder: { child: ChildProcess; title: string | undefined; ended: Promise<void> } | null = null;
+  /** Settles the running run(). */
+  private finish: (err?: Error) => void = () => undefined;
 
   constructor(
     private readonly view: StationView,
@@ -107,9 +118,30 @@ export class Transcoder extends Relay {
     this.input = { stationId: view.station.id, mount: source.path };
   }
 
+  /** The converted mount this job feeds. */
+  get output() {
+    return this.mount.path;
+  }
+
+  /**
+   * Icecast does not take title updates over HTTP for Ogg mounts: the title has to be inside the stream. Such mounts
+   * are made by a decoder and an encoder, and a new title starts a new encoder with that title in its comment header.
+   * Its stream follows the old one (a chained Ogg stream, which is how Ogg radio carries titles) at the same sample.
+   * Icecast 2.4 reads Vorbis titles back into its status; for Opus only the listeners' players see them.
+   * Returns false for other formats, whose title goes through /admin/metadata.
+   */
+  setTitle(title: string) {
+    if (!this.isOgg) return false;
+    if (this.encoder && this.encoder.title !== title && this.socket) this.startEncoder(this.socket, title);
+    return true;
+  }
+
+  private get isOgg() {
+    return OGG_FORMATS.includes(this.mount.format);
+  }
+
   protected async run() {
     const { station } = this.view;
-    const base = `127.0.0.1:${station.icecastPort}`;
     // ffmpeg writes to stdout and this process logs in on Icecast, so the source password never shows up in the
     // process list (ps, /proc/<pid>/cmdline) the way an icecast:// URL would.
     const target = await sourceConnection(station.icecastPort, this.mount.path, this.view.sourcePassword, {
@@ -119,45 +151,75 @@ export class Transcoder extends Relay {
       'ice-audio-info': `bitrate=${this.mount.bitrateKbps}`,
     });
     this.socket = target;
-    const args = [
-      '-nostdin', '-hide_banner', '-loglevel', 'error',
-      '-user_agent', `${INTERNAL_AGENT} transcoder`,
-      '-i', `http://${base}${this.source.path}`,
-      '-vn', '-map', '0:a:0', '-ac', '2',
-      ...codecArgs[this.mount.format](this.mount.bitrateKbps),
-      'pipe:1',
-    ];
+    const input = ['-nostdin', '-hide_banner', '-loglevel', 'error', '-user_agent', `${INTERNAL_AGENT} transcoder`, '-i', `http://127.0.0.1:${station.icecastPort}${this.source.path}`, '-vn', '-map', '0:a:0', '-ac', '2'];
     return new Promise<void>((resolve, reject) => {
-      const child = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
-      this.child = child;
-      let stderr = '';
-      child.stderr!.on('data', (d: Buffer) => {
-        stderr = (stderr + d.toString()).slice(-2000);
+      let settled = false;
+      const finish = (this.finish = (err?: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(up);
+        this.halt();
+        if (err) reject(err);
+        else resolve();
       });
-      child.stdout!.pipe(target);
-      target.on('error', () => child.kill('SIGTERM'));
-      target.on('close', () => child.kill('SIGTERM'));
+      const child = this.spawn(this.isOgg ? [...input, ...PCM, 'pipe:1'] : [...input, ...codecArgs[this.mount.format](this.mount.bitrateKbps), 'pipe:1'], finish);
+      if (this.isOgg) {
+        this.startEncoder(target, this.titleOf?.());
+        child.stdout!.on('data', (pcm: Buffer) => this.encoder?.child.stdin?.write(pcm));
+      } else child.stdout!.pipe(target);
+      target.on('error', () => finish(new Error('local server closed the connection')));
+      target.on('close', () => finish(new Error('local server closed the connection')));
       // ffmpeg prints nothing while it works; consider it connected after a few seconds without an exit.
       const up = setTimeout(() => this.set('connected'), 4000);
-      child.on('error', (err) => {
-        clearTimeout(up);
-        target.destroy();
-        reject(new Error((err as NodeJS.ErrnoException).code === 'ENOENT' ? 'ffmpeg is not installed' : err.message));
-      });
-      child.on('exit', (code) => {
-        clearTimeout(up);
-        this.child = null;
-        target.destroy();
-        const last = stderr.trim().split('\n').pop();
-        if (code === 0) resolve();
-        else reject(new Error(last ?? `ffmpeg stopped (${code})`));
-      });
     });
   }
 
+  /** Starts an ffmpeg process; it settles the run when it stops, unless it was retired on purpose. */
+  private spawn(args: string[], finish: (err?: Error) => void, stdin: 'ignore' | 'pipe' = 'ignore') {
+    const child = spawn('ffmpeg', args, { stdio: [stdin, 'pipe', 'pipe'] });
+    this.children.add(child);
+    let stderr = '';
+    child.stderr!.on('data', (d: Buffer) => {
+      stderr = (stderr + d.toString()).slice(-2000);
+    });
+    child.stdin?.on('error', () => undefined);
+    child.on('error', (err) => finish(new Error((err as NodeJS.ErrnoException).code === 'ENOENT' ? 'ffmpeg is not installed' : err.message)));
+    child.on('exit', (code) => {
+      const retired = !this.children.has(child);
+      this.children.delete(child);
+      if (retired) return;
+      const last = stderr.trim().split('\n').pop();
+      finish(code === 0 ? undefined : new Error(last ?? `ffmpeg stopped (${code})`));
+    });
+    return child;
+  }
+
+  /** Ogg: a new encoder takes the audio from now on; the old one flushes its last pages and ends its stream first. */
+  private startEncoder(target: net.Socket, title: string | undefined) {
+    const meta: string[] = [];
+    if (title) {
+      const { artist, title: song } = splitTitle(title);
+      for (const [k, v] of Object.entries({ title: song, ...(artist ? { artist } : {}) })) meta.push('-metadata', `${k}=${v}`, '-metadata:s:a:0', `${k}=${v}`);
+    }
+    const child = this.spawn(['-nostdin', '-hide_banner', '-loglevel', 'error', ...PCM, '-i', 'pipe:0', '-map_metadata', '-1', ...meta, ...codecArgs[this.mount.format](this.mount.bitrateKbps), 'pipe:1'], this.finish, 'pipe');
+    const previous = this.encoder;
+    const ended = new Promise<void>((resolve) => child.stdout!.once('close', () => resolve()));
+    this.encoder = { child, title, ended };
+    // Its output waits until the old stream has ended, so pages of the two streams never mix.
+    void (previous?.ended ?? Promise.resolve()).then(() => {
+      if (!target.destroyed) child.stdout!.pipe(target, { end: false });
+    });
+    if (previous) {
+      this.children.delete(previous.child);
+      previous.child.stdin?.end();
+    }
+  }
+
   protected halt() {
-    this.child?.kill('SIGTERM');
-    this.child = null;
+    for (const child of this.children) child.kill('SIGTERM');
+    this.children.clear();
+    if (this.encoder) this.encoder.child.kill('SIGTERM');
+    this.encoder = null;
     this.socket?.destroy();
     this.socket = null;
   }

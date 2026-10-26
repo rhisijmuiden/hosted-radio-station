@@ -1,0 +1,26 @@
+/* Listener app: the RHIS tokens come from styles.css; the station brings its own accent colour (--station). */
+:root {
+  --station: var(--koraal);
+  --on-station: var(--nacht);
+}
+html.embed,
+html.embed body,
+html.embed #root {
+  height: 100%;
+  overflow: hidden;
+}
+@keyframes eq {
+  0%,
+  100% {
+    transform: scaleY(0.25);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+[class*='animate-[eq'] {
+  transform-origin: bottom;
+}
+html.transparent body {
+  background: transparent;
+}

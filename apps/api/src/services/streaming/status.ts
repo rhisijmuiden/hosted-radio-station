@@ -19,7 +19,7 @@ export const workerStatusSchema = z.object({
   relays: z.array(
     z.object({
       id: z.string(),
-      kind: z.enum(['transcode', 'push', 'monitor']),
+      kind: z.enum(['transcode', 'push', 'monitor', 'record']),
       station: z.string(),
       name: z.string(),
       state: z.string(),

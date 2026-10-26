@@ -271,6 +271,10 @@ export const stations = pgTable(
     /** Size of the media folder, refreshed after uploads and every few hours. Counts towards the customer's storage limit. */
     storageBytes: bigint('storage_bytes', { mode: 'number' }).notNull().default(0),
     storageScannedAt: timestamp('storage_scanned_at', { withTimezone: true }),
+    /** Public page, widgets, requests, on-demand and recordings (phase 5). Read through publicPageSchema for defaults. */
+    publicPage: jsonb('public_page').$type<Record<string, unknown>>().notNull().default({}),
+    /** File name of the station logo under DATA_DIR/public/<station id>/. */
+    logoFile: text('logo_file'),
     createdAt: createdAt(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -535,3 +539,63 @@ export const songPlays = pgTable(
   },
   (t) => [index('song_plays_station_idx').on(t.stationId, t.startedAt)],
 );
+
+// Phase 5: public pages
+
+export const requestStatus = pgEnum('request_status', ['pending', 'accepted', 'played', 'rejected']);
+
+/** A song request from a listener on the public page. In the Distribution edition the DJ handles them by hand. */
+export const songRequests = pgTable(
+  'song_requests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    artist: text('artist').notNull(),
+    title: text('title').notNull(),
+    message: text('message').notNull().default(''),
+    requesterName: text('requester_name').notNull().default(''),
+    /** Keyed hash of the listener's address, to limit requests per listener without keeping the address. */
+    requesterHash: text('requester_hash').notNull(),
+    status: requestStatus('status').notNull().default('pending'),
+    handledBy: text('handled_by'),
+    handledAt: timestamp('handled_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index('song_requests_station_idx').on(t.stationId, t.createdAt), index('song_requests_hash_idx').on(t.stationId, t.requesterHash, t.createdAt)],
+);
+
+/**
+ * An on-demand item: a recorded live broadcast or a file put in the station's `ondemand` folder. Only published items
+ * are on the public page. `file` is relative to the station's media folder.
+ */
+export const onDemandItems = pgTable(
+  'ondemand_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    /** recording | upload */
+    source: text('source').notNull(),
+    file: text('file').notNull(),
+    title: text('title').notNull(),
+    description: text('description').notNull().default(''),
+    /** DJ of a recording. */
+    host: text('host').notNull().default(''),
+    liveSessionId: uuid('live_session_id').references(() => liveSessions.id, { onDelete: 'set null' }),
+    contentType: text('content_type').notNull(),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull().default(0),
+    durationSeconds: integer('duration_seconds'),
+    /** Null = still recording. */
+    recordedAt: timestamp('recorded_at', { withTimezone: true }),
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+    plays: integer('plays').notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('ondemand_items_file_idx').on(t.stationId, t.file), index('ondemand_items_station_idx').on(t.stationId, t.createdAt)],
+);
+
+/** Album art found for a title, cached under DATA_DIR/cache/artwork. `file` null = nothing found (tried again later). */
+export const artworkCache = pgTable('artwork_cache', {
+  key: text('key').primaryKey(),
+  file: text('file'),
+  fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
+});

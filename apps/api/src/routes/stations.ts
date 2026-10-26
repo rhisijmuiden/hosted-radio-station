@@ -212,7 +212,7 @@ function toOutputOut(o: Output): z.infer<typeof outputOut> {
 }
 
 /** Loads the station and checks the caller's role in its customer. */
-async function stationAccess(ctx: AppContext, req: FastifyRequest, stationId: string, minRole: Role) {
+export async function stationAccess(ctx: AppContext, req: FastifyRequest, stationId: string, minRole: Role) {
   const [row] = await ctx.db
     .select({ station: schema.stations, tenant: schema.tenants })
     .from(schema.stations)

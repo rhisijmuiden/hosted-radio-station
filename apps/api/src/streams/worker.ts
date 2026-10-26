@@ -5,10 +5,14 @@ import type pino from 'pino';
 import { schema } from '../db/index.js';
 import type { OutputStatus } from '../db/schema.js';
 import type { AppContext } from '../lib/context.js';
+import { NOWPLAYING_CHANNEL } from '../services/public/hub.js';
+import { finishStaleRecordings } from '../services/public/ondemand.js';
+import { publicSettings } from '../services/public/settings.js';
 import { fetchStats, internalReaders, killSource, updateMetadata, type MountStats } from '../services/streaming/icecast.js';
 import { workerStatusPath, type WorkerStatus } from '../services/streaming/status.js';
 import { ListenerCollector } from './collector.js';
 import { IngestGateway } from './gateway.js';
+import { Recorder } from './recorder.js';
 import { externalListeners, Pusher, Transcoder, type Relay } from './relays.js';
 import { loadSnapshot, type Snapshot, type StationView } from './snapshot.js';
 
@@ -30,6 +34,8 @@ export class StreamsWorker {
   private timers: NodeJS.Timeout[] = [];
   private reloading: Promise<void> | null = null;
   private readonly startedAt = new Date().toISOString();
+  /** Bytes stored per customer, refreshed with the stations (for the storage limit of recordings). */
+  private storageUsed = new Map<string, number>();
 
   constructor(
     private readonly ctx: AppContext,
@@ -37,6 +43,15 @@ export class StreamsWorker {
   ) {
     this.gateway = new IngestGateway(ctx, log as never);
     this.collector = new ListenerCollector(ctx, log, () => this.snap);
+    this.gateway.onBroadcast = (b) => {
+      this.reconcile();
+      this.notifyNowPlaying(b.stationId);
+    };
+  }
+
+  /** Tells the API that now playing of a station changed, so the live feeds of the public pages update right away. */
+  private notifyNowPlaying(stationId: string) {
+    void this.ctx.db.execute(sql`select pg_notify(${NOWPLAYING_CHANNEL}, ${stationId})`).catch(() => undefined);
   }
 
   async start() {
@@ -45,6 +60,7 @@ export class StreamsWorker {
       .update(schema.liveSessions)
       .set({ endedAt: new Date(), endReason: sql`coalesce(${schema.liveSessions.endReason}, 'restart')` })
       .where(isNull(schema.liveSessions.endedAt));
+    await finishStaleRecordings(this.ctx).catch((err) => this.log.warn({ err }, 'checking old recordings failed'));
     await this.reload();
     await this.collector.start();
     this.timers.push(setInterval(() => void this.tick().catch((err) => this.log.error({ err }, 'monitor failed')), 3000));
@@ -55,6 +71,7 @@ export class StreamsWorker {
   async stop() {
     for (const t of this.timers) clearInterval(t);
     for (const r of this.relays.values()) r.stop();
+    await Promise.all([...this.relays.values()].map((r) => (r instanceof Recorder ? r.finishing : null)));
     await this.collector.stop().catch(() => undefined);
     await this.gateway.close();
   }
@@ -64,6 +81,11 @@ export class StreamsWorker {
     this.reloading ??= (async () => {
       try {
         this.snap = await loadSnapshot(this.ctx);
+        const usage = await this.ctx.db
+          .select({ tenantId: schema.stations.tenantId, bytes: sql<string>`sum(${schema.stations.storageBytes})` })
+          .from(schema.stations)
+          .groupBy(schema.stations.tenantId);
+        this.storageUsed = new Map(usage.map((u) => [u.tenantId, Number(u.bytes ?? 0)]));
         await this.gateway.configure(this.snap);
         this.reconcile();
       } catch (err) {
@@ -93,6 +115,17 @@ export class StreamsWorker {
         const mount = view.mounts.find((x) => x.id === o.mountId);
         if (mount && live.has(mount.path)) wanted.set(`push:${o.id}`, new Pusher(this.ctx, view, o, mount, this.log as never));
       }
+      if (publicSettings(view.station).recording.enabled) {
+        const room = view.storageQuotaMb * 1024 * 1024 - (this.storageUsed.get(view.tenantId) ?? 0);
+        for (const b of this.gateway.broadcasts.values()) {
+          if (b.stationId !== view.station.id) continue;
+          const mount = view.mounts.find((m) => m.path === b.mountPath);
+          // A running recorder keeps its own budget; new ones need room left.
+          if (mount && live.has(mount.path) && (room > 0 || this.relays.has(`record:${b.sessionId}`))) {
+            wanted.set(`record:${b.sessionId}`, new Recorder(this.ctx, view, mount, b, Math.max(room, 0), this.log as never));
+          }
+        }
+      }
     }
     for (const [id, relay] of this.relays) {
       const next = wanted.get(id);
@@ -104,8 +137,11 @@ export class StreamsWorker {
     }
     for (const [id, relay] of wanted) {
       if (this.relays.has(id)) continue;
+      if (relay instanceof Transcoder) relay.titleOf = () => this.live.get(relay.input.stationId)?.get(relay.input.mount)?.title ?? undefined;
       relay.onState = (s) => {
         if (id.startsWith('push:')) void this.saveOutputStatus(id.slice(5), { state: s.state, message: s.message, since: s.since });
+        // A converted mount that (re)connects gets the title that is playing now, not only the next one.
+        if (relay instanceof Transcoder && s.state === 'connected') void this.titleForTranscode(relay);
       };
       this.relays.set(id, relay);
       relay.start();
@@ -136,15 +172,19 @@ export class StreamsWorker {
         }
         const before = this.live.get(view.station.id) ?? new Map<string, MountStats>();
         const now = new Map(stats.map((s) => [s.mount, s]));
-        if ([...now.keys()].sort().join() !== [...before.keys()].sort().join()) changed = true;
+        let moved = false;
+        if ([...now.keys()].sort().join() !== [...before.keys()].sort().join()) changed = moved = true;
         for (const s of stats) {
           const prev = before.get(s.mount);
+          if (s.title !== (prev?.title ?? null)) moved = true;
           if (s.title && s.title !== prev?.title) void this.forwardTitle(view, s.mount, s.title);
           this.enforceBitrate(view, s);
         }
         this.live.set(view.station.id, now);
         await this.countInternal(view, now);
         await this.collector.observe(view, now, this.internal[view.station.id] ?? {}).catch((err) => this.log.warn({ err }, 'statistics failed'));
+        // After the collector, so the new title already has its play with a start time.
+        if (moved) this.notifyNowPlaying(view.station.id);
       }),
     );
     if (changed) this.reconcile();
@@ -169,11 +209,22 @@ export class StreamsWorker {
     else delete this.internal[view.station.id];
   }
 
+  private async titleForTranscode(relay: Transcoder) {
+    const view = this.snap?.stations.get(relay.input.stationId);
+    const title = this.live.get(relay.input.stationId)?.get(relay.input.mount)?.title ?? undefined;
+    if (!view || !title || relay.setTitle(title)) return;
+    await updateMetadata({ port: view.station.icecastPort, adminPassword: view.adminPassword }, relay.output, title).catch(() => undefined);
+  }
+
   /** A new title on a mount goes to the mounts converted from it and to the external servers it feeds. */
   private async forwardTitle(view: StationView, mountPath: string, title: string) {
     const mount = view.mounts.find((m) => m.path === mountPath);
     if (!mount) return;
-    for (const t of view.mounts.filter((m) => m.kind === 'transcode' && m.sourceMountId === mount.id && (m.format === 'mp3' || m.format === 'aac'))) {
+    // Ogg (Opus, Vorbis) mounts carry the title inside the stream, so their transcoder takes it; others go through
+    // Icecast's /admin/metadata.
+    for (const t of view.mounts.filter((m) => m.kind === 'transcode' && m.sourceMountId === mount.id)) {
+      const relay = this.relays.get(`transcode:${t.id}`);
+      if (relay instanceof Transcoder && relay.setTitle(title)) continue;
       await updateMetadata({ port: view.station.icecastPort, adminPassword: view.adminPassword }, t.path, title).catch(() => undefined);
     }
     for (const o of view.outputs.filter((o) => o.mountId === mount.id)) {

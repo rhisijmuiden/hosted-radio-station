@@ -10,6 +10,7 @@ export interface StationView {
   /** Station and customer are both active. */
   active: boolean;
   maxBitrateKbps: number;
+  storageQuotaMb: number;
   adminPassword: string;
   sourcePassword: string;
   mounts: Mount[];
@@ -46,6 +47,7 @@ export async function loadSnapshot(ctx: AppContext): Promise<Snapshot> {
       tenantId: r.s.tenantId,
       active: r.s.enabled && r.active,
       maxBitrateKbps: r.limits.maxBitrateKbps,
+      storageQuotaMb: r.limits.storageQuotaMb,
       adminPassword: ctx.box.decrypt(r.s.icecastAdminPassword),
       sourcePassword: ctx.box.decrypt(r.s.icecastSourcePassword),
       mounts: [],
