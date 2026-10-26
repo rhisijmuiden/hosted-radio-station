@@ -23,6 +23,7 @@ import { StationsPage } from './pages/Stations';
 import { StatisticsPage } from './pages/Statistics';
 import { StatisticsSettingsPage } from './pages/StatisticsSettings';
 import { StreamingPage } from './pages/Streaming';
+import { StudioLinkPage, StudioPage } from './pages/Studio';
 import { TopologyPage } from './pages/Topology';
 import { UpdatesPage } from './pages/Updates';
 import { UsersPage } from './pages/Users';
@@ -38,7 +39,7 @@ function RequireAuth({ admin, children }: { admin?: boolean; children: React.Rea
       </div>
     );
   }
-  if (me.isError || !me.data) return <Navigate to={`/login?next=${encodeURIComponent(location.pathname)}`} replace />;
+  if (me.isError || !me.data) return <Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />;
   if (admin && !isAdmin(me.data)) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
@@ -66,6 +67,8 @@ export function App() {
           <Route path="nodes" element={<NodesPage />} />
           <Route path="nodes/:id" element={<NodeDetailPage />} />
           <Route path="topology" element={<TopologyPage />} />
+          <Route path="studio" element={<StudioPage />} />
+          <Route path="link" element={<StudioLinkPage />} />
           <Route path="settings/statistics" element={<RequireAuth admin><StatisticsSettingsPage /></RequireAuth>} />
           <Route path="users" element={<RequireAuth admin><UsersPage /></RequireAuth>} />
           <Route path="api-keys" element={<ApiKeysPage />} />

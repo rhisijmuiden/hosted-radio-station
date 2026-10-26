@@ -21,6 +21,7 @@ import {
   RadioTower,
   Server,
   Network,
+  MonitorSmartphone,
   type LucideIcon,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -165,6 +166,7 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
     { to: '/stations', label: t('nav.stations'), icon: Radio },
     ...(admin || me.memberships.some((m) => m.role !== 'dj') ? [{ to: '/statistics', label: t('nav.statistics'), icon: BarChart3 }] : []),
     { to: '/customers', label: admin ? t('nav.customers') : t('nav.myCustomers'), icon: Building2 },
+    { to: '/studio', label: t('nav.studio'), icon: MonitorSmartphone },
   ];
   const infra: NavItem[] =
     admin || me.memberships.some((m) => m.role !== 'dj')

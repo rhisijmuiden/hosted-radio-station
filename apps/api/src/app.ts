@@ -35,6 +35,7 @@ import { settingsRoutes } from './routes/settings.js';
 import { ssoAdminRoutes, ssoAuthRoutes } from './routes/sso.js';
 import { stationRoutes } from './routes/stations.js';
 import { statsRoutes } from './routes/stats.js';
+import { studioRoutes } from './routes/studio.js';
 import { systemRoutes } from './routes/system.js';
 import { tenantRoutes } from './routes/tenants.js';
 import { userRoutes } from './routes/users.js';
@@ -138,6 +139,7 @@ export async function buildApp(ctx: AppContext) {
   await app.register(schedulerRoutes, { prefix: '/api/stations' });
   await app.register(tenantStreamingRoutes, { prefix: '/api/tenants' });
   await app.register(statsRoutes, { prefix: '/api/stats' });
+  await app.register(studioRoutes, { prefix: '/api/studio' });
   await app.register(publicRoutes, { prefix: '/api/public' });
   await app.register(listenRedirectRoutes, { prefix: '/api/public' });
   await app.register(nodeAgentRoutes, { prefix: '/api/nodes' });
