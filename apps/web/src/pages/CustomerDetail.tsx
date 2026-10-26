@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Send, Trash2, UserPlus } from 'lucide-react';
+import { ArrowLeft, Plus, Send, Trash2, UserPlus } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useParams } from 'react-router';
@@ -7,11 +7,13 @@ import { toast } from 'sonner';
 import { Avatar, Badge, Button, Card, CardHeader, Dialog, Field, Input, PageHeader, Select, Spinner, Switch, Table } from '../components/ui';
 import { AuditLogView } from '../components/AuditLog';
 import { SsoCard } from '../components/SsoCard';
-import { api, ApiError, type Member, type Role, type Tenant } from '../lib/api';
+import { DomainsCard, UsageCard } from '../components/DomainsCard';
+import { api, ApiError, type Member, type Role, type StationListItem, type Tenant } from '../lib/api';
 import { isAdmin, useMailConfigured, useMe } from '../lib/auth';
 import { formatDate } from '../lib/format';
 import { LimitsFields, PlanPicker } from './Customers';
 import { PlanBadge } from './Dashboard';
+import { CreateStationDialog, StationsTable } from './Stations';
 
 const ROLES: Role[] = ['owner', 'manager', 'dj'];
 const rank: Record<Role | 'superadmin', number> = { dj: 1, manager: 2, owner: 3, superadmin: 4 };
@@ -268,6 +270,37 @@ function MembersCard({ tenantId, myRole }: { tenantId: string; myRole: Role | 's
   );
 }
 
+function StationsCard({ tenantId, canCreate }: { tenantId: string; canCreate: boolean }) {
+  const { t } = useTranslation();
+  const [creating, setCreating] = useState(false);
+  const stations = useQuery({ queryKey: ['stations', tenantId], queryFn: () => api<StationListItem[]>(`/stations?tenantId=${tenantId}`), refetchInterval: 15_000 });
+  return (
+    <Card>
+      <CardHeader
+        title={t('nav.stations')}
+        description={t('stations.customerSubtitle')}
+        actions={
+          canCreate && (
+            <Button size="sm" variant="primary" onClick={() => setCreating(true)}>
+              <Plus className="size-4" /> {t('stations.create')}
+            </Button>
+          )
+        }
+      />
+      {stations.isPending ? (
+        <div className="grid place-items-center py-10">
+          <Spinner />
+        </div>
+      ) : stations.data?.length ? (
+        <StationsTable stations={stations.data} showCustomer={false} />
+      ) : (
+        <p className="px-5 py-8 text-center text-[13px] text-muted">{t('stations.empty')}</p>
+      )}
+      <CreateStationDialog open={creating} onClose={() => setCreating(false)} tenantId={tenantId} />
+    </Card>
+  );
+}
+
 export function CustomerDetailPage() {
   const { id } = useParams();
   const { t } = useTranslation();
@@ -315,9 +348,16 @@ export function CustomerDetailPage() {
           </span>
         }
       />
+      <div className="mb-4">
+        <StationsCard tenantId={c.id} canCreate={c.active && rank[myRole] >= rank.owner} />
+      </div>
       <div className="grid gap-4 xl:grid-cols-[1fr_1.2fr]">
-        <DetailsCard tenant={c} admin={admin} canEdit={rank[myRole] >= rank.owner} />
         <div className="flex flex-col gap-4">
+          <DetailsCard tenant={c} admin={admin} canEdit={rank[myRole] >= rank.owner} />
+          <UsageCard tenantId={c.id} />
+        </div>
+        <div className="flex flex-col gap-4">
+          {rank[myRole] >= rank.manager && <DomainsCard tenantId={c.id} canEdit={rank[myRole] >= rank.owner} admin={admin} />}
           {rank[myRole] >= rank.manager && <MembersCard tenantId={c.id} myRole={myRole} />}
           {rank[myRole] >= rank.owner && <SsoCard tenantId={c.id} admin={admin} />}
           {admin && (

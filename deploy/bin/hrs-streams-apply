@@ -1,0 +1,154 @@
+#!/usr/bin/env bash
+# Brings the system in line with the stations in the panel. Started as root by hosted-radio-streams-apply.path when
+# the API drops run/streams-request.json, and every hour by the timer. Reads run/streams-state.json (written by the
+# API) and:
+#   - starts, stops and restarts the Icecast server of each station (hosted-radio-icecast@<id>)
+#   - writes the web server routes /listen/<station>/<mount> and reloads Caddy
+#   - fetches certificates for encoder TLS and FTPS from Caddy into /var/lib/hosted-radio/certs
+#   - restarts or stops file upload (SFTPGo) when its settings changed
+# Everything in the state file ends up in root-run configuration, so it is validated strictly. Safe to run repeatedly.
+set -Eeuo pipefail
+
+main() {
+  local DATA=/var/lib/hosted-radio RUN=/var/lib/hosted-radio/run
+  local STATE="$RUN/streams-state.json" APPLIED="$RUN/streams-applied.json" STATUS="$RUN/streams-apply-status.json" LOG="$RUN/streams.log"
+  local ROUTES=/etc/caddy/hosted-radio-streams.caddy CERTS="$DATA/certs" CADDY_CERTS=/var/lib/caddy/.local/share/caddy/certificates
+  local id
+  id=$(jq -r '.id // empty' "$RUN/streams-request.json" 2>/dev/null | tr -cd 'A-Za-z0-9-' | cut -c1-64 || true)
+  rm -f "$RUN/streams-request.json"
+  [[ -f "$STATE" ]] || exit 0
+
+  : > "$LOG"; chown hosted-radio: "$LOG"
+  log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*" >> "$LOG"; }
+  status() {
+    jq -n --arg id "$id" --arg state "$1" --arg message "$2" --arg t "$(date -Is)" \
+      '{id:$id, state:$state, message:$message, startedAt:$t} + (if $state == "running" then {} else {finishedAt:$t} end)' > "$STATUS.tmp"
+    chown hosted-radio: "$STATUS.tmp"; mv "$STATUS.tmp" "$STATUS"
+  }
+  status running "Applying"
+  local problems=0
+  local uuid_re='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' slug_re='^[a-z0-9]([a-z0-9-]{0,46}[a-z0-9])?$'
+  local host_re='^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$' mount_re='^/[A-Za-z0-9][A-Za-z0-9._-]{0,62}$'
+  valid_port() { [[ "$1" =~ ^[0-9]{1,5}$ && $1 -ge 1024 && $1 -le 65535 ]]; }
+
+  # 1. Icecast servers.
+  local sid port enabled prev_port unit want=()
+  while IFS=$'\t' read -r sid port enabled; do
+    [[ "$sid" =~ $uuid_re ]] && valid_port "$port" || { log "Skipping invalid station entry"; problems=1; continue; }
+    unit="hosted-radio-icecast@$sid.service"
+    if [[ "$enabled" == true && -f "$DATA/stations/$sid/icecast.xml" ]]; then
+      want+=("$sid")
+      prev_port=$(jq -r --arg id "$sid" '.ports[$id] // empty' "$APPLIED" 2>/dev/null || true)
+      if ! systemctl is-active --quiet "$unit"; then
+        log "Starting the server of station $sid (port $port)"
+        systemctl enable --quiet "$unit" 2>>"$LOG" || true
+        systemctl start "$unit" >>"$LOG" 2>&1 || { log "Station $sid did not start: $(journalctl -u "$unit" -n 3 --no-pager -o cat 2>/dev/null | tr '\n' ' ')"; problems=1; }
+      elif [[ -n "$prev_port" && "$prev_port" != "$port" ]]; then
+        log "Restarting station $sid for its new port $port"
+        systemctl restart "$unit" >>"$LOG" 2>&1 || problems=1
+      fi
+    elif systemctl is-enabled --quiet "$unit" 2>/dev/null || systemctl is-active --quiet "$unit"; then
+      log "Stopping the server of station $sid"
+      systemctl disable --now --quiet "$unit" >>"$LOG" 2>&1 || true
+    fi
+  done < <(jq -r '.stations[] | [.id, (.port|tostring), (.enabled|tostring)] | @tsv' "$STATE")
+  # Servers of deleted stations.
+  local running
+  while read -r unit; do
+    [[ -z "$unit" ]] && continue
+    running=${unit#hosted-radio-icecast@}; running=${running%.service}
+    if [[ " ${want[*]-} " != *" $running "* ]] && { systemctl is-active --quiet "$unit" || systemctl is-enabled --quiet "$unit" 2>/dev/null; }; then
+      log "Stopping the server of station $running, which is no longer active"
+      systemctl disable --now --quiet "$unit" >>"$LOG" 2>&1 || true
+    fi
+  done < <(systemctl list-units --all --plain --no-legend 'hosted-radio-icecast@*.service' 2>/dev/null | awk '{print $1}'; \
+           systemctl list-unit-files --plain --no-legend 'hosted-radio-icecast@*.service' 2>/dev/null | awk '$1 ~ /@.+\.service/ {print $1}')
+
+  # 2. Web server routes for listeners.
+  local tmp slug m
+  tmp=$(mktemp)
+  echo "# Managed by Hosted Radio Station (stations in the panel). Manual changes are overwritten." > "$tmp"
+  while IFS=$'\t' read -r slug port m; do
+    [[ "$slug" =~ $slug_re && "$m" =~ $mount_re ]] && valid_port "$port" || { log "Skipping invalid listen route"; problems=1; continue; }
+    printf 'handle /listen/%s%s {\n\trewrite * %s\n\treverse_proxy 127.0.0.1:%s {\n\t\tflush_interval -1\n\t}\n}\n' "$slug" "$m" "$m" "$port" >> "$tmp"
+  done < <(jq -r '.listen[] | .slug as $s | .port as $p | .mounts[] | [$s, ($p|tostring), .] | @tsv' "$STATE")
+  if ! cmp -s "$tmp" "$ROUTES"; then
+    install -m 0644 "$tmp" "$ROUTES"
+    if grep -q 'hosted-radio-streams.caddy' /etc/caddy/Caddyfile 2>/dev/null; then
+      log "Listen routes changed, reloading the web server"
+      systemctl reload caddy >>"$LOG" 2>&1 || { log "Reloading Caddy failed"; problems=1; }
+    else
+      log "Listen routes written; apply Settings → Web server once to activate them"
+    fi
+  fi
+  rm -f "$tmp"
+
+  # 3. Certificates for TLS encoders and FTPS, from Caddy's store. Missing ones are requested by asking Caddy for the
+  #    name once (on-demand TLS; Caddy only issues for names the API approves).
+  install -d -m 0750 -o hosted-radio -g hosted-radio "$CERTS"
+  local h crt changed_default=0
+  copy_cert() { # copy_cert <host> <target name>
+    local src
+    src=$(find "$CADDY_CERTS" -type f -path "*/$1/$1.crt" -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2-)
+    [[ -n "$src" && -f "${src%.crt}.key" ]] || return 1
+    if ! cmp -s "$src" "$CERTS/$2.crt"; then
+      install -m 0640 -o hosted-radio -g hosted-radio "$src" "$CERTS/$2.crt"
+      install -m 0600 -o hosted-radio -g hosted-radio "${src%.crt}.key" "$CERTS/$2.key"
+      log "Certificate for $1 updated"
+      [[ "$2" == default ]] && changed_default=1
+    fi
+    return 0
+  }
+  while read -r h; do
+    [[ -z "$h" ]] && continue
+    [[ "$h" =~ $host_re ]] || { log "Skipping invalid host name"; continue; }
+    if ! copy_cert "$h" "$h"; then
+      log "Requesting a certificate for $h"
+      curl -sk --max-time 90 --resolve "$h:443:127.0.0.1" "https://$h/" -o /dev/null 2>>"$LOG" || true
+      copy_cert "$h" "$h" || log "No certificate for $h yet (does its DNS point to this server?)"
+    fi
+  done < <(jq -r '.certHosts[]?' "$STATE")
+  local dh
+  dh=$(jq -r '.defaultCertHost // empty' "$STATE")
+  if [[ -n "$dh" && "$dh" =~ $host_re ]] && copy_cert "$dh" default; then
+    :
+  elif [[ ! -f "$CERTS/default.crt" ]] || ! openssl x509 -checkend 86400 -noout -in "$CERTS/default.crt" >/dev/null 2>&1; then
+    # No domain (yet): a self-signed certificate keeps TLS working for encoders that accept it.
+    log "Creating a self-signed certificate for encoders and FTPS"
+    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 825 -subj "/CN=$(hostname -f 2>/dev/null || hostname)" \
+      -keyout "$CERTS/default.key" -out "$CERTS/default.crt" >/dev/null 2>&1
+    chown hosted-radio:hosted-radio "$CERTS/default.key" "$CERTS/default.crt"
+    chmod 0600 "$CERTS/default.key"; chmod 0640 "$CERTS/default.crt"
+    changed_default=1
+  fi
+
+  # 4. File upload.
+  local sftp_on sftp_hash prev_hash
+  sftp_on=$(jq -r '.sftpgo.enabled' "$STATE")
+  sftp_hash=$(jq -r '.sftpgo.hash' "$STATE" | tr -cd 'a-f0-9')
+  prev_hash=$(jq -r '.sftpgo // empty' "$APPLIED" 2>/dev/null || true)
+  if [[ "$sftp_on" == true && -x /usr/bin/sftpgo && -f "$DATA/sftpgo/sftpgo.env" ]]; then
+    if ! systemctl is-active --quiet hosted-radio-sftpgo; then
+      log "Starting file upload (SFTPGo)"
+      systemctl enable --quiet hosted-radio-sftpgo 2>>"$LOG" || true
+      systemctl start hosted-radio-sftpgo >>"$LOG" 2>&1 || { log "SFTPGo did not start, see: journalctl -u hosted-radio-sftpgo"; problems=1; }
+    elif [[ "$sftp_hash" != "$prev_hash" ]]; then
+      log "Upload settings changed, restarting SFTPGo"
+      systemctl restart hosted-radio-sftpgo >>"$LOG" 2>&1 || problems=1
+    elif [[ $changed_default -eq 1 ]]; then
+      systemctl reload hosted-radio-sftpgo >>"$LOG" 2>&1 || true
+    fi
+  elif systemctl is-active --quiet hosted-radio-sftpgo; then
+    log "File upload is switched off, stopping SFTPGo"
+    systemctl disable --now --quiet hosted-radio-sftpgo >>"$LOG" 2>&1 || true
+  fi
+
+  # Remember what was applied, to detect port and upload changes next time.
+  jq '{ports: (.stations | map({(.id): .port}) | add // {}), sftpgo: .sftpgo.hash}' "$STATE" > "$APPLIED.tmp" && mv "$APPLIED.tmp" "$APPLIED"
+  local n
+  n=$(jq '[.stations[] | select(.enabled)] | length' "$STATE")
+  if [[ $problems -eq 0 ]]; then status succeeded "$n station server(s) running."; else status failed "Some changes failed, see the log."; fi
+  log "Done."
+}
+
+main "$@"; exit $?

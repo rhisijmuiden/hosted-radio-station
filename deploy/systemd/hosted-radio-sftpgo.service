@@ -1,0 +1,22 @@
+[Unit]
+Description=Hosted Radio Station file upload (SFTPGo: SFTP, SCP, FTP, FTPS)
+After=network.target hosted-radio-api.service
+
+[Service]
+Type=simple
+User=hosted-radio
+Group=hosted-radio
+WorkingDirectory=/var/lib/hosted-radio/sftpgo
+# Written by the API (Settings → Streaming). Log-ins are checked by the API, SFTPGo keeps no users of its own.
+EnvironmentFile=/var/lib/hosted-radio/sftpgo/sftpgo.env
+ExecStart=/usr/bin/sftpgo serve
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=always
+RestartSec=5
+KillMode=mixed
+NoNewPrivileges=true
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+LimitNOFILE=16384
+
+[Install]
+WantedBy=multi-user.target

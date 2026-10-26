@@ -39,25 +39,41 @@ main() {
   done
   [[ "$mode" == builtin || -n "$trusted" ]] || invalid "External mode needs at least one trusted proxy"
 
-  local upstream='reverse_proxy 127.0.0.1:8000 {
-		flush_interval -1
+  # Every site serves the same routes: listener streams per station (written by hrs-streams-apply), then the panel
+  # and API. Internal hooks are for local services only.
+  local routes='	handle /api/internal/* {
+		respond 404
+	}
+	import /etc/caddy/hosted-radio-streams.caddy
+	handle {
+		encode zstd gzip
+		reverse_proxy 127.0.0.1:8000 {
+			flush_interval -1
+		}
 	}'
   local tmp public_url
   tmp=$(mktemp)
+  [[ -f /etc/caddy/hosted-radio-streams.caddy ]] || echo "# Listen routes, written by hrs-streams-apply." > /etc/caddy/hosted-radio-streams.caddy
   {
     echo "# Managed by Hosted Radio Station (Settings → Web server). Manual changes are overwritten."
     if [[ "$mode" == builtin ]]; then
       echo "{"
       [[ -n "$email" ]] && echo "	email $email"
+      # Customer domains (stream.<domain>, src.<domain>) get a certificate on first use, but only when the API
+      # knows them as verified.
+      printf '\ton_demand_tls {\n\t\task http://127.0.0.1:8000/api/internal/tls-ask\n\t}\n'
       echo "}"
+      printf '\n(hrs) {\n%s\n}\n' "$routes"
       if [[ -n "$domain" ]]; then
-        printf '\n%s {\n\tencode zstd gzip\n\t%s\n}\n' "$domain" "$upstream"
+        printf '\n%s {\n\timport hrs\n}\n' "$domain"
       fi
+      printf '\nhttps:// {\n\ttls {\n\t\ton_demand\n\t}\n\timport hrs\n}\n'
       # Plain HTTP on the IP address keeps the panel reachable while DNS is not ready (and is all there is without a domain).
-      printf '\nhttp:// {\n\tencode zstd gzip\n\t%s\n}\n' "$upstream"
+      printf '\nhttp:// {\n\timport hrs\n}\n'
     else
       printf '{\n\tauto_https off\n\tservers {\n\t\ttrusted_proxies static %s\n\t\tclient_ip_headers X-Forwarded-For X-Real-IP\n\t}\n}\n' "$trusted"
-      printf '\n:%s {\n\tencode zstd gzip\n\t%s\n}\n' "$port" "$upstream"
+      printf '\n(hrs) {\n%s\n}\n' "$routes"
+      printf '\n:%s {\n\timport hrs\n}\n' "$port"
     fi
   } > "$tmp"
   log "New configuration:"; cat "$tmp" >> "$LOG"

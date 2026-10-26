@@ -72,12 +72,52 @@ export const auditSettingsSchema = z.object({
   retentionDays: z.number().int().min(0).max(3650).default(365),
 });
 
+const portSchema = z.number().int().min(1024).max(65535);
+
+/** Encoder ingest, port ranges and file upload (SFTP/FTP). */
+export const streamingSchema = z
+  .object({
+    /** Encoders deliver with TLS here (Icecast protocol), e.g. src.example.com:8443. */
+    ingestTlsPort: portSchema.default(8443),
+    /** Encoders without TLS (Icecast protocol). 0 = off. */
+    ingestPlainPort: z.union([z.literal(0), portSchema]).default(8010),
+    /** Internal Icecast servers, one port per station, bound to 127.0.0.1. */
+    icecastPortFrom: portSchema.default(18000),
+    icecastPortTo: portSchema.default(18999),
+    /** Public ports for legacy Shoutcast v1 encoders: each station that uses it gets port and port + 1. */
+    legacyPortFrom: portSchema.default(8100),
+    legacyPortTo: portSchema.default(8199),
+    /** Host name customers point their CNAME records at. Empty = the domain under Web server. */
+    cnameTarget: z.string().trim().toLowerCase().refine((v) => v === '' || domainRe.test(v), 'Invalid domain name').default(''),
+    /** Public IP addresses of this server, accepted as A/AAAA records instead of a CNAME. */
+    publicIps: z.array(z.string().trim().regex(ipOrCidrRe, 'Invalid IP address')).max(16).default([]),
+    sftp: z
+      .object({ enabled: z.boolean().default(true), port: portSchema.default(2022) })
+      .default({ enabled: true, port: 2022 }),
+    ftp: z
+      .object({
+        enabled: z.boolean().default(true),
+        port: z.number().int().min(1).max(65535).default(21),
+        /** Only allow FTP with TLS (explicit FTPS). */
+        requireTls: z.boolean().default(false),
+        passivePortFrom: portSchema.default(50000),
+        passivePortTo: portSchema.default(50100),
+        /** Public IP sent to FTP clients in passive mode, needed behind NAT. Empty = automatic. */
+        passiveIp: z.string().trim().refine((v) => v === '' || ipOrCidrRe.test(v), 'Invalid IP address').default(''),
+      })
+      .default({ enabled: true, port: 21, requireTls: false, passivePortFrom: 50000, passivePortTo: 50100, passiveIp: '' }),
+  })
+  .refine((v) => v.icecastPortFrom < v.icecastPortTo && v.legacyPortFrom < v.legacyPortTo, 'A port range must start below its end')
+  .refine((v) => v.ftp.passivePortFrom < v.ftp.passivePortTo, 'The passive port range must start below its end');
+export type StreamingSettings = z.infer<typeof streamingSchema>;
+
 const registry = {
   smtp: { schema: smtpSchema, secrets: ['password', 'dkim.privateKey'] },
   proxy: { schema: proxySchema, secrets: [] },
   update: { schema: updateSchema, secrets: [] },
   backup: { schema: backupSettingsSchema, secrets: [] },
   audit: { schema: auditSettingsSchema, secrets: [] },
+  streaming: { schema: streamingSchema, secrets: [] },
 } as const;
 type Registry = typeof registry;
 export type SettingKey = keyof Registry;

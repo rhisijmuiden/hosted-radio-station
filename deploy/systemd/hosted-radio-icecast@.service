@@ -1,0 +1,18 @@
+[Unit]
+Description=Hosted Radio Station Icecast server for station %i
+After=network.target
+# Started, stopped and restarted by hrs-streams-apply; the API reloads the configuration with SIGHUP.
+
+[Service]
+Type=simple
+User=hosted-radio
+Group=hosted-radio
+ExecStart=/usr/bin/icecast2 -c /var/lib/hosted-radio/stations/%i/icecast.xml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

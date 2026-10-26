@@ -29,7 +29,7 @@ main() {
     mv "$STATUS.tmp" "$STATUS"
   }
 
-  local from="" to="" started prev_branch
+  local from="" to="" started prev_branch streams_restarted=0
   started=$(date -Is)
   trap 'status failed "Unexpected error (line $LINENO), see the log."; log "Failed at line $LINENO"' ERR
   if [[ ! "$id" =~ ^[A-Za-z0-9-]{1,64}$ || ! "$channel" =~ ^(main|test)$ ]]; then
@@ -47,6 +47,7 @@ main() {
     git checkout -q -f -B "$prev_branch" "$from" >> "$LOG" 2>&1 || true
     "$INSTALL_DIR/deploy/bin/hrs-build" >> "$LOG" 2>&1 || log "Rebuilding the previous version failed too."
     systemctl restart hosted-radio-api || true
+    [[ $streams_restarted -eq 1 ]] && { systemctl restart hosted-radio-streams || true; }
     status failed "$1 The previous version was restored."
     log "Rolled back. $1"
     exit 1
@@ -75,6 +76,12 @@ main() {
     sleep 1
   done
   [[ $ok -eq 1 ]] || rollback "The new version did not start."
+  # The streams service carries live broadcasts; only restart it when its code changed.
+  if ! systemctl is-active --quiet hosted-radio-streams || ! git diff --quiet "$from" "$to" -- apps/api/src apps/api/package.json pnpm-lock.yaml; then
+    log "Restarting the streams service (live encoders reconnect on their own)…"
+    streams_restarted=1
+    systemctl restart hosted-radio-streams || rollback "The streams service did not start."
+  fi
   status succeeded "Updated to $(git log -1 --format='%h' HEAD) on $channel."
   log "Done."
 }

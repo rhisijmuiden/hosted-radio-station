@@ -37,7 +37,15 @@ export function backupPaths(ctx: AppContext) {
   const d = ctx.config.DATA_DIR;
   return {
     paths: [d, ...configPaths(ctx).filter((p) => existsSync(p))],
-    excludes: [join(d, 'run'), join(d, 'restore-staging'), join(d, '.cache'), join(d, 'cache')],
+    excludes: [
+      join(d, 'run'),
+      join(d, 'restore-staging'),
+      join(d, '.cache'),
+      join(d, 'cache'),
+      // Icecast logs and process ids of the stations; the configuration is rewritten from the database anyway.
+      join(d, 'stations', '*', 'logs'),
+      join(d, 'stations', '*', 'icecast.pid'),
+    ],
   };
 }
 

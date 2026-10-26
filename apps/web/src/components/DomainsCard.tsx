@@ -1,0 +1,231 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { CheckCircle2, Globe, Plus, RefreshCw, Trash2, XCircle } from 'lucide-react';
+import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
+import { api, ApiError, type TenantDomain, type TenantUsage } from '../lib/api';
+import { formatBytes, formatRelative } from '../lib/format';
+import { Badge, Button, Card, CardHeader, CopyField, Dialog, Field, Input, Spinner, Switch } from './ui';
+
+function AddDomainDialog({ tenantId, open, onClose }: { tenantId: string; open: boolean; onClose: () => void }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [domain, setDomain] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const add = useMutation({
+    mutationFn: () => api<TenantDomain>(`/tenants/${tenantId}/domains`, { method: 'POST', body: { domain } }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['domains', tenantId] });
+      setDomain('');
+      onClose();
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : String(err)),
+  });
+  const d = domain.trim().toLowerCase() || 'example.com';
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title={t('domains.add')}
+      description={t('domains.addHint')}
+      footer={
+        <>
+          <Button onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="primary" type="submit" form="add-domain" loading={add.isPending}>
+            {t('domains.add')}
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="add-domain"
+        className="flex flex-col gap-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setError(null);
+          add.mutate();
+        }}
+      >
+        <Field label={t('domains.domain')} hint={t('domains.domainHint', { panel: `stream.${d}`, ingest: `src.${d}` })}>
+          <Input required autoFocus value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="harder.fm" />
+        </Field>
+        {error && <p className="rounded-md bg-offline/10 px-3 py-2 text-[13px] text-offline">{error}</p>}
+      </form>
+    </Dialog>
+  );
+}
+
+const statusTone = { verified: 'online', pending: 'warning', failed: 'offline' } as const;
+
+/** A customer's own domains: stream.<domain> for the panel, pages and streams, src.<domain> for encoders. */
+export function DomainsCard({ tenantId, canEdit, admin }: { tenantId: string; canEdit: boolean; admin: boolean }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [adding, setAdding] = useState(false);
+  const domains = useQuery({ queryKey: ['domains', tenantId], queryFn: () => api<{ items: TenantDomain[]; target: { cname: string; ips: string[] } }>(`/tenants/${tenantId}/domains`) });
+  const refresh = () => void qc.invalidateQueries({ queryKey: ['domains', tenantId] });
+  const verify = useMutation({
+    mutationFn: (d: TenantDomain) => api<TenantDomain>(`/tenants/${tenantId}/domains/${d.id}/verify`, { method: 'POST' }),
+    onSuccess: (d) => {
+      refresh();
+      if (d.status === 'verified') toast.success(t('domains.verifiedToast', { domain: d.domain }));
+      else toast.error(t('domains.notYet'));
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+  const manual = useMutation({
+    mutationFn: ({ d, value }: { d: TenantDomain; value: boolean }) => api(`/tenants/${tenantId}/domains/${d.id}`, { method: 'PATCH', body: { verifiedManually: value } }),
+    onSuccess: refresh,
+    onError: (err) => toast.error((err as Error).message),
+  });
+  const remove = useMutation({
+    mutationFn: (d: TenantDomain) => api(`/tenants/${tenantId}/domains/${d.id}`, { method: 'DELETE' }),
+    onSuccess: refresh,
+    onError: (err) => toast.error((err as Error).message),
+  });
+  const target = domains.data?.target;
+
+  return (
+    <Card>
+      <CardHeader
+        title={t('domains.title')}
+        description={t('domains.subtitle')}
+        actions={
+          canEdit && (
+            <Button size="sm" variant="primary" onClick={() => setAdding(true)}>
+              <Plus className="size-4" /> {t('domains.add')}
+            </Button>
+          )
+        }
+      />
+      {domains.isPending ? (
+        <div className="grid place-items-center py-10">
+          <Spinner />
+        </div>
+      ) : (
+        <div className="flex flex-col divide-y divide-line">
+          {!domains.data?.items.length && (
+            <div className="flex flex-col items-center px-6 py-8 text-center">
+              <Globe className="mb-2 size-6 text-muted" />
+              <p className="max-w-sm text-[13px] text-muted">{t('domains.empty')}</p>
+            </div>
+          )}
+          {domains.data?.items.map((d) => (
+            <div key={d.id} className="flex flex-col gap-3 px-5 py-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold">{d.domain}</span>
+                  <Badge tone={statusTone[d.status]} dot>
+                    {t(`domains.status.${d.status}`)}
+                  </Badge>
+                  {d.verifiedManually && <Badge>{t('domains.manual')}</Badge>}
+                </div>
+                <div className="flex gap-1">
+                  <Button size="sm" variant="ghost" title={t('domains.check')} loading={verify.isPending && verify.variables?.id === d.id} onClick={() => verify.mutate(d)}>
+                    <RefreshCw className="size-4 text-muted" />
+                  </Button>
+                  {canEdit && (
+                    <Button size="sm" variant="ghost" title={t('common.delete')} onClick={() => confirm(t('domains.deleteConfirm', { domain: d.domain })) && remove.mutate(d)}>
+                      <Trash2 className="size-4 text-offline" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {[
+                  { host: d.panelHost, label: t('domains.panelHost') },
+                  { host: d.ingestHost, label: t('domains.ingestHost') },
+                ].map(({ host, label }) => {
+                  const check = d.checks.find((c) => c.host === host);
+                  return (
+                    <div key={host} className="rounded-md border border-line px-3 py-2">
+                      <div className="flex items-center gap-1.5 text-[11px] text-muted">
+                        {check?.ok ? <CheckCircle2 className="size-3.5 text-online" /> : <XCircle className="size-3.5 text-offline" />}
+                        {label}
+                      </div>
+                      <div className="truncate font-mono text-[13px]">{host}</div>
+                      {check && !check.ok && (
+                        <div className="mt-0.5 text-[11px] text-muted">
+                          {check.found.length ? t('domains.pointsTo', { found: check.found.join(', ') }) : t('domains.noRecord')}
+                          {check.error === 'no_target' && ` · ${t('domains.noTarget')}`}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted">
+                <span>{d.checkedAt ? t('domains.checked', { when: formatRelative(d.checkedAt) }) : ''}</span>
+                {admin && (
+                  <div className="w-full sm:w-auto">
+                    <Switch
+                      checked={d.verifiedManually}
+                      disabled={manual.isPending}
+                      onChange={(value) => manual.mutate({ d, value })}
+                      label={<span className="text-xs">{t('domains.manualLabel')}</span>}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+          {target && (
+            <div className="flex flex-col gap-2 bg-chip/40 px-5 py-4">
+              <div className="text-[13px] font-semibold">{t('domains.dnsTitle')}</div>
+              <p className="text-xs text-muted">{t('domains.dnsHint')}</p>
+              {target.cname && <CopyField label={t('domains.cnameTarget')} value={target.cname} />}
+              {!!target.ips.length && <CopyField label={t('domains.orIps')} value={target.ips.join(', ')} />}
+              {!target.cname && !target.ips.length && <p className="text-xs text-warning">{admin ? t('domains.noTargetAdmin') : t('domains.noTarget')}</p>}
+            </div>
+          )}
+        </div>
+      )}
+      <AddDomainDialog tenantId={tenantId} open={adding} onClose={() => setAdding(false)} />
+    </Card>
+  );
+}
+
+function Meter({ label, used, limit, format = String }: { label: string; used: number; limit: number; format?: (n: number) => string }) {
+  const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
+  const tone = pct >= 100 ? 'bg-offline' : pct >= 85 ? 'bg-warning' : 'bg-koraal';
+  return (
+    <div>
+      <div className="mb-1.5 flex items-baseline justify-between gap-2 text-[13px]">
+        <span className="font-semibold">{label}</span>
+        <span className="tabular-nums text-muted">
+          {format(used)} / {format(limit)}
+        </span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-chip">
+        <div className={`h-full rounded-full ${tone}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+/** How much of its limits a customer uses: stations, listeners handed out to stations, storage. */
+export function UsageCard({ tenantId }: { tenantId: string }) {
+  const { t } = useTranslation();
+  const usage = useQuery({ queryKey: ['usage', tenantId], queryFn: () => api<TenantUsage>(`/tenants/${tenantId}/usage`), refetchInterval: 30_000 });
+  const u = usage.data;
+  return (
+    <Card>
+      <CardHeader title={t('usage.title')} description={t('usage.subtitle')} />
+      {!u ? (
+        <div className="grid place-items-center py-10">
+          <Spinner />
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4 p-5">
+          <Meter label={t('limits.maxStations')} used={u.stations.used} limit={u.stations.limit} />
+          <Meter label={t('usage.listenersAllocated')} used={u.listeners.allocated} limit={u.listeners.limit} />
+          <Meter label={t('usage.storage')} used={u.storage.usedBytes} limit={u.storage.limitBytes} format={formatBytes} />
+          <div className="flex flex-wrap gap-x-6 gap-y-1 text-[13px] text-muted">
+            <span>{t('usage.listenersNow', { count: u.listeners.now })}</span>
+            <span>{t('usage.bitrate', { kbps: u.bitrate.limit })}</span>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}

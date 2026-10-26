@@ -19,11 +19,11 @@ case "${1:-}" in
     jq -r '"Result: \(.state) \(.message // "")"' "$RUN_DIR/update-status.json"
     ;;
   status)
-    systemctl --no-pager --lines=0 status hosted-radio-api caddy postgresql 2>/dev/null | grep -E '●|Active:' || true
+    systemctl --no-pager --lines=0 status hosted-radio-api hosted-radio-streams hosted-radio-sftpgo 'hosted-radio-icecast@*' caddy postgresql 2>/dev/null | grep -E '●|Active:' || true
     git -c safe.directory="$INSTALL_DIR" -C "$INSTALL_DIR" log -1 --format='Version: %h (%cd) on branch '"$(git -c safe.directory="$INSTALL_DIR" -C "$INSTALL_DIR" rev-parse --abbrev-ref HEAD)" --date=short
     ;;
   logs)
-    exec journalctl -u hosted-radio-api -f
+    exec journalctl -u hosted-radio-api -u hosted-radio-streams -u hosted-radio-sftpgo -f
     ;;
   backup)
     # Backups and restores run as root, like the systemd unit, so every file can be read and written back.
@@ -40,7 +40,7 @@ case "${1:-}" in
 Hosted Radio Station
 
   hrs status                        Service status and installed version
-  hrs logs                          Follow the API log
+  hrs logs                          Follow the API, streams and upload logs
   hrs update [main|test]            Install the latest version (optionally switch channel)
   hrs create-admin --email <e> --name <n> [--password <p>]
   hrs reset-password --email <e> [--password <p>]

@@ -245,3 +245,192 @@ export interface BackupSettings {
   notifyLanguage: 'en' | 'nl';
   onedriveClientId: string;
 }
+
+export const SECRET_MASK = '••••••••';
+
+export type Edition = 'distribution' | 'station';
+export type AudioFormat = 'mp3' | 'aac' | 'opus' | 'vorbis';
+export type OutputType = 'local' | 'icecast' | 'shoutcast1' | 'shoutcast2';
+
+export interface Station {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  name: string;
+  slug: string;
+  edition: Edition;
+  description: string;
+  genre: string;
+  website: string;
+  enabled: boolean;
+  maxListeners: number;
+  legacyPort: number | null;
+  legacyMountId: string | null;
+  storageBytes: number;
+  createdAt: string;
+}
+export interface StationListItem extends Station {
+  onAir: boolean;
+  listeners: number | null;
+  mountCount: number;
+}
+export interface Mount {
+  id: string;
+  path: string;
+  name: string;
+  kind: 'source' | 'transcode';
+  sourceMountId: string | null;
+  format: AudioFormat;
+  bitrateKbps: number;
+  isPublic: boolean;
+  isDefault: boolean;
+  fallbackMountId: string | null;
+  maxListeners: number | null;
+  sortOrder: number;
+}
+export interface OutputConfig {
+  host?: string;
+  port?: number;
+  tls?: boolean;
+  mount?: string;
+  username?: string;
+  password?: string;
+  streamId?: number;
+  adminPassword?: string;
+  push?: boolean;
+  publicUrl?: string;
+}
+export interface OutputStatus {
+  state: 'idle' | 'connecting' | 'connected' | 'error';
+  message?: string;
+  listeners?: number | null;
+  since?: string;
+  checkedAt?: string;
+}
+export interface Output {
+  id: string;
+  type: OutputType;
+  name: string;
+  enabled: boolean;
+  mountId: string | null;
+  config: OutputConfig;
+  status: OutputStatus | null;
+}
+export interface ConnectionInfo {
+  ingestHost: string;
+  tls: { port: number; available: boolean };
+  plain: { port: number } | null;
+  legacy: { port: number; sourcePort: number; mount: string | null } | null;
+  listenBase: string;
+  mounts: { id: string; path: string; encoderMount: string; listenUrl: string | null }[];
+  upload: { host: string; sftpPort: number | null; ftpPort: number | null; ftpRequireTls: boolean };
+}
+export interface StationDetail extends Station {
+  tenantPlan: Plan;
+  mounts: Mount[];
+  outputs: Output[];
+  connection: ConnectionInfo;
+  role: Role | 'superadmin';
+}
+export interface LiveSession {
+  id: string;
+  mountId: string | null;
+  mountPath: string;
+  accountId: string | null;
+  accountName: string;
+  via: string;
+  ip: string | null;
+  userAgent: string | null;
+  bitrateKbps: number | null;
+  startedAt: string;
+  endedAt: string | null;
+  bytesIn: number;
+  endReason: string | null;
+}
+export interface StationStatus {
+  running: boolean;
+  mounts: {
+    id: string | null;
+    path: string;
+    live: boolean;
+    listeners: number;
+    title: string | null;
+    bitrateKbps: number | null;
+    contentType: string | null;
+    streamStart: string | null;
+  }[];
+  listeners: number;
+  live: LiveSession[];
+  outputs: Pick<Output, 'id' | 'name' | 'type' | 'enabled' | 'status'>[];
+}
+export interface StationAccount {
+  id: string;
+  username: string;
+  displayName: string;
+  userId: string | null;
+  userName: string | null;
+  canBroadcast: boolean;
+  canUpload: boolean;
+  mountIds: string[];
+  enabled: boolean;
+  lastUsedAt: string | null;
+  createdAt: string;
+  uploadLogin: string;
+  /** Only when it was generated. */
+  password?: string;
+}
+
+export interface DomainCheck {
+  host: string;
+  ok: boolean;
+  found: string[];
+  error?: string;
+}
+export interface TenantDomain {
+  id: string;
+  domain: string;
+  panelHost: string;
+  ingestHost: string;
+  status: 'pending' | 'verified' | 'failed';
+  verifiedManually: boolean;
+  checks: DomainCheck[];
+  checkedAt: string | null;
+  verifiedAt: string | null;
+  createdAt: string;
+}
+export interface TenantUsage {
+  stations: { used: number; limit: number };
+  listeners: { allocated: number; now: number; limit: number };
+  bitrate: { limit: number };
+  storage: { usedBytes: number; limitBytes: number };
+}
+
+export interface StreamingSettings {
+  ingestTlsPort: number;
+  ingestPlainPort: number;
+  icecastPortFrom: number;
+  icecastPortTo: number;
+  legacyPortFrom: number;
+  legacyPortTo: number;
+  cnameTarget: string;
+  publicIps: string[];
+  sftp: { enabled: boolean; port: number };
+  ftp: { enabled: boolean; port: number; requireTls: boolean; passivePortFrom: number; passivePortTo: number; passiveIp: string };
+}
+interface PortState {
+  port: number;
+  ok: boolean;
+  error?: string;
+}
+export interface StreamsStatus {
+  worker: {
+    alive: boolean;
+    pid: number;
+    startedAt: string;
+    updatedAt: string;
+    ingest: { tls: PortState | null; plain: PortState | null; legacy: (PortState & { station: string })[]; certificates: string[] };
+    relays: { id: string; kind: 'transcode' | 'push' | 'monitor'; station: string; name: string; state: string; message?: string; since?: string }[];
+    encoders: number;
+  } | null;
+  apply: { id: string | null; state: string; message?: string; startedAt?: string; finishedAt?: string; log: string } | null;
+}

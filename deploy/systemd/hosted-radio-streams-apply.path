@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for station changes from the Hosted Radio Station admin panel
+
+[Path]
+PathExists=/var/lib/hosted-radio/run/streams-request.json
+Unit=hosted-radio-streams-apply.service
+
+[Install]
+WantedBy=multi-user.target
