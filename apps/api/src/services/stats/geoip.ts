@@ -51,19 +51,22 @@ const isPrivate = (ip: string) =>
 export class GeoIp {
   private city: Reader<CityResponse> | null = null;
   private asn: Reader<AsnResponse> | null = null;
-  private loadedMtime = 0;
+  private loaded = '';
   private checkedAt = 0;
 
   constructor(private readonly ctx: AppContext) {}
 
+  /** Checks the files at most every 15 seconds (two stat calls), so a fresh download is used right away. */
   async refresh(force = false) {
-    if (!force && Date.now() - this.checkedAt < 10 * 60_000) return;
+    if (!force && Date.now() - this.checkedAt < 15_000) return;
     this.checkedAt = Date.now();
     const f = files(this.ctx);
-    const mtime = await stat(f.city).then((s) => s.mtimeMs).catch(() => 0);
-    if (mtime === this.loadedMtime) return;
-    this.loadedMtime = mtime;
-    this.city = mtime ? new Reader<CityResponse>(await readFile(f.city)) : null;
+    const mtime = (path: string) => stat(path).then((s) => s.mtimeMs).catch(() => 0);
+    const [cityMtime, asnMtime] = await Promise.all([mtime(f.city), mtime(f.asn)]);
+    const key = `${cityMtime}:${asnMtime}`;
+    if (key === this.loaded) return;
+    this.loaded = key;
+    this.city = cityMtime ? new Reader<CityResponse>(await readFile(f.city)) : null;
     this.asn = await readFile(f.asn).then((b) => new Reader<AsnResponse>(b)).catch(() => null);
   }
 

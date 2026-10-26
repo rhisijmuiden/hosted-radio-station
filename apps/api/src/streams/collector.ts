@@ -153,6 +153,7 @@ export class ListenerCollector {
     const key = `${view.station.id}:${s.key}`;
     if (this.open.has(key)) return;
     const settings = this.settings ?? (await getSetting(this.ctx, 'statistics'));
+    if (s.ip) await this.geo.refresh().catch(() => undefined);
     const geo = this.geo.lookup(s.ip);
     const client = classifyClient(s.userAgent);
     const isLocal = !s.ip || s.ip === '127.0.0.1' || s.ip === '::1';
