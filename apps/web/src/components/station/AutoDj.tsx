@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { api, type AutodjSettings, type AutodjView, type MediaFile, type QueueName, type QueueRow, type StationDetail } from '../../lib/api';
 import { formatSeconds } from '../../lib/format';
+import { paint } from './Clocks';
 import { Badge, Button, Card, CardHeader, Dialog, EmptyState, Field, Input, Segmented, Select, Spinner, Switch } from '../ui';
 
 export function useAutodj(stationId: string) {
@@ -26,8 +27,10 @@ function useElapsed(since: string | null) {
 function OriginBadge({ row }: { row: QueueRow }) {
   const { t } = useTranslation();
   if (row.origin === 'request') return <Badge tone="accent">{t('autodj.origin.request')}</Badge>;
+  if (row.origin === 'clock') return <Badge tone="accent">{row.label ?? t('autodj.origin.clock')}</Badge>;
   if (row.origin === 'manual') return <Badge tone="neutral">{row.addedBy ? t('autodj.origin.manualBy', { name: row.addedBy }) : t('autodj.origin.manual')}</Badge>;
-  return row.playlistName ? <span className="truncate text-[11px] text-muted">{row.playlistName}</span> : null;
+  const name = row.label ?? row.playlistName;
+  return name ? <span className="truncate text-[11px] text-muted">{name}</span> : null;
 }
 
 function NowPlaying({ station, view, canSkip }: { station: StationDetail; view: AutodjView; canSkip: boolean }) {
@@ -74,7 +77,13 @@ function NowPlaying({ station, view, canSkip }: { station: StationDetail; view: 
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">{t('autodj.nowPlaying')}</span>
             {state}
-            {np && <Badge tone="neutral">{np.queue.toUpperCase()}</Badge>}
+            {np && (np.origin === 'clock' ? <OriginBadge row={np} /> : <Badge tone="neutral">{np.queue.toUpperCase()}</Badge>)}
+            {view.schedule.enabled && (view.schedule.entry || view.schedule.clock) && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-chip px-2.5 py-0.5 text-[11px] font-semibold">
+                <i className="size-2 rounded-full" style={{ background: view.schedule.clock ? paint(view.schedule.clock.color) : 'var(--koraal)' }} />
+                {[view.schedule.entry?.name, view.schedule.clock?.name ?? t('autodj.queuesOnly')].filter(Boolean).join(' · ')}
+              </span>
+            )}
           </div>
           {np ? (
             <>

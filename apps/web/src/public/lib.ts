@@ -40,7 +40,16 @@ export interface NowPlaying {
   history: (Song & { playedAt: string })[];
   requests: { enabled: boolean; open: boolean; message: string; library: boolean };
   onDemand: { enabled: boolean };
+  schedule: { enabled: boolean; show: Show | null };
   updatedAt: string;
+}
+export interface Show {
+  name: string;
+  description: string;
+  live: boolean;
+  djs: string[];
+  start: string;
+  end: string;
 }
 export interface OnDemandItem {
   id: string;

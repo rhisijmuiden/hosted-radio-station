@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { schema } from '../../db/index.js';
 import type { AppContext } from '../../lib/context.js';
 import { libraryRequests } from '../autodj/requests.js';
+import { publicShows, scheduleIsPublic, type PublicShow } from '../scheduler/public.js';
 import { CONTENT_TYPES } from '../streaming/icecast.js';
 import { connectionInfo } from '../streaming/info.js';
 import { stationStats, type Mount, type Station } from '../streaming/state.js';
@@ -39,6 +40,8 @@ export interface NowPlaying {
   history: (Song & { playedAt: string })[];
   requests: { enabled: boolean; open: boolean; message: string; library: boolean };
   onDemand: { enabled: boolean };
+  /** The station's schedule (phase 7): the block or show on air now, when it is public. */
+  schedule: { enabled: boolean; show: PublicShow | null };
   updatedAt: string;
 }
 
@@ -180,6 +183,7 @@ export async function buildNowPlaying(ctx: AppContext, station: PublicStation, a
     history: s.showHistory ? await recentlyPlayed(ctx, artwork, station, base, Math.min(s.historyCount, 10), [...new Set([playMount, ...heardMounts(mounts, source)].filter((p): p is string => !!p))]) : [],
     requests: { enabled: s.requests.enabled, open: requestsOpen, message: s.requests.message, library: libraryRequests(station) },
     onDemand: { enabled: s.onDemand.enabled },
+    schedule: scheduleIsPublic(station) ? { enabled: true, show: (await publicShows(ctx, station, 1)).onAir } : { enabled: false, show: null },
     updatedAt: new Date().toISOString(),
   };
 }

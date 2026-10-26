@@ -5,6 +5,8 @@ import type { Db } from '../../db/index.js';
 import type { AppContext } from '../../lib/context.js';
 import { badRequest, notFound } from '../../lib/errors.js';
 import type { Station } from '../streaming/state.js';
+import { decide, skipItem, type ClockState } from '../scheduler/clock.js';
+import { loadSchedule } from '../scheduler/runtime.js';
 import { filePath, locationRoot, type MediaFile, type MediaSource } from './library.js';
 import { autodjSettings, type AutodjSettings } from './settings.js';
 
@@ -72,12 +74,14 @@ export function inPlaylist(p: Pick<Playlist, 'id' | 'folders'>): SQL {
  * One track for a queue: from the playlist when given, else from the whole library. The separation rules are relaxed
  * step by step (first the artist, then the track) when nothing else is left; a track already queued is never picked.
  */
-async function pickTrack(tx: Tx, station: Station, s: AutodjSettings, playlist: Playlist | null): Promise<MediaFile | null> {
+async function pickTrack(tx: Tx, station: Station, s: AutodjSettings, playlist: Playlist | null, opts: { clock?: boolean } = {}): Promise<MediaFile | null> {
   const mf = schema.mediaFiles;
   const now = Date.now();
   const trackSince = new Date(now - s.trackSeparationMinutes * 60_000).toISOString();
   const artistSince = new Date(now - s.artistSeparationMinutes * 60_000).toISOString();
   const queued = sql`${mf.id} not in (select media_id from ${schema.queueItems} where station_id = ${station.id})`;
+  // Last resort for clock items: a track that is only waiting in a queue is taken out of it.
+  const loaded = sql`${mf.id} not in (select media_id from ${schema.queueItems} where station_id = ${station.id} and state <> 'queued')`;
   const recentArtists = sql`lower(${mf.artist}) not in (
     select lower(artist) from ${mf} where station_id = ${station.id} and artist <> '' and last_played_at > ${artistSince}::timestamptz
     union select lower(m.artist) from ${schema.queueItems} q join ${mf} m on m.id = q.media_id where q.station_id = ${station.id} and m.artist <> '')`;
@@ -87,13 +91,14 @@ async function pickTrack(tx: Tx, station: Station, s: AutodjSettings, playlist: 
       : playlist?.order === 'random'
         ? [sql`random()`]
         : [sql`${mf.lastPlayedAt} asc nulls first`, sql`random()`];
-  for (const level of [0, 1, 2]) {
-    const where = [eq(mf.stationId, station.id), eq(mf.enabled, true), queued];
+  for (const level of opts.clock ? [0, 1, 2, 3] : [0, 1, 2]) {
+    const where = [eq(mf.stationId, station.id), eq(mf.enabled, true), level < 3 ? queued : loaded];
     if (playlist) where.push(inPlaylist(playlist));
     if (level < 2 && s.trackSeparationMinutes > 0) where.push(sql`(${mf.lastPlayedAt} is null or ${mf.lastPlayedAt} < ${trackSince}::timestamptz)`);
     if (level < 1 && s.artistSeparationMinutes > 0) where.push(sql`(${mf.artist} = '' or ${recentArtists})`);
     const [row] = await tx.select().from(mf).where(and(...where)).orderBy(...order).limit(1);
     if (row) {
+      if (level === 3) await tx.delete(schema.queueItems).where(and(eq(schema.queueItems.stationId, station.id), eq(schema.queueItems.mediaId, row.id), eq(schema.queueItems.state, 'queued')));
       if (playlist?.order === 'sequential') await tx.update(schema.playlists).set({ cursor: `${row.location}:${row.path}` }).where(eq(schema.playlists.id, playlist.id));
       return row;
     }
@@ -130,7 +135,10 @@ async function afterRequests(tx: Tx, stationId: string, queue: Queue) {
 
 /** Tops up the queues that are filled from playlists to the configured depth. */
 async function refill(tx: Tx, station: Station, s: AutodjSettings) {
-  const lists = await tx.select().from(schema.playlists).where(and(eq(schema.playlists.stationId, station.id), eq(schema.playlists.enabled, true)));
+  const lists = await tx
+    .select()
+    .from(schema.playlists)
+    .where(and(eq(schema.playlists.stationId, station.id), eq(schema.playlists.enabled, true), eq(schema.playlists.rotation, true)));
   for (const queue of ['q1', 'q2'] as const) {
     if (!s.fill[queue]) continue;
     const [c] = await tx
@@ -178,11 +186,93 @@ export function mediaPath(ctx: AppContext, media: MediaFile, sources: Map<string
   }
 }
 
+/** What the next track comes from under the hour clock; null = the queues as usual. */
+interface ClockPick {
+  item: typeof schema.queueItems.$inferSelect;
+  media: MediaFile;
+  cutAt: number | null;
+}
+
 /**
- * The player asks for its next track: top up the queues, choose the queue by the rule, take its first track and mark it
- * cued. Missing files are dropped from the queue. Returns null when the library has nothing to play.
+ * When the station runs a schedule: asks the hour clock what plays next and puts a clock item or a track of the
+ * clock's playlist on top of Q1, loaded right away. Returns null when the queues play (rotation), as without a clock.
+ * The clock's progress is stored as it goes, so an item whose playlist is empty is skipped.
  */
-export async function nextTrack(ctx: AppContext, stationId: string): Promise<{ uri: string; itemId: string } | null> {
+async function clockPick(tx: Tx, station: Station, s: AutodjSettings, musicSeconds: number, skipped: string[]): Promise<ClockPick | null> {
+  const schedule = await loadSchedule(tx, station);
+  if (!schedule.settings.enabled) return null;
+  const now = Date.now();
+  // The track that starts now (loaded last) ends when the next one starts.
+  const [loading] = await tx
+    .select({ item: schema.queueItems, duration: schema.mediaFiles.durationSeconds })
+    .from(schema.queueItems)
+    .innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.queueItems.mediaId))
+    .where(and(eq(schema.queueItems.stationId, station.id), inArray(schema.queueItems.state, ['cued', 'playing'])))
+    .orderBy(desc(schema.queueItems.cuedAt))
+    .limit(1);
+  const base = loading?.item.startedAt?.getTime() ?? now;
+  const at = Math.max(now, base + Math.max(0, (loading?.duration ?? 0) - s.crossfadeSeconds) * 1000);
+  const [row] = await tx.select().from(schema.autodjState).where(eq(schema.autodjState.stationId, station.id));
+  let state: ClockState = { hour: row?.clockHour?.getTime() ?? null, clockId: row?.clockId ?? null, step: row?.clockStep ?? 0, done: row?.clockDone ?? 0 };
+  const save = (st: ClockState) => {
+    const v = { clockHour: st.hour === null ? null : new Date(st.hour), clockId: st.clockId, clockStep: st.step, clockDone: st.done };
+    return tx.insert(schema.autodjState).values({ stationId: station.id, ...v }).onConflictDoUpdate({ target: schema.autodjState.stationId, set: v });
+  };
+  const playlists = new Map((await tx.select().from(schema.playlists).where(eq(schema.playlists.stationId, station.id))).map((p) => [p.id, p] as const));
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const d = decide({ at, now, tz: schedule.settings.timezone, clockAt: schedule.clockAt, state, musicSeconds });
+    state = d.state;
+    let track: MediaFile | null = null;
+    let label: string | null = null;
+    let playlistId: string | null = null;
+    if (d.kind === 'music') {
+      await save(state);
+      const p = d.playlistId ? playlists.get(d.playlistId) : undefined;
+      if (!p) return null;
+      track = await pickTrack(tx, station, s, p);
+      // An empty playlist: the queues play instead.
+      if (!track) return null;
+      label = d.label;
+      playlistId = p.id;
+    } else {
+      const { item } = d;
+      if (item.kind === 'track' && item.mediaId) {
+        [track = null] = await tx
+          .select()
+          .from(schema.mediaFiles)
+          .where(and(eq(schema.mediaFiles.id, item.mediaId), eq(schema.mediaFiles.stationId, station.id), eq(schema.mediaFiles.enabled, true)));
+      } else if (item.kind === 'playlist' && item.playlistId && playlists.has(item.playlistId)) {
+        playlistId = item.playlistId;
+        track = await pickTrack(tx, station, s, playlists.get(item.playlistId)!, { clock: true });
+      }
+      if (!track) {
+        skipped.push(item.label || (item.playlistId ? (playlists.get(item.playlistId)?.name ?? 'a removed playlist') : item.kind));
+        state = skipItem(state);
+        continue;
+      }
+      await save(state);
+      label = item.label || (playlistId ? playlists.get(playlistId)!.name : null);
+    }
+    const [queued] = await tx
+      .insert(schema.queueItems)
+      .values({ stationId: station.id, queue: 'q1', mediaId: track.id, position: await top(tx, station.id, 'q1'), origin: d.kind === 'item' ? 'clock' : 'rotation', playlistId, label })
+      .returning();
+    return { item: queued!, media: track, cutAt: d.kind === 'item' ? d.cutAt : null };
+  }
+  await save(state);
+  return null;
+}
+
+/**
+ * The player asks for its next track: top up the queues, follow the hour clock when the station has a schedule, else
+ * choose the queue by the rule, take its first track and mark it cued. Missing files are dropped from the queue.
+ * Returns null when the library has nothing to play; `cutAt` asks to cut the playing track then (hard timed item).
+ */
+export async function nextTrack(
+  ctx: AppContext,
+  stationId: string,
+): Promise<{ uri: string; itemId: string; cutAt: number | null; skipped: string[] } | null> {
+  const skipped: string[] = [];
   return ctx.db.transaction(async (tx) => {
     await lock(tx, stationId);
     const [station] = await tx.select().from(schema.stations).where(eq(schema.stations.id, stationId));
@@ -202,6 +292,8 @@ export async function nextTrack(ctx: AppContext, stationId: string): Promise<{ u
       const first = (q: Queue) => heads.find((h) => h.item.queue === q);
       let queue = chooseQueue(s.rule, state?.lastQueue ?? null, state?.streak ?? 0, { q1: !!first('q1'), q2: !!first('q2') });
       let pick = queue ? first(queue) : undefined;
+      const scheduled = await clockPick(tx, station, s, pick?.media.durationSeconds ?? 210, skipped);
+      if (scheduled) pick = scheduled;
       if (!pick) {
         // Both queues are empty (no playlists, or nothing left in them): any track from the library.
         const track = await pickTrack(tx, station, s, null);
@@ -216,14 +308,19 @@ export async function nextTrack(ctx: AppContext, stationId: string): Promise<{ u
         continue;
       }
       await tx.update(schema.queueItems).set({ state: 'cued', cuedAt: new Date() }).where(eq(schema.queueItems.id, pick.item.id));
-      const streak = state?.lastQueue === queue ? state.streak + 1 : 1;
-      await tx
-        .insert(schema.autodjState)
-        .values({ stationId, lastQueue: queue!, streak, seenAt: new Date() })
-        .onConflictDoUpdate({ target: schema.autodjState.stationId, set: { lastQueue: queue!, streak, seenAt: new Date() } });
+      // Clock items do not count for the queue rule.
+      if (!scheduled) {
+        const streak = state?.lastQueue === queue ? state.streak + 1 : 1;
+        await tx
+          .insert(schema.autodjState)
+          .values({ stationId, lastQueue: queue!, streak, seenAt: new Date() })
+          .onConflictDoUpdate({ target: schema.autodjState.stationId, set: { lastQueue: queue!, streak, seenAt: new Date() } });
+      } else {
+        await tx.update(schema.autodjState).set({ seenAt: new Date() }).where(eq(schema.autodjState.stationId, stationId));
+      }
       // Keep the queues full for the panel.
       await refill(tx, station, s);
-      return { uri: requestUri({ id: pick.item.id, queue: queue! }, pick.media, full, s), itemId: pick.item.id };
+      return { uri: requestUri({ id: pick.item.id, queue: pick.item.queue }, pick.media, full, s), itemId: pick.item.id, cutAt: scheduled?.cutAt ?? null, skipped };
     }
     return null;
   });
@@ -343,6 +440,8 @@ export interface QueueRow {
   addedBy: string | null;
   requestId: string | null;
   playlistName: string | null;
+  /** Clock item it came from. */
+  label: string | null;
   startedAt: Date | null;
   media: { id: string; title: string; artist: string; album: string; durationSeconds: number | null; location: string; path: string };
 }
@@ -365,6 +464,7 @@ export async function queueRows(ctx: AppContext, stationId: string): Promise<Que
     addedBy: item.addedBy,
     requestId: item.requestId,
     playlistName,
+    label: item.label,
     startedAt: item.startedAt,
     media: { id: media.id, title: media.title, artist: media.artist, album: media.album, durationSeconds: media.durationSeconds, location: media.location, path: media.path },
   }));

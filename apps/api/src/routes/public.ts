@@ -13,6 +13,7 @@ import { badRequest, HttpError, notFound } from '../lib/errors.js';
 import { libraryRequests, queueRequest, requestBlocker } from '../services/autodj/requests.js';
 import { autodjSettings } from '../services/autodj/settings.js';
 import { artworkDir } from '../services/public/artwork.js';
+import { publicShows } from '../services/scheduler/public.js';
 import { findPublicStation, heardMounts, recentlyPlayed, titleMount, type NowPlaying, type PublicStation } from '../services/public/nowplaying.js';
 import { itemPath } from '../services/public/ondemand.js';
 import { connectionInfo } from '../services/streaming/info.js';
@@ -45,6 +46,14 @@ const publicStationOut = z.object({
 });
 
 const songOut = z.object({ text: z.string(), artist: z.string().nullable(), title: z.string(), artworkUrl: z.string().nullable() });
+const showOut = z.object({
+  name: z.string(),
+  description: z.string(),
+  live: z.boolean(),
+  djs: z.array(z.string()),
+  start: z.string(),
+  end: z.string(),
+});
 export const nowPlayingOut = z.object({
   station: z.object({
     name: z.string(),
@@ -77,6 +86,7 @@ export const nowPlayingOut = z.object({
   history: z.array(songOut.extend({ playedAt: z.string() })),
   requests: z.object({ enabled: z.boolean(), open: z.boolean(), message: z.string(), library: z.boolean() }),
   onDemand: z.object({ enabled: z.boolean() }),
+  schedule: z.object({ enabled: z.boolean(), show: showOut.nullable() }),
   updatedAt: z.string(),
 });
 const onDemandOut = z.object({
@@ -354,6 +364,26 @@ export const publicRoutes: FastifyPluginAsyncZod = async (app) => {
   // On demand
 
   const audioUrl = (base: string, slug: string, id: string) => `${base}/api/public/stations/${slug}/ondemand/${id}/audio`;
+
+  app.get(
+    '/stations/:slug/schedule',
+    {
+      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+      schema: {
+        tags: ['Public'],
+        summary: 'The programme: the show on air and the shows of the coming days (Radio stations with a public schedule)',
+        security: [],
+        params: slugParams,
+        querystring: z.object({ days: z.coerce.number().int().min(1).max(14).default(7) }),
+        response: { 200: z.object({ timezone: z.string(), onAir: showOut.nullable(), upcoming: z.array(showOut) }) },
+      },
+    },
+    async (req, reply) => {
+      const s = await station(req.params.slug);
+      reply.header('cache-control', 'public, max-age=60');
+      return publicShows(ctx, s, req.query.days);
+    },
+  );
 
   app.get(
     '/stations/:slug/ondemand',

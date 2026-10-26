@@ -278,6 +278,8 @@ export const stations = pgTable(
     logoFile: text('logo_file'),
     /** AutoDJ settings of the Radio station edition (phase 6). Read through autodjSchema for defaults. */
     autodj: jsonb('autodj').$type<Record<string, unknown>>().notNull().default({}),
+    /** Hour clocks and weekly schedule (phase 7). Read through schedulerSchema for defaults. */
+    scheduler: jsonb('scheduler').$type<Record<string, unknown>>().notNull().default({}),
     createdAt: createdAt(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -718,6 +720,8 @@ export const playlists = pgTable(
     order: playlistOrder('order').notNull().default('shuffle'),
     folders: jsonb('folders').$type<PlaylistFolder[]>().notNull().default([]),
     enabled: boolean('enabled').notNull().default(true),
+    /** Feeds its queue. Off = only played where an hour clock asks for it (news, commercials, jingles). */
+    rotation: boolean('rotation').notNull().default(true),
     /** Sequential playlists: the last path played, as "location:path". */
     cursor: text('cursor'),
     createdAt: createdAt(),
@@ -750,8 +754,10 @@ export const queueItems = pgTable(
     mediaId: uuid('media_id').notNull().references(() => mediaFiles.id, { onDelete: 'cascade' }),
     position: doublePrecision('position').notNull(),
     state: queueState('state').notNull().default('queued'),
-    /** rotation (picked from a playlist) | request | manual */
+    /** rotation (picked from a playlist) | request | manual | clock (an item of the hour clock) */
     origin: text('origin').notNull(),
+    /** Name of the hour clock item it came from (clock items). */
+    label: text('label'),
     playlistId: uuid('playlist_id').references(() => playlists.id, { onDelete: 'set null' }),
     requestId: uuid('request_id').references(() => songRequests.id, { onDelete: 'set null' }),
     addedBy: text('added_by'),
@@ -772,4 +778,76 @@ export const autodjState = pgTable('autodj_state', {
   streak: integer('streak').notNull().default(0),
   /** Last time the player asked for a track or reported one. */
   seenAt: timestamp('seen_at', { withTimezone: true }),
+  /** Hour clock in progress: the start of its hour, the clock, the item it is at and the tracks played of that item. */
+  clockHour: timestamp('clock_hour', { withTimezone: true }),
+  clockId: uuid('clock_id'),
+  clockStep: integer('clock_step').notNull().default(0),
+  clockDone: integer('clock_done').notNull().default(0),
 });
+
+// Phase 7: scheduler
+
+export interface ClockItem {
+  /** Stable id within the clock, chosen by the panel. */
+  id: string;
+  /** rotation = music from the queues, playlist = tracks from one playlist, track = one library track. */
+  kind: 'rotation' | 'playlist' | 'track';
+  label: string;
+  playlistId: string | null;
+  mediaId: string | null;
+  /** Tracks to play (playlist); 0 = music from the playlist until the next timed item. */
+  count: number;
+  /** Minute of the hour the item starts at; null = after the item before it. */
+  at: number | null;
+  /** Timed items: cut the track that is playing at the minute instead of waiting for its end. */
+  hard: boolean;
+}
+
+/**
+ * An hour clock: the order of an hour of radio, such as news on the hour, commercials at a quarter past and music in
+ * between. Items with a minute are timed; the others follow the item before them.
+ */
+export const clocks = pgTable(
+  'clocks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    color: text('color').notNull().default('#FF6B57'),
+    items: jsonb('items').$type<ClockItem[]>().notNull().default([]),
+    createdAt: createdAt(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('clocks_station_idx').on(t.stationId)],
+);
+
+/**
+ * A block in the station's schedule, weekly on some days or once on a date, in the station's time zone. It runs an
+ * hour clock (none = the AutoDJ's queues) and can be a live show: its DJs are shown on the public page and, when the
+ * station says so, may only broadcast during their shows. Without a DJ the AutoDJ plays the block's clock.
+ */
+export const scheduleEntries = pgTable(
+  'schedule_entries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    description: text('description').notNull().default(''),
+    clockId: uuid('clock_id').references(() => clocks.id, { onDelete: 'set null' }),
+    live: boolean('live').notNull().default(false),
+    /** Station accounts (DJs) of a live show. */
+    accountIds: uuid('account_ids').array().notNull().default([]),
+    /** ISO weekdays, 1 = Monday … 7 = Sunday. Ignored when `date` is set. */
+    days: integer('days').array().notNull().default([]),
+    /** One-off block on this date (YYYY-MM-DD); it wins over the weekly blocks. */
+    date: text('date'),
+    /** Start as minutes after midnight, and length in minutes (it may run past midnight). */
+    startMinute: integer('start_minute').notNull(),
+    durationMinutes: integer('duration_minutes').notNull(),
+    /** Listed on the public page. */
+    isPublic: boolean('is_public').notNull().default(true),
+    enabled: boolean('enabled').notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [index('schedule_entries_station_idx').on(t.stationId)],
+);
