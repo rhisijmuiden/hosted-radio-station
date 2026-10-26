@@ -136,7 +136,8 @@ Phase 11: FM/MPX and RDS: a node that puts a station on FM, with a live radio di
 | 12 | Station nodes | In progress |
 | 13 | Orchestrator as control plane | Planned |
 | 14 | Orchestrator redundancy | Planned |
-| 15 | Installer menu and node enrollment | Planned |
+| 15 | Cloudflare DNS integration | Planned |
+| 16 | Installer menu and node enrollment | Planned |
 
 ## Phases
 
@@ -302,7 +303,18 @@ Optional high availability for the main server, switched on in the panel when yo
 - Nodes know both orchestrators and switch over by themselves. Because the orchestrator carries no audio (phase 13), streams keep running while it is unreachable.
 - Status, replication lag and a failover test in the panel and in the topology view; updates and backups coordinated across both servers.
 
-### Phase 15: Installer menu and node enrollment
+### Phase 15: Cloudflare DNS integration
+
+The orchestrator manages the DNS records of the platform and its customers through the Cloudflare API, so a new node or station is reachable by name right away.
+
+- Connect one or more Cloudflare accounts with a scoped API token (Zone: DNS edit, Zone: read), per installation or per customer for their own domains.
+- Naming per node: give a node a host name such as `relay1` or `ingest1` and the orchestrator creates the A/AAAA record (`relay1.example.com`) with its public address, updates it when the address changes and removes it when the node is removed.
+- Station records: `stream.<domain>` and `src.<domain>` for customer domains, created when the domain is added, with a check that they point to the right place.
+- The right proxy setting per record: panel and public pages may go through the Cloudflare proxy (caching, WAF, HTTPS); stream, push and encoder names stay DNS only, because Cloudflare's proxy is not meant for long-running audio streams, hides the listener's real location from GeoIP and breaks non-HTTP ports.
+- Optional extras through the API: cache rules for the public pages, artwork and on-demand files, and DNS-01 certificates so nodes behind a firewall still get HTTPS.
+- Dry run and a record overview in the panel (what exists, what the platform would change), and an audit log entry for every change.
+
+### Phase 16: Installer menu and node enrollment
 
 One installer with a menu, for the standalone Debian 13 install and the Proxmox LXC install.
 
