@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import { dataPath } from '../config.js';
@@ -332,6 +332,8 @@ export class FmManager {
     this.stopped = true;
     this.stopInput();
     this.stopSink();
+    // The SDP belongs to a running RTP output; leaving it behind would point a receiver at a transmitter that is gone.
+    rmSync(dataPath('fm.sdp'), { force: true });
     this.uecp?.stop();
     this.uecp = null;
     this.uecpKey = '';

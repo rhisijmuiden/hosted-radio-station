@@ -8,6 +8,7 @@
 # Options:
 #   --server <url>     The main server, e.g. https://radio.example.com (required for pairing)
 #   --code <code>      One-time pairing code from the panel (not needed when the node is already paired)
+#   --repair           Pair again with --code even though this machine already belongs to a node
 #   --ref <branch>     Branch to install (default: main); the main server tells the node later which version to run
 #   --repo <url>       Git repository (default: the public GitHub repository)
 #   --no-caddy         Do not install a web server: Icecast takes listeners on its own port (no HTTPS). Needed when the
@@ -26,7 +27,7 @@ SERVICE_USER="hrs-node"
 NODE_MAJOR=22
 PNPM_VERSION="10.28.0"
 
-SERVER="" CODE="" REF="main" REPO="" CADDY=1 FM=0
+SERVER="" CODE="" REF="main" REPO="" CADDY=1 FM=0 REPAIR=0
 
 C_RESET=$'\e[0m' C_CORAL=$'\e[38;2;255;107;87m' C_DIM=$'\e[2m' C_BOLD=$'\e[1m' C_RED=$'\e[31m' C_GREEN=$'\e[32m'
 step() { printf '\n%s==>%s %s%s%s\n' "$C_CORAL" "$C_RESET" "$C_BOLD" "$*" "$C_RESET"; }
@@ -42,6 +43,7 @@ while [[ $# -gt 0 ]]; do
     --repo) REPO="${2:-}"; shift 2 ;;
     --no-caddy) CADDY=0; shift ;;
     --fm) FM=1; shift ;;
+    --repair) REPAIR=1; shift ;;
     --yes|-y) shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print } /^set -E/ { exit }' "$0"; exit 0 ;;
     *) fail "Unknown option: $1 (see --help)" ;;
@@ -130,6 +132,12 @@ info "$(git -C "$INSTALL_DIR" log -1 --format='%h %s')"
 step "System services"
 "$INSTALL_DIR/deploy/node/bin/hrs-node-install-units"
 
+if [[ -n "$CODE" && -f "$CONF_DIR/node.json" && $REPAIR -eq 0 ]]; then
+  info "This machine is already paired with a node; keeping that pairing and ignoring --code."
+  info "To give this node another role (FM/MPX for example), add the role on its page in the panel."
+  info "To pair it with a different node anyway, run this installer again with --repair."
+  CODE=""
+fi
 if [[ -n "$CODE" ]]; then
   step "Pairing with $SERVER"
   runuser -u "$SERVICE_USER" -- /usr/bin/node "$INSTALL_DIR/apps/node/dist/cli.js" pair --server "$SERVER" --code "$CODE" --web "$WEB"
