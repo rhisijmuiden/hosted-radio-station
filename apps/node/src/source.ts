@@ -186,6 +186,7 @@ export class SourceForwarder {
       upstream.destroy();
     };
     upstream.once(up.tls ? 'secureConnect' : 'connect', () => {
+      log.info('passing an encoder on', { ip, host, upstream: `${up.host}:${up.port}`, tls: up.tls });
       upstream.write(signPreamble(this.node.secret, { nodeId: this.node.nodeId, via, ip: ip || '0.0.0.0', host }));
       upstream.write(first);
       client.pipe(upstream);
