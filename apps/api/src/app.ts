@@ -52,7 +52,7 @@ import { stationNodeInternalRoutes } from './routes/station-node-internal.js';
 import { StationTunnels } from './services/stationnode/hub.js';
 import { StationNodeLink } from './services/stationnode/link.js';
 import { registerStationProxy } from './services/stationnode/proxy.js';
-import { getVersionInfo } from './services/system.js';
+import { runningVersion } from './services/system.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -143,7 +143,8 @@ export async function buildApp(ctx: AppContext) {
     nameSpace: 'hrs-rl-',
   });
 
-  const { version } = await getVersionInfo(ctx);
+  // Read once now: the version this process runs (see runningVersion).
+  const { version } = await runningVersion(ctx);
   await app.register(fastifySwagger, {
     openapi: {
       info: {

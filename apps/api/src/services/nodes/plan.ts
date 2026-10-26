@@ -6,7 +6,7 @@ import { NODE_ROLES, type NodeConfig, type NodeRole } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
 import { getSetting, UPDATE_POLICIES, updateWindowSchema } from '../settings.js';
 import { platformHost } from '../streaming/state.js';
-import { getVersionInfo, type VersionInfo } from '../system.js';
+import { runningVersion } from '../system.js';
 import { buildFmPlan, fmConfigSchema } from './fm.js';
 import { ingestsOf, pushedRouting, stationRouting } from './routing-rules.js';
 import type { IngestStation, NodePlan, ProbeTarget, RelayMount } from './protocol.js';
@@ -73,13 +73,6 @@ export function relayBaseUrl(node: Pick<Node, 'config' | 'status'>): string | nu
   const h = host.includes(':') ? `[${host}]` : host;
   return port === 80 ? `http://${h}` : `http://${h}:${port}`;
 }
-
-let versionCache: { at: number; value: VersionInfo } | null = null;
-async function version(ctx: AppContext) {
-  if (!versionCache || Date.now() - versionCache.at > 60_000) versionCache = { at: Date.now(), value: await getVersionInfo(ctx) };
-  return versionCache.value;
-}
-export const forgetVersion = () => (versionCache = null);
 
 type StationRow = { id: string; slug: string; tenantId: string; name: string; nodeId: string | null; edition: string; routing: Record<string, unknown> };
 
@@ -168,7 +161,7 @@ const baseUrl = (ctx: AppContext) => ctx.config.PUBLIC_URL.replace(/\/$/, '');
 export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> {
   const c = nodeSettings(node);
   const roles = node.roles.filter((r): r is NodeRole => NODE_ROLES.includes(r));
-  const [settings, v, stations] = await Promise.all([getSetting(ctx, 'nodes'), version(ctx), servableStations(ctx, node.tenantId)]);
+  const [settings, v, stations] = await Promise.all([getSetting(ctx, 'nodes'), runningVersion(ctx), servableStations(ctx, node.tenantId)]);
   const ids = stations.map((s) => s.id);
   const [allMounts, relays] = await Promise.all([
     ids.length
