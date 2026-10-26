@@ -32,7 +32,7 @@
     "targets": ["nsis"],
     "publisher": "RHIS",
     "copyright": "© RHIS",
-    "category": "AudioVideo",
+    "category": "Music",
     "shortDescription": "Studio client for Hosted Radio Station",
     "longDescription": "Live assist, live broadcasting from your sound card or mixing desk, and a cart wall for Hosted Radio Station.",
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"],
