@@ -95,6 +95,8 @@ export async function buildApp(ctx: AppContext) {
   const nodeHub = new NodeHub(ctx, app.log);
   app.decorate('nodes', nodeHub);
   await nodeHub.start();
+  // Before @fastify/websocket closes the sockets (its own preClose comes later, it is registered later).
+  app.addHook('preClose', async () => nodeHub.announceRestart());
   app.addHook('onClose', async () => nodeHub.stop());
   const nodeUpdates = new NodeUpdater(ctx, nodeHub, app.log);
   app.decorate('nodeUpdates', nodeUpdates);
