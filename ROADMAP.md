@@ -127,8 +127,9 @@ Phase 10: Hosted service: packages, subscriptions, invoices with VAT and online 
 | 10 | Hosted service | Done |
 | 11 | FM/MPX and RDS module | Planned |
 | 12 | Station nodes | In progress |
-| 13 | Open source edition | Postponed |
+| 13 | Orchestrator as control plane | Planned |
 | 14 | Orchestrator redundancy | Planned |
+| 15 | Open source edition | Postponed |
 
 ## Phases
 
@@ -271,11 +272,15 @@ A node role that runs complete stations at the customer's site or in the datacen
 - The station's music library, AutoDJ, hour clocks and live assist run locally on the node; the main server stays the orchestrator.
 - Configuration is edited centrally and pushed to the node; the node pushes its audio outbound to the assigned relays.
 
-### Phase 13: Open source edition
+### Phase 13: Orchestrator as control plane
 
-A community edition on its own branch.
+The orchestrator manages, the nodes carry the audio.
 
-- "Powered by RHIS" built in by default, with the house style (logo, colours, fonts) customisable per installation.
+- The orchestrator handles no audio at all: it only manages nodes, remote probes, configuration, statistics and the panel.
+- Per station you choose which ingest node receives the stream and which relays it feeds; the ingest node sends the audio directly to those relays.
+- Routing rules with fallbacks: a backup ingest per station and automatic rerouting when a relay or ingest drops out.
+- Single-server installs keep working: there the same machine runs the ingest and relay roles next to the orchestrator, shown as separate roles.
+- The topology view shows the difference: audio paths run from studio to ingest to relays to listeners, and the orchestrator is connected to every node only by control lines.
 
 ### Phase 14: Orchestrator redundancy
 
@@ -283,5 +288,11 @@ Optional high availability for the main server, switched on in the panel when yo
 
 - A standby orchestrator on a second Debian 13 LXC, paired like a node, with continuous database replication and synchronised configuration and files.
 - Automatic failover through a floating IP (VRRP) or DNS failover, with a witness (a node or probe) to prevent split-brain.
-- Nodes know both orchestrators and switch over by themselves; relays and station nodes keep streaming on their last configuration while the orchestrator is unreachable.
+- Nodes know both orchestrators and switch over by themselves. Because the orchestrator carries no audio (phase 13), streams keep running while it is unreachable.
 - Status, replication lag and a failover test in the panel and in the topology view; updates and backups coordinated across both servers.
+
+### Phase 15: Open source edition
+
+A community edition on its own branch.
+
+- "Powered by RHIS" built in by default, with the house style (logo, colours, fonts) customisable per installation.
