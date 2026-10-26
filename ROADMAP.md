@@ -50,6 +50,15 @@ Phase 4: statistics with real listener addresses, GeoIP, devices, songs and broa
 | ![Devices and players](docs/screenshots/phase-4-technology.png) | ![Most played songs and live broadcasts](docs/screenshots/phase-4-programme.png) |
 | ![Statistics settings](docs/screenshots/phase-4-settings.png) | ![Statistics in Dutch, dark](docs/screenshots/phase-4-overview-dark-nl.png) |
 
+Phase 5: public station page with live now playing, embeddable widgets, song requests and on demand.
+
+| Listeners | Panel |
+| --- | --- |
+| ![Public station page](docs/screenshots/phase-5-page-light.png) | ![Public page settings with the embed generator](docs/screenshots/phase-5-admin-public.png) |
+| ![Public station page in Dutch, dark](docs/screenshots/phase-5-page-dark.png) | ![Song request inbox](docs/screenshots/phase-5-admin-requests.png) |
+| ![Embeddable player, history and request widgets](docs/screenshots/phase-5-embeds.png) | ![On demand with recordings and uploads](docs/screenshots/phase-5-admin-ondemand.png) |
+| ![Public station page on a phone](docs/screenshots/phase-5-page-mobile.png) | |
+
 ## Status
 
 | Phase | Name | Status |
