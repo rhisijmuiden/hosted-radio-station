@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { schema } from '../db/index.js';
@@ -9,6 +9,7 @@ import { anchorOf, entryStep } from '../services/scheduler/clock.js';
 import { loadSchedule } from '../services/scheduler/runtime.js';
 import { schedulerSchema, schedulerSettings } from '../services/scheduler/settings.js';
 import { hourStart, wallTime } from '../services/scheduler/time.js';
+import { AUTODJ_CHANNEL } from '../streams/autodj.js';
 import { stationAccess } from './stations.js';
 
 const stationParams = z.object({ id: z.uuid() });
@@ -85,6 +86,14 @@ const schedulerOut = z.object({
 /** Hour clocks and the weekly schedule of Radio stations (phase 7). */
 export const schedulerRoutes: FastifyPluginAsyncZod = async (app) => {
   const { ctx } = app;
+
+  // Every change of settings, clocks or blocks: the streams service checks whether the track the player loaded ahead
+  // is in the way of a hard timed item (issue #27).
+  app.addHook('onResponse', async (req, reply) => {
+    const stationId = (req.params as { id?: string } | undefined)?.id;
+    if (req.method === 'GET' || reply.statusCode >= 300 || !stationId) return;
+    await ctx.db.execute(sql`select pg_notify(${AUTODJ_CHANNEL}, ${JSON.stringify({ stationId, command: 'replan' })})`).catch(() => undefined);
+  });
 
   async function radio(req: Parameters<typeof stationAccess>[1], stationId: string, minRole: 'dj' | 'manager') {
     const r = await stationAccess(ctx, req, stationId, minRole);

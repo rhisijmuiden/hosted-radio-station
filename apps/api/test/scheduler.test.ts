@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { schema } from '../src/db/index.js';
 import type { ClockItem } from '../src/db/schema.js';
 import { scanLibrary } from '../src/services/autodj/library.js';
-import { nextTrack, playerStarted, trackStarted } from '../src/services/autodj/planner.js';
+import { flushForClock, nextTrack, playerStarted, trackStarted } from '../src/services/autodj/planner.js';
 import { decide, entryStep, type ClockLike, type ClockState } from '../src/services/scheduler/clock.js';
 import { blockAt, occurrences, type Block } from '../src/services/scheduler/schedule.js';
 import { hourStart, wallTime, zonedInstant } from '../src/services/scheduler/time.js';
@@ -346,6 +346,38 @@ describe('scheduler API and AutoDJ', () => {
       expect(row).toMatchObject({ origin: 'clock', label: 'Power play' });
       const same = await t.db.select().from(schema.queueItems).where(eq(schema.queueItems.mediaId, row!.mediaId));
       expect(same).toHaveLength(1);
+    });
+    it('drops the track loaded ahead when a hard item is added before the playing track ends (#27)', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      const view = (await api('GET', '/scheduler')).json();
+      const clock = (await api('POST', '/clocks', { name: 'Music only', items: [item({ kind: 'rotation', at: 0 })] })).json();
+      await api('PUT', '/scheduler', { ...view.settings, enabled: true, defaultClockId: clock.id });
+      vi.setSystemTime(local('2026-10-26', '13:04'));
+      await playerStarted(t.ctx, stationId);
+      const playing = await nextTrack(t.ctx, stationId);
+      await trackStarted(t.ctx, stationId, playing!.itemId);
+      // The player loads the next track as soon as this one starts.
+      const ahead = await nextTrack(t.ctx, stationId);
+      const [row] = await t.db.select().from(schema.queueItems).where(eq(schema.queueItems.id, playing!.itemId));
+      const [media] = await t.db.select().from(schema.mediaFiles).where(eq(schema.mediaFiles.id, row!.mediaId));
+      await t.db.update(schema.mediaFiles).set({ durationSeconds: 300 }).where(eq(schema.mediaFiles.id, media!.id));
+      try {
+        // Nothing timed in the way yet.
+        expect(await flushForClock(t.ctx, stationId)).toBe(false);
+        const news = (await t.db.select().from(schema.mediaFiles).where(eq(schema.mediaFiles.title, 'News')))[0]!;
+        await api('PUT', `/clocks/${clock.id}`, { ...clock, items: [...clock.items, item({ kind: 'track', mediaId: news.id, at: 6, hard: true, label: 'News' })] });
+        expect(await flushForClock(t.ctx, stationId)).toBe(true);
+        const [back] = await t.db.select().from(schema.queueItems).where(eq(schema.queueItems.id, ahead!.itemId));
+        expect(back!.state).toBe('queued');
+        const next = await nextTrack(t.ctx, stationId);
+        const [cued] = await t.db.select().from(schema.queueItems).where(eq(schema.queueItems.id, next!.itemId));
+        expect(cued).toMatchObject({ origin: 'clock', label: 'News' });
+        expect(next!.cutAt).toBe(local('2026-10-26', '13:06'));
+        // The item is loaded now: nothing more to drop.
+        expect(await flushForClock(t.ctx, stationId)).toBe(false);
+      } finally {
+        await t.db.update(schema.mediaFiles).set({ durationSeconds: media!.durationSeconds }).where(eq(schema.mediaFiles.id, media!.id));
+      }
     });
   });
 });
