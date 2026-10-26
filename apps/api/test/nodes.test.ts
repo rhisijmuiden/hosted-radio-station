@@ -196,6 +196,11 @@ describe('nodes', () => {
     expect(topo.view).toBe('admin');
     expect(topo.nodes.find((n: { id: string }) => n.id === node.id)).toMatchObject({ online: true, listeners: 2, relaysUp: 1 });
     expect(topo.links).toEqual(expect.arrayContaining([expect.objectContaining({ from: node.id, to: 'main', kind: 'control' }), expect.objectContaining({ from: 'main', to: node.id, kind: 'stream' })]));
+
+    // The station page counts the listeners on the relay with the mount they listen to.
+    const status = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/status`, headers: admin })).json();
+    expect(status.listeners).toBe(2);
+    expect(status.mounts.find((m: { path: string }) => m.path === '/live')).toMatchObject({ listeners: 2 });
     a.ws.close();
   });
 
