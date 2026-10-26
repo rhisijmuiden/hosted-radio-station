@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray } from 'drizzle-orm';
-import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyRequest } from 'fastify';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { schema } from '../db/index.js';
@@ -320,7 +320,7 @@ export const statsRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/export.csv',
     { schema: { tags: ['Statistics'], summary: 'Download a part of the report as CSV (sessions: at most 100,000 rows)', querystring: periodQuery.extend({ kind: exportKinds }) } },
-    async (req, reply: FastifyReply) => {
+    async (req, reply) => {
       const s = await period(req, req.query);
       const kind = req.query.kind;
       let lines: unknown[][];
