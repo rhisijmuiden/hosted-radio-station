@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowRight, Plus, X } from 'lucide-react';
+import { ArrowRight, Eye, EyeOff, Plus, X } from 'lucide-react';
 import { lazy, Suspense, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router';
@@ -238,6 +238,8 @@ export function TopologyPage() {
   const tenantId = admin ? (params.get('customer') ?? '') : '';
   const [filter, setFilter] = useState<Filter>('all');
   const [selected, setSelected] = useState<string | null>(null);
+  // Control lines stay hidden unless asked for, or for the selected block: the audio paths stay readable.
+  const [showControl, setShowControl] = useState(false);
   const [layout, setLayout] = useLayout(me.user.id);
   const topo = useQuery({ queryKey: ['topology', tenantId], queryFn: () => api<Topology>(`/nodes/topology${tenantId ? `?tenantId=${tenantId}` : ''}`), refetchInterval: 5000 });
   const tenants = useQuery({ queryKey: ['tenants'], queryFn: () => api<Tenant[]>('/tenants'), enabled: admin });
@@ -282,7 +284,8 @@ export function TopologyPage() {
       })),
     ];
     const dim = new Set(nodes.filter((n) => n.dim).map((n) => n.id));
-    const links: SceneData['links'] = data.links.map((l) => ({
+    const shown = (l: Topology['links'][number]) => l.kind !== 'control' || showControl || selected === 'main' || (!!selected && l.to === selected);
+    const links: SceneData['links'] = data.links.filter(shown).map((l) => ({
       from: l.from,
       to: l.to,
       kind: l.kind,
@@ -291,7 +294,7 @@ export function TopologyPage() {
       dim: dim.has(l.from) || dim.has(l.to) || (filter === 'streams' && l.kind === 'control'),
     }));
     return { nodes, links };
-  }, [data, filter, customer, t]);
+  }, [data, filter, customer, showControl, selected, t]);
 
   const dimmed = useMemo(() => new Set(scene.nodes.filter((n) => n.dim).map((n) => n.id)), [scene]);
   const k = data?.kpis;
@@ -395,15 +398,23 @@ export function TopologyPage() {
                   <TopologyCanvas data={scene} selected={selected ?? ownSel?.id ?? null} onSelect={setSelected} dark={theme === 'dark'} />
                 </Suspense>
               ) : (
-                <TopologyFlat data={data} layout={layout} dimmed={dimmed} selected={selected ?? ownSel?.id ?? null} onSelect={setSelected} />
+                <TopologyFlat data={data} layout={layout} dimmed={dimmed} selected={selected ?? ownSel?.id ?? null} showControl={showControl} onSelect={setSelected} />
               )}
               <div className="pointer-events-none absolute bottom-3 left-3 hidden flex-wrap gap-3 rounded-md border border-line bg-raised/85 px-3 py-2 text-xs text-muted backdrop-blur sm:flex">
                 <span className="flex items-center gap-1.5">
                   <i className="inline-block h-[3px] w-4 rounded bg-koraal" /> {t('topology.legend.stream')}
                 </span>
-                <span className="flex items-center gap-1.5">
+                {/* The control legend doubles as the switch for the control lines. */}
+                <button
+                  type="button"
+                  aria-pressed={showControl}
+                  title={t(showControl ? 'topology.controlLinesHide' : 'topology.controlLinesShow')}
+                  onClick={() => setShowControl((x) => !x)}
+                  className={clsx('pointer-events-auto -my-1 flex items-center gap-1.5 rounded-full border px-2 py-0.5 transition-colors', showControl ? 'border-lucht bg-lucht/15 text-ink' : 'border-line hover:text-ink')}
+                >
                   <i className="inline-block w-4 border-t-2 border-dashed border-lucht" /> {t('topology.legend.control')}
-                </span>
+                  {showControl ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+                </button>
                 <span className="flex items-center gap-1.5">
                   <i className="inline-block h-[3px] w-4 rounded bg-warning" /> {t('topology.legend.degraded')}
                 </span>

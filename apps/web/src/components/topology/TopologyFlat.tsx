@@ -48,19 +48,23 @@ export function nodeName(t: (k: string, o?: Record<string, unknown>) => string, 
 
 /**
  * The topology as a flat signal flow: studios and encoders → ingest → relays → listeners, left to right or top to
- * bottom. The orchestrator stands apart and only has (dashed) control lines to the nodes; it carries no audio.
+ * bottom. The orchestrator stands apart in a corner, on a control bus of its own; it carries no audio. Its (dashed)
+ * lines to the nodes only show when asked for, or for the selected block, so they never tangle with the audio.
  */
 export default function TopologyFlat({
   data,
   layout,
   dimmed,
   selected,
+  showControl,
   onSelect,
 }: {
   data: Topology;
   layout: FlatLayout;
   dimmed: Set<string>;
   selected: string | null;
+  /** Draw every control line, not only those of the selected block. */
+  showControl: boolean;
   onSelect: (id: string | null) => void;
 }) {
   const { t } = useTranslation();
@@ -177,7 +181,10 @@ export default function TopologyFlat({
   const [start, end] = lr ? [cardW / 2 + 24, cardW / 2 + 24] : [76, 140];
   const along = (i: number) => start + (i * ((lr ? W : H) - start - end)) / (n - 1);
   const pos = new Map<string, { x: number; y: number }>();
-  pos.set('main', lr ? { x: W / 2, y: 46 } : { x: BAND / 2 + 4, y: (H - 64) / 2 });
+  // The orchestrator in the top left corner; its control bus runs along the band, away from the audio.
+  const mainPos = lr ? { x: cardW / 2 + 24, y: 46 } : { x: BAND / 2 + 4, y: 46 };
+  pos.set('main', mainPos);
+  const bus = lr ? `M${mainPos.x + cardW / 2} ${mainPos.y} H${W - 24}` : `M${mainPos.x} ${mainPos.y + CARD_H / 2} V${H - 24}`;
   perLane.forEach((list, i) => {
     const a = along(i);
     const [from, to] = lr ? [BAND + 52, H - 64] : [BAND + 24, W - 24];
@@ -187,16 +194,15 @@ export default function TopologyFlat({
     });
   });
 
-  const paths = edges.flatMap((e) => {
+  const shown = (e: Edge) => e.kind !== 'control' || showControl || selected === 'main' || (!!selected && e.to.startsWith(`${selected}#`));
+  const paths = edges.filter(shown).flatMap((e) => {
     const A = pos.get(e.from);
     const B = pos.get(e.to);
     if (!A || !B) return [];
     let d: string;
     if (e.kind === 'control') {
-      // From the orchestrator's band into the top (or the left) of the node.
-      d = lr
-        ? `M${A.x} ${A.y + CARD_H / 2} C${A.x} ${A.y + 70} ${B.x} ${B.y - CARD_H / 2 - 50} ${B.x} ${B.y - CARD_H / 2}`
-        : `M${A.x + cardW / 2} ${A.y} C${A.x + cardW / 2 + 60} ${A.y} ${B.x - cardW / 2 - 50} ${B.y} ${B.x - cardW / 2} ${B.y}`;
+      // Straight off the control bus into the top (or the left) of the node.
+      d = lr ? `M${B.x} ${A.y} V${B.y - CARD_H / 2}` : `M${A.x} ${B.y} H${B.x - cardW / 2}`;
     } else
       d = lr
         ? `M${A.x + cardW / 2} ${A.y} C${(A.x + B.x) / 2} ${A.y} ${(A.x + B.x) / 2} ${B.y} ${B.x - cardW / 2} ${B.y}`
@@ -240,6 +246,7 @@ export default function TopologyFlat({
                 );
               })}
               <svg className="pointer-events-none absolute inset-0" width={W} height={H}>
+                <path className="topo-edge control bus" d={bus} />
                 {paths.map((p) => (
                   <g key={`${p.from}>${p.to}>${p.kind}`} opacity={p.dim ? 0.25 : 1}>
                     {p.kind !== 'control' && <path className="topo-edge base" d={p.d} />}
@@ -247,6 +254,9 @@ export default function TopologyFlat({
                   </g>
                 ))}
               </svg>
+              <div className="topo-lane-title absolute" style={lr ? { left: mainPos.x + cardW / 2 + 16, top: mainPos.y - 22 } : { left: mainPos.x + 10, top: mainPos.y + CARD_H / 2 + 8, writingMode: 'vertical-rl' }}>
+                {t('topology.controlBus')}
+              </div>
               {cards.map((c) => {
                 const p = pos.get(c.key)!;
                 return (

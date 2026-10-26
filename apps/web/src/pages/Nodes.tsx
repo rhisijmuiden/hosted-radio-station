@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { formatBps, formatMs, HealthBadge, nodeHealth, PairingPanel, RoleBadges } from '../components/nodes/common';
+import { NodeHierarchy } from '../components/nodes/Hierarchy';
 import { RolloutCard, UpdateBadge } from '../components/nodes/updates';
 import { Badge, Button, Card, Dialog, EmptyState, Field, Input, PageHeader, Select, Spinner, Switch, Table } from '../components/ui';
 import { api, ApiError, type NodeItem, type NodePairing, type NodeRole, type NodesSettings, type Tenant } from '../lib/api';
@@ -264,6 +265,8 @@ export function NodesPage() {
           ))}
         </div>
       )}
+
+      {!!list.length && <NodeHierarchy nodes={list} warnMs={warnMs} />}
 
       <Card>
         {nodes.isPending ? (
