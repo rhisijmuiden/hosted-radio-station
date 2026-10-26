@@ -106,4 +106,6 @@ export interface AgentReport {
   relays: { key: string; state: 'connecting' | 'connected' | 'error' | 'idle'; message?: string; bitrateKbps?: number | null; listeners?: number }[];
   clients: { key: string; id: string; ip: string | null; userAgent: string | null; referer: string | null; connectedSeconds: number }[];
   probes: { target: string; stationId: string; url: string; ok: boolean; httpStatus: number | null; ttfbMs: number | null; message?: string; at: string }[];
+  /** Listeners that left since the last report, with the moment they left. */
+  ended?: { key: string; id: string; endedAt: string }[];
 }

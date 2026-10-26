@@ -218,6 +218,8 @@ interface Client {
 export class RelayManager {
   private pullers = new Map<string, Puller>();
   private clients = new Map<string, Client>();
+  /** Listeners that left since the last report. */
+  private ended: { key: string; id: string; endedAt: string }[] = [];
   private lastCheck = 0;
 
   constructor(private readonly ctx: { icecastPort: () => number; secrets: IcecastSecrets; nodeId: string; trustClientHeader: boolean }) {}
@@ -242,7 +244,7 @@ export class RelayManager {
   stopAll() {
     for (const p of this.pullers.values()) p.stop();
     this.pullers.clear();
-    this.clients.clear();
+    for (const k of [...this.clients.keys()]) this.drop(k);
   }
 
   /** "/listen/<slug>/<mount>" → "<slug>/<mount>" */
@@ -257,7 +259,7 @@ export class RelayManager {
     const id = p.get('client');
     if (!key || !id) return;
     if (action === 'remove') {
-      this.clients.delete(`${key}#${id}`);
+      this.drop(`${key}#${id}`);
       return;
     }
     const agent = p.get('agent') ?? '';
@@ -275,13 +277,13 @@ export class RelayManager {
     const port = this.ctx.icecastPort();
     for (const [key, p] of this.pullers) {
       if (p.state.state !== 'connected') {
-        for (const k of [...this.clients.keys()]) if (k.startsWith(`${key}#`)) this.clients.delete(k);
+        for (const k of [...this.clients.keys()]) if (k.startsWith(`${key}#`)) this.drop(k);
         continue;
       }
       try {
         const list = await listClients(port, this.ctx.secrets.admin, localMount(p.mount));
         const ids = new Set(list.map((c) => c.id));
-        for (const k of [...this.clients.keys()]) if (k.startsWith(`${key}#`) && !ids.has(k.slice(key.length + 1)) && Date.now() - this.clients.get(k)!.since > 10_000) this.clients.delete(k);
+        for (const k of [...this.clients.keys()]) if (k.startsWith(`${key}#`) && !ids.has(k.slice(key.length + 1)) && Date.now() - this.clients.get(k)!.since > 10_000) this.drop(k);
         for (const c of list) {
           if (c.userAgent.startsWith('Hosted Radio Station') || this.clients.has(`${key}#${c.id}`) || c.connectedSeconds < 15) continue;
           this.clients.set(`${key}#${c.id}`, { key, id: c.id, ip: null, userAgent: c.userAgent || null, referer: null, since: Date.now() - c.connectedSeconds * 1000 });
@@ -290,6 +292,24 @@ export class RelayManager {
         log.debug('reading the listeners failed', { mount: key, err });
       }
     }
+  }
+
+  /** Forgets a listener and remembers when it left, for the next report. */
+  private drop(k: string) {
+    const c = this.clients.get(k);
+    if (!c) return;
+    this.clients.delete(k);
+    this.ended.push({ key: c.key, id: c.id, endedAt: new Date().toISOString() });
+    if (this.ended.length > 10_000) this.ended.splice(0, this.ended.length - 10_000);
+  }
+
+  /** The listeners that left since the last call (put back with restoreEnded when the report failed). */
+  drainEnded() {
+    return this.ended.splice(0);
+  }
+
+  restoreEnded(list: { key: string; id: string; endedAt: string }[]) {
+    this.ended.unshift(...list);
   }
 
   get listenerCount() {

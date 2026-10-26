@@ -11,6 +11,9 @@ export async function cachedRelays(ctx: AppContext) {
 }
 export const forgetRelays = () => (cache = null);
 
+/** Scores this close to the best one count as equally good. */
+const NEAR = 0.1;
+
 /** Great-circle distance in km. */
 function distance(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) {
   const rad = Math.PI / 180;
@@ -40,13 +43,20 @@ export async function pickRelay(ctx: AppContext, stationId: string, slug: string
   if (!candidates.length) return null;
   const score = (n: Node) => {
     const s = n.status;
-    let v = (s.listeners ?? 0) / 1000 + (s.cpu ?? 0);
+    // Load: share of the node's listener room (1000 when it has no limit) plus its CPU.
+    const max = nodeSettings(n).maxListeners || 1000;
+    let v = (s.listeners ?? 0) / max + (s.cpu ?? 0);
     if (geo?.latitude != null && geo.longitude != null && s.latitude != null && s.longitude != null) {
       v += distance({ latitude: geo.latitude, longitude: geo.longitude }, { latitude: s.latitude, longitude: s.longitude }) / 500;
     }
     if (geo?.country && s.country === geo.country) v -= 10;
     return v;
   };
-  const best = [...candidates].sort((a, b) => score(a) - score(b))[0]!;
+  // Nodes count their listeners every 30 seconds, so a rush of listeners is spread at random over the nodes that are
+  // about as good as the best one instead of all landing on that one.
+  const scored = candidates.map((n) => ({ n, v: score(n) }));
+  const min = Math.min(...scored.map((c) => c.v));
+  const close = scored.filter((c) => c.v <= min + NEAR);
+  const best = close[Math.floor(Math.random() * close.length)]!.n;
   return `${relayBaseUrl(best)}/listen/${slug}${mountPath}`;
 }

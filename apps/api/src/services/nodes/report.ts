@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '../../db/index.js';
 import type { NodeClient, NodeStatus } from '../../db/schema.js';
@@ -34,6 +34,10 @@ export const reportSchema = z.object({
       }),
     )
     .max(50_000)
+    .default([]),
+  ended: z
+    .array(z.object({ key: short(200), id: short(100), endedAt: z.iso.datetime() }))
+    .max(10_000)
     .default([]),
   probes: z
     .array(
@@ -95,6 +99,24 @@ export async function storeReport(ctx: AppContext, hub: NodeHub, node: Node, rep
   const status: NodeStatus = { ...(live ?? node.status), relays, listeners: clients.length };
   if (live) Object.assign(live, { relays, listeners: clients.length });
   await ctx.db.update(schema.nodes).set({ clients, status, lastSeenAt: new Date() }).where(eq(schema.nodes.id, node.id));
+
+  // Listeners that left: their session ends when they really left, not when the statistics notice they are gone.
+  const now = Date.now();
+  for (const e of report.ended) {
+    const r = resolve(e.key);
+    if (!r) continue;
+    const endedAt = new Date(Math.min(new Date(e.endedAt).getTime(), now));
+    await ctx.db
+      .update(schema.listenerSessions)
+      .set({ endedAt, durationSeconds: sql`greatest(0, round(extract(epoch from (${endedAt.toISOString()}::timestamptz - ${schema.listenerSessions.startedAt}))))::int` })
+      .where(
+        and(
+          eq(schema.listenerSessions.stationId, r.stationId),
+          eq(schema.listenerSessions.clientKey, `node:${node.id}:${r.mount}:${e.id}`.slice(0, 100)),
+          isNull(schema.listenerSessions.endedAt),
+        ),
+      );
+  }
 
   const allowedStations = new Set(stations.map((s) => s.id));
   const probes = report.probes.filter((p) => allowedStations.has(p.stationId));

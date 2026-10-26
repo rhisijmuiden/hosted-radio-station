@@ -53,7 +53,7 @@ export class Agent {
     this.timers.push(setInterval(() => this.sendStats(), 5000));
     this.timers.push(setInterval(() => void this.report(), 30_000));
     this.timers.push(setInterval(() => void this.relay?.check(), 15_000));
-    this.timers.push(setInterval(() => void this.source.refreshCertificates(), 10 * 60_000));
+    this.timers.push(setInterval(() => void this.source.refreshCertificates(), 30_000));
     this.timers.push(setInterval(() => void this.pingMain(), 60_000));
     this.timers.push(setInterval(() => this.watchdog(), 5000));
     void this.pingMain();
@@ -239,7 +239,8 @@ export class Agent {
 
   private async report() {
     const probes = this.prober.drain();
-    const body: AgentReport = { relays: this.relay?.states() ?? [], clients: this.relay?.reportClients() ?? [], probes };
+    const ended = this.relay?.drainEnded() ?? [];
+    const body: AgentReport = { relays: this.relay?.states() ?? [], clients: this.relay?.reportClients() ?? [], probes, ended };
     try {
       const res = await fetch(`${this.file.server}/api/nodes/agent/report`, {
         method: 'POST',
@@ -251,6 +252,7 @@ export class Agent {
       await res.body?.cancel();
     } catch (err) {
       this.prober.restore(probes);
+      this.relay?.restoreEnded(ended);
       log.debug('report failed', { err });
     }
   }

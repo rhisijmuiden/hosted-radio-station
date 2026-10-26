@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { schema } from '../src/db/index.js';
@@ -201,6 +202,21 @@ describe('nodes', () => {
     const status = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/status`, headers: admin })).json();
     expect(status.listeners).toBe(2);
     expect(status.mounts.find((m: { path: string }) => m.path === '/live')).toMatchObject({ listeners: 2 });
+
+    // A listener that left is closed with the moment the node saw it leave.
+    const [st] = await t.db.select({ tenantId: schema.stations.tenantId }).from(schema.stations).where(eq(schema.stations.id, stationId));
+    const sessionId = randomUUID();
+    const started = Date.now() - 100_000;
+    await t.db.insert(schema.listenerSessions).values({ id: sessionId, stationId, tenantId: st!.tenantId, mountPath: '/live', via: 'relay', nodeId: node.id, clientKey: `node:${node.id}:/live:1`, startedAt: new Date(started) });
+    const left = await t.app.inject({
+      method: 'POST',
+      url: '/api/nodes/agent/report',
+      headers: { authorization: `Node ${node.id}.${secret}` },
+      payload: { relays: [{ key: 'harder-fm/live', state: 'connected' }], clients: [], ended: [{ key: 'harder-fm/live', id: '1', endedAt: new Date(started + 70_000).toISOString() }], probes: [] },
+    });
+    expect(left.statusCode).toBe(200);
+    const [closed] = await t.db.select().from(schema.listenerSessions).where(eq(schema.listenerSessions.id, sessionId));
+    expect(closed!.durationSeconds).toBe(70);
     a.ws.close();
   });
 
