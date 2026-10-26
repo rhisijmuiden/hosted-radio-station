@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import { AccountsCard } from '../components/station/Accounts';
+import { StatisticsView } from '../components/stats/StatisticsView';
 import { formatLabel, MountsCard } from '../components/station/Mounts';
 import { OutputsCard, OutputStateBadge } from '../components/station/Outputs';
 import { Badge, Button, Card, CardHeader, CopyField, Fact, Field, Input, PageHeader, Select, Spinner, Switch, Table, Tabs, Textarea } from '../components/ui';
@@ -12,7 +13,7 @@ import { api, type LiveSession, type StationDetail, type StationStatus, type Ten
 import { formatBytes, formatDate, formatDuration } from '../lib/format';
 import { EditionBadge } from './Stations';
 
-type Tab = 'overview' | 'mounts' | 'outputs' | 'accounts' | 'history' | 'settings';
+type Tab = 'overview' | 'statistics' | 'mounts' | 'outputs' | 'accounts' | 'history' | 'settings';
 const rank = { dj: 1, manager: 2, owner: 3, superadmin: 4 } as const;
 
 function useStationStatus(id: string) {
@@ -415,6 +416,7 @@ export function StationDetailPage() {
     { value: 'overview', label: t('stations.tabs.overview') },
     ...(manager
       ? [
+          { value: 'statistics' as const, label: t('stations.tabs.statistics') },
           { value: 'mounts' as const, label: t('stations.tabs.mounts') },
           { value: 'outputs' as const, label: t('stations.tabs.outputs') },
         ]
@@ -466,6 +468,9 @@ export function StationDetailPage() {
             <UploadCard station={s} />
           </div>
         </div>
+      )}
+      {tab === 'statistics' && (
+        <StatisticsView scope={{ stationId: s.id }} mounts={s.mounts.map((m) => m.path)} outputs={s.outputs.filter((o) => o.type !== 'local').map((o) => ({ id: o.id, name: o.name }))} showStation={false} />
       )}
       {tab === 'mounts' && <MountsCard station={s} canEdit={manager} maxBitrate={tenant.data?.limits.maxBitrateKbps ?? 320} />}
       {tab === 'outputs' && <OutputsCard station={s} canEdit={manager} />}

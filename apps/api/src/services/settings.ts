@@ -111,6 +111,33 @@ export const streamingSchema = z
   .refine((v) => v.ftp.passivePortFrom < v.ftp.passivePortTo, 'The passive port range must start below its end');
 export type StreamingSettings = z.infer<typeof streamingSchema>;
 
+/** Listener statistics: privacy, how long data is kept, and where GeoIP data comes from. */
+export const statisticsSchema = z.object({
+  /** Keep only the first part of listener addresses (IPv4 /24, IPv6 /48). Location is looked up before shortening. */
+  anonymizeIps: z.boolean().default(true),
+  /** Connections shorter than this are left out of reports (players that probe a stream, bots). */
+  minSessionSeconds: z.number().int().min(0).max(600).default(5),
+  /** Leave out search engines, monitoring and other bots. */
+  excludeBots: z.boolean().default(true),
+  /** Listener sessions (with location and player) are deleted after this many days. 0 = keep forever. */
+  sessionRetentionDays: z.number().int().min(0).max(3650).default(400),
+  /** Minute-by-minute listener counts; after this only hourly figures remain. */
+  sampleRetentionDays: z.number().int().min(7).max(730).default(90),
+  /** Hourly listener counts. 0 = keep forever. */
+  hourlyRetentionDays: z.number().int().min(0).max(3650).default(0),
+  geoip: z
+    .object({
+      /** dbip = free DB-IP Lite (no account needed), maxmind = MaxMind GeoLite2 with your own license key. */
+      provider: z.enum(['dbip', 'maxmind']).default('dbip'),
+      maxmindAccountId: z.string().trim().max(20).default(''),
+      maxmindLicenseKey: z.string().trim().max(100).default(''),
+      /** Download a new database every month (DB-IP) or week (MaxMind). */
+      autoUpdate: z.boolean().default(true),
+    })
+    .default({ provider: 'dbip', maxmindAccountId: '', maxmindLicenseKey: '', autoUpdate: true }),
+});
+export type StatisticsSettings = z.infer<typeof statisticsSchema>;
+
 const registry = {
   smtp: { schema: smtpSchema, secrets: ['password', 'dkim.privateKey'] },
   proxy: { schema: proxySchema, secrets: [] },
@@ -118,6 +145,7 @@ const registry = {
   backup: { schema: backupSettingsSchema, secrets: [] },
   audit: { schema: auditSettingsSchema, secrets: [] },
   streaming: { schema: streamingSchema, secrets: [] },
+  statistics: { schema: statisticsSchema, secrets: ['geoip.maxmindLicenseKey'] },
 } as const;
 type Registry = typeof registry;
 export type SettingKey = keyof Registry;

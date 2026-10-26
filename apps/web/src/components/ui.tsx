@@ -43,7 +43,7 @@ export const Button = forwardRef<
 });
 
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={clsx('rounded-lg border border-line bg-raised', className)}>{children}</div>;
+  return <div className={clsx('min-w-0 rounded-lg border border-line bg-raised', className)}>{children}</div>;
 }
 
 export function CardHeader({ title, description, actions }: { title: ReactNode; description?: ReactNode; actions?: ReactNode }) {

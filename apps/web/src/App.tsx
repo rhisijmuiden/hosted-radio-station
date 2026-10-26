@@ -18,6 +18,8 @@ import { ProfilePage } from './pages/Profile';
 import { ResetPasswordPage } from './pages/ResetPassword';
 import { StationDetailPage } from './pages/StationDetail';
 import { StationsPage } from './pages/Stations';
+import { StatisticsPage } from './pages/Statistics';
+import { StatisticsSettingsPage } from './pages/StatisticsSettings';
 import { StreamingPage } from './pages/Streaming';
 import { UpdatesPage } from './pages/Updates';
 import { UsersPage } from './pages/Users';
@@ -57,6 +59,8 @@ export function App() {
           <Route path="customers/:id" element={<CustomerDetailPage />} />
           <Route path="stations" element={<StationsPage />} />
           <Route path="stations/:id" element={<StationDetailPage />} />
+          <Route path="statistics" element={<StatisticsPage />} />
+          <Route path="settings/statistics" element={<RequireAuth admin><StatisticsSettingsPage /></RequireAuth>} />
           <Route path="users" element={<RequireAuth admin><UsersPage /></RequireAuth>} />
           <Route path="api-keys" element={<ApiKeysPage />} />
           <Route path="settings/mail" element={<RequireAuth admin><MailServerPage /></RequireAuth>} />

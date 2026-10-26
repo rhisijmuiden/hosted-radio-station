@@ -45,6 +45,8 @@ export function backupPaths(ctx: AppContext) {
       // Icecast logs and process ids of the stations; the configuration is rewritten from the database anyway.
       join(d, 'stations', '*', 'logs'),
       join(d, 'stations', '*', 'icecast.pid'),
+      // GeoIP databases are downloaded again after a restore.
+      join(d, 'geoip'),
     ],
   };
 }

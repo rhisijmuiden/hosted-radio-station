@@ -508,9 +508,9 @@ export class IngestGateway {
     const target = this.legacyTarget(view, req.path === '/;' || req.path === '/' ? '' : req.path);
     if (!target) return reply(socket, '404 Not Found');
     const upstream = net.connect({ host: '127.0.0.1', port: view.station.icecastPort }, () => {
-      const keep = req.rawHeaders.filter(([k]) => ['user-agent', 'icy-metadata', 'accept'].includes(k.toLowerCase()));
+      const keep = req.rawHeaders.filter(([k]) => ['user-agent', 'icy-metadata', 'accept', 'referer'].includes(k.toLowerCase()));
       upstream.write(
-        [`GET ${target.mount.path} HTTP/1.0`, `Host: 127.0.0.1:${view.station.icecastPort}`, `X-Forwarded-For: ${ip}`, ...keep.map(([k, v]) => `${k}: ${v}`)].join('\r\n') + '\r\n\r\n',
+        [`GET ${target.mount.path} HTTP/1.0`, `Host: 127.0.0.1:${view.station.icecastPort}`, `X-Hrs-Client: ${ip}`, 'X-Hrs-Via: legacy', ...keep.map(([k, v]) => `${k}: ${v}`)].join('\r\n') + '\r\n\r\n',
       );
       upstream.pipe(socket);
       socket.pipe(upstream);

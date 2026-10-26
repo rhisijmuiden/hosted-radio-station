@@ -434,3 +434,129 @@ export interface StreamsStatus {
   } | null;
   apply: { id: string | null; state: string; message?: string; startedAt?: string; finishedAt?: string; log: string } | null;
 }
+
+// Statistics
+
+export interface StatsStation {
+  id: string;
+  name: string;
+  tenantId: string;
+  tenantName: string;
+  mounts: string[];
+  outputs: { id: string; name: string }[];
+}
+export interface StatsKpis {
+  listeningHours: number;
+  avgListeners: number;
+  peakListeners: number;
+  peakAt: string | null;
+  sessions: number;
+  uniqueListeners: number;
+  avgSessionSeconds: number;
+  countries: number;
+}
+export interface BreakdownRow {
+  key: string;
+  sessions: number;
+  listeners: number;
+  hours: number;
+}
+export interface Place {
+  country: string | null;
+  city: string | null;
+  lat: number;
+  lon: number;
+  sessions: number;
+  listeners: number;
+  hours: number;
+}
+export interface StatsReport {
+  from: string;
+  to: string;
+  kpis: StatsKpis;
+  previous: StatsKpis;
+  timeseries: { bucket: string; points: { t: string; avg: number; peak: number }[] };
+  countries: BreakdownRow[];
+  regions: BreakdownRow[];
+  cities: BreakdownRow[];
+  devices: BreakdownRow[];
+  players: BreakdownRow[];
+  os: BreakdownRow[];
+  mounts: BreakdownRow[];
+  referrers: BreakdownRow[];
+  networks: BreakdownRow[];
+  durations: { fromSeconds: number; toSeconds: number | null; sessions: number }[];
+  heatmap: { weekday: number; hour: number; avg: number }[];
+  places: Place[];
+}
+export interface ListenerSession {
+  id: string;
+  stationId: string;
+  stationName: string;
+  mount: string;
+  via: string;
+  startedAt: string;
+  endedAt: string | null;
+  durationSeconds: number;
+  ip: string | null;
+  country: string | null;
+  region: string | null;
+  city: string | null;
+  network: string | null;
+  device: string | null;
+  player: string | null;
+  os: string | null;
+  referrer: string | null;
+  userAgent: string | null;
+}
+export interface StatsLive {
+  total: number;
+  stations: { id: string; name: string; listeners: number; onAir: boolean }[];
+  countries: { key: string; listeners: number }[];
+  devices: { key: string; listeners: number }[];
+  trend: { t: string; listeners: number }[];
+  places: Place[];
+  recent: ListenerSession[];
+}
+export interface StatsProgramme {
+  songs: { title: string; plays: number; avgListeners: number; avgPeak: number; avgChange: number; lastPlayed: string }[];
+  plays: {
+    id: number;
+    stationId: string;
+    stationName: string;
+    mount: string;
+    title: string;
+    startedAt: string;
+    endedAt: string | null;
+    listenersStart: number;
+    listenersPeak: number;
+    listenersEnd: number | null;
+  }[];
+  broadcasts: {
+    id: string;
+    stationId: string;
+    stationName: string;
+    accountName: string;
+    mount: string;
+    startedAt: string;
+    endedAt: string | null;
+    avgListeners: number;
+    peakListeners: number;
+  }[];
+}
+export interface StatisticsSettings {
+  anonymizeIps: boolean;
+  minSessionSeconds: number;
+  excludeBots: boolean;
+  sessionRetentionDays: number;
+  sampleRetentionDays: number;
+  hourlyRetentionDays: number;
+  geoip: { provider: 'dbip' | 'maxmind'; maxmindAccountId: string; maxmindLicenseKey: string; autoUpdate: boolean };
+}
+export interface GeoipDatabase {
+  provider: 'dbip' | 'maxmind';
+  release: string;
+  downloadedAt: string;
+  cityBuiltAt: string | null;
+  hasAsn: boolean;
+}

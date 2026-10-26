@@ -1,6 +1,7 @@
 import {
   bigserial,
   bigint,
+  doublePrecision,
   boolean,
   index,
   integer,
@@ -13,6 +14,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 
@@ -435,4 +437,101 @@ export const tenantDomains = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index('tenant_domains_tenant_idx').on(t.tenantId)],
+);
+
+// Phase 4: statistics
+
+/**
+ * One listener connection: who listened to which mount, from where, with what and how long. Local listeners are
+ * reported by the station's Icecast server (listener hooks), listeners of external servers come from their client
+ * lists. `endedAt` is null while the listener is connected.
+ */
+export const listenerSessions = pgTable(
+  'listener_sessions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+    mountPath: text('mount_path').notNull(),
+    /** Set for listeners of an external server. */
+    outputId: uuid('output_id').references(() => stationOutputs.id, { onDelete: 'set null' }),
+    /** web = through the web server, legacy = the Shoutcast port, external = an external server. */
+    via: text('via').notNull(),
+    /** Client id on the server that reported it, to match the disconnect. */
+    clientKey: text('client_key'),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+    durationSeconds: integer('duration_seconds'),
+    /** Full or shortened address, depending on the privacy setting. Null when unknown. */
+    ip: text('ip'),
+    /** Keyed hash of address and player, to count unique listeners without keeping the address. */
+    listenerHash: text('listener_hash'),
+    country: text('country'),
+    region: text('region'),
+    city: text('city'),
+    latitude: doublePrecision('latitude'),
+    longitude: doublePrecision('longitude'),
+    asn: integer('asn'),
+    network: text('network'),
+    userAgent: text('user_agent'),
+    /** desktop | mobile | tablet | speaker | tv | car | bot | other */
+    device: text('device'),
+    player: text('player'),
+    os: text('os'),
+    referrer: text('referrer'),
+  },
+  (t) => [
+    index('listener_sessions_station_start_idx').on(t.stationId, t.startedAt),
+    index('listener_sessions_station_end_idx').on(t.stationId, t.endedAt),
+    index('listener_sessions_tenant_start_idx').on(t.tenantId, t.startedAt),
+    index('listener_sessions_start_idx').on(t.startedAt),
+    index('listener_sessions_open_idx').on(t.stationId, t.clientKey).where(sql`ended_at is null`),
+  ],
+);
+
+/**
+ * Listeners per minute, per station and target: `*` = the station in total, `mount:/live` = a local mount,
+ * `output:<id>` = an external server. Kept for a while, then only the hourly rollup remains.
+ */
+export const listenerSamples = pgTable(
+  'listener_samples',
+  {
+    at: timestamp('at', { withTimezone: true }).notNull(),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    target: text('target').notNull(),
+    avg: doublePrecision('avg').notNull(),
+    peak: integer('peak').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.stationId, t.target, t.at] }), index('listener_samples_at_idx').on(t.at)],
+);
+
+/** Listeners per hour, made from the minute samples. */
+export const listenerHourly = pgTable(
+  'listener_hourly',
+  {
+    hour: timestamp('hour', { withTimezone: true }).notNull(),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    target: text('target').notNull(),
+    avg: doublePrecision('avg').notNull(),
+    peak: integer('peak').notNull(),
+    minutes: integer('minutes').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.stationId, t.target, t.hour] }), index('listener_hourly_hour_idx').on(t.hour)],
+);
+
+/** Every title change on a source mount, with the station's listeners at the start, peak and end. */
+export const songPlays = pgTable(
+  'song_plays',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    mountPath: text('mount_path').notNull(),
+    title: text('title').notNull(),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+    listenersStart: integer('listeners_start').notNull().default(0),
+    listenersPeak: integer('listeners_peak').notNull().default(0),
+    listenersEnd: integer('listeners_end'),
+  },
+  (t) => [index('song_plays_station_idx').on(t.stationId, t.startedAt)],
 );

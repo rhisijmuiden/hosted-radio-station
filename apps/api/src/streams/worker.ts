@@ -7,6 +7,7 @@ import type { OutputStatus } from '../db/schema.js';
 import type { AppContext } from '../lib/context.js';
 import { fetchStats, internalReaders, killSource, updateMetadata, type MountStats } from '../services/streaming/icecast.js';
 import { workerStatusPath, type WorkerStatus } from '../services/streaming/status.js';
+import { ListenerCollector } from './collector.js';
 import { IngestGateway } from './gateway.js';
 import { externalListeners, Pusher, Transcoder, type Relay } from './relays.js';
 import { loadSnapshot, type Snapshot, type StationView } from './snapshot.js';
@@ -19,6 +20,7 @@ import { loadSnapshot, type Snapshot, type StationView } from './snapshot.js';
 export class StreamsWorker {
   private snap: Snapshot | null = null;
   readonly gateway: IngestGateway;
+  readonly collector: ListenerCollector;
   private relays = new Map<string, Relay>();
   /** Per station: mounts on air with their last title. */
   private live = new Map<string, Map<string, MountStats>>();
@@ -34,6 +36,7 @@ export class StreamsWorker {
     private readonly log: pino.Logger,
   ) {
     this.gateway = new IngestGateway(ctx, log as never);
+    this.collector = new ListenerCollector(ctx, log, () => this.snap);
   }
 
   async start() {
@@ -43,6 +46,7 @@ export class StreamsWorker {
       .set({ endedAt: new Date(), endReason: sql`coalesce(${schema.liveSessions.endReason}, 'restart')` })
       .where(isNull(schema.liveSessions.endedAt));
     await this.reload();
+    await this.collector.start();
     this.timers.push(setInterval(() => void this.tick().catch((err) => this.log.error({ err }, 'monitor failed')), 3000));
     this.timers.push(setInterval(() => void this.reload(), 30_000));
     this.timers.push(setInterval(() => void this.writeStatus(), 5000));
@@ -51,6 +55,7 @@ export class StreamsWorker {
   async stop() {
     for (const t of this.timers) clearInterval(t);
     for (const r of this.relays.values()) r.stop();
+    await this.collector.stop().catch(() => undefined);
     await this.gateway.close();
   }
 
@@ -139,9 +144,12 @@ export class StreamsWorker {
         }
         this.live.set(view.station.id, now);
         await this.countInternal(view, now);
+        await this.collector.observe(view, now, this.internal[view.station.id] ?? {}).catch((err) => this.log.warn({ err }, 'statistics failed'));
       }),
     );
     if (changed) this.reconcile();
+    await this.collector.flush().catch((err) => this.log.warn({ err }, 'saving listener counts failed'));
+    void this.collector.reconcile(snap, this.live).catch((err) => this.log.warn({ err }, 'checking listener sessions failed'));
     if (Date.now() - this.externalPolledAt > 30_000) {
       this.externalPolledAt = Date.now();
       void this.pollExternal(snap);
@@ -196,11 +204,13 @@ export class StreamsWorker {
         try {
           const r = await externalListeners(this.ctx, o);
           const patch: Partial<OutputStatus> = { listeners: r.listeners };
+          this.collector.setExternalCount(view.station.id, o.id, r.listeners);
           // Watched servers (no push) report whether their encoder is on air.
           if (o.config.push === false) Object.assign(patch, { state: r.live ? 'connected' : 'idle', message: r.title ?? undefined });
           await this.saveOutputStatus(o.id, patch);
         } catch (err) {
           const patch: Partial<OutputStatus> = { listeners: null };
+          this.collector.setExternalCount(view.station.id, o.id, null);
           if (o.config.push === false) Object.assign(patch, { state: 'error', message: (err as Error).message });
           await this.saveOutputStatus(o.id, patch);
         }

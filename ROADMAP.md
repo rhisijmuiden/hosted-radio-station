@@ -42,6 +42,14 @@ Phase 3: stations with live encoders, mounts and conversions, external servers, 
 | ![Customer with stations, domains and limits](docs/screenshots/phase-3-customer-domains.png) | ![DJ accounts](docs/screenshots/phase-3-accounts.png) |
 | ![Stations](docs/screenshots/phase-3-stations.png) | ![Streaming settings and service status](docs/screenshots/phase-3-streaming-settings.png) |
 
+Phase 4: statistics with real listener addresses, GeoIP, devices, songs and broadcasts.
+
+| Light | Light |
+| --- | --- |
+| ![Statistics overview](docs/screenshots/phase-4-overview.png) | ![Listener locations on the map](docs/screenshots/phase-4-audience.png) |
+| ![Devices and players](docs/screenshots/phase-4-technology.png) | ![Most played songs and live broadcasts](docs/screenshots/phase-4-programme.png) |
+| ![Statistics settings](docs/screenshots/phase-4-settings.png) | ![Statistics in Dutch, dark](docs/screenshots/phase-4-overview-dark-nl.png) |
+
 ## Status
 
 | Phase | Name | Status |
@@ -49,7 +57,7 @@ Phase 3: stations with live encoders, mounts and conversions, external servers, 
 | 1 | Foundation | Done |
 | 2 | Administration and security | Done |
 | 3 | Distribution | Done |
-| 4 | Statistics | Planned |
+| 4 | Statistics | Done |
 | 5 | Public pages | Planned |
 | 6 | Radio station (AutoDJ) | Planned |
 | 7 | Scheduler | Planned |
@@ -103,8 +111,14 @@ The first edition you can offer to customers.
 
 Insight into who listens, where and for how long.
 
-- Every listening session stored in TimescaleDB, with GeoIP (country, region, city), device and listening time.
-- Live dashboards, maps and reports, also for stations that stream through an external server.
+- Every listening session is stored with the listener's real address (passed on by Caddy, also behind your own reverse proxy via trusted proxies), shortened by default for privacy. Unique listeners are counted with a keyed hash.
+- Location (country, region, city, network) from a GeoIP database on the server: DB-IP Lite out of the box (no account, monthly update) or MaxMind GeoLite2 with a license key. Updated automatically and left out of backups.
+- Device, player/app and operating system for every session, with bots and short "connect checks" left out.
+- Listener counts every minute per station, mount and external output, rolled up per hour for long periods. External Icecast and Shoutcast servers are counted too, and with their admin password their listeners get a location as well.
+- Live tab, overview (listening hours, average and peak listeners, unique listeners, listening time, compared with the previous period), weekday × hour heatmap, listening time bands, world/Europe map with countries and cities, devices and players, mounts, referring websites, most played songs with how the audience moved, live broadcasts with their audience, and a list of sessions.
+- Per station, per customer or for everything, any period, with CSV export of every table and a "Listening now" tile on the dashboard.
+- Settings for privacy, retention per data type and the GeoIP source.
+- Plain PostgreSQL instead of TimescaleDB: per-minute samples plus hourly rollups make a 30-day report on 400,000 sessions take about two seconds, and backups and restores keep working without an extra database extension.
 
 ### Phase 5: Public pages
 

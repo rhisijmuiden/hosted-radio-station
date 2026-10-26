@@ -16,6 +16,7 @@ import {
   UserRound,
   Users,
   Globe,
+  BarChart3,
   Radio,
   RadioTower,
   type LucideIcon,
@@ -160,6 +161,7 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
   const main: NavItem[] = [
     { to: '/', label: t('nav.dashboard'), icon: LayoutDashboard },
     { to: '/stations', label: t('nav.stations'), icon: Radio },
+    ...(admin || me.memberships.some((m) => m.role !== 'dj') ? [{ to: '/statistics', label: t('nav.statistics'), icon: BarChart3 }] : []),
     { to: '/customers', label: admin ? t('nav.customers') : t('nav.myCustomers'), icon: Building2 },
   ];
   const administration: NavItem[] = admin
@@ -169,6 +171,7 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
         { to: '/settings/mail', label: t('nav.mail'), icon: Mail },
         { to: '/settings/web-server', label: t('nav.webServer'), icon: Globe },
         { to: '/settings/streaming', label: t('nav.streaming'), icon: RadioTower },
+        { to: '/settings/statistics', label: t('nav.statisticsSettings'), icon: BarChart3 },
         { to: '/settings/backups', label: t('nav.backups'), icon: DatabaseBackup },
         { to: '/audit', label: t('nav.auditLog'), icon: ScrollText },
         { to: '/settings/updates', label: t('nav.updates'), icon: RefreshCw },
