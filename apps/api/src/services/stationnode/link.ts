@@ -55,6 +55,8 @@ export class StationNodeLink {
   private seeded = new Set<string>();
   private preparing = new Map<string, Promise<void>>();
   private takeOverFailures = new Map<string, number>();
+  /** Stations that move here and already play locally (outputs off), so the switch-over leaves no gap. */
+  private warming = new Set<string>();
   private needFull = true;
   private ws: WebSocket | null = null;
   private mirroring: Promise<void> | null = null;
@@ -143,11 +145,14 @@ export class StationNodeLink {
   }
 
   private async apply(pkg: StationPackage) {
-    const r = await applyPackage(this.ctx, pkg, (id) => this.seeded.has(id));
+    const r = await applyPackage(this.ctx, pkg, (id) => this.seeded.has(id) || this.warming.has(id));
     this.pkg = pkg;
     this.revision = pkg.revision;
     this.state.lastPackageAt = new Date().toISOString();
-    for (const id of r.removed) this.seeded.delete(id);
+    for (const id of r.removed) {
+      this.seeded.delete(id);
+      this.warming.delete(id);
+    }
     // A station that just switched over: take the latest state of its tables once more, then switch it on.
     for (const id of r.active) {
       if (this.seeded.has(id)) continue;
@@ -229,6 +234,7 @@ export class StationNodeLink {
       try {
         last = await this.copyFiles(stationId, (p) => report('copying', p));
         await this.seedTables(stationId);
+        await this.warmUp(stationId);
         await report('ready', last);
         this.log.info({ stationId, files: last.files }, 'station ready to switch over');
       } catch (err) {
@@ -237,6 +243,31 @@ export class StationNodeLink {
       }
     })().finally(() => this.preparing.delete(stationId));
     this.preparing.set(stationId, run);
+  }
+
+  /**
+   * Starts a station that moves here before it switches over: it plays locally while the main server still has it on
+   * air (its outputs stay off until the switch), so the relays get its streams within moments of the switch.
+   */
+  private async warmUp(stationId: string) {
+    const p = this.pkg?.stations.find((x) => x.station.id === stationId);
+    if (p?.station.enabled !== true) return;
+    this.warming.add(stationId);
+    await this.ctx.db.update(schema.stations).set({ enabled: true }).where(eq(schema.stations.id, stationId));
+    await applyStreams(this.ctx, { stationIds: [stationId], by: 'main server' });
+    // A radio station is ready when its AutoDJ answers; a station without one when its server runs.
+    const until = Date.now() + (p.station.edition === 'station' ? 60_000 : 10_000);
+    while (Date.now() < until && !this.stopped) {
+      await sleep(2000);
+      try {
+        const w = workerStatusSchema.parse(JSON.parse(await readFile(workerStatusPath(this.ctx), 'utf8')));
+        if (w.autodj[stationId]?.reachable) return;
+        // Without a running streams service there is nothing to wait for.
+        if (Date.now() - new Date(w.updatedAt).getTime() > 30_000) return;
+      } catch {
+        return;
+      }
+    }
   }
 
   // ---- mirror ----
@@ -350,6 +381,8 @@ export class StationNodeLink {
     }, 5000);
     watchdog.unref();
     ws.on('open', () => {
+      // The same sign-in as in the header: a proxy on the way may drop that one.
+      ws.send(JSON.stringify({ t: 'hello', auth: this.auth }));
       this.state.tunnel = true;
       this.log.info('station node tunnel open');
     });
@@ -358,8 +391,17 @@ export class StationNodeLink {
       alive = Date.now();
       peer.handle(data as Buffer, isBinary);
     });
-    ws.on('error', (err) => this.log.debug({ err }, 'station node tunnel error'));
-    ws.on('close', (code) => {
+    ws.on('unexpected-response', (_req, res) => {
+      this.state.error = `tunnel: the main server answered ${res.statusCode}`;
+      res.resume();
+      ws.terminate();
+    });
+    ws.on('error', (err) => {
+      this.state.error = `tunnel: ${err.message}`;
+      this.log.warn({ err }, 'station node tunnel error');
+    });
+    ws.on('close', (code, reason) => {
+      if (this.state.tunnel || code !== 1006) this.log.warn({ code, reason: reason.toString().slice(0, 100) }, 'station node tunnel closed');
       clearInterval(watchdog);
       peer.close();
       this.state.tunnel = false;

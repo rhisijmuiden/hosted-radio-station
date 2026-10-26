@@ -69,7 +69,14 @@ export class PushReceiver {
   private slots = new Map<string, Slot>();
   problems: string[] = [];
 
-  constructor(private readonly ctx: { icecastPort: () => number; secrets: IcecastSecrets }) {}
+  constructor(
+    private readonly ctx: {
+      icecastPort: () => number;
+      secrets: IcecastSecrets;
+      /** An open source connection for this stream left by its puller, so listeners stay connected (phase 12). */
+      inherit?: (key: string) => net.Socket | null;
+    },
+  ) {}
 
   async apply(port: number | null, mounts: RelayMount[]) {
     const wanted = new Map(mounts.filter((m) => m.push).map((m) => [m.key, m]));
@@ -198,6 +205,13 @@ export class PushReceiver {
     // A new push of the same ingest replaces its old one (it reconnected).
     for (const f of slot.feeds.filter((x) => x.priority === priority)) this.remove(slot, f, false, true);
     if (!slot.local) {
+      const inherited = this.ctx.inherit?.(slot.mount.key) ?? null;
+      if (inherited) {
+        slot.local = this.watchLocal(slot, inherited);
+        log.info('push takes over the pulled stream', { mount: slot.mount.key });
+      }
+    }
+    if (!slot.local) {
       try {
         slot.opening ??= this.openLocal(slot, headers).finally(() => (slot.opening = null));
         slot.local = await slot.opening;
@@ -231,6 +245,11 @@ export class PushReceiver {
       'Ice-Public': '0',
       ...(headers.get('ice-audio-info') ? { 'Ice-Audio-Info': headers.get('ice-audio-info')! } : {}),
     });
+    return this.watchLocal(slot, local);
+  }
+
+  /** Follows the source connection of a slot: when Icecast drops it, the pushes start again. */
+  private watchLocal(slot: Slot, local: net.Socket) {
     slot.since = Date.now();
     local.on('error', () => undefined);
     local.once('close', () => {

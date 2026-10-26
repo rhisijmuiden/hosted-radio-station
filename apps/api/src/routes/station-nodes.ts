@@ -166,11 +166,40 @@ export const stationNodeAgentRoutes: FastifyPluginAsyncZod = async (app) => {
   );
 
   app.get('/tunnel', { websocket: true, schema: { hide: true } }, (socket: WebSocket, req) => {
-    // The node signs in with its header on the upgrade request.
-    stationNode(req.headers.authorization).then(
-      (node) => app.stationTunnels.attach(node.id, socket),
-      () => socket.close(4401, 'unauthorized'),
-    );
+    // The node signs in with its header on the upgrade request, and again in its first message: a proxy on the way
+    // (e.g. Cloudflare) may not pass the header on an upgrade.
+    let done = false;
+    const accept = (node: { id: string }) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      socket.off('message', hello);
+      app.stationTunnels.attach(node.id, socket);
+    };
+    const refuse = (why: string) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      req.log.warn({ why }, 'station node tunnel refused');
+      socket.close(4401, 'unauthorized');
+    };
+    const timer = setTimeout(() => refuse('no sign-in within 10 seconds'), 10_000);
+    const hello = (data: Buffer, isBinary: boolean) => {
+      if (isBinary) return;
+      let msg: { t?: unknown; auth?: unknown };
+      try {
+        msg = JSON.parse(String(data));
+      } catch {
+        return;
+      }
+      if (msg?.t !== 'hello' || typeof msg.auth !== 'string') return;
+      socket.off('message', hello);
+      stationNode(msg.auth).then(accept, (err: Error) => refuse(err.message));
+    };
+    socket.on('message', hello);
+    if (req.headers.authorization) {
+      stationNode(req.headers.authorization).then(accept, (err: Error) => req.log.warn({ err: err.message }, 'station node tunnel: sign-in header refused, waiting for its first message'));
+    }
   });
 };
 

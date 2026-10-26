@@ -64,11 +64,11 @@ export async function buildPackage(ctx: AppContext, node: Node): Promise<Station
   const ids = stations.map((s) => s.id);
   const tenantIds = [...new Set(stations.map((s) => s.tenantId))];
   const [tenants, mounts, outputs, accounts, memberships, relays] = await Promise.all([
-    tenantIds.length ? ctx.db.select().from(schema.tenants).where(inArray(schema.tenants.id, tenantIds)) : [],
+    tenantIds.length ? ctx.db.select().from(schema.tenants).where(inArray(schema.tenants.id, tenantIds)).orderBy(asc(schema.tenants.id)) : [],
     ids.length ? ctx.db.select().from(schema.stationMounts).where(inArray(schema.stationMounts.stationId, ids)).orderBy(asc(schema.stationMounts.id)) : [],
     ids.length ? ctx.db.select().from(schema.stationOutputs).where(inArray(schema.stationOutputs.stationId, ids)).orderBy(asc(schema.stationOutputs.id)) : [],
     ids.length ? ctx.db.select().from(schema.stationAccounts).where(inArray(schema.stationAccounts.stationId, ids)).orderBy(asc(schema.stationAccounts.id)) : [],
-    tenantIds.length ? ctx.db.select().from(schema.memberships).where(inArray(schema.memberships.tenantId, tenantIds)) : [],
+    tenantIds.length ? ctx.db.select().from(schema.memberships).where(inArray(schema.memberships.tenantId, tenantIds)).orderBy(asc(schema.memberships.tenantId), asc(schema.memberships.userId)) : [],
     ids.length ? relaysByStation(ctx) : new Map<string, Node[]>(),
   ]);
   const accountIds = accounts.map((a) => a.id);

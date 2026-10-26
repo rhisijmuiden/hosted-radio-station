@@ -46,11 +46,11 @@ export class StationTunnels {
       link.alive = true;
       peer.handle(data as Buffer, isBinary);
     });
-    socket.on('close', () => {
+    socket.on('close', (code, reason) => {
       clearInterval(link.timer);
       peer.close();
       if (this.links.get(nodeId) === link) this.links.delete(nodeId);
-      this.log.info({ node: nodeId }, 'station node tunnel closed');
+      this.log.info({ node: nodeId, code, reason: reason.toString().slice(0, 100), seconds: Math.round((Date.now() - link.since) / 1000) }, 'station node tunnel closed');
     });
     socket.on('error', () => undefined);
     this.log.info({ node: nodeId }, 'station node tunnel open');

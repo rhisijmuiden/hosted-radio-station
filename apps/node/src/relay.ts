@@ -121,6 +121,8 @@ class Puller {
   private res: http.IncomingMessage | null = null;
   private sock: net.Socket | null = null;
   private title: string | null = null;
+  /** The stream moves to a push (a station node took the station over): keep the source open for it. */
+  private handing = false;
 
   constructor(
     readonly mount: RelayMount,
@@ -140,6 +142,19 @@ class Puller {
     this.sock?.destroy();
   }
 
+  /** Keeps the source connection into Icecast open, also when the pulled stream ends, until a push takes it. */
+  handOver() {
+    this.handing = true;
+  }
+
+  /** The open source connection, for the push that takes this stream over; the puller stops without closing it. */
+  takeSource(): net.Socket | null {
+    const sock = this.sock && !this.sock.destroyed ? this.sock : null;
+    this.sock = null;
+    this.stop();
+    return sock;
+  }
+
   private async loop() {
     if (this.stopped) return;
     this.state = { key: this.mount.key, state: 'connecting' };
@@ -151,6 +166,8 @@ class Puller {
       this.state = { key: this.mount.key, state: 'error', message: (err as Error).message };
     }
     this.res?.destroy();
+    // Handing over: Icecast keeps the listeners for a few seconds without data, until the push arrives.
+    if (this.handing && this.sock && !this.sock.destroyed) return;
     this.sock?.destroy();
     if (this.stopped) return;
     this.failures = Date.now() - started > 60_000 ? 0 : this.failures + 1;
@@ -218,6 +235,8 @@ interface Client {
  */
 export class RelayManager {
   private pullers = new Map<string, Puller>();
+  /** Pullers of streams that a station node now pushes, kept until its push takes over their source connection. */
+  private handing = new Map<string, { puller: Puller; timer: NodeJS.Timeout }>();
   /** Streams that station nodes push here instead (phase 12). */
   readonly push: PushReceiver;
   private mounts: RelayMount[] = [];
@@ -227,18 +246,24 @@ export class RelayManager {
   private lastCheck = 0;
 
   constructor(private readonly ctx: { icecastPort: () => number; secrets: IcecastSecrets; nodeId: string; trustClientHeader: boolean }) {
-    this.push = new PushReceiver(ctx);
+    this.push = new PushReceiver({ ...ctx, inherit: (key) => this.takeHandover(key) });
   }
 
   apply(mounts: RelayMount[], pushPort: number | null = null) {
     this.mounts = mounts;
     void this.push.apply(pushPort, mounts).catch((err) => log.error('push port failed', { err }));
     const wanted = new Map(mounts.filter((m) => m.url).map((m) => [m.key, m]));
+    const pushed = new Set(mounts.filter((m) => m.push && !m.url).map((m) => m.key));
     for (const [key, p] of this.pullers) {
       const want = wanted.get(key);
       if (!want || JSON.stringify(want) !== JSON.stringify(p.mount)) {
-        p.stop();
         this.pullers.delete(key);
+        // The station moved to a station node: its push takes over this source, so listeners stay connected.
+        if (!want && pushed.has(key) && !this.push.connected(key)) {
+          p.handOver();
+          this.handing.get(key)?.puller.stop();
+          this.handing.set(key, { puller: p, timer: setTimeout(() => this.takeHandover(key)?.destroy(), 30_000) });
+        } else p.stop();
       }
     }
     for (const [key, m] of wanted) {
@@ -249,7 +274,17 @@ export class RelayManager {
     }
   }
 
+  /** The source connection a puller kept open for the push of the same stream (see apply). */
+  private takeHandover(key: string): net.Socket | null {
+    const h = this.handing.get(key);
+    if (!h) return null;
+    this.handing.delete(key);
+    clearTimeout(h.timer);
+    return h.puller.takeSource();
+  }
+
   stopAll() {
+    for (const key of [...this.handing.keys()]) this.takeHandover(key)?.destroy();
     for (const p of this.pullers.values()) p.stop();
     this.pullers.clear();
     this.push.stop();

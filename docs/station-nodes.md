@@ -38,8 +38,10 @@ control traffic. The same role also works in a datacenter, for a customer that w
 On the station's Settings tab, **Where it runs** shows the current place and moves the station:
 
 - **To a node**: the node first copies the whole music library (progress is shown per file and in bytes). The station
-  keeps running on the main server while that happens and switches over only when the copy is complete, so listeners
-  hear no gap. After the switch the node takes the latest state of the tables once more and starts playing.
+  keeps running on the main server while that happens. When the copy is complete the node starts the station itself,
+  without sending its streams out yet, and only then reports that it is ready. At the switch the relays hand the open stream
+  over to the node's push, so listeners stay connected; they may hear a short jump in the audio. After the switch the
+  node takes the latest state of the tables once more.
 - **Back to this server**: the main server fetches the files the node has and this server misses, asks the node for one
   last full report, and then takes the station over.
 - **Take over here** (only while the node is unreachable) switches the station back without copying. Everything the
@@ -64,7 +66,8 @@ its relays still have.
 - **Mirror.** Every change in the tables the node owns is noted by a database trigger, and the node posts them to
   `POST /api/nodes/agent/station/mirror` every few seconds, with the state of each station (mounts, listeners, AutoDJ,
   pushes, storage). At start and once a day it sends everything, which also removes what is gone.
-- **Tunnel.** The node opens a WebSocket to `/api/nodes/agent/station/tunnel`. Panel and public requests for its
+- **Tunnel.** The node opens a WebSocket to `/api/nodes/agent/station/tunnel` and signs in with its header and again in
+  its first message (a proxy such as Cloudflare may drop the header on an upgrade). Panel and public requests for its
   stations (library, playlists, clocks, schedule, requests, on-demand, live, status) are passed through it as the
   signed-in user; the node only believes that identity from its own tunnel. The station's own settings (AutoDJ and
   scheduler) are edited on the main server and travel with the package.

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import WebSocket from 'ws';
 import { schema } from '../src/db/index.js';
 import { mediaDir } from '../src/services/streaming/icecast.js';
 import { login, setup } from './helpers.js';
@@ -17,6 +18,8 @@ let owner: { cookie: string };
 let tenantId: string;
 let stationId: string;
 let nodeId: string;
+let mainBase: string;
+let nodeSecret: string;
 
 const freePort = () =>
   new Promise<number>((resolve) => {
@@ -64,6 +67,7 @@ beforeAll(async () => {
 
   await main.app.listen({ port: 0, host: '127.0.0.1' });
   const base = `http://127.0.0.1:${(main.app.server.address() as AddressInfo).port}`;
+  mainBase = base;
 
   const created = await main.app.inject({ method: 'POST', url: '/api/nodes', headers: admin, payload: { name: 'Studio node', roles: ['station'] } });
   expect(created.statusCode).toBe(201);
@@ -73,7 +77,8 @@ beforeAll(async () => {
   expect(paired.statusCode).toBe(200);
   const dir = mkdtempSync(join(tmpdir(), 'hrs-station-node-'));
   const linkFile = join(dir, 'station-node.json');
-  writeFileSync(linkFile, JSON.stringify({ server: base, nodeId, secret: paired.json().secret }));
+  nodeSecret = paired.json().secret;
+  writeFileSync(linkFile, JSON.stringify({ server: base, nodeId, secret: nodeSecret }));
 
   // The station node: a second installation with its own database, linked to the main server.
   const port = await freePort();
@@ -154,6 +159,36 @@ describe('station nodes', () => {
     const del = await main.app.inject({ method: 'DELETE', url: `/api/nodes/${nodeId}`, headers: admin });
     expect(del.statusCode).toBe(409);
   }, 60_000);
+
+  it('takes the tunnel sign-in from the first message when a proxy drops the header', async () => {
+    const url = `${mainBase.replace(/^http/, 'ws')}/api/nodes/agent/station/tunnel`;
+    const signIn = (auth: string) =>
+      new Promise<number>((resolve) => {
+        const ws = new WebSocket(url);
+        ws.on('open', () => ws.send(JSON.stringify({ t: 'hello', auth })));
+        ws.on('close', (code) => resolve(code));
+        ws.on('error', () => undefined);
+      });
+    expect(await signIn(`Node ${nodeId}.wrong`)).toBe(4401);
+    // A good sign-in takes the node's place, until the node connects again and takes it back.
+    expect(await signIn(`Node ${nodeId}.${nodeSecret}`)).toBe(4409);
+    await until('the tunnel of the node itself', async () => main.app.stationTunnels.online(nodeId));
+  }, 30_000);
+
+  it('keeps the package the same while node rows change', async () => {
+    const { buildPackage } = await import('../src/services/stationnode/package.js');
+    const [n] = await main.db.select().from(schema.nodes).where(eq(schema.nodes.id, nodeId));
+    const first = (await buildPackage(main.ctx, n!)).revision;
+    // Status updates move rows around in the table.
+    for (let i = 0; i < 3; i++) await main.db.update(schema.nodes).set({ updatedAt: new Date() });
+    expect((await buildPackage(main.ctx, n!)).revision).toBe(first);
+    // The node keeps the sealed form of the same secrets, so its outputs do not restart on every package.
+    const before = await node.db.select().from(schema.stations).where(eq(schema.stations.id, stationId));
+    const { applyPackage } = await import('../src/services/stationnode/apply.js');
+    await applyPackage(node.ctx, await buildPackage(main.ctx, n!));
+    const after = await node.db.select().from(schema.stations).where(eq(schema.stations.id, stationId));
+    expect(after[0]!.icecastSourcePassword).toBe(before[0]!.icecastSourcePassword);
+  }, 30_000);
 
   it('moves the station back with what was made on the node', async () => {
     writeFileSync(join(mediaDir(node.ctx, stationId), 'music', 'new.mp3'), Buffer.alloc(1000, 1));
