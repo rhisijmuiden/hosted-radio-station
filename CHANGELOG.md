@@ -3,7 +3,7 @@
 All notable changes to Hosted Radio Station. Versions follow [semantic versioning](https://semver.org). The
 [roadmap](ROADMAP.md) has the full description of each phase, with screenshots.
 
-## 1.0.1 (October 2026)
+## 1.0.1 (26 October 2026)
 
 Fixes found while testing 1.0.0.
 
