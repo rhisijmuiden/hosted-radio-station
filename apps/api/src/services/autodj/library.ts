@@ -1,6 +1,6 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { dirname, extname, join, relative, resolve, sep } from 'node:path';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { parseFile } from 'music-metadata';
 import { schema } from '../../db/index.js';
 import type { MediaSourceStatus } from '../../db/schema.js';
@@ -293,7 +293,8 @@ export function scanLibrary(ctx: AppContext, stationId: string, only?: string): 
 
 /** Scans the libraries of all Radio stations, one after the other (every half hour). */
 export async function scanAllLibraries(ctx: AppContext) {
-  const rows = await ctx.db.select({ id: schema.stations.id }).from(schema.stations).where(eq(schema.stations.edition, 'station'));
+  // Stations on a station node are scanned there.
+  const rows = await ctx.db.select({ id: schema.stations.id }).from(schema.stations).where(and(eq(schema.stations.edition, 'station'), isNull(schema.stations.nodeId)));
   for (const r of rows) await scanLibrary(ctx, r.id);
 }
 

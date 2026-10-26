@@ -85,12 +85,12 @@ const createBody = z.object({
   name: z.string().trim().min(1).max(80),
   location: z.string().trim().max(80).default(''),
   tenantId: z.uuid().nullish(),
-  roles: z.array(roleSchema).max(2).default([]),
+  roles: z.array(roleSchema).max(3).default([]),
 });
 const updateBody = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   location: z.string().trim().max(80).optional(),
-  roles: z.array(roleSchema).max(2).optional(),
+  roles: z.array(roleSchema).max(3).optional(),
   config: nodeConfigSchema.partial().optional(),
 });
 
@@ -370,6 +370,8 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
 
   app.delete('/:id', { config: { audit: 'node.delete' }, schema: { tags: ['Nodes'], summary: 'Remove a node', params: nodeParams, response: { 200: okOut } } }, async (req) => {
     const node = await nodeAccess(ctx, req, req.params.id, 'owner');
+    const [running] = await ctx.db.select({ n: sql<number>`count(*)::int` }).from(schema.stations).where(eq(schema.stations.nodeId, node.id));
+    if (running && running.n > 0) throw conflict('Stations still run on this node; move them back to this server first');
     hub.disconnect(node.id);
     await ctx.db.delete(schema.nodes).where(eq(schema.nodes.id, node.id));
     Object.assign(req.auditInfo, { tenantId: node.tenantId, targetId: node.id, details: { name: node.name } });

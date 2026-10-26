@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import http from 'node:http';
+import https from 'node:https';
 import net from 'node:net';
 import tls from 'node:tls';
 import type { FastifyBaseLogger } from 'fastify';
@@ -259,7 +260,8 @@ function sourceConnection(port: number, mount: string, password: string, headers
 function connectExternal(c: OutputConfig, port: number): Promise<net.Socket> {
   return new Promise((resolve, reject) => {
     const opts = { host: c.host!, port, timeout: 10_000 };
-    const socket = c.tls ? tls.connect({ ...opts, servername: net.isIP(c.host!) ? undefined : c.host! }) : net.connect(opts);
+    // insecureTls: a relay node without a public name has a certificate of its own (phase 12 station nodes).
+    const socket = c.tls ? tls.connect({ ...opts, servername: net.isIP(c.host!) ? undefined : c.host!, rejectUnauthorized: !c.insecureTls }) : net.connect(opts);
     const fail = (err: Error) => {
       socket.destroy();
       reject(new Error(`${c.host}:${port}: ${(err as NodeJS.ErrnoException).code ?? err.message}`));
@@ -421,8 +423,21 @@ export class Pusher extends Relay {
       if (this.output.type === 'shoutcast2') q.set('sid', String(c.streamId ?? 1));
       url = `${scheme}://${c.host}:${c.port}/admin.cgi?${q}`;
     }
+    if (c.insecureTls) return insecureGet(url, headers);
     await fetch(url, { headers, signal: AbortSignal.timeout(5000) }).then((r) => r.body?.cancel());
   }
+}
+
+/** A GET over TLS without checking the certificate, for relay nodes that have no public name. */
+function insecureGet(url: string, headers: Record<string, string>) {
+  return new Promise<void>((resolve, reject) => {
+    const req = https.get(url, { headers, rejectUnauthorized: false, timeout: 5000 }, (res) => {
+      res.resume();
+      res.on('end', () => resolve());
+    });
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.on('error', reject);
+  });
 }
 
 /** Listener count (and whether a source is connected) on an external server. */

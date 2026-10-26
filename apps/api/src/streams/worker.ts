@@ -1,6 +1,6 @@
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type pino from 'pino';
 import { schema } from '../db/index.js';
 import type { OutputStatus } from '../db/schema.js';
@@ -9,6 +9,7 @@ import { NOWPLAYING_CHANNEL } from '../services/public/hub.js';
 import { finishStaleRecordings } from '../services/public/ondemand.js';
 import { publicSettings } from '../services/public/settings.js';
 import { fetchStats, internalReaders, killSource, updateMetadata, type MountStats } from '../services/streaming/icecast.js';
+import { nodeStationStats, type Station } from '../services/streaming/state.js';
 import { workerStatusPath, type WorkerStatus } from '../services/streaming/status.js';
 import { ListenerCollector } from './collector.js';
 import { IngestGateway } from './gateway.js';
@@ -108,7 +109,7 @@ export class StreamsWorker {
     if (!snap) return;
     const wanted = new Map<string, Relay>();
     for (const view of snap.stations.values()) {
-      if (!view.active) continue;
+      if (!view.active || view.onNode) continue;
       const live = this.live.get(view.station.id) ?? new Map();
       for (const m of view.mounts) {
         if (m.kind !== 'transcode' || !m.sourceMountId) continue;
@@ -167,13 +168,20 @@ export class StreamsWorker {
     if (!snap) return;
     let changed = false;
     for (const id of Object.keys(this.internal)) if (!snap.stations.get(id)?.active) delete this.internal[id];
+    const runtimes = await this.nodeRuntimes(snap);
     await Promise.all(
       [...snap.stations.values()].filter((v) => v.active).map(async (view) => {
         let stats: MountStats[];
-        try {
-          stats = await fetchStats({ port: view.station.icecastPort, adminPassword: view.adminPassword });
-        } catch {
-          stats = [];
+        if (view.onNode) {
+          // What the station node reported a moment ago.
+          const station = runtimes.get(view.station.id);
+          stats = (station && nodeStationStats(station)) ?? [];
+        } else {
+          try {
+            stats = await fetchStats({ port: view.station.icecastPort, adminPassword: view.adminPassword });
+          } catch {
+            stats = [];
+          }
         }
         const before = this.live.get(view.station.id) ?? new Map<string, MountStats>();
         const now = new Map(stats.map((s) => [s.mount, s]));
@@ -185,10 +193,11 @@ export class StreamsWorker {
           const prev = before.get(s.mount);
           if (s.title !== (prev?.title ?? null)) moved = true;
           // When a source comes or goes, mounts that fall back switch to another title too, so send them all again.
+          if (view.onNode) continue;
           if (s.title && (regrouped || s.title !== prev?.title)) void this.forwardTitle(view, s.mount, s.title);
           this.enforceBitrate(view, s);
         }
-        await this.countInternal(view, now);
+        if (!view.onNode) await this.countInternal(view, now);
         await this.collector.observe(view, now, this.internal[view.station.id] ?? {}).catch((err) => this.log.warn({ err }, 'statistics failed'));
         // After the collector, so the new title already has its play with a start time.
         if (moved) this.notifyNowPlaying(view.station.id);
@@ -203,6 +212,14 @@ export class StreamsWorker {
       void this.pollExternal(snap);
       void this.collector.refreshNodes().catch(() => undefined);
     }
+  }
+
+  /** The latest reports of the stations on station nodes (they change every few seconds, the snapshot every 30). */
+  private async nodeRuntimes(snap: Snapshot) {
+    const ids = [...snap.stations.values()].filter((v) => v.active && v.onNode).map((v) => v.station.id);
+    if (!ids.length) return new Map<string, Station>();
+    const rows = await this.ctx.db.select().from(schema.stations).where(inArray(schema.stations.id, ids));
+    return new Map(rows.map((r) => [r.id, r]));
   }
 
   /**
@@ -281,7 +298,8 @@ export class StreamsWorker {
     for (const view of snap.stations.values()) {
       if (!view.active) continue;
       for (const o of view.outputs) {
-        if (o.type === 'local' || !o.enabled) continue;
+        // Relay nodes fed by a station node report their listeners to the main server themselves.
+        if (o.type === 'local' || !o.enabled || o.config.relayNodeId) continue;
         try {
           const r = await externalListeners(this.ctx, o);
           const patch: Partial<OutputStatus> = { listeners: r.listeners };
