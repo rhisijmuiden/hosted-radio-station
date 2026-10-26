@@ -155,7 +155,7 @@ export default function TopologyFlat({
         dim: dimmed.has(n.id),
       });
       if (relay) {
-        const where = n.city || n.country || n.location;
+        const where = n.location || n.city || n.country;
         cards.push({
           key: `aud:${n.id}`,
           select: n.id,
