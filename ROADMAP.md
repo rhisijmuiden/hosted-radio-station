@@ -107,7 +107,7 @@ Phase 9: RHIS Studio, the Windows client: live assist, live broadcasting from th
 | 6 | Radio station (AutoDJ) | Done |
 | 7 | Scheduler | Done |
 | 8 | Distribution network and orchestration | Done |
-| 9 | Windows client | In test |
+| 9 | Windows client | Done |
 | 10 | Hosted service | Planned |
 | 11 | FM/MPX and RDS module | Planned |
 | 12 | Open source edition | Planned |
