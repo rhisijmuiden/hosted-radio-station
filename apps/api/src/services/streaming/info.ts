@@ -2,6 +2,7 @@ import { and, eq, isNotNull } from 'drizzle-orm';
 import { schema } from '../../db/index.js';
 import type { AppContext } from '../../lib/context.js';
 import { nodeSettings } from '../nodes/plan.js';
+import { pushedRouting, stationRouting } from '../nodes/routing-rules.js';
 import { getSetting } from '../settings.js';
 import type { Mount, Station } from './state.js';
 
@@ -21,6 +22,8 @@ export interface ConnectionInfo {
   ingestHost: string;
   /** The source node behind the ingest name, when the customer routed it to one. */
   node: { id: string; name: string } | null;
+  /** The ingest that takes over when the main one is gone (phase 13): encoders can use it as their backup server. */
+  backup: { host: string; node: { id: string; name: string } | null; tls: { port: number; available: boolean }; plain: { port: number } | null } | null;
   /** Where files are uploaded (SFTP/FTP always run on this server). */
   uploadHost: string;
   tls: { port: number; available: boolean };
@@ -47,6 +50,7 @@ export async function connectionInfo(ctx: AppContext, station: Station, mounts: 
       return {
         ingestHost: host,
         node: { id: sn.id, name: sn.name },
+        backup: null,
         uploadHost: domain?.panelHost ?? ingestHost,
         // The node's own Icecast takes encoders; TLS only with a name and a certificate of its own.
         tls: { port: streaming.ingestTlsPort, available: false },
@@ -57,15 +61,45 @@ export async function connectionInfo(ctx: AppContext, station: Station, mounts: 
       };
     }
   }
-  const [node] = domain?.ingestNodeId
-    ? await ctx.db.select().from(schema.nodes).where(and(eq(schema.nodes.id, domain.ingestNodeId), isNotNull(schema.nodes.pairedAt)))
-    : [];
+  const routing = stationRouting(station);
+  const nodeRow = async (id: string) => (await ctx.db.select().from(schema.nodes).where(and(eq(schema.nodes.id, id), isNotNull(schema.nodes.pairedAt))))[0];
+  // An ingest node (phase 13) takes the encoders itself; its address comes from its own name, else the customer's
+  // src. name when that points to it, else its IP address.
+  const nodeIngest = async (id: string) => {
+    const n = await nodeRow(id);
+    if (!n?.roles.includes('source')) return null;
+    const c = nodeSettings(n);
+    const host = domain?.ingestNodeId === n.id ? domain.ingestHost : c.publicHost || n.status.ip || n.name;
+    return { host, node: { id: n.id, name: n.name }, tls: { port: c.sourceTlsPort ?? streaming.ingestTlsPort, available: !!c.sourceTlsPort && !!n.status.caddy && (domain?.ingestNodeId === n.id || !!c.publicHost) }, plain: c.sourcePlainPort ? { port: c.sourcePlainPort } : null };
+  };
+  const here = { host: ingestHost, node: null, tls: { port: streaming.ingestTlsPort, available: proxy.mode === 'builtin' && (!!domain || !!proxy.domain) }, plain: streaming.ingestPlainPort ? { port: streaming.ingestPlainPort } : null };
+  const backup = routing.backupIngest && routing.backupIngest !== routing.ingest ? (routing.backupIngest === 'local' ? here : await nodeIngest(routing.backupIngest)) : null;
+  const pushed = pushedRouting(routing);
+  if (routing.ingest !== 'local') {
+    const main = await nodeIngest(routing.ingest);
+    if (main) {
+      return {
+        ingestHost: main.host,
+        node: main.node,
+        backup,
+        uploadHost: domain?.panelHost ?? (proxy.domain || publicUrl.hostname),
+        tls: main.tls,
+        plain: main.plain,
+        legacy: null,
+        listenBase,
+        // Listeners are sent to the relays; this server has no audio of the station.
+        mounts: mounts.map((m) => ({ id: m.id, path: m.path, encoderMount: `/${station.slug}${m.path}`, listenUrl: m.isPublic ? `${listenBase}/api/public/stations/${station.slug}/listen${m.path}` : null })),
+      };
+    }
+  }
+  const [node] = domain?.ingestNodeId ? [await nodeRow(domain.ingestNodeId)].filter(Boolean) : [];
   if (node?.roles.includes('source')) {
     // Encoders go to the customer's source node, which passes them on to this server.
     const c = nodeSettings(node);
     return {
       ingestHost,
       node: { id: node.id, name: node.name },
+      backup,
       uploadHost: domain!.panelHost,
       tls: { port: c.sourceTlsPort ?? streaming.ingestTlsPort, available: !!c.sourceTlsPort && !!node.status.caddy },
       plain: c.sourcePlainPort ? { port: c.sourcePlainPort } : null,
@@ -77,6 +111,7 @@ export async function connectionInfo(ctx: AppContext, station: Station, mounts: 
   return {
     ingestHost,
     node: null,
+    backup,
     uploadHost: ingestHost,
     // Certificates come from the built-in web server; behind an external proxy, TLS for encoders is set up there.
     tls: { port: streaming.ingestTlsPort, available: proxy.mode === 'builtin' && (!!domain || !!proxy.domain) },
@@ -87,7 +122,7 @@ export async function connectionInfo(ctx: AppContext, station: Station, mounts: 
       id: m.id,
       path: m.path,
       encoderMount: `/${station.slug}${m.path}`,
-      listenUrl: m.isPublic && localEnabled ? `${listenBase}/listen/${station.slug}${m.path}` : null,
+      listenUrl: m.isPublic && pushed ? `${listenBase}/api/public/stations/${station.slug}/listen${m.path}` : m.isPublic && localEnabled ? `${listenBase}/listen/${station.slug}${m.path}` : null,
     })),
   };
 }

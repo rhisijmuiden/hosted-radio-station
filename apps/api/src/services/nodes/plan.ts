@@ -8,7 +8,8 @@ import { getSetting } from '../settings.js';
 import { platformHost } from '../streaming/state.js';
 import { getVersionInfo, type VersionInfo } from '../system.js';
 import { buildFmPlan, fmConfigSchema } from './fm.js';
-import type { NodePlan, ProbeTarget, RelayMount } from './protocol.js';
+import { ingestsOf, pushedRouting, stationRouting } from './routing-rules.js';
+import type { IngestStation, NodePlan, ProbeTarget, RelayMount } from './protocol.js';
 
 export type Node = typeof schema.nodes.$inferSelect;
 
@@ -74,41 +75,84 @@ async function version(ctx: AppContext) {
 }
 export const forgetVersion = () => (versionCache = null);
 
-type StationRow = { id: string; slug: string; tenantId: string; name: string; nodeId: string | null };
+type StationRow = { id: string; slug: string; tenantId: string; name: string; nodeId: string | null; edition: string; routing: Record<string, unknown> };
+
+const stationColumns = {
+  id: schema.stations.id,
+  slug: schema.stations.slug,
+  tenantId: schema.stations.tenantId,
+  name: schema.stations.name,
+  nodeId: schema.stations.nodeId,
+  edition: schema.stations.edition,
+  routing: schema.stations.routing,
+};
 
 /** Active stations a node may serve: all of them, or only its customer's. */
 export async function servableStations(ctx: AppContext, tenantId: string | null): Promise<StationRow[]> {
   return ctx.db
-    .select({ id: schema.stations.id, slug: schema.stations.slug, tenantId: schema.stations.tenantId, name: schema.stations.name, nodeId: schema.stations.nodeId })
+    .select(stationColumns)
     .from(schema.stations)
     .innerJoin(schema.tenants, eq(schema.tenants.id, schema.stations.tenantId))
     .where(and(eq(schema.stations.enabled, true), eq(schema.tenants.active, true), tenantId ? eq(schema.stations.tenantId, tenantId) : undefined))
     .orderBy(asc(schema.stations.slug));
 }
 
-/** Station ids a relay node carries. */
-export function carried(node: Pick<Node, 'roles' | 'config' | 'tenantId'>, stations: { id: string; tenantId: string }[]): Set<string> {
+type RelayNode = Pick<Node, 'id' | 'roles' | 'config' | 'tenantId' | 'status'>;
+type RoutedStation = { id: string; tenantId: string; routing?: Record<string, unknown> | null };
+
+/** A relay may carry a station of this customer (a customer's own relay only carries that customer's stations). */
+const mayCarry = (n: RelayNode, s: RoutedStation) => n.roles.includes('relay') && (!n.tenantId || n.tenantId === s.tenantId);
+
+/** The relays that carry a station by their own settings ("all stations" or a chosen list). */
+const byOwnSettings = (n: RelayNode, s: RoutedStation) => {
+  const c = nodeSettings(n).relayStations;
+  return mayCarry(n, s) && (c === 'all' || c.includes(s.id));
+};
+
+/**
+ * The relays of one station (phase 13): the station's chosen relays, or every relay that carries it by its own
+ * settings. When none of the chosen relays is online and spare relays are allowed, the others step in.
+ */
+export function relaysOf(s: RoutedStation, relays: RelayNode[]): RelayNode[] {
+  const r = stationRouting(s);
+  if (r.relays === 'auto') return relays.filter((n) => byOwnSettings(n, s));
+  const chosen = relays.filter((n) => r.relays.includes(n.id) && mayCarry(n, s));
+  if (!r.spareRelays || chosen.some((n) => n.status.online)) return chosen;
+  return [...chosen, ...relays.filter((n) => !r.relays.includes(n.id) && n.status.online && byOwnSettings(n, s))];
+}
+
+/** Station ids a relay node carries, given all relay nodes (for spares). */
+export function carried(node: RelayNode, stations: RoutedStation[], relays: RelayNode[]): Set<string> {
   if (!node.roles.includes('relay')) return new Set();
-  const c = nodeSettings(node);
-  const allowed = stations.filter((s) => !node.tenantId || s.tenantId === node.tenantId);
-  return new Set(allowed.filter((s) => c.relayStations === 'all' || c.relayStations.includes(s.id)).map((s) => s.id));
+  const all = relays.some((n) => n.id === node.id) ? relays : [...relays, node];
+  return new Set(stations.filter((s) => relaysOf(s, all).some((n) => n.id === node.id)).map((s) => s.id));
+}
+
+/** Paired relay nodes. */
+export async function pairedRelays(ctx: AppContext): Promise<Node[]> {
+  const nodes = await ctx.db.select().from(schema.nodes).where(isNotNull(schema.nodes.pairedAt));
+  return nodes.filter((n) => n.roles.includes('relay'));
 }
 
 /** Paired relay nodes per station id (for listen routes on this server, routing and the topology). */
 export async function relaysByStation(ctx: AppContext): Promise<Map<string, Node[]>> {
-  const nodes = await ctx.db.select().from(schema.nodes).where(isNotNull(schema.nodes.pairedAt));
-  const relays = nodes.filter((n) => n.roles.includes('relay'));
+  const relays = await pairedRelays(ctx);
   const out = new Map<string, Node[]>();
   if (!relays.length) return out;
-  const stations = await servableStations(ctx, null);
-  for (const n of relays) {
-    for (const id of carried(n, stations)) {
-      const list = out.get(id) ?? [];
-      list.push(n);
-      out.set(id, list);
-    }
+  for (const s of await servableStations(ctx, null)) {
+    const list = relaysOf(s, relays) as Node[];
+    if (list.length) out.set(s.id, list);
   }
   return out;
+}
+
+/** Where an ingest pushes a station's streams to on a relay node: its push port, by name or address. */
+export function pushTarget(relay: Pick<Node, 'id' | 'name' | 'config' | 'status'>, fromNodeId: string | null) {
+  const c = nodeSettings(relay);
+  // An ingest node that is also the relay delivers to itself.
+  const host = relay.id === fromNodeId ? '127.0.0.1' : c.publicHost || relay.status.ip;
+  if (!host || !c.pushPort) return null;
+  return { nodeId: relay.id, name: relay.name, host, port: c.pushPort, insecureTls: host === '127.0.0.1' || !c.publicHost };
 }
 
 const baseUrl = (ctx: AppContext) => ctx.config.PUBLIC_URL.replace(/\/$/, '');
@@ -119,25 +163,30 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
   const roles = node.roles.filter((r): r is NodeRole => NODE_ROLES.includes(r));
   const [settings, v, stations] = await Promise.all([getSetting(ctx, 'nodes'), version(ctx), servableStations(ctx, node.tenantId)]);
   const ids = stations.map((s) => s.id);
-  const mounts = ids.length
-    ? await ctx.db
-        .select()
-        .from(schema.stationMounts)
-        .where(and(inArray(schema.stationMounts.stationId, ids), eq(schema.stationMounts.isPublic, true)))
-        .orderBy(asc(schema.stationMounts.sortOrder), asc(schema.stationMounts.createdAt))
-    : [];
+  const [allMounts, relays] = await Promise.all([
+    ids.length
+      ? ctx.db
+          .select()
+          .from(schema.stationMounts)
+          .where(inArray(schema.stationMounts.stationId, ids))
+          .orderBy(asc(schema.stationMounts.sortOrder), asc(schema.stationMounts.createdAt))
+      : [],
+    pairedRelays(ctx),
+  ]);
+  const mounts = allMounts.filter((m) => m.isPublic);
   const base = baseUrl(ctx);
 
   let relay: NodePlan['relay'] = null;
   if (roles.includes('relay')) {
-    const mine = carried(node, stations);
+    const mine = carried(node, stations, relays);
     const list: RelayMount[] = [];
     for (const s of stations) {
       if (!mine.has(s.id)) continue;
       for (const m of mounts.filter((x) => x.stationId === s.id)) {
         const key = `${s.slug}${m.path}`;
-        // A station on a station node pushes its streams here; the others are pulled from this server.
-        const push = s.nodeId ? { token: pushToken(ctx, node, key) } : null;
+        // A station on a station node, or with an ingest node, pushes its streams here; the others are pulled from
+        // this server.
+        const push = s.nodeId || pushedRouting(stationRouting(s)) ? { token: pushToken(ctx, node, key) } : null;
         list.push({ key, stationId: s.id, slug: s.slug, path: m.path, name: m.name ? `${s.name} – ${m.name}` : s.name, format: m.format, url: push ? null : `${base}/listen/${key}`, push });
       }
     }
@@ -145,12 +194,16 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
   }
 
   let source: NodePlan['source'] = null;
+  let ingest: NodePlan['ingest'] = null;
   if (roles.includes('source')) {
     const [proxy, streaming, host, domains] = await Promise.all([
       getSetting(ctx, 'proxy'),
       getSetting(ctx, 'streaming'),
       platformHost(ctx),
-      ctx.db.select({ host: schema.tenantDomains.ingestHost }).from(schema.tenantDomains).where(eq(schema.tenantDomains.ingestNodeId, node.id)),
+      ctx.db
+        .select({ host: schema.tenantDomains.ingestHost, tenantId: schema.tenantDomains.tenantId, nodeId: schema.tenantDomains.ingestNodeId })
+        .from(schema.tenantDomains)
+        .where(eq(schema.tenantDomains.status, 'verified')),
     ]);
     // Encoders are passed on over TLS when this server has a certificate for its own name.
     const tls = proxy.mode === 'builtin' && !!proxy.domain;
@@ -159,21 +212,21 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
       plainPort: c.sourcePlainPort,
       tlsPort: c.sourceTlsPort,
       upstream: { host: tls ? proxy.domain : host, port: port ?? streaming.ingestTlsPort, tls },
-      hosts: domains.map((d) => d.host).sort(),
+      hosts: domains.filter((d) => d.nodeId === node.id).map((d) => d.host).sort(),
     };
+    ingest = await ingestPlan(ctx, node, stations, allMounts, relays, domains);
   }
 
   let probes: NodePlan['probes'] = null;
   if (c.probe) {
     const targets: ProbeTarget[] = [];
-    const relays = await relaysByStation(ctx);
     for (const s of stations) {
       const own = mounts.filter((m) => m.stationId === s.id);
       const def = own.find((m) => m.isDefault) ?? own[0];
       if (!def) continue;
-      // A station on a station node is not served here, only by its relays.
-      if (!s.nodeId) targets.push({ target: `${s.slug}${def.path}@main`, stationId: s.id, url: `${base}/listen/${s.slug}${def.path}` });
-      for (const r of relays.get(s.id) ?? []) {
+      // A station on a station node or an ingest node is not served here, only by its relays.
+      if (!s.nodeId && !pushedRouting(stationRouting(s))) targets.push({ target: `${s.slug}${def.path}@main`, stationId: s.id, url: `${base}/listen/${s.slug}${def.path}` });
+      for (const r of relaysOf(s, relays)) {
         const rb = r.id !== node.id && r.status.online ? relayBaseUrl(r) : null;
         if (rb) targets.push({ target: `${s.slug}${def.path}@${r.id}`, stationId: s.id, url: `${rb}/listen/${s.slug}${def.path}` });
       }
@@ -186,7 +239,17 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
     const [{ n }] = await ctx.db.select({ n: count() }).from(schema.stations).where(eq(schema.stations.nodeId, node.id));
     station = { stations: n };
   }
-  const fm = roles.includes('fm') ? await buildFmPlan(ctx, c.fm, base, stations) : null;
+  const fmStation = roles.includes('fm') ? stations.find((s) => s.id === c.fm.stationId) : undefined;
+  // The audio of a station with an ingest node (or on a station node) does not pass this server: the FM node then
+  // listens on one of the station's relays.
+  const fmBase =
+    fmStation && (fmStation.nodeId || pushedRouting(stationRouting(fmStation)))
+      ? (relaysOf(fmStation, relays)
+          .filter((r) => r.status.online)
+          .map((r) => relayBaseUrl(r))
+          .find(Boolean) ?? base)
+      : base;
+  const fm = fmStation ? await buildFmPlan(ctx, c.fm, fmBase, stations) : null;
 
   const plan: Omit<NodePlan, 'revision'> = {
     nodeId: node.id,
@@ -195,12 +258,93 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
     web: { publicHost: c.publicHost || null, listenPort: c.listenPort },
     relay,
     source,
+    ingest,
     probes,
     station,
     fm,
     update: { branch: v.branch, commit: v.commit, auto: settings.autoUpdate },
   };
   return { ...plan, revision: createHash('sha256').update(JSON.stringify(plan)).digest('hex').slice(0, 16) };
+}
+
+type MountRow = typeof schema.stationMounts.$inferSelect;
+
+/**
+ * The stations an ingest node takes encoders for (phase 13), as main or backup ingest, with their mounts, the relays
+ * to push every public mount to, and the external Icecast servers to feed.
+ */
+async function ingestPlan(
+  ctx: AppContext,
+  node: Node,
+  stations: StationRow[],
+  mounts: MountRow[],
+  relays: Node[],
+  domains: { host: string; tenantId: string }[],
+): Promise<NonNullable<NodePlan['ingest']>> {
+  const mine = stations
+    .filter((s) => !s.nodeId)
+    .map((s) => ({ s, me: ingestsOf(stationRouting(s)).find((i) => i.ref === node.id) }))
+    .filter((x): x is { s: StationRow; me: { ref: string; priority: number } } => !!x.me);
+  const ids = mine.map((x) => x.s.id);
+  const outputs = ids.length
+    ? await ctx.db
+        .select()
+        .from(schema.stationOutputs)
+        .where(and(inArray(schema.stationOutputs.stationId, ids), eq(schema.stationOutputs.type, 'icecast'), eq(schema.stationOutputs.enabled, true)))
+    : [];
+  const open = (sealed: string | undefined) => {
+    try {
+      return sealed ? ctx.box.decrypt(sealed) : '';
+    } catch {
+      return '';
+    }
+  };
+  const list: IngestStation[] = mine.map(({ s, me }) => {
+    const own = mounts.filter((m) => m.stationId === s.id);
+    const path = (id: string | null) => (id ? (own.find((m) => m.id === id)?.path ?? null) : null);
+    const targets = relaysOf(s, relays)
+      .map((r) => {
+        const t = pushTarget(r as Node, node.id);
+        if (!t) return null;
+        const tokens: Record<string, string> = {};
+        for (const m of own.filter((x) => x.isPublic)) tokens[`${s.slug}${m.path}`] = pushToken(ctx, r as Node, `${s.slug}${m.path}`);
+        return { ...t, tokens };
+      })
+      .filter((t): t is NonNullable<typeof t> => !!t);
+    return {
+      stationId: s.id,
+      slug: s.slug,
+      name: s.name,
+      tenantId: s.tenantId,
+      priority: me.priority,
+      mounts: own.map((m) => ({
+        path: m.path,
+        name: m.name,
+        kind: m.kind,
+        format: m.format,
+        bitrateKbps: m.bitrateKbps,
+        sourcePath: path(m.sourceMountId),
+        fallbackPath: path(m.fallbackMountId),
+        isPublic: m.isPublic,
+      })),
+      targets,
+      outputs: outputs
+        .filter((o) => o.stationId === s.id && o.config.push !== false && o.mountId && o.config.host && o.config.port)
+        .map((o) => ({
+          id: o.id,
+          mountPath: path(o.mountId) ?? '',
+          host: o.config.host!,
+          port: o.config.port!,
+          tls: !!o.config.tls,
+          mount: o.config.mount || '/stream',
+          username: o.config.username || 'source',
+          password: open(o.config.password),
+        }))
+        .filter((o) => o.mountPath),
+    };
+  });
+  const tenants = new Set(list.map((x) => x.tenantId));
+  return { stations: list, hosts: Object.fromEntries(domains.filter((d) => tenants.has(d.tenantId)).map((d) => [d.host, d.tenantId])) };
 }
 
 /**

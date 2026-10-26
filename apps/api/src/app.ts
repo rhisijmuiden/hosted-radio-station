@@ -36,6 +36,7 @@ import { schedulerRoutes } from './routes/scheduler.js';
 import { stationPublicRoutes } from './routes/station-public.js';
 import { settingsRoutes } from './routes/settings.js';
 import { ssoAdminRoutes, ssoAuthRoutes } from './routes/sso.js';
+import { stationRoutingRoutes } from './routes/station-routing.js';
 import { stationRoutes } from './routes/stations.js';
 import { statsRoutes } from './routes/stats.js';
 import { studioRoutes } from './routes/studio.js';
@@ -182,6 +183,7 @@ export async function buildApp(ctx: AppContext) {
   await app.register(nodeRoutes, { prefix: '/api/nodes' });
   await app.register(stationNodeAgentRoutes, { prefix: '/api/nodes/agent/station' });
   await app.register(stationPlacementRoutes, { prefix: '/api/stations' });
+  await app.register(stationRoutingRoutes, { prefix: '/api/stations' });
   await app.register(tenantStationNodeRoutes, { prefix: '/api/tenants' });
   await app.register(internalRoutes, { prefix: '/api/internal' });
   if (link) await app.register(stationNodeInternalRoutes, { prefix: '/api/internal/station-node', link });

@@ -50,6 +50,33 @@ Listeners are routed through `/api/public/stations/<slug>/listen/<mount>`: a red
 
 Encoders use the same login as on the main server. A customer node can only take encoders for its own customer.
 
+## Routing: ingest, backup ingest and relays
+
+The main server is the orchestrator: it steers the nodes, checks encoder log-ins and hands out the routes, but it
+carries no audio for a station that has an ingest node. Per station, under **Stations → <station> → Routing**:
+
+- **Main ingest**: where encoders connect. "This server" keeps the classic setup (relays pull from this server). An
+  ingest node takes the encoders itself, makes the transcoded mounts with ffmpeg and pushes every public mount
+  straight to the relays (TLS on their push port, default 8001, a token per mount).
+- **Backup ingest**: a second ingest (a node, or this server) that encoders can use as their backup server. Both
+  ingests push to the same relays; a relay plays the best one that is on air (main before backup) and keeps the other
+  one on standby. When the main ingest falls away the relay switches to the backup without dropping its listeners.
+- **Relays**: automatic (every relay that carries the station by its own settings) or a chosen list. With **Spare
+  relays** on, the other relays step in while none of the chosen ones is online.
+
+Rules:
+
+- A Radio station (AutoDJ) keeps this server as its main ingest, because the AutoDJ plays here; an ingest node can be
+  its backup.
+- Encoder log-ins on an ingest node are checked by the orchestrator over the node's control channel; the node never
+  sees DJ passwords. When the orchestrator is unreachable, a DJ who logged in during the last 12 hours can still go
+  on air, and the broadcast is reported once the node is back.
+- Listeners of a station with an ingest node always go through the relay redirect; without a relay online the listen
+  address answers 503.
+- On a single server nothing changes: the same machine runs the ingest and relay roles next to the orchestrator. The
+  topology shows them as "This server · ingest" and "This server · relay", with the orchestrator apart and connected
+  to every node by control lines only.
+
 ## Health
 
 Every node is pinged over its control channel every 5 seconds. The panel shows the round trip, lost pings over the last 5 minutes, ping timeouts over the last 24 hours, CPU, memory, traffic and listeners, per minute and over time, and the events of the node. A node that is slower than **Slow above (ms)**, loses more than 5% of its pings or reports a problem is shown as degraded.

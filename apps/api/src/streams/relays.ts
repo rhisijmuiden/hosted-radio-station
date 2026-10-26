@@ -13,7 +13,7 @@ import type { StationView } from './snapshot.js';
 
 export interface RelayState {
   id: string;
-  kind: 'transcode' | 'push' | 'monitor' | 'record';
+  kind: 'transcode' | 'push' | 'monitor' | 'record' | 'relay';
   station: string;
   name: string;
   state: 'idle' | 'connecting' | 'connected' | 'error';
@@ -312,13 +312,16 @@ export class Pusher extends Relay {
     private readonly output: Output,
     private readonly mount: Mount,
     log: FastifyBaseLogger,
+    /** relay = a push to a relay node of the distribution network (phase 13). */
+    kind: 'push' | 'relay' = 'push',
   ) {
-    super(`push:${output.id}`, 'push', view.station.slug, output.name, log);
+    super(`${kind}:${output.id}`, kind, view.station.slug, output.name, log);
     this.key = JSON.stringify([output.type, output.config, mount.path, view.station.icecastPort, view.station.name, view.station.genre, view.station.website]);
     this.input = { stationId: view.station.id, mount: mount.path };
   }
 
   private password(enc?: string) {
+    if (this.output.config.token) return this.output.config.token;
     return enc ? this.ctx.box.decrypt(enc) : '';
   }
 
@@ -364,6 +367,8 @@ export class Pusher extends Relay {
         station.website ? `ice-url: ${station.website}` : '',
         'ice-public: 0',
         `ice-audio-info: bitrate=${this.mount.bitrateKbps}`,
+        // Relay nodes prefer the main ingest when two ingests push the same stream.
+        c.priority !== undefined ? `X-Hrs-Priority: ${c.priority}` : '',
         'Expect: 100-continue',
       ].filter(Boolean);
       remote.write(`${head.join('\r\n')}\r\n\r\n`);
@@ -415,6 +420,7 @@ export class Pusher extends Relay {
     const pass = this.password(c.password);
     let url: string;
     const headers: Record<string, string> = { 'user-agent': 'Hosted Radio Station' };
+    if (c.priority !== undefined) headers['x-hrs-priority'] = String(c.priority);
     if (this.output.type === 'icecast') {
       url = `${scheme}://${c.host}:${c.port}/admin/metadata?${new URLSearchParams({ mount: c.mount!, mode: 'updinfo', song: title, charset: 'UTF-8' })}`;
       headers.authorization = `Basic ${Buffer.from(`${c.username || 'source'}:${pass}`).toString('base64')}`;

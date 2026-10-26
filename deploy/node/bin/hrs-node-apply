@@ -5,6 +5,7 @@
 #   - writes the web server configuration (Caddy) for listeners: HTTPS on the node's host name, plain HTTP on a port
 #   - fetches certificates for the node's host name and customer encoder names into /var/lib/hrs-node/certs
 #   - installs and links the station node runtime when the node has the station node role (phase 12)
+#   - installs ffmpeg when the node makes converted mounts as an ingest (phase 13)
 # Everything in the state file ends up in root-run configuration, so it is validated strictly. Safe to run repeatedly.
 set -Eeuo pipefail
 
@@ -157,6 +158,13 @@ main() {
     rm -f "$station_file"
     systemctl disable --now hosted-radio-api hosted-radio-streams >> "$LOG" 2>&1 || true
     systemctl stop 'hosted-radio-icecast@*' 'hosted-radio-autodj@*' >> "$LOG" 2>&1 || true
+  fi
+
+  # 5. Ingest (phase 13): converted mounts are made on the node with ffmpeg, which older nodes do not have yet.
+  if [[ "$(jq -r '.ffmpeg // false' "$STATE")" == true ]] && ! command -v ffmpeg >/dev/null; then
+    status running "Installing ffmpeg for converted mounts"
+    log "Installing ffmpeg"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg >> "$LOG" 2>&1 || problems+=("Installing ffmpeg failed (see $LOG)")
   fi
 
   cp "$STATE" "$APPLIED"
