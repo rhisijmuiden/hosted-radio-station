@@ -65,6 +65,8 @@ export interface Tenant {
   limits: TenantLimits;
   active: boolean;
   externalRef: string | null;
+  /** Station node where new stations of this customer start (phase 12). */
+  stationNodeId: string | null;
   createdAt: string;
   memberCount: number;
 }
@@ -269,7 +271,23 @@ export interface Station {
   legacyPort: number | null;
   legacyMountId: string | null;
   storageBytes: number;
+  /** The station node that runs the station (phase 12), or null for this server. */
+  nodeId: string | null;
+  nodeOnline: boolean | null;
+  nodeSeenAt: string | null;
+  nodeMove: StationMove | null;
   createdAt: string;
+}
+export interface StationMove {
+  direction: 'to_node' | 'to_main';
+  nodeId: string;
+  state: 'copying' | 'failed';
+  files: number;
+  filesDone: number;
+  bytes: number;
+  bytesDone: number;
+  message?: string;
+  startedAt: string;
 }
 export interface StationListItem extends Station {
   onAir: boolean;
@@ -320,6 +338,10 @@ export interface Output {
 }
 export interface ConnectionInfo {
   ingestHost: string;
+  /** The ingest node behind the ingest host, when the station is routed to one. */
+  node: { id: string; name: string } | null;
+  /** The backup ingest: encoders can use it as their backup server. */
+  backup: { host: string; node: { id: string; name: string } | null; tls: { port: number; available: boolean }; plain: { port: number } | null } | null;
   tls: { port: number; available: boolean };
   plain: { port: number } | null;
   legacy: { port: number; sourcePort: number; mount: string | null } | null;
@@ -791,7 +813,7 @@ export interface SchedulerView {
 
 // Nodes (distribution network)
 
-export type NodeRole = 'relay' | 'source' | 'fm';
+export type NodeRole = 'relay' | 'source' | 'station' | 'fm';
 /** FM/MPX settings of a node (phase 11). Shares are 0..1 of 100% modulation. */
 export interface FmConfig {
   stationId: string | null;
@@ -856,7 +878,63 @@ export interface NodeConfig {
   sourcePlainPort: number | null;
   sourceTlsPort: number | null;
   probe: boolean;
+  /** Relay: where station nodes push their streams (TLS). */
+  pushPort: number;
+  /** Station node: its address on the studio network, for encoders and RHIS Studio there. */
+  lanAddress: string;
   fm: FmConfig;
+  updatePolicy: 'inherit' | UpdatePolicy;
+  updateGroup: string | null;
+  updateWindow: UpdateWindow | null;
+}
+export type UpdatePolicy = 'rolling' | 'window' | 'manual';
+export interface UpdateWindow {
+  days: number[];
+  start: string;
+  end: string;
+}
+export interface UpdateGroup {
+  id: string;
+  name: string;
+  policy: UpdatePolicy;
+  window: UpdateWindow;
+}
+export interface NodeUpdatesSettings {
+  enabled: boolean;
+  policy: UpdatePolicy;
+  window: UpdateWindow;
+  timezone: string;
+  drainSeconds: number;
+  healthSeconds: number;
+  groups: UpdateGroup[];
+}
+export interface VersionRef {
+  commit: string | null;
+  branch: string | null;
+}
+export type NodeUpdateState = 'upToDate' | 'waiting' | 'scheduled' | 'manual' | 'paused' | 'disabled' | 'failed' | 'queued' | 'draining' | 'updating' | 'checking' | 'rollingBack';
+export interface NodeUpdateInfo {
+  policy: UpdatePolicy;
+  source: 'node' | 'group' | 'role' | 'network';
+  group: { id: string; name: string } | null;
+  window: UpdateWindow;
+  state: NodeUpdateState;
+  target: VersionRef;
+  nextWindowAt: string | null;
+  phaseAt: string | null;
+  phaseEndsAt: string | null;
+  message: string | null;
+  queuePosition: number | null;
+  last: { state: 'succeeded' | 'failed' | 'rolledBack'; target: VersionRef; from: VersionRef; message: string | null; at: string; rollbackTo: string | null } | null;
+}
+export interface NodeRolloutInfo {
+  target: VersionRef & { version: string };
+  enabled: boolean;
+  paused: { reason: string; nodeId: string | null; nodeName: string | null; at: string } | null;
+  current: { nodeId: string; nodeName: string; phase: 'draining' | 'updating' | 'checking' | 'rollingBack'; target: VersionRef; manual: boolean; by: string | null; startedAt: string; message: string | null } | null;
+  queue: { nodeId: string; nodeName: string; by: string | null }[];
+  upToDate: number;
+  paired: number;
 }
 export type RelayState = 'connecting' | 'connected' | 'error' | 'idle';
 export interface NodeStatus {
@@ -886,6 +964,7 @@ export interface NodeStatus {
   relays?: { key: string; state: RelayState; message?: string; bitrateKbps?: number | null; listeners?: number }[];
   encoders?: number;
   problems?: string[];
+  applyLog?: string[];
   update?: { state: 'idle' | 'running' | 'succeeded' | 'failed'; message?: string; at?: string } | null;
   ffmpeg?: boolean;
   soundcards?: { device: string; name: string }[];
@@ -907,6 +986,7 @@ export interface NodeItem {
   status: NodeStatus;
   listenBase: string | null;
   updateAvailable: boolean;
+  update: NodeUpdateInfo;
   ingestHosts: string[];
   createdAt: string;
 }
@@ -951,14 +1031,21 @@ export interface NodeProbe {
 }
 export interface NodesSettings {
   autoUpdate: boolean;
+  updates: NodeUpdatesSettings;
   routeListeners: boolean;
   probeIntervalSeconds: number;
   latencyWarnMs: number;
   metricsRetentionDays: number;
+  /** Where source nodes pass encoders on to this server; empty = its public name. */
+  ingestAddress: string;
 }
 export interface TopologyNode {
   id: string;
   name: string;
+  /** One of this server's own roles (local:ingest, local:relay), not a node. */
+  local: boolean;
+  /** Stations this node is the main or backup ingest of. */
+  ingestStations: number;
   location: string;
   roles: NodeRole[];
   own: boolean;
@@ -982,6 +1069,33 @@ export interface TopologyNode {
   relaysTotal: number;
   /** FM/MPX node with its station on air. */
   fmOnAir: boolean;
+}
+/** "local" = this server's own ingest; otherwise an ingest node id. */
+export type IngestRef = 'local' | string;
+export interface StationRouting {
+  ingest: IngestRef;
+  backupIngest: IngestRef | null;
+  relays: 'auto' | string[];
+  spareRelays: boolean;
+}
+export interface RoutingChoice {
+  id: string;
+  name: string;
+  location: string;
+  online: boolean;
+  own: boolean;
+}
+export interface StationRoutingView {
+  routing: StationRouting;
+  locked: 'station_node' | null;
+  autodjHere: boolean;
+  canEdit: boolean;
+  options: { ingests: RoutingChoice[]; relays: RoutingChoice[] };
+  status: {
+    active: IngestRef | null;
+    ingests: { ref: IngestRef; priority: number; name: string; online: boolean; onAir: boolean }[];
+    relays: { id: string; name: string; online: boolean; connected: number; total: number; spare: boolean }[];
+  };
 }
 export interface TopologyStudio {
   id: string;

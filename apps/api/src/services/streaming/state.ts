@@ -3,11 +3,13 @@ import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/
 import { join } from 'node:path';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { schema } from '../../db/index.js';
+import type { NodeStatus } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
 import { conflict } from '../../lib/errors.js';
 import { autodjScriptPath, renderScript, scriptHash } from '../autodj/liquidsoap.js';
 import { autodjActive, autodjSettings } from '../autodj/settings.js';
 import { relaysByStation } from '../nodes/plan.js';
+import { ingestNodes, ingestsOf, stationRouting } from '../nodes/routing-rules.js';
 import { getSetting, type StreamingSettings } from '../settings.js';
 import { fetchStats, icecastConfigPath, icecastPidPath, mediaDir, renderIcecastConfig, stationDir, type MountStats } from './icecast.js';
 import { renderSftpgoEnv } from './sftpgo.js';
@@ -60,6 +62,29 @@ async function internalReaderCounts(ctx: AppContext): Promise<WorkerStatus['inte
 
 /** Live mounts of a station with their listeners, not counting the transcoders and relays reading them. */
 export async function stationStats(ctx: AppContext, station: Station): Promise<MountStats[] | null> {
+  if (station.nodeId) return nodeStationStats(station);
+  const routing = stationRouting(station);
+  const nodes = ingestNodes(routing);
+  if (nodes.length) {
+    // Ingest nodes (phase 13): the mounts of the best ingest that is on air, this server's own one included.
+    const rows = await ctx.db.select({ id: schema.nodes.id, status: schema.nodes.status }).from(schema.nodes).where(inArray(schema.nodes.id, nodes.map((n) => n.ref)));
+    const fresh = (st: NodeStatus | undefined) => !!st?.online && (!st.updatedAt || Date.now() - new Date(st.updatedAt).getTime() < 30_000);
+    for (const i of ingestsOf(routing)) {
+      if (i.ref === 'local') {
+        const own = await localStats(ctx, station);
+        if (own?.length) return own;
+        continue;
+      }
+      const st = rows.find((r) => r.id === i.ref)?.status;
+      const list = fresh(st) ? (st!.ingest ?? []).filter((m) => m.stationId === station.id) : [];
+      if (list.length) return list.map((m) => ({ mount: m.mount, listeners: 0, listenerPeak: 0, title: m.title, bitrateKbps: m.bitrateKbps, contentType: m.contentType, sourceIp: null, userAgent: null, streamStart: null, bytesRead: 0, bytesSent: 0 }));
+    }
+    return [];
+  }
+  return localStats(ctx, station);
+}
+
+async function localStats(ctx: AppContext, station: Station): Promise<MountStats[] | null> {
   try {
     const [stats, internal] = await Promise.all([
       fetchStats({ port: station.icecastPort, adminPassword: ctx.box.decrypt(station.icecastAdminPassword) }),
@@ -70,6 +95,25 @@ export async function stationStats(ctx: AppContext, station: Station): Promise<M
   } catch {
     return null;
   }
+}
+
+/** Live mounts of a station on a station node, as the node last reported them (null when it has been quiet for a minute). */
+export function nodeStationStats(station: Station): MountStats[] | null {
+  const r = station.nodeRuntime;
+  if (!r || Date.now() - new Date(r.updatedAt).getTime() > 60_000) return null;
+  return r.mounts.map((m) => ({
+    mount: m.mount,
+    listeners: m.listeners,
+    listenerPeak: m.listenerPeak ?? m.listeners,
+    title: m.title,
+    bitrateKbps: m.bitrateKbps,
+    contentType: m.contentType,
+    sourceIp: null,
+    userAgent: null,
+    streamStart: m.streamStart ?? null,
+    bytesRead: 0,
+    bytesSent: 0,
+  }));
 }
 
 export async function loadStation(ctx: AppContext, stationId: string) {
@@ -115,6 +159,14 @@ export async function writeStationConfig(ctx: AppContext, stationId: string) {
   await signalIcecast(ctx, station.id, 'SIGHUP');
 }
 
+/**
+ * Whether this server runs the station's Icecast and AutoDJ: it is not on a station node, or it is moving back and this
+ * server warms up before it takes over (so the streams are on air at the switch).
+ */
+export function runsHere(station: Station) {
+  return !station.nodeId || (station.nodeMove?.direction === 'to_main' && station.nodeMove.warm === true);
+}
+
 /** The AutoDJ mount of a station whose AutoDJ plays, or null. */
 export function autodjMount(station: Station, mounts: Mount[]) {
   if (!autodjActive(station)) return null;
@@ -125,7 +177,7 @@ export function autodjMount(station: Station, mounts: Mount[]) {
 /** Writes (or removes) the Liquidsoap script of the station's AutoDJ; the system helper (re)starts the player. */
 async function writeAutodjScript(ctx: AppContext, station: Station, mounts: Mount[]) {
   const path = autodjScriptPath(ctx, station.id);
-  const mount = autodjMount(station, mounts);
+  const mount = runsHere(station) ? autodjMount(station, mounts) : null;
   if (!mount) {
     await rm(path, { force: true });
     return;
@@ -202,7 +254,8 @@ export async function buildStreamsState(ctx: AppContext): Promise<StreamsState> 
     .innerJoin(schema.tenants, eq(schema.tenants.id, schema.tenantDomains.tenantId))
     .where(and(eq(schema.tenantDomains.status, 'verified'), eq(schema.tenants.active, true)));
 
-  const enabled = (r: (typeof stations)[number]) => r.s.enabled && r.tenantActive;
+  // A station on a station node runs there; its server here stays off.
+  const enabled = (r: (typeof stations)[number]) => r.s.enabled && r.tenantActive && runsHere(r.s);
   const sftpgoEnv = await renderSftpgoEnv(ctx, streaming);
   const autodj: StreamsState['autodj'] = [];
   for (const r of stations) {

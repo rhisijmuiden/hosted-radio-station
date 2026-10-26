@@ -50,6 +50,33 @@ Listeners are routed through `/api/public/stations/<slug>/listen/<mount>`: a red
 
 Encoders use the same login as on the main server. A customer node can only take encoders for its own customer.
 
+## Routing: ingest, backup ingest and relays
+
+The main server is the orchestrator: it steers the nodes, checks encoder log-ins and hands out the routes, but it
+carries no audio for a station that has an ingest node. Per station, under **Stations → <station> → Routing**:
+
+- **Main ingest**: where encoders connect. "This server" keeps the classic setup (relays pull from this server). An
+  ingest node takes the encoders itself, makes the transcoded mounts with ffmpeg and pushes every public mount
+  straight to the relays (TLS on their push port, default 8001, a token per mount).
+- **Backup ingest**: a second ingest (a node, or this server) that encoders can use as their backup server. Both
+  ingests push to the same relays; a relay plays the best one that is on air (main before backup) and keeps the other
+  one on standby. When the main ingest falls away the relay switches to the backup without dropping its listeners.
+- **Relays**: automatic (every relay that carries the station by its own settings) or a chosen list. With **Spare
+  relays** on, the other relays step in while none of the chosen ones is online.
+
+Rules:
+
+- A Radio station (AutoDJ) keeps this server as its main ingest, because the AutoDJ plays here; an ingest node can be
+  its backup.
+- Encoder log-ins on an ingest node are checked by the orchestrator over the node's control channel; the node never
+  sees DJ passwords. When the orchestrator is unreachable, a DJ who logged in during the last 12 hours can still go
+  on air, and the broadcast is reported once the node is back.
+- Listeners of a station with an ingest node always go through the relay redirect; without a relay online the listen
+  address answers 503.
+- On a single server nothing changes: the same machine runs the ingest and relay roles next to the orchestrator. The
+  topology shows them as "This server · ingest" and "This server · relay", with the orchestrator apart and connected
+  to every node by control lines only.
+
 ## Health
 
 Every node is pinged over its control channel every 5 seconds. The panel shows the round trip, lost pings over the last 5 minutes, ping timeouts over the last 24 hours, CPU, memory, traffic and listeners, per minute and over time, and the events of the node. A node that is slower than **Slow above (ms)**, loses more than 5% of its pings or reports a problem is shown as degraded.
@@ -64,7 +91,24 @@ Next to the 3D map there are two flat views (the switch **3D / 2D → / 2D ↓**
 
 ## Updates
 
-Nodes follow the version and channel of the main server: when the main server is updated, the nodes update themselves (Nodes → Network settings → **Update nodes automatically**). With that off, use **Update now** on the node page. A failed update is rolled back.
+Nodes get the version of the main server, but never all at once. After the main server is updated, the nodes follow **one at a time**, each according to its update policy (Nodes → **Update policy**):
+
+| Policy | When the node updates |
+|---|---|
+| Rolling (default) | Right away, in turn. |
+| Maintenance window | Only within the days and hours you set (e.g. Mon–Fri 02:00–05:00, in the time zone you choose). |
+| Manual | Never by itself: the node stays on its version until someone clicks **Update now**. |
+
+A policy can be set for the whole network, per **update group** (groups go in their order, so put a test or canary group first), or on the node itself (node → Settings → Updates). FM nodes default to Manual and station nodes to Maintenance window, because they put audio on air themselves.
+
+One update goes like this:
+
+1. **Moving listeners** (relays): the node gets no new listeners, and the ones on it are disconnected one by one over the drain time (default 60 s). Their players reconnect through the listen link, which sends them to another relay (or the main server).
+2. **Updating**: the node downloads, builds and restarts. The node itself rolls back when the build fails, the agent does not start, or it cannot reach the main server within 90 seconds.
+3. **Checking** (default 2 minutes): the node must be online, without new problems, with every stream it relayed before connected again (and its FM output running again).
+4. Only then does the next node start. A node that fails the check is put back on its previous version, and automatic updates **pause** until you click **Resume** on the Nodes page. That version is not tried on that node again by itself.
+
+**Update now** puts a node in line whatever its policy (it still waits for a running update, and is checked and rolled back the same way). **Roll back** puts a node back on the version it had before its last update. **Pause** stops automatic updates for all nodes. The main server keeps accepting nodes of the previous version, so nodes may stay behind for as long as you like.
 
 ## On the node
 

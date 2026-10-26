@@ -11,13 +11,15 @@ const SESSION_DAYS = 14;
 export const API_KEY_PREFIX = 'hrs_';
 /** Lets the provisioning API call other routes in-process (app.inject) with the website's key. Never leaves the process. */
 export const INTERNAL_CALL_TOKEN = randomToken();
+/** On a station node: requests that come in through the tunnel from the main server carry this (phase 12). */
+export const TUNNEL_CALL_TOKEN = randomToken();
 
 export type Role = (typeof schema.memberRole.enumValues)[number];
 const roleRank: Record<Role, number> = { dj: 1, manager: 2, owner: 3 };
 
 export interface AuthInfo {
   user: typeof schema.users.$inferSelect;
-  via: 'session' | 'api_key';
+  via: 'session' | 'api_key' | 'tunnel';
   /** Set when an API key is limited to one tenant. */
   keyTenantId: string | null;
   readOnly: boolean;
@@ -71,6 +73,23 @@ export function registerAuth(app: FastifyInstance) {
   app.decorateRequest('auth', null);
   app.addHook('onRequest', async (req) => {
     const { db } = app.ctx;
+    // A station node believes the caller the main server names, but only on requests from its own tunnel.
+    if (app.ctx.config.STATION_NODE && req.headers['x-hrs-tunnel'] === TUNNEL_CALL_TOKEN) {
+      const userId = req.headers['x-hrs-tunnel-user'];
+      if (typeof userId !== 'string') return;
+      const [user] = await db.select().from(schema.users).where(eq(schema.users.id, userId));
+      if (!user?.active) throw unauthorized();
+      const keyTenant = req.headers['x-hrs-tunnel-key-tenant'];
+      const scope = req.headers['x-hrs-tunnel-scope'];
+      req.auth = {
+        user,
+        via: 'tunnel',
+        keyTenantId: typeof keyTenant === 'string' ? keyTenant : null,
+        readOnly: req.headers['x-hrs-tunnel-read-only'] === '1',
+        scope: typeof scope === 'string' ? scope : 'full',
+      };
+      return;
+    }
     const header = req.headers.authorization;
     if (header?.startsWith('Bearer ')) {
       const [row] = await db

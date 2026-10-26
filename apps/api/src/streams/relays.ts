@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import http from 'node:http';
+import https from 'node:https';
 import net from 'node:net';
 import tls from 'node:tls';
 import type { FastifyBaseLogger } from 'fastify';
@@ -12,7 +13,7 @@ import type { StationView } from './snapshot.js';
 
 export interface RelayState {
   id: string;
-  kind: 'transcode' | 'push' | 'monitor' | 'record';
+  kind: 'transcode' | 'push' | 'monitor' | 'record' | 'relay';
   station: string;
   name: string;
   state: 'idle' | 'connecting' | 'connected' | 'error';
@@ -73,9 +74,17 @@ export abstract class Relay {
     if (this.stopped) return;
     // A run that lasted a while resets the delay.
     this.failures = Date.now() - started > 60_000 ? 0 : this.failures + 1;
-    const delay = Math.min(30_000, 2000 * 2 ** Math.min(this.failures, 4));
     this.set('error', error ?? 'Connection ended');
-    this.retry = setTimeout(() => void this.loop(), delay);
+    this.retry = setTimeout(() => void this.loop(), this.retryDelay(this.failures));
+  }
+
+  /**
+   * Transcodes and pushes to relay nodes come back within a second the first few times: the relay nodes keep their
+   * listeners connected for a few seconds after a stream ends (LINGER_MS on the node). Others back off from 2 s.
+   */
+  private retryDelay(failures: number) {
+    if ((this.state.kind === 'transcode' || this.state.kind === 'relay') && failures <= 3) return 1000;
+    return Math.min(30_000, 2000 * 2 ** Math.min(failures, 4));
   }
 
   /** Runs until the connection ends; throws with a readable message on failure. */
@@ -259,7 +268,8 @@ function sourceConnection(port: number, mount: string, password: string, headers
 function connectExternal(c: OutputConfig, port: number): Promise<net.Socket> {
   return new Promise((resolve, reject) => {
     const opts = { host: c.host!, port, timeout: 10_000 };
-    const socket = c.tls ? tls.connect({ ...opts, servername: net.isIP(c.host!) ? undefined : c.host! }) : net.connect(opts);
+    // insecureTls: a relay node without a public name has a certificate of its own (phase 12 station nodes).
+    const socket = c.tls ? tls.connect({ ...opts, servername: net.isIP(c.host!) ? undefined : c.host!, rejectUnauthorized: !c.insecureTls }) : net.connect(opts);
     const fail = (err: Error) => {
       socket.destroy();
       reject(new Error(`${c.host}:${port}: ${(err as NodeJS.ErrnoException).code ?? err.message}`));
@@ -310,13 +320,16 @@ export class Pusher extends Relay {
     private readonly output: Output,
     private readonly mount: Mount,
     log: FastifyBaseLogger,
+    /** relay = a push to a relay node of the distribution network (phase 13). */
+    kind: 'push' | 'relay' = 'push',
   ) {
-    super(`push:${output.id}`, 'push', view.station.slug, output.name, log);
+    super(`${kind}:${output.id}`, kind, view.station.slug, output.name, log);
     this.key = JSON.stringify([output.type, output.config, mount.path, view.station.icecastPort, view.station.name, view.station.genre, view.station.website]);
     this.input = { stationId: view.station.id, mount: mount.path };
   }
 
   private password(enc?: string) {
+    if (this.output.config.token) return this.output.config.token;
     return enc ? this.ctx.box.decrypt(enc) : '';
   }
 
@@ -362,6 +375,8 @@ export class Pusher extends Relay {
         station.website ? `ice-url: ${station.website}` : '',
         'ice-public: 0',
         `ice-audio-info: bitrate=${this.mount.bitrateKbps}`,
+        // Relay nodes prefer the main ingest when two ingests push the same stream.
+        c.priority !== undefined ? `X-Hrs-Priority: ${c.priority}` : '',
         'Expect: 100-continue',
       ].filter(Boolean);
       remote.write(`${head.join('\r\n')}\r\n\r\n`);
@@ -413,6 +428,7 @@ export class Pusher extends Relay {
     const pass = this.password(c.password);
     let url: string;
     const headers: Record<string, string> = { 'user-agent': 'Hosted Radio Station' };
+    if (c.priority !== undefined) headers['x-hrs-priority'] = String(c.priority);
     if (this.output.type === 'icecast') {
       url = `${scheme}://${c.host}:${c.port}/admin/metadata?${new URLSearchParams({ mount: c.mount!, mode: 'updinfo', song: title, charset: 'UTF-8' })}`;
       headers.authorization = `Basic ${Buffer.from(`${c.username || 'source'}:${pass}`).toString('base64')}`;
@@ -421,8 +437,21 @@ export class Pusher extends Relay {
       if (this.output.type === 'shoutcast2') q.set('sid', String(c.streamId ?? 1));
       url = `${scheme}://${c.host}:${c.port}/admin.cgi?${q}`;
     }
+    if (c.insecureTls) return insecureGet(url, headers);
     await fetch(url, { headers, signal: AbortSignal.timeout(5000) }).then((r) => r.body?.cancel());
   }
+}
+
+/** A GET over TLS without checking the certificate, for relay nodes that have no public name. */
+function insecureGet(url: string, headers: Record<string, string>) {
+  return new Promise<void>((resolve, reject) => {
+    const req = https.get(url, { headers, rejectUnauthorized: false, timeout: 5000 }, (res) => {
+      res.resume();
+      res.on('end', () => resolve());
+    });
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.on('error', reject);
+  });
 }
 
 /** Listener count (and whether a source is connected) on an external server. */

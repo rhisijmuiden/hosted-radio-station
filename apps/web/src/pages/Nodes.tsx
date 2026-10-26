@@ -6,11 +6,13 @@ import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { formatBps, formatMs, HealthBadge, nodeHealth, PairingPanel, RoleBadges } from '../components/nodes/common';
+import { NodeHierarchy } from '../components/nodes/Hierarchy';
+import { RolloutCard, UpdateBadge } from '../components/nodes/updates';
 import { Badge, Button, Card, Dialog, EmptyState, Field, Input, PageHeader, Select, Spinner, Switch, Table } from '../components/ui';
 import { api, ApiError, type NodeItem, type NodePairing, type NodeRole, type NodesSettings, type Tenant } from '../lib/api';
 import { isAdmin, useMe } from '../lib/auth';
 
-export const ROLES: NodeRole[] = ['relay', 'source', 'fm'];
+export const ROLES: NodeRole[] = ['relay', 'source', 'station', 'fm'];
 
 /** Role toggles with a line on what each role does. */
 export function RolePicker({ value, onChange }: { value: NodeRole[]; onChange: (v: NodeRole[]) => void }) {
@@ -24,7 +26,8 @@ export function RolePicker({ value, onChange }: { value: NodeRole[]; onChange: (
             key={r}
             type="button"
             aria-pressed={on}
-            onClick={() => onChange(on ? value.filter((x) => x !== r) : [...value, r])}
+            // A station node does nothing else: its streams go to relay nodes.
+            onClick={() => onChange(on ? value.filter((x) => x !== r) : r === 'station' ? ['station'] : [...value.filter((x) => x !== 'station'), r])}
             className={clsx('rounded-md border p-3 text-left transition-colors', on ? 'border-koraal bg-koraal/8 ring-1 ring-koraal' : 'border-line hover:bg-hover')}
           >
             <div className="text-sm font-semibold">{t(`nodes.roles.${r}`)}</div>
@@ -32,10 +35,6 @@ export function RolePicker({ value, onChange }: { value: NodeRole[]; onChange: (
           </button>
         );
       })}
-      <div className="rounded-md border border-dashed border-line p-3 text-left opacity-60">
-        <div className="text-sm font-semibold">{t('nodes.roles.later')}</div>
-        <div className="mt-0.5 text-xs text-muted">{t('nodes.roleHints.later')}</div>
-      </div>
     </div>
   );
 }
@@ -188,7 +187,6 @@ function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void 
         </div>
       ) : (
         <div className="flex flex-col gap-4">
-          <Switch checked={draft.autoUpdate} onChange={(autoUpdate) => set({ autoUpdate })} label={t('nodes.settings.autoUpdate')} description={t('nodes.settings.autoUpdateHint')} />
           <Switch checked={draft.routeListeners} onChange={(routeListeners) => set({ routeListeners })} label={t('nodes.settings.routeListeners')} description={t('nodes.settings.routeListenersHint')} />
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label={t('nodes.settings.probeInterval')} hint={t('nodes.settings.probeIntervalHint')}>
@@ -201,6 +199,9 @@ function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void 
               <Input type="number" min={1} max={365} value={draft.metricsRetentionDays} onChange={(e) => set({ metricsRetentionDays: Number(e.target.value) })} />
             </Field>
           </div>
+          <Field label={t('nodes.settings.ingestAddress')} hint={t('nodes.settings.ingestAddressHint')}>
+            <Input value={draft.ingestAddress} placeholder="10.10.4.240" onChange={(e) => set({ ingestAddress: e.target.value })} />
+          </Field>
         </div>
       )}
     </Dialog>
@@ -247,6 +248,8 @@ export function NodesPage() {
         }
       />
 
+      {admin && <RolloutCard />}
+
       {!!list.length && (
         <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
           {[
@@ -262,6 +265,8 @@ export function NodesPage() {
           ))}
         </div>
       )}
+
+      {!!list.length && <NodeHierarchy nodes={list} warnMs={warnMs} />}
 
       <Card>
         {nodes.isPending ? (
@@ -315,10 +320,15 @@ export function NodesPage() {
                   </td>
                   <td className="text-[13px] whitespace-nowrap">
                     {s.version ? <span className="font-mono">v{s.version}</span> : '—'}
-                    {n.updateAvailable && (
+                    {n.updateAvailable && n.update.state === 'upToDate' && (
                       <span className="ml-1.5 inline-flex align-middle" title={t('nodes.updateAvailable')}>
                         <ArrowUpCircle className="size-4 text-koraal" />
                       </span>
+                    )}
+                    {n.paired && (
+                      <div className="mt-0.5">
+                        <UpdateBadge update={n.update} available={n.updateAvailable} />
+                      </div>
                     )}
                   </td>
                   <td className={clsx('text-[13px] tabular-nums whitespace-nowrap', s.online && (s.rttMs ?? 0) > warnMs && 'font-semibold text-warning')}>

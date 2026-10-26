@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { AlertTriangle, ArrowLeft, ArrowUpCircle, CheckCircle2, KeyRound, Link2Off, Radio, Trash2, XCircle } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CheckCircle2, KeyRound, Link2Off, Radio, Trash2, XCircle } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
 import { formatBps, formatMs, formatPct, formatUptime, HealthBadge, nodeHealth, PairingPanel, RoleBadges } from '../components/nodes/common';
 import { FmOnAir, FmSettingsCards } from '../components/nodes/FmPanel';
+import { NodeUpdateCard, NodeUpdateSettings } from '../components/nodes/updates';
 import { AreaChart, ChartLegend } from '../components/stats/charts';
 import { Badge, Button, Card, CardHeader, Dialog, EmptyState, Fact, Field, Input, PageHeader, Spinner, Switch, Table, Tabs } from '../components/ui';
 import i18n from '../i18n';
@@ -102,7 +103,53 @@ function Charts({ node }: { node: NodeItem }) {
 
 const relayTone = { connected: 'online', connecting: 'warning', idle: 'neutral', error: 'offline' } as const;
 
-function Overview({ node, warnMs }: { node: NodeItem; warnMs: number }) {
+/** Stations a station node runs or is taking over (phase 12). */
+function NodeStations({ node }: { node: NodeItem }) {
+  const { t } = useTranslation();
+  const stations = useQuery({ queryKey: ['stations', 'all'], queryFn: () => api<StationListItem[]>('/stations'), refetchInterval: 10_000 });
+  const mine = (stations.data ?? []).filter((s) => s.nodeId === node.id || s.nodeMove?.nodeId === node.id);
+  return (
+    <Card>
+      <CardHeader title={t('nodes.detail.stationsTitle')} description={t('nodes.detail.stationsHint')} />
+      {!mine.length ? (
+        <div className="px-5 py-8 text-center text-[13px] text-muted">{t('nodes.detail.noNodeStations')}</div>
+      ) : (
+        <Table head={[t('nav.stations'), t('fields.status'), t('nodes.detail.lastReport'), t('nodes.cols.listeners')]}>
+          {mine.map((s) => {
+            const m = s.nodeMove;
+            const pct = m && m.bytes ? Math.round((m.bytesDone / m.bytes) * 100) : null;
+            return (
+              <tr key={s.id}>
+                <td>
+                  <Link to={`/stations/${s.id}`} className="font-semibold hover:underline">
+                    {s.name}
+                  </Link>
+                  <div className="text-xs text-muted">{s.tenantName}</div>
+                </td>
+                <td>
+                  {m ? (
+                    <Badge tone={m.state === 'failed' ? 'offline' : 'accent'} dot>
+                      {m.state === 'failed' ? t('nodes.detail.moveFailed') : m.direction === 'to_node' ? t('nodes.detail.movingHere', { pct: pct ?? 0 }) : t('nodes.detail.movingAway', { pct: pct ?? 0 })}
+                    </Badge>
+                  ) : (
+                    <Badge tone={s.nodeOnline ? 'online' : 'warning'} dot>
+                      {s.nodeOnline ? t('nodes.detail.runsHere') : t('nodes.detail.runsHereOffline')}
+                    </Badge>
+                  )}
+                  {m?.message && <div className="mt-1 text-xs text-muted">{m.message}</div>}
+                </td>
+                <td className="text-[13px] text-muted">{s.nodeSeenAt ? formatRelative(s.nodeSeenAt) : '—'}</td>
+                <td className="text-[13px] tabular-nums">{s.listeners ?? '—'}</td>
+              </tr>
+            );
+          })}
+        </Table>
+      )}
+    </Card>
+  );
+}
+
+function Overview({ node, warnMs, canEdit }: { node: NodeItem; warnMs: number; canEdit: boolean }) {
   const { t } = useTranslation();
   const s = node.status;
   const relays = s.relays ?? [];
@@ -119,12 +166,19 @@ function Overview({ node, warnMs }: { node: NodeItem; warnMs: number }) {
                   <li key={p}>{p}</li>
                 ))}
               </ul>
+              {!!s.applyLog?.length && (
+                <details className="mt-2 text-[12px]">
+                  <summary className="cursor-pointer text-muted hover:text-ink">{t('nodes.detail.applyLog')}</summary>
+                  <pre className="mt-1 max-h-64 overflow-auto rounded-md bg-chip p-2 font-mono text-[11.5px] whitespace-pre-wrap">{s.applyLog.join('\n')}</pre>
+                </details>
+              )}
             </div>
           </div>
         </Card>
       )}
       {/* An FM node is about what it has on air: that comes first. */}
       {node.roles.includes('fm') && <FmOnAir node={node} />}
+      {node.paired && <NodeUpdateCard node={node} canEdit={canEdit} />}
       <div className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
         <Card>
           <CardHeader title={t('nodes.detail.machine')} />
@@ -198,6 +252,7 @@ function Overview({ node, warnMs }: { node: NodeItem; warnMs: number }) {
           )}
         </Card>
       )}
+      {node.roles.includes('station') && <NodeStations node={node} />}
       <Charts node={node} />
     </div>
   );
@@ -282,7 +337,7 @@ function Events({ node }: { node: NodeItem }) {
   );
 }
 
-function SettingsForm({ node }: { node: NodeItem }) {
+function SettingsForm({ node, admin }: { node: NodeItem; admin: boolean }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const stations = useQuery({ queryKey: ['stations', 'all'], queryFn: () => api<StationListItem[]>('/stations') });
@@ -350,6 +405,9 @@ function SettingsForm({ node }: { node: NodeItem }) {
               <Field label={t('nodes.fields.maxListeners')} hint={t('nodes.fields.maxListenersHint')}>
                 <Input type="number" min={0} value={c.maxListeners} onChange={(e) => set({ maxListeners: Number(e.target.value) })} />
               </Field>
+              <Field label={t('nodes.fields.pushPort')} hint={t('nodes.fields.pushPortHint')}>
+                <Input type="number" min={1024} max={65535} value={c.pushPort ?? ''} placeholder="8001" onChange={(e) => set({ pushPort: port(e.target.value) ?? 8001 })} />
+              </Field>
             </div>
             <div>
               <div className="mb-2 text-[13px] font-semibold">{t('nodes.fields.relayStations')}</div>
@@ -397,6 +455,18 @@ function SettingsForm({ node }: { node: NodeItem }) {
           </div>
         </Card>
       )}
+      <NodeUpdateSettings node={node} value={c} onChange={set} admin={admin} />
+      {roles.includes('station') && (
+        <Card>
+          <CardHeader title={t('nodes.detail.stationSettings')} description={t('nodes.detail.stationSettingsHint')} />
+          <div className="grid gap-3 p-5 sm:grid-cols-2">
+            <Field label={t('nodes.fields.lanAddress')} hint={t('nodes.fields.lanAddressHint')}>
+              <Input value={c.lanAddress ?? ''} placeholder="192.168.1.20" onChange={(e) => set({ lanAddress: e.target.value.trim() })} />
+            </Field>
+            <p className="text-xs text-muted sm:col-span-2">{t('nodes.detail.stationInstall')}</p>
+          </div>
+        </Card>
+      )}
       <div className="flex justify-end">
         <Button variant="primary" type="submit" loading={save.isPending}>
           {t('common.save')}
@@ -434,14 +504,6 @@ export function NodeDetailPage() {
     mutationFn: () => api<NodeItem>(`/nodes/${id}/unpair`, { method: 'POST' }),
     onSuccess: () => {
       toast.success(t('nodes.detail.unpaired'));
-      refresh();
-    },
-    onError: (err) => toast.error((err as Error).message),
-  });
-  const update = useMutation({
-    mutationFn: () => api(`/nodes/${id}/update`, { method: 'POST' }),
-    onSuccess: () => {
-      toast.success(t('nodes.detail.updateStarted'));
       refresh();
     },
     onError: (err) => toast.error((err as Error).message),
@@ -491,11 +553,6 @@ export function NodeDetailPage() {
         actions={
           canEdit && (
             <>
-              {n.paired && n.updateAvailable && (
-                <Button variant="primary" disabled={!s.online} loading={update.isPending || s.update?.state === 'running'} onClick={() => update.mutate()}>
-                  <ArrowUpCircle className="size-4" /> {t('nodes.detail.updateNow')}
-                </Button>
-              )}
               <Button onClick={() => newCode.mutate()} loading={newCode.isPending}>
                 <KeyRound className="size-4" /> {n.paired ? t('nodes.detail.repair') : t('nodes.detail.newCode')}
               </Button>
@@ -566,10 +623,10 @@ export function NodeDetailPage() {
           ...(canEdit ? [{ value: 'settings' as const, label: t('nodes.detail.tabs.settings') }] : []),
         ]}
       />
-      {tab === 'overview' && <Overview node={n} warnMs={warnMs} />}
+      {tab === 'overview' && <Overview node={n} warnMs={warnMs} canEdit={canEdit} />}
       {tab === 'probes' && <Probes node={n} />}
       {tab === 'events' && <Events node={n} />}
-      {tab === 'settings' && canEdit && <SettingsForm node={n} />}
+      {tab === 'settings' && canEdit && <SettingsForm node={n} admin={admin} />}
 
       <Dialog open={!!pairing && n.paired} onClose={() => setPairing(null)} wide title={t('nodes.detail.repairTitle')} description={t('nodes.detail.repairHint')}>
         {pairing && <PairingPanel pairing={pairing} />}

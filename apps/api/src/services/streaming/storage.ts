@@ -1,6 +1,6 @@
 import { lstat, opendir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { eq, sum } from 'drizzle-orm';
+import { eq, isNull, sum } from 'drizzle-orm';
 import { schema } from '../../db/index.js';
 import type { AppContext } from '../../lib/context.js';
 import { mediaDir } from './icecast.js';
@@ -30,7 +30,8 @@ export async function scanStationStorage(ctx: AppContext, stationId: string) {
 }
 
 export async function scanAllStorage(ctx: AppContext) {
-  for (const { id } of await ctx.db.select({ id: schema.stations.id }).from(schema.stations)) await scanStationStorage(ctx, id);
+  // A station node reports the size of its stations itself.
+  for (const { id } of await ctx.db.select({ id: schema.stations.id }).from(schema.stations).where(isNull(schema.stations.nodeId))) await scanStationStorage(ctx, id);
 }
 
 /** Bytes used by all stations of a customer, as last measured. */

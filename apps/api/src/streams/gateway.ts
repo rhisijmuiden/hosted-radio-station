@@ -161,7 +161,7 @@ export class IngestGateway {
     else this.servers.get('tls')?.server.close();
     if (snap.streaming.ingestPlainPort) wanted.set('plain', { port: snap.streaming.ingestPlainPort, kind: 'plain' });
     for (const v of snap.stations.values()) {
-      if (!v.active || !v.station.legacyPort) continue;
+      if (!v.active || v.onNode || !v.ingest.local || !v.station.legacyPort) continue;
       wanted.set(`legacy:${v.station.id}:0`, { port: v.station.legacyPort, kind: 'legacy', stationId: v.station.id });
       wanted.set(`legacy:${v.station.id}:1`, { port: v.station.legacyPort + 1, kind: 'legacy', stationId: v.station.id });
     }
@@ -288,7 +288,12 @@ export class IngestGateway {
     const snap = this.snap!;
     if (req.method === 'SOURCE' || req.method === 'PUT') {
       const target = fixed ? this.legacyTarget(fixed, req.path) : resolveMount(snap, host, req.path);
-      if (!target) return reply(socket, '404 Not Found', `Unknown mount ${req.path}. Use /<station>/<mount>, for example /my-station/live.`);
+      if (!target) {
+        // A station whose encoders go to an ingest node (phase 13).
+        const elsewhere = snap.bySlug.get(req.path.split('/').filter(Boolean)[0] ?? '');
+        if (elsewhere?.active && !elsewhere.ingest.local) return reply(socket, '403 Forbidden', 'This station takes encoders on its ingest node. See the connection details in the panel.');
+        return reply(socket, '404 Not Found', `Unknown mount ${req.path}. Use /<station>/<mount>, for example /my-station/live.`);
+      }
       // A customer's own node only carries that customer's stations.
       if (node?.tenantId && node.tenantId !== target.view.tenantId) return reply(socket, '403 Forbidden', 'This node cannot deliver to this station.');
       const creds = basicAuth(req.headers.get('authorization'));
@@ -333,7 +338,7 @@ export class IngestGateway {
       view.mounts.find((m) => m.path === clean && m.kind === 'source') ??
       view.mounts.find((m) => m.id === view.station.legacyMountId) ??
       view.mounts.find((m) => m.kind === 'source');
-    return mount && view.active ? { view, mount } : null;
+    return mount && view.active && !view.onNode && view.ingest.local ? { view, mount } : null;
   }
 
   private async refuse(socket: net.Socket, ip: string) {
@@ -483,7 +488,7 @@ export class IngestGateway {
 
   private async handleLegacy(socket: net.Socket, ip: string, stationId: string) {
     const view = this.snap!.stations.get(stationId);
-    if (!view?.active) return socket.destroy();
+    if (!view?.active || view.onNode) return socket.destroy();
     const first = await readUntil(socket, '\n');
     const line = first.head.replace(/\r$/, '');
     if (/^[A-Z]+ \S+ HTTP\/1\.[01]$/.test(line)) {

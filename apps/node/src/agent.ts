@@ -6,7 +6,8 @@ import { icecastConfigPath, icecastSecrets, reloadIcecast, renderIcecastConfig, 
 import { FmManager } from './fm/manager.js';
 import { log } from './log.js';
 import { Prober } from './probe.js';
-import { CLOSE, PROTOCOL_VERSION, type AgentMessage, type AgentReport, type NodePlan, type ServerMessage } from './protocol.js';
+import { IngestManager } from './ingest.js';
+import { CLOSE, PROTOCOL_VERSION, type AgentLive, type AgentMessage, type AgentReport, type AuthResult, type NodePlan, type ServerMessage } from './protocol.js';
 import { RelayManager } from './relay.js';
 import { SourceForwarder } from './source.js';
 import { facts, icmpPing, Sampler } from './system.js';
@@ -24,6 +25,14 @@ export class Agent {
   private secrets: IcecastSecrets | null = null;
   private relay: RelayManager | null = null;
   private source: SourceForwarder;
+  private ingest: IngestManager | null = null;
+  /** Encoder log-ins waiting for the main server's answer. */
+  private auths = new Map<number, (r: AuthResult | null) => void>();
+  private authSeq = 0;
+  /** Broadcast messages the main server has not had yet (kept while it is unreachable). */
+  private liveQueue: AgentLive[] = [];
+  /** The main server accepted this connection (welcome), so it takes messages. */
+  private ready = false;
   private prober = new Prober();
   private fm: FmManager;
   private sampler = new Sampler();
@@ -36,6 +45,8 @@ export class Agent {
   private icmp: { rttMs: number | null; loss: number } | null = null;
   private layout: IcecastLayout | null = null;
   private update: JobStatus | null = null;
+  /** Id of the update this agent asked for, until the root helper reports on it (an older status file is not news). */
+  private updateId: string | null = null;
   /** The commit an automatic update was last asked for, so a failing update is not repeated forever. */
   private autoTried: string | null = null;
   private readonly version = readVersion();
@@ -48,6 +59,14 @@ export class Agent {
   async start() {
     this.secrets = await icecastSecrets();
     this.relay = new RelayManager({ icecastPort: () => this.layout?.port ?? ports.icecast, secrets: this.secrets, nodeId: this.file.nodeId, trustClientHeader: this.file.web === 'caddy' });
+    this.ingest = new IngestManager({
+      icecastPort: () => this.layout?.port ?? ports.icecast,
+      secrets: this.secrets,
+      nodeId: this.file.nodeId,
+      auth: (q) => this.askAuth(q),
+      live: (m) => this.sendLive(m),
+    });
+    this.source.ingest = this.ingest;
     await this.startHooks();
     // The plan of the last connection, so the node keeps serving listeners when it starts while the main server is down.
     const saved = await readFile(planPath(), 'utf8').catch(() => null);
@@ -69,10 +88,41 @@ export class Agent {
     for (const t of this.timers) clearInterval(t);
     this.ws?.close(1001, 'stopping');
     this.relay?.stopAll();
+    this.ingest?.stop();
     this.source.stop();
     this.prober.stop();
     this.fm.stop();
     this.hooks?.close();
+  }
+
+  // Ingest (phase 13): log-ins are checked by the main server, broadcasts are logged there.
+
+  private askAuth(q: { stationId: string; mount: string; user: string | null; pass: string; ip: string; purpose: 'source' | 'metadata' }): Promise<AuthResult | null> {
+    if (!this.ready || this.ws?.readyState !== WebSocket.OPEN) return Promise.resolve(null);
+    const id = ++this.authSeq;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.auths.delete(id);
+        resolve(null);
+      }, 8000);
+      this.auths.set(id, (r) => {
+        clearTimeout(timer);
+        resolve(r);
+      });
+      this.send({ t: 'auth', id, ...q });
+    });
+  }
+
+  private sendLive(m: AgentLive) {
+    if (this.ready && this.ws?.readyState === WebSocket.OPEN) return this.send(m);
+    this.liveQueue.push(m);
+    if (this.liveQueue.length > 1000) this.liveQueue.splice(0, this.liveQueue.length - 1000);
+  }
+
+  /** After (re)connecting: the broadcasts that started or ended meanwhile, then the ones on air now. */
+  private flushLive() {
+    for (const m of this.liveQueue.splice(0)) this.send(m);
+    this.send({ t: 'live_sync', sessionIds: this.ingest?.sessionIds() ?? [] });
   }
 
   // Control channel
@@ -101,12 +151,14 @@ export class Agent {
     ws.onclose = (ev) => {
       if (this.ws !== ws) return;
       this.ws = null;
+      this.ready = false;
       if (this.stopped) return;
       let delay = Math.min(30_000, 1000 * 2 ** Math.min(this.retries++, 5));
       if (ev.code === CLOSE.unauthorized) {
         // Unpaired or removed in the panel: stop serving, and look again now and then in case it was a mistake.
         log.error('the main server does not accept this node; pair it again with "hrs-node pair"', { reason: ev.reason });
         this.relay?.stopAll();
+        this.ingest?.stop();
         void this.source.apply(null);
         this.prober.stop();
         this.fm.stop();
@@ -131,6 +183,7 @@ export class Agent {
     if (!ws || this.stopped || Date.now() - this.heardAt < 30_000) return;
     log.warn('no answer from the main server; reconnecting', { state: ws.readyState });
     this.ws = null;
+    this.ready = false;
     ws.onclose = null;
     try {
       ws.close();
@@ -152,8 +205,18 @@ export class Agent {
     switch (msg.t) {
       case 'welcome':
         this.retries = 0;
+        this.ready = true;
         log.info('connected to the main server', { name: msg.name });
+        // The update helper waits for this after a restart: a new version that cannot reach the server is rolled back.
+        await writeAtomic(dataPath('run', 'agent-state.json'), JSON.stringify({ commit: this.version.commit, connectedAt: new Date().toISOString() }), 0o644).catch(() => undefined);
+        this.flushLive();
         return;
+      case 'auth_result': {
+        const done = this.auths.get(msg.id);
+        this.auths.delete(msg.id);
+        done?.(msg);
+        return;
+      }
       case 'ping':
         return this.send({ t: 'pong', seq: msg.seq });
       case 'plan':
@@ -163,6 +226,10 @@ export class Agent {
         return;
       case 'update':
         return this.startUpdate(msg.branch, msg.commit, 'requested');
+      case 'drain':
+        this.relay?.drain(msg.seconds);
+        if (msg.seconds > 0) this.event('draining', 'info', { seconds: msg.seconds, listeners: this.relay?.listenerCount ?? 0 });
+        return;
       case 'fm':
         return this.fm.setContext({ dj: msg.dj, show: msg.show });
     }
@@ -175,7 +242,7 @@ export class Agent {
     const caddy = this.file.web === 'caddy';
     const layout: IcecastLayout = caddy ? { bind: '127.0.0.1', port: ports.icecast } : { bind: '0.0.0.0', port: plan.web.listenPort ?? 8000 };
     const mounts = plan.relay?.mounts ?? [];
-    const body = renderIcecastConfig({ name: plan.name, hostname: plan.web.publicHost ?? facts(this.file.web).hostname, layout, mounts, maxListeners: plan.relay?.maxListeners ?? 0, secrets: this.secrets! });
+    const body = renderIcecastConfig({ name: plan.name, hostname: plan.web.publicHost ?? facts(this.file.web).hostname, layout, mounts, ingest: plan.ingest?.stations ?? [], maxListeners: plan.relay?.maxListeners ?? 0, secrets: this.secrets! });
     const current = await readFile(icecastConfigPath(), 'utf8').catch(() => null);
     const restart = !this.layout || this.layout.port !== layout.port || this.layout.bind !== layout.bind;
     this.layout = layout;
@@ -191,9 +258,17 @@ export class Agent {
       icecastPort: layout.port,
       icecastBind: layout.bind,
       certHosts: [...new Set([plan.web.publicHost, ...(plan.source?.hosts ?? [])].filter((h): h is string => !!h))].sort(),
+      station: !!plan.station,
+      ffmpeg: !!plan.ingest?.stations.some((st) => st.mounts.some((m) => m.kind === 'transcode')),
     });
     // Give Icecast a moment to read the new mounts before the streams come in.
-    setTimeout(() => this.relay?.apply(mounts), current !== body ? 1500 : 0);
+    setTimeout(
+      () => {
+        this.relay?.apply(mounts, plan.relay?.pushPort ?? null);
+        this.ingest?.apply(plan.ingest ?? null);
+      },
+      current !== body ? 1500 : 0,
+    );
     await this.source.apply(plan.source);
     this.prober.apply(plan.probes);
     // Plans of older main servers have no fm field.
@@ -214,7 +289,7 @@ export class Agent {
   private async startUpdate(branch: string | null, commit: string | null, why: string) {
     if (commit && commit === this.version.commit) return;
     log.info('updating the node', { branch, commit: commit?.slice(0, 7), why });
-    await requestUpdate(branch, commit);
+    this.updateId = await requestUpdate(branch, commit);
     this.update = { state: 'running', message: 'Starting', at: new Date().toISOString() };
     this.event('update_started', 'info', { commit: commit?.slice(0, 7) ?? null, why });
   }
@@ -231,7 +306,10 @@ export class Agent {
   private sendStats() {
     void (async () => {
       const [apply, update] = await Promise.all([applyStatus(), updateStatus()]);
-      if (update) this.update = update;
+      if (update && (!this.updateId || update.id === this.updateId)) {
+        this.update = update;
+        this.updateId = null;
+      }
       const s = this.sampler.sample();
       this.send({
         t: 'stats',
@@ -239,9 +317,11 @@ export class Agent {
         listeners: this.relay?.listenerCount ?? 0,
         encoders: this.source.encoders,
         icmp: this.icmp,
-        problems: [...(apply?.problems ?? []), ...this.source.problems, ...this.fm.problemList].slice(0, 10),
+        applyLog: apply?.state === 'failed' && apply.log?.length ? apply.log.slice(-20) : undefined,
+        problems: [...(apply?.problems ?? []), ...this.source.problems, ...(this.relay?.push.problems ?? []), ...(this.ingest?.problems() ?? []), ...this.fm.problemList].slice(0, 10),
         update: this.update ? { state: this.update.state, message: this.update.message, at: this.update.at } : null,
         revision: this.plan?.revision ?? null,
+        ingest: this.ingest?.status() ?? [],
         fm: this.fm.status(),
       });
     })().catch((err) => log.debug('sending stats failed', { err }));
@@ -272,13 +352,20 @@ export class Agent {
   private startHooks() {
     return new Promise<void>((resolve) => {
       this.hooks = http.createServer((req, res) => {
-        const m = req.url?.match(/^\/hook\/(add|remove)$/);
+        const m = req.url?.match(/^\/hook\/(add|remove|ingest)$/);
         let body = '';
         req.setEncoding('utf8');
         req.on('data', (c: string) => {
           if (body.length < 16_384) body += c;
         });
         req.on('end', () => {
+          if (m?.[1] === 'ingest') {
+            // Ingest mounts are read by the node itself only (pushes to relays, converted mounts).
+            const ip = new URLSearchParams(body).get('ip') ?? '';
+            const local = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+            res.writeHead(200, { ...(local ? { 'icecast-auth-user': '1' } : {}), 'content-type': 'text/plain' }).end(local ? 'ok' : 'no');
+            return;
+          }
           // Listeners are always let in.
           res.writeHead(200, { 'icecast-auth-user': '1', 'content-type': 'text/plain' }).end('ok');
           if (m && req.method === 'POST') this.relay?.hook(m[1] as 'add' | 'remove', new URLSearchParams(body));

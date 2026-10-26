@@ -327,7 +327,8 @@ export class ListenerCollector {
     const now = Date.now();
     for (const view of snap.stations.values()) {
       if (!view.active) continue;
-      const mounts = [...(live.get(view.station.id)?.keys() ?? [])];
+      // Listeners of a station on a station node come in through its relays.
+      const mounts = view.onNode || !view.ingest.local ? [] : [...(live.get(view.station.id)?.keys() ?? [])];
       const seen = new Map<string, { mount: string; c: IcecastClient }>();
       let complete = true;
       for (const mount of mounts) {

@@ -1,13 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowRight, Plus, X } from 'lucide-react';
-import { lazy, Suspense, useMemo, useState, type ReactNode } from 'react';
+import { ArrowRight, Eye, EyeOff, Plus, X } from 'lucide-react';
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router';
 import { formatBps, formatMs, formatPct } from '../components/nodes/common';
 import { Sparkline } from '../components/stats/charts';
 import type { SceneData, SceneHealth, SceneKind } from '../components/topology/scene';
-import TopologyFlat from '../components/topology/TopologyFlat';
+import TopologyFlat, { nodeName } from '../components/topology/TopologyFlat';
 import { Badge, Button, Card, PageHeader, Select, Spinner } from '../components/ui';
 import { api, type NodeEvent, type NodeMetric, type Tenant, type Topology, type TopologyNode } from '../lib/api';
 import { isAdmin, useMe } from '../lib/auth';
@@ -44,9 +44,11 @@ function useLayout(userId: string): [Layout, (l: Layout) => void] {
   ];
 }
 
-type Filter = 'all' | 'relays' | 'sources' | 'problems' | 'mine' | 'streams';
+type Filter = 'all' | 'relays' | 'sources' | 'stations' | 'problems' | 'mine' | 'streams';
 
-const kindOf = (n: TopologyNode): SceneKind => (n.roles.includes('relay') ? 'relay' : n.roles.includes('source') ? 'source' : n.roles.includes('fm') ? 'fm' : 'node');
+const kindOf = (n: TopologyNode): SceneKind =>
+  n.roles.includes('station') ? 'station' : n.roles.includes('relay') ? 'relay' : n.roles.includes('source') ? 'source' : n.roles.includes('fm') ? 'fm' : 'node';
+
 const healthOf = (n: TopologyNode): SceneHealth => (!n.paired ? 'unpaired' : !n.online ? 'offline' : n.degraded ? 'degraded' : 'online');
 const healthTone = { online: 'online', degraded: 'warning', offline: 'offline', unpaired: 'neutral' } as const;
 
@@ -79,6 +81,31 @@ function Tile({ label, value }: { label: string; value: ReactNode }) {
       <div className="text-[11px] text-muted">{label}</div>
       <div className="display text-lg tabular-nums">{value}</div>
     </div>
+  );
+}
+
+/** One of this server's own roles: no node page, no metrics of its own. */
+function LocalPanel({ node }: { node: TopologyNode }) {
+  const { t } = useTranslation();
+  const ingest = node.id === 'local:ingest';
+  return (
+    <>
+      <div>
+        <div className="text-[11px] tracking-[0.08em] text-muted uppercase">{t('topology.selected')}</div>
+        <h2 className="display text-lg">{nodeName(t, node, false)}</h2>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        <Badge tone={node.online ? 'online' : 'offline'} dot>
+          {t(node.online ? 'nodes.health.online' : 'nodes.health.offline')}
+        </Badge>
+        <Badge>{t(ingest ? 'nodes.roles.source' : 'nodes.roles.relay')}</Badge>
+      </div>
+      <p className="text-[13px] text-muted">{t(ingest ? 'topology.local.ingestHint' : 'topology.local.relayHint')}</p>
+      <div className="grid grid-cols-2 gap-2">
+        {ingest ? <Tile label={t('nodes.detail.encoders')} value={node.encoders} /> : <Tile label={t('topology.listenersNow')} value={node.listeners.toLocaleString()} />}
+        <Tile label={t('topology.stations')} value={node.stations} />
+      </div>
+    </>
   );
 }
 
@@ -120,6 +147,7 @@ function NodePanel({ node, open }: { node: TopologyNode; open: boolean }) {
         rows={[
           [t('nodes.detail.timeouts24h'), node.timeouts24h ?? 0, (node.timeouts24h ?? 0) > 0],
           [t('nodes.detail.loss'), node.online ? formatPct(node.loss ?? 0) : '—', (node.loss ?? 0) > 0.05],
+          ...(node.roles.includes('station') ? ([[t('topology.stationsOnNode'), String(node.stations), false]] as [ReactNode, ReactNode, boolean][]) : []),
           ...(node.roles.includes('relay') ? ([[t('topology.streamsRelayed'), t('topology.relayCount', { up: node.relaysUp, total: node.relaysTotal, stations: node.stations }), node.relaysUp < node.relaysTotal]] as [ReactNode, ReactNode, boolean][]) : []),
           [t('nodes.detail.place'), [node.city, node.country].filter(Boolean).join(', ') || node.location || '—'],
           [t('nodes.detail.version'), node.version ? `v${node.version}${node.updateAvailable ? ` · ${t('nodes.updateAvailable')}` : ''}` : '—', node.updateAvailable],
@@ -154,10 +182,11 @@ function MainPanel({ data }: { data: Topology }) {
         <Badge tone="online" dot>
           {t('nodes.health.online')}
         </Badge>
-        <Badge>{t('topology.orchestrator')}</Badge>
+        <Badge>{t('topology.controlOnly')}</Badge>
       </div>
+      <p className="text-[13px] text-muted">{t('topology.orchestratorHint')}</p>
       <div className="grid grid-cols-2 gap-2">
-        <Tile label={t('topology.listenersHere')} value={data.main.listeners.toLocaleString()} />
+        <Tile label={t('topology.ingestNodes')} value={data.nodes.filter((n) => !n.local && n.roles.includes('source')).length} />
         <Tile label={t('topology.stations')} value={data.main.stations} />
         <Tile label={t('topology.nodesOnline')} value={`${data.kpis.nodesOnline} / ${data.kpis.nodesTotal}`} />
         <Tile label={t('topology.studiosLive')} value={data.studios.length} />
@@ -209,19 +238,28 @@ export function TopologyPage() {
   const tenantId = admin ? (params.get('customer') ?? '') : '';
   const [filter, setFilter] = useState<Filter>('all');
   const [selected, setSelected] = useState<string | null>(null);
+  // Escape clears the selection.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setSelected(null);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  // Control lines stay hidden unless asked for, or for the selected block: the audio paths stay readable.
+  const [showControl, setShowControl] = useState(false);
   const [layout, setLayout] = useLayout(me.user.id);
   const topo = useQuery({ queryKey: ['topology', tenantId], queryFn: () => api<Topology>(`/nodes/topology${tenantId ? `?tenantId=${tenantId}` : ''}`), refetchInterval: 5000 });
   const tenants = useQuery({ queryKey: ['tenants'], queryFn: () => api<Tenant[]>('/tenants'), enabled: admin });
   const data = topo.data;
   const customer = data?.view === 'customer';
-  const filters: Filter[] = customer ? ['all', 'mine', 'streams'] : ['all', 'relays', 'sources', 'problems'];
+  const filters: Filter[] = customer ? ['all', 'mine', 'streams'] : ['all', 'relays', 'sources', 'stations', 'problems'];
 
   const scene = useMemo<SceneData>(() => {
     if (!data) return { nodes: [], links: [] };
     const matches = (n: TopologyNode) =>
-      filter === 'all' || filter === 'streams' || (filter === 'relays' && n.roles.includes('relay')) || (filter === 'sources' && n.roles.includes('source')) || (filter === 'problems' && (n.degraded || !n.online)) || (filter === 'mine' && n.own);
+      filter === 'all' || filter === 'streams' || (filter === 'relays' && n.roles.includes('relay')) || (filter === 'sources' && n.roles.includes('source')) || (filter === 'stations' && n.roles.includes('station')) || (filter === 'problems' && (n.degraded || !n.online)) || (filter === 'mine' && n.own);
     const nodes: SceneData['nodes'] = [
-      { id: 'main', kind: 'main', label: t('topology.main'), meta: `${t('topology.orchestrator')} · v${data.main.version}`, health: 'online', listeners: data.main.listeners, dim: false },
+      // The orchestrator carries no audio: no listeners around it, only control lines.
+      { id: 'main', kind: 'main', label: t('topology.main'), meta: `${t('topology.controlOnly')} · v${data.main.version}`, health: 'online', listeners: 0, dim: false },
       ...data.nodes.map((n) => {
         const kind = kindOf(n);
         const meta = !n.paired
@@ -232,12 +270,14 @@ export function TopologyPage() {
               ? t('topology.listenersCount', { count: n.listeners })
               : kind === 'source'
                 ? t('topology.encodersCount', { count: n.encoders })
-                : kind === 'fm'
-                  ? n.fmOnAir
-                    ? t('topology.fmOnAir')
-                    : t('topology.fmOff')
+                : kind === 'station'
+                  ? t('topology.stationsCount', { count: n.stations })
+                  : kind === 'fm'
+                    ? n.fmOnAir
+                      ? t('topology.fmOnAir')
+                      : t('topology.fmOff')
                   : n.location || t('nodes.noRoles');
-        return { id: n.id, kind, label: customer && n.own ? t('topology.myNode', { name: n.name }) : n.name, meta, health: healthOf(n), listeners: n.online ? n.listeners : 0, dim: !matches(n), own: customer && n.own };
+        return { id: n.id, kind, label: nodeName(t, n, customer), meta, health: healthOf(n), listeners: n.online ? n.listeners : 0, dim: !matches(n), own: customer && n.own };
       }),
       ...data.studios.map((s) => ({
         id: s.id,
@@ -250,7 +290,8 @@ export function TopologyPage() {
       })),
     ];
     const dim = new Set(nodes.filter((n) => n.dim).map((n) => n.id));
-    const links: SceneData['links'] = data.links.map((l) => ({
+    const shown = (l: Topology['links'][number]) => l.kind !== 'control' || showControl || selected === 'main' || (!!selected && l.to === selected);
+    const links: SceneData['links'] = data.links.filter(shown).map((l) => ({
       from: l.from,
       to: l.to,
       kind: l.kind,
@@ -259,7 +300,7 @@ export function TopologyPage() {
       dim: dim.has(l.from) || dim.has(l.to) || (filter === 'streams' && l.kind === 'control'),
     }));
     return { nodes, links };
-  }, [data, filter, customer, t]);
+  }, [data, filter, customer, showControl, selected, t]);
 
   const dimmed = useMemo(() => new Set(scene.nodes.filter((n) => n.dim).map((n) => n.id)), [scene]);
   const k = data?.kpis;
@@ -268,6 +309,11 @@ export function TopologyPage() {
   // In 3D the panel always shows something; the 2D flows use the whole width until a block is clicked.
   const ownSel = selNode ?? (!selected && customer && layout === '3d' ? data?.nodes.find((n) => n.own) : undefined);
   const showPanel = layout === '3d' || !!selected;
+  const studioTarget = (s: Topology['studios'][number]) => {
+    const to = data?.links.find((l) => l.from === s.id)?.to;
+    const n = data?.nodes.find((x) => x.id === to);
+    return n ? nodeName(t, n, !!customer) : t('topology.main');
+  };
 
   return (
     <>
@@ -296,7 +342,10 @@ export function TopologyPage() {
                   role="radio"
                   aria-checked={layout === l}
                   title={t(`topology.layout.${l}Title`)}
-                  onClick={() => setLayout(l)}
+                  onClick={() => {
+                    setLayout(l);
+                    setSelected(null);
+                  }}
                   className={clsx('rounded-full px-3 py-1 text-xs font-semibold whitespace-nowrap transition-colors', layout === l ? 'bg-nacht text-white dark:bg-koraal dark:text-nacht' : 'text-muted hover:text-ink')}
                 >
                   {t(`topology.layout.${l}`)}
@@ -358,15 +407,23 @@ export function TopologyPage() {
                   <TopologyCanvas data={scene} selected={selected ?? ownSel?.id ?? null} onSelect={setSelected} dark={theme === 'dark'} />
                 </Suspense>
               ) : (
-                <TopologyFlat data={data} layout={layout} dimmed={dimmed} selected={selected ?? ownSel?.id ?? null} onSelect={setSelected} />
+                <TopologyFlat data={data} layout={layout} dimmed={dimmed} selected={selected ?? ownSel?.id ?? null} showControl={showControl} onSelect={setSelected} />
               )}
               <div className="pointer-events-none absolute bottom-3 left-3 hidden flex-wrap gap-3 rounded-md border border-line bg-raised/85 px-3 py-2 text-xs text-muted backdrop-blur sm:flex">
                 <span className="flex items-center gap-1.5">
                   <i className="inline-block h-[3px] w-4 rounded bg-koraal" /> {t('topology.legend.stream')}
                 </span>
-                <span className="flex items-center gap-1.5">
-                  <i className="inline-block h-[3px] w-4 rounded bg-lucht" /> {t('topology.legend.control')}
-                </span>
+                {/* The control legend doubles as the switch for the control lines. */}
+                <button
+                  type="button"
+                  aria-pressed={showControl}
+                  title={t(showControl ? 'topology.controlLinesHide' : 'topology.controlLinesShow')}
+                  onClick={() => setShowControl((x) => !x)}
+                  className={clsx('pointer-events-auto -my-1 flex items-center gap-1.5 rounded-full border px-2 py-0.5 transition-colors', showControl ? 'border-lucht bg-lucht/15 text-ink' : 'border-line hover:text-ink')}
+                >
+                  <i className="inline-block w-4 border-t-2 border-dashed border-lucht" /> {t('topology.legend.control')}
+                  {showControl ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+                </button>
                 <span className="flex items-center gap-1.5">
                   <i className="inline-block h-[3px] w-4 rounded bg-warning" /> {t('topology.legend.degraded')}
                 </span>
@@ -395,7 +452,9 @@ export function TopologyPage() {
                 </button>
               )}
               {selStudio ? (
-                <StudioPanel studio={selStudio} target={selStudio.nodeId ? (data.nodes.find((n) => n.id === selStudio.nodeId)?.name ?? '—') : t('topology.main')} />
+                <StudioPanel studio={selStudio} target={studioTarget(selStudio)} />
+              ) : ownSel?.local ? (
+                <LocalPanel node={ownSel} />
               ) : ownSel ? (
                 <NodePanel key={ownSel.id} node={ownSel} open={data.view === 'admin' || ownSel.own || admin} />
               ) : (

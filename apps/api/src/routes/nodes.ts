@@ -12,10 +12,13 @@ import { badRequest, conflict, forbidden, HttpError, notFound } from '../lib/err
 import { okOut } from '../lib/schemas.js';
 import { nodeEvent } from '../services/nodes/hub.js';
 import { hashCode, installCommand, newPairingCode, PAIRING_HOURS } from '../services/nodes/pairing.js';
-import { carried, nodeConfigPatch, nodeConfigSchema, nodeSettings, relayBaseUrl, storedConfig, type Node } from '../services/nodes/plan.js';
+import { carried, nodeConfigPatch, nodeConfigSchema, nodeSettings, relayBaseUrl, relaysByStation, relaysOf, storedConfig, type Node } from '../services/nodes/plan.js';
+import { ingestNodes, ingestsOf, localIngest, pushedRouting, stationRouting } from '../services/nodes/routing-rules.js';
+import { readStreamsStatus } from '../services/streaming/status.js';
 import { authenticateNode, reportSchema, storeReport } from '../services/nodes/report.js';
 import { forgetRelays, pickRelay } from '../services/nodes/routing.js';
-import { getSetting, nodesSchema, putSetting } from '../services/settings.js';
+import { nodeUpdateInfo, type UpdateOverview } from '../services/nodes/updates.js';
+import { getSetting, nodesSchema, putSetting, UPDATE_POLICIES, updateWindowSchema } from '../services/settings.js';
 import { applyStreams } from '../services/streaming/state.js';
 import { getVersionInfo } from '../services/system.js';
 
@@ -77,6 +80,25 @@ const statusOut = z
     updatedAt: z.string().optional(),
   });
 
+const refOut = z.object({ commit: z.string().nullable(), branch: z.string().nullable() });
+const UPDATE_STATES = ['upToDate', 'waiting', 'scheduled', 'manual', 'paused', 'disabled', 'failed', 'queued', 'draining', 'updating', 'checking', 'rollingBack'] as const;
+const updateInfoOut = z.object({
+  policy: z.enum(UPDATE_POLICIES),
+  source: z.enum(['node', 'group', 'role', 'network']),
+  group: z.object({ id: z.string(), name: z.string() }).nullable(),
+  window: updateWindowSchema,
+  state: z.enum(UPDATE_STATES),
+  target: refOut,
+  nextWindowAt: z.string().nullable(),
+  phaseAt: z.string().nullable(),
+  phaseEndsAt: z.string().nullable(),
+  message: z.string().nullable(),
+  queuePosition: z.number().nullable(),
+  last: z
+    .object({ state: z.enum(['succeeded', 'failed', 'rolledBack']), target: refOut, from: refOut, message: z.string().nullable(), at: z.string(), rollbackTo: z.string().nullable() })
+    .nullable(),
+});
+
 const nodeOut = z.object({
   id: z.uuid(),
   tenantId: z.uuid().nullable(),
@@ -94,6 +116,8 @@ const nodeOut = z.object({
   listenBase: z.string().nullable(),
   /** The node runs another version than this server. */
   updateAvailable: z.boolean(),
+  /** How and when the node gets the version of this server, and how far its update is. */
+  update: updateInfoOut,
   /** Encoder names (src.<domain>) routed to this node. */
   ingestHosts: z.array(z.string()),
   createdAt: z.date(),
@@ -179,10 +203,11 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
     if (!nodes.length) return [];
     const ids = nodes.map((n) => n.id);
     const tenantIds = [...new Set(nodes.map((n) => n.tenantId).filter((t): t is string => !!t))];
-    const [tenants, domains, v] = await Promise.all([
+    const [tenants, domains, v, ov] = await Promise.all([
       tenantIds.length ? ctx.db.select({ id: schema.tenants.id, name: schema.tenants.name }).from(schema.tenants).where(inArray(schema.tenants.id, tenantIds)) : [],
       ctx.db.select({ nodeId: schema.tenantDomains.ingestNodeId, host: schema.tenantDomains.ingestHost }).from(schema.tenantDomains).where(inArray(schema.tenantDomains.ingestNodeId, ids)),
       getVersionInfo(ctx),
+      app.nodeUpdates.overview(),
     ]);
     const tenantName = new Map(tenants.map((t) => [t.id, t.name]));
     return nodes.map((n) => {
@@ -202,6 +227,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         status,
         listenBase: n.roles.includes('relay') ? relayBaseUrl({ ...n, status }) : null,
         updateAvailable: !!n.pairedAt && !!status.commit && !!v.commit && status.commit !== v.commit,
+        update: nodeUpdateInfo(n, status, ov),
         ingestHosts: domains.filter((d) => d.nodeId === n.id).map((d) => d.host),
         createdAt: n.createdAt,
       };
@@ -235,6 +261,8 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
     { config: { audit: 'settings.nodes' }, schema: { tags: ['Nodes'], summary: 'Change the settings of the distribution network', body: nodesSchema, response: { 200: nodesSchema } } },
     async (req) => {
       requireSuperadmin(req);
+      const ids = req.body.updates.groups.map((g) => g.id);
+      if (new Set(ids).size !== ids.length) throw badRequest('Two update groups have the same id');
       await putSetting(ctx, 'nodes', req.body);
       forgetRelays();
       void hub.refreshAll();
@@ -291,6 +319,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
           if (n >= allowed) throw conflict(allowed ? `Your plan allows ${allowed} own node(s)` : 'Your plan does not include own nodes; ask your provider');
         }
       } else requireSuperadmin(req);
+      if (req.body.roles.includes('station') && new Set(req.body.roles).size > 1) throw badRequest('A station node has no other roles; its streams go to relay nodes');
       const [node] = await ctx.db
         .insert(schema.nodes)
         .values({ name: req.body.name, location: req.body.location, tenantId: tenantId ?? null, roles: [...new Set(req.body.roles)], config: storedConfig({}) })
@@ -318,6 +347,10 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
     async (req) => {
       const node = await nodeAccess(ctx, req, req.params.id, 'owner');
       const b = req.body;
+      if (b.config?.updateGroup !== undefined && b.config.updateGroup !== (nodeSettings(node).updateGroup ?? null)) {
+        requireSuperadmin(req);
+        if (b.config.updateGroup && !(await getSetting(ctx, 'nodes')).updates.groups.some((g) => g.id === b.config!.updateGroup)) throw badRequest('Unknown update group');
+      }
       const config = b.config ? storedConfig(b.config, node.config) : node.config;
       if (b.config?.relayStations && b.config.relayStations !== 'all' && node.tenantId) {
         const own = await ctx.db.select({ id: schema.stations.id }).from(schema.stations).where(eq(schema.stations.tenantId, node.tenantId));
@@ -330,6 +363,11 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         if (node.tenantId && st.tenantId !== node.tenantId) throw badRequest('A node of a customer can only put that customer\'s stations on air');
       }
       const roles = b.roles ? ([...new Set(b.roles)] as NodeRole[]) : node.roles;
+      if (roles.includes('station') && roles.length > 1) throw badRequest('A station node has no other roles; its streams go to relay nodes');
+      if (node.roles.includes('station') && !roles.includes('station')) {
+        const [running] = await ctx.db.select({ n: sql<number>`count(*)::int` }).from(schema.stations).where(eq(schema.stations.nodeId, node.id));
+        if (running && running.n > 0) throw conflict('Stations still run on this node; move them back to this server first');
+      }
       const c = nodeSettings({ config });
       if (roles.includes('source') && c.sourcePlainPort && c.sourcePlainPort === c.sourceTlsPort) throw badRequest('Use two different ports for encoders');
       const [updated] = await ctx.db
@@ -375,6 +413,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         .where(eq(schema.nodes.id, node.id))
         .returning();
       await nodeEvent(ctx, node.id, 'unpaired', 'warning', { by: req.auth?.user.email ?? null });
+      await app.nodeUpdates.forget(node.id);
       Object.assign(req.auditInfo, { tenantId: node.tenantId, targetId: node.id, details: { name: node.name } });
       await replan(node.id, req.auth?.user.email, node.roles.includes('relay'));
       return (await toOut([updated!]))[0]!;
@@ -383,21 +422,115 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
 
   app.post(
     '/:id/update',
-    { config: { audit: 'node.update_request' }, schema: { tags: ['Nodes'], summary: 'Update the node to the version of this server now', params: nodeParams, response: { 200: okOut } } },
+    {
+      config: { audit: 'node.update_request' },
+      schema: {
+        tags: ['Nodes'],
+        summary: 'Update the node to the version of this server, whatever its policy. It waits for any other node update to finish, and is checked and rolled back like any other.',
+        params: nodeParams,
+        response: { 200: okOut.extend({ position: z.number() }) },
+      },
+    },
     async (req) => {
       const node = await nodeAccess(ctx, req, req.params.id, 'owner');
-      const v = await getVersionInfo(ctx);
-      if (!hub.requestUpdate(node.id, v.branch, v.commit)) throw conflict('The node is offline');
-      await nodeEvent(ctx, node.id, 'update_requested', 'info', { commit: v.commit?.slice(0, 7) ?? null, by: req.auth?.user.email ?? null });
-      Object.assign(req.auditInfo, { tenantId: node.tenantId, targetId: node.id, details: { name: node.name, commit: v.commit } });
+      if (!node.pairedAt) throw conflict('The node is not paired');
+      const position = await app.nodeUpdates.enqueue(node.id, null, req.auth?.user.email ?? null);
+      Object.assign(req.auditInfo, { tenantId: node.tenantId, targetId: node.id, details: { name: node.name } });
+      return { ok: true as const, position };
+    },
+  );
+
+  app.post(
+    '/:id/rollback',
+    {
+      config: { audit: 'node.rollback' },
+      schema: { tags: ['Nodes'], summary: 'Put the node back on the version it had before its last update', params: nodeParams, response: { 200: okOut.extend({ position: z.number() }) } },
+    },
+    async (req) => {
+      const node = await nodeAccess(ctx, req, req.params.id, 'owner');
+      const last = (await getSetting(ctx, 'nodeRollout')).results[node.id];
+      if (!last || last.state !== 'succeeded' || !last.from.commit) throw conflict('There is no previous version to go back to');
+      const position = await app.nodeUpdates.enqueue(node.id, { commit: last.from.commit, branch: last.from.branch }, req.auth?.user.email ?? null);
+      Object.assign(req.auditInfo, { tenantId: node.tenantId, targetId: node.id, details: { name: node.name, commit: last.from.commit } });
+      return { ok: true as const, position };
+    },
+  );
+
+  app.post(
+    '/:id/update/cancel',
+    { config: { audit: 'node.update_cancel' }, schema: { tags: ['Nodes'], summary: 'Stop an update that has not started yet', params: nodeParams, response: { 200: okOut } } },
+    async (req) => {
+      const node = await nodeAccess(ctx, req, req.params.id, 'owner');
+      await app.nodeUpdates.cancel(node.id, req.auth?.user.email ?? null);
+      Object.assign(req.auditInfo, { tenantId: node.tenantId, targetId: node.id, details: { name: node.name } });
       return { ok: true as const };
+    },
+  );
+
+  // The rollout over all nodes (administrators).
+
+  const rolloutOut = z.object({
+    target: refOut.extend({ version: z.string() }),
+    enabled: z.boolean(),
+    paused: z.object({ reason: z.string(), nodeId: z.string().nullable(), nodeName: z.string().nullable(), at: z.string() }).nullable(),
+    current: z
+      .object({ nodeId: z.string(), nodeName: z.string(), phase: z.enum(['draining', 'updating', 'checking', 'rollingBack']), target: refOut, manual: z.boolean(), by: z.string().nullable(), startedAt: z.string(), message: z.string().nullable() })
+      .nullable(),
+    queue: z.array(z.object({ nodeId: z.string(), nodeName: z.string(), by: z.string().nullable() })),
+    /** Paired nodes on the version of this server, and all paired nodes. */
+    upToDate: z.number(),
+    paired: z.number(),
+  });
+
+  async function rollout(ov?: UpdateOverview) {
+    const o = ov ?? (await app.nodeUpdates.overview());
+    const nodes = await ctx.db.select({ id: schema.nodes.id, name: schema.nodes.name, pairedAt: schema.nodes.pairedAt, status: schema.nodes.status }).from(schema.nodes);
+    const name = (id: string | null) => (id ? (nodes.find((n) => n.id === id)?.name ?? null) : null);
+    const paired = nodes.filter((n) => n.pairedAt);
+    const r = o.rollout;
+    return {
+      target: o.target,
+      enabled: o.settings.autoUpdate && o.settings.updates.enabled,
+      paused: r.paused ? { ...r.paused, nodeName: name(r.paused.nodeId) } : null,
+      current: r.current ? { nodeId: r.current.nodeId, nodeName: name(r.current.nodeId) ?? '?', phase: r.current.phase, target: r.current.target, manual: r.current.manual, by: r.current.by, startedAt: r.current.startedAt, message: r.current.message } : null,
+      queue: r.queue.map((q) => ({ nodeId: q.nodeId, nodeName: name(q.nodeId) ?? '?', by: q.by })),
+      upToDate: paired.filter((n) => (hub.liveStatus(n.id) ?? n.status).commit === o.target.commit).length,
+      paired: paired.length,
+    };
+  }
+
+  app.get('/updates', { schema: { tags: ['Nodes'], summary: 'Where the node updates stand: the version nodes get, the node being updated now, the line', response: { 200: rolloutOut } } }, async (req) => {
+    requireSuperadmin(req);
+    return rollout();
+  });
+
+  app.post(
+    '/updates/pause',
+    { config: { audit: 'nodes.updates_pause' }, schema: { tags: ['Nodes'], summary: 'Stop automatic node updates (a running one finishes)', response: { 200: rolloutOut } } },
+    async (req) => {
+      requireSuperadmin(req);
+      await app.nodeUpdates.setPaused(true, req.auth?.user.email ?? null);
+      return rollout();
+    },
+  );
+
+  app.post(
+    '/updates/resume',
+    { config: { audit: 'nodes.updates_resume' }, schema: { tags: ['Nodes'], summary: 'Resume automatic node updates after a pause or a failed update', response: { 200: rolloutOut } } },
+    async (req) => {
+      requireSuperadmin(req);
+      await app.nodeUpdates.setPaused(false, req.auth?.user.email ?? null);
+      return rollout();
     },
   );
 
   app.delete('/:id', { config: { audit: 'node.delete' }, schema: { tags: ['Nodes'], summary: 'Remove a node', params: nodeParams, response: { 200: okOut } } }, async (req) => {
     const node = await nodeAccess(ctx, req, req.params.id, 'owner');
+    const [running] = await ctx.db.select({ n: sql<number>`count(*)::int` }).from(schema.stations).where(eq(schema.stations.nodeId, node.id));
+    if (running && running.n > 0) throw conflict('Stations still run on this node; move them back to this server first');
     hub.disconnect(node.id);
     await ctx.db.delete(schema.nodes).where(eq(schema.nodes.id, node.id));
+    await app.nodeUpdates.forget(node.id);
     Object.assign(req.auditInfo, { tenantId: node.tenantId, targetId: node.id, details: { name: node.name } });
     forgetRelays();
     if (node.roles.includes('relay')) await applyStreams(ctx, { by: req.auth?.user.email });
@@ -509,28 +642,33 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
     if (tenantFilter && tenants && !tenants.includes(tenantFilter)) throw forbidden();
     const scope = tenantFilter ? [tenantFilter] : tenants;
     const admin = tenants === null;
-    const [settings, v, stations, allNodes] = await Promise.all([
+    const [settings, v, stations, allNodes, worker] = await Promise.all([
       getSetting(ctx, 'nodes'),
       getVersionInfo(ctx),
       ctx.db
-        .select({ id: schema.stations.id, name: schema.stations.name, slug: schema.stations.slug, tenantId: schema.stations.tenantId })
+        .select({ id: schema.stations.id, name: schema.stations.name, slug: schema.stations.slug, tenantId: schema.stations.tenantId, routing: schema.stations.routing, nodeId: schema.stations.nodeId, edition: schema.stations.edition, autodj: schema.stations.autodj })
         .from(schema.stations)
         .innerJoin(schema.tenants, eq(schema.tenants.id, schema.stations.tenantId))
         .where(and(eq(schema.stations.enabled, true), eq(schema.tenants.active, true), scope ? inArray(schema.stations.tenantId, scope.length ? scope : ['00000000-0000-0000-0000-000000000000']) : undefined)),
       ctx.db.select().from(schema.nodes).orderBy(asc(schema.nodes.name)),
+      readStreamsStatus(ctx).then((s) => s.worker),
     ]);
     const stationIds = stations.map((s) => s.id);
     const scopeSet = scope ? new Set(scope) : null;
-    // A customer sees its own nodes and the relays that carry its stations.
+    const pairedRelayNodes = allNodes.filter((n) => n.pairedAt && n.roles.includes('relay')).map((n) => ({ ...n, status: hub.liveStatus(n.id) ?? { ...n.status, online: false } }));
+    // A customer sees its own nodes, the relays that carry its stations and the ingest nodes they use.
+    const usedIngest = new Set(stations.flatMap((s) => ingestNodes(stationRouting(s)).map((i) => i.ref)));
     const nodes = allNodes.filter((n) => {
       if (!scopeSet) return true;
       if (n.tenantId && scopeSet.has(n.tenantId)) return true;
-      return !n.tenantId && n.pairedAt && carried(n, stations).size > 0;
+      // A shared station node that runs one of the customer's stations belongs in its picture too.
+      if (!n.tenantId && n.pairedAt && stations.some((s) => s.nodeId === n.id)) return true;
+      return !n.tenantId && !!n.pairedAt && (carried(n, stations, pairedRelayNodes).size > 0 || usedIngest.has(n.id));
     });
     const [live, samples] = await Promise.all([
       stationIds.length
         ? ctx.db
-            .select({ id: schema.liveSessions.id, stationId: schema.liveSessions.stationId, accountName: schema.liveSessions.accountName, via: schema.liveSessions.via, nodeId: schema.liveSessions.nodeId, startedAt: schema.liveSessions.startedAt, mountPath: schema.liveSessions.mountPath })
+            .select({ id: schema.liveSessions.id, stationId: schema.liveSessions.stationId, accountName: schema.liveSessions.accountName, via: schema.liveSessions.via, nodeId: schema.liveSessions.nodeId, onNode: schema.liveSessions.onNode, startedAt: schema.liveSessions.startedAt, mountPath: schema.liveSessions.mountPath })
             .from(schema.liveSessions)
             .where(and(inArray(schema.liveSessions.stationId, stationIds), isNull(schema.liveSessions.endedAt)))
         : [],
@@ -546,18 +684,20 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
     for (const s of samples) latest.set(s.stationId, Math.max(latest.get(s.stationId) ?? 0, s.at.getTime()));
     const mainListeners = Math.round(samples.filter((s) => s.target.startsWith('mount:') && s.at.getTime() === latest.get(s.stationId)).reduce((n, s) => n + s.avg, 0));
 
-    const nodeOutList = nodes.map((n) => {
-      const status = hub.liveStatus(n.id) ?? { ...n.status, online: false };
-      const carriedIds = [...carried(n, stations)];
+    const statusOf = (id: string) => hub.liveStatus(id) ?? { ...(allNodes.find((n) => n.id === id)?.status ?? {}), online: false };
+    const nodeOutList: z.infer<typeof topologyOut>['nodes'] = nodes.map((n) => {
+      const status = statusOf(n.id);
+      const carriedIds = [...carried(n, stations, pairedRelayNodes)];
       const fmError = !!status.fm && (status.fm.input === 'error' || status.fm.output === 'error' || status.fm.uecp === 'error');
       const degraded = status.online && ((status.rttMs ?? 0) > settings.latencyWarnMs || (status.loss ?? 0) > 0.05 || (status.problems?.length ?? 0) > 0 || !!status.relays?.some((r) => r.state === 'error') || fmError);
       const own = !!n.tenantId && !!scopeSet?.has(n.tenantId);
       return {
         id: n.id,
-        name: admin || own ? n.name : n.location ? `Relay · ${n.location}` : 'Relay',
+        name: admin || own ? n.name : n.location ? `${n.roles.includes('relay') ? 'Relay' : 'Ingest'} · ${n.location}` : n.roles.includes('relay') ? 'Relay' : 'Ingest',
         location: n.location,
         roles: n.roles,
         own,
+        local: false,
         tenantId: admin ? n.tenantId : own ? n.tenantId : null,
         paired: !!n.pairedAt,
         online: status.online,
@@ -572,7 +712,8 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         encoders: status.encoders ?? 0,
         country: status.country ?? null,
         city: status.city ?? null,
-        stations: carriedIds.length,
+        stations: n.roles.includes('station') ? stations.filter((s) => s.nodeId === n.id).length : carriedIds.length,
+        ingestStations: stations.filter((s) => ingestsOf(stationRouting(s)).some((i) => i.ref === n.id)).length,
         updateAvailable: !!status.commit && !!v.commit && status.commit !== v.commit,
         relaysUp: status.relays?.filter((r) => r.state === 'connected').length ?? 0,
         relaysTotal: status.relays?.length ?? 0,
@@ -580,35 +721,118 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       };
     });
 
+    // This server's own roles (phase 13): its ingest takes encoders and runs the AutoDJ, its relay serves listeners
+    // directly. Shown apart from the orchestrator, which carries no audio.
+    const onAirHere = new Set(Object.keys(worker?.onAir ?? {}).filter((id) => worker!.onAir[id]!.length));
+    const localStations = stations.filter((s) => !s.nodeId && localIngest(stationRouting(s)));
+    const pulled = stations.filter((s) => !s.nodeId && !pushedRouting(stationRouting(s)));
+    const local = (id: 'local:ingest' | 'local:relay', roles: NodeRole[], extra: Partial<z.infer<typeof topologyOut>['nodes'][number]>) => ({
+      id,
+      name: id,
+      location: '',
+      roles,
+      own: false,
+      local: true,
+      tenantId: null,
+      paired: true,
+      online: !!worker?.alive,
+      degraded: false,
+      version: v.version,
+      rttMs: null,
+      loss: null,
+      timeouts24h: null,
+      cpu: null,
+      txBps: null,
+      listeners: 0,
+      encoders: 0,
+      country: null,
+      city: null,
+      stations: 0,
+      ingestStations: 0,
+      updateAvailable: false,
+      relaysUp: 0,
+      relaysTotal: 0,
+      fmOnAir: false,
+      ...extra,
+    });
+    if (localStations.length)
+      nodeOutList.unshift(local('local:ingest', ['source'], { encoders: live.filter((l) => !l.onNode).length, ingestStations: localStations.length, stations: localStations.length }));
+    if (pulled.length || mainListeners > 0) nodeOutList.push(local('local:relay', ['relay'], { listeners: mainListeners, stations: pulled.length, relaysUp: pulled.filter((s) => onAirHere.has(s.id)).length, relaysTotal: pulled.length }));
+    const shown = new Set(nodeOutList.map((n) => n.id));
+
     const links: z.infer<typeof topologyOut>['links'] = [];
+    const seen = new Set<string>();
+    const link = (l: z.infer<typeof topologyOut>['links'][number]) => {
+      const key = `${l.from}>${l.to}>${l.kind}`;
+      const ok = (id: string) => id === 'main' || id.startsWith('studio:') || shown.has(id);
+      if (seen.has(key) || !ok(l.from) || !ok(l.to)) return;
+      seen.add(key);
+      links.push(l);
+    };
+    // Control: the orchestrator steers every node; this is the only line to it.
+    for (const n of nodeOutList) if (n.paired) link({ from: n.id, to: 'main', kind: 'control', active: n.online, degraded: n.degraded, rttMs: n.rttMs, loss: n.loss });
+
+    // Audio per station: from the ingest that is on air (best priority first) to each relay that has the stream.
+    const byId = new Map(nodeOutList.map((n) => [n.id, n]));
+    for (const s of stations) {
+      if (s.nodeId) continue;
+      const r = stationRouting(s);
+      const onAir = (ref: string) => (ref === 'local' ? onAirHere.has(s.id) : !!statusOf(ref).online && !!statusOf(ref).ingest?.some((m) => m.stationId === s.id));
+      const active = ingestsOf(r).find((i) => onAir(i.ref)) ?? null;
+      const from = active ? (active.ref === 'local' ? 'local:ingest' : active.ref) : null;
+      if (!from) continue;
+      const fromNode = byId.get(from);
+      const st = { active: !!fromNode?.online, degraded: !!fromNode?.degraded, rttMs: null, loss: null };
+      if (!pushedRouting(r)) link({ from, to: 'local:relay', kind: 'stream', ...st });
+      for (const relay of relaysOf(s, pairedRelayNodes)) {
+        const has = statusOf(relay.id).relays?.some((x) => x.key.startsWith(`${s.slug}/`) && x.state === 'connected');
+        if (has) link({ from, to: relay.id, kind: 'stream', ...st, active: st.active && !!byId.get(relay.id)?.online });
+      }
+    }
+    // An FM node puts its station on air from one of the station's relays, or from this server's relay role.
     for (const n of nodeOutList) {
-      if (!n.paired) continue;
-      const fresh = nodes.find((x) => x.id === n.id)!;
-      const status = hub.liveStatus(n.id) ?? fresh.status;
-      links.push({ from: n.id, to: 'main', kind: 'control', active: n.online, degraded: n.degraded, rttMs: n.rttMs, loss: n.loss });
-      if (n.roles.includes('relay') && n.relaysUp > 0) links.push({ from: 'main', to: n.id, kind: 'stream', active: n.online, degraded: n.degraded, rttMs: n.rttMs, loss: n.loss });
-      if (n.roles.includes('source') && (status.encoders ?? 0) > 0) links.push({ from: n.id, to: 'main', kind: 'stream', active: n.online, degraded: n.degraded, rttMs: n.rttMs, loss: n.loss });
-      // An FM node pulls its station from this server and puts it on air.
-      if (n.roles.includes('fm') && status.fm?.input === 'connected') links.push({ from: 'main', to: n.id, kind: 'stream', active: n.online, degraded: n.degraded, rttMs: n.rttMs, loss: n.loss });
+      if (!n.paired || !n.roles.includes('fm') || statusOf(n.id).fm?.input !== 'connected') continue;
+      const s = stations.find((x) => x.id === nodeSettings(nodes.find((y) => y.id === n.id)!).fm.stationId);
+      if (!s) continue;
+      const from = s.nodeId || pushedRouting(stationRouting(s)) ? relaysOf(s, pairedRelayNodes).find((r) => byId.get(r.id)?.online)?.id : 'local:relay';
+      if (from) link({ from, to: n.id, kind: 'stream', active: n.online, degraded: n.degraded, rttMs: null, loss: null });
+    }
+    // A station node pushes the streams of its stations straight to the relays that carry them.
+    const relayMap = await relaysByStation(ctx);
+    for (const n of nodeOutList) {
+      if (!n.paired || !n.roles.includes('station')) continue;
+      const mine = stations.filter((s) => s.nodeId === n.id);
+      const runtime = mine.length ? await ctx.db.select({ runtime: schema.stations.nodeRuntime }).from(schema.stations).where(inArray(schema.stations.id, mine.map((s) => s.id))) : [];
+      const states = new Map<string, string>();
+      for (const r of runtime) for (const [relayId, st] of Object.entries(r.runtime?.relays ?? {})) if (st.state === 'connected' || !states.has(relayId)) states.set(relayId, st.state);
+      for (const relayId of new Set(mine.flatMap((s) => (relayMap.get(s.id) ?? []).map((r: Node) => r.id)))) {
+        if (!nodeOutList.some((x) => x.id === relayId)) continue;
+        const state = states.get(relayId);
+        links.push({ from: n.id, to: relayId, kind: 'stream', active: n.online && state === 'connected', degraded: state === 'error', rttMs: null, loss: null });
+      }
     }
     const studios = live.map((l) => {
       const station = stations.find((s) => s.id === l.stationId)!;
-      const viaNode = l.nodeId && nodes.some((n) => n.id === l.nodeId) ? l.nodeId : null;
-      links.push({ from: `studio:${l.id}`, to: viaNode ?? 'main', kind: 'stream', active: true, degraded: false, rttMs: null, loss: null });
+      const viaNode = l.nodeId && shown.has(l.nodeId) ? l.nodeId : null;
+      const to = viaNode ?? (shown.has('local:ingest') ? 'local:ingest' : 'main');
+      links.push({ from: `studio:${l.id}`, to, kind: 'stream', active: true, degraded: false, rttMs: null, loss: null });
+      // An encoder through a source node that only passes it on still ends up in this server's ingest.
+      if (viaNode && !l.onNode && shown.has('local:ingest')) link({ from: viaNode, to: 'local:ingest', kind: 'stream', active: true, degraded: false, rttMs: null, loss: null });
       return { id: `studio:${l.id}`, station: station.name, stationId: station.id, account: l.accountName, mount: l.mountPath, via: l.via, nodeId: viaNode, since: l.startedAt };
     });
 
-    const online = nodeOutList.filter((n) => n.online);
-    const relayListeners = nodeOutList.reduce((sum, n) => sum + (n.listeners ?? 0), 0);
+    const remote = nodeOutList.filter((n) => !n.local);
+    const online = remote.filter((n) => n.online);
+    const relayListeners = remote.reduce((sum, n) => sum + (n.listeners ?? 0), 0);
     return {
       view: admin && !tenantFilter ? 'admin' : 'customer',
-      main: { id: 'main', name: 'Main server', version: v.version, commit: v.commit, branch: v.branch, listeners: mainListeners, stations: stations.length },
+      main: { id: 'main', name: 'Orchestrator', version: v.version, commit: v.commit, branch: v.branch, listeners: mainListeners, stations: stations.length },
       nodes: nodeOutList,
       studios,
       links,
       kpis: {
         nodesOnline: online.length,
-        nodesTotal: nodeOutList.filter((n) => n.paired).length,
+        nodesTotal: remote.filter((n) => n.paired).length,
         degraded: online.filter((n) => n.degraded).length,
         listeners: mainListeners + relayListeners,
         relayListeners,
@@ -616,7 +840,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         worst: online.filter((n) => n.rttMs != null).sort((a, b) => (b.rttMs ?? 0) - (a.rttMs ?? 0))[0]?.name ?? null,
         worstRttMs: online.filter((n) => n.rttMs != null).sort((a, b) => (b.rttMs ?? 0) - (a.rttMs ?? 0))[0]?.rttMs ?? null,
         txBps: online.reduce((s, n) => s + (n.txBps ?? 0), 0),
-        timeouts24h: nodeOutList.reduce((s, n) => s + (n.timeouts24h ?? 0), 0),
+        timeouts24h: remote.reduce((s, n) => s + (n.timeouts24h ?? 0), 0),
       },
     };
   }
@@ -632,6 +856,8 @@ const topologyOut = z.object({
       location: z.string(),
       roles: z.array(roleSchema),
       own: z.boolean(),
+      /** One of this server's own roles (local:ingest, local:relay), not a node. */
+      local: z.boolean(),
       tenantId: z.string().nullable(),
       paired: z.boolean(),
       online: z.boolean(),
@@ -647,6 +873,7 @@ const topologyOut = z.object({
       country: z.string().nullable(),
       city: z.string().nullable(),
       stations: z.number(),
+      ingestStations: z.number(),
       updateAvailable: z.boolean(),
       relaysUp: z.number(),
       relaysTotal: z.number(),
@@ -733,17 +960,20 @@ export const listenRedirectRoutes: FastifyPluginAsyncZod = async (app) => {
       const slug = req.params.slug.toLowerCase();
       const path = `/${req.params['*']}`;
       const [row] = await ctx.db
-        .select({ id: schema.stations.id, tenantId: schema.stations.tenantId, enabled: schema.stations.enabled })
+        .select({ id: schema.stations.id, tenantId: schema.stations.tenantId, enabled: schema.stations.enabled, routing: schema.stations.routing, nodeId: schema.stations.nodeId })
         .from(schema.stations)
         .where(eq(schema.stations.slug, slug));
       const [mount] = row ? await ctx.db.select().from(schema.stationMounts).where(and(eq(schema.stationMounts.stationId, row.id), eq(schema.stationMounts.path, path), eq(schema.stationMounts.isPublic, true))) : [];
       if (!row || !row.enabled || !mount) return reply.status(404).send({ error: { code: 'not_found', message: 'Stream not found' } });
       const settings = await getSetting(ctx, 'nodes');
       let target: string | null = null;
-      if (settings.routeListeners) {
+      // Without audio here (ingest node or station node) a relay is the only place to listen.
+      const elsewhere = !!row.nodeId || pushedRouting(stationRouting(row));
+      if (settings.routeListeners || elsewhere) {
         await app.nodes.geo.refresh().catch(() => undefined);
         target = await pickRelay(ctx, row.id, slug, path, app.nodes.geo.lookup(req.ip));
       }
+      if (!target && elsewhere) return reply.status(503).header('retry-after', '10').header('cache-control', 'no-store').send({ error: { code: 'no_relay', message: 'No relay has this stream right now' } });
       const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
       return reply
         .header('cache-control', 'no-store')

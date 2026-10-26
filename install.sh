@@ -16,6 +16,9 @@
 #   --admin-email <address>    First administrator (default: admin@<domain or hostname>)
 #   --admin-name <name>        Name of the first administrator (default: Administrator)
 #   --yes                      Do not ask anything, use defaults for missing options
+#   --station-node             Install as the runtime of a station node (phase 12): stations, AutoDJ and library run
+#                              here, the main server manages them. Started by the node agent when the node gets the
+#                              station node role; needs /etc/hosted-radio/station-node.json. No web server, no admin.
 #
 # Running it again upgrades the system packages and units and keeps existing secrets and data.
 set -Eeuo pipefail
@@ -29,7 +32,8 @@ SERVICE_USER="hosted-radio"
 NODE_MAJOR=22
 PNPM_VERSION="10.28.0"
 
-DOMAIN="" EMAIL="" PROXY="" TRUSTED="" CHANNEL="" REPO="" REF="" ADMIN_EMAIL="" ADMIN_NAME="" ASSUME_YES=0
+DOMAIN="" EMAIL="" PROXY="" TRUSTED="" CHANNEL="" REPO="" REF="" ADMIN_EMAIL="" ADMIN_NAME="" ASSUME_YES=0 STATION_NODE=0
+STATION_NODE_FILE="$CONF_DIR/station-node.json"
 
 C_RESET=$'\e[0m' C_CORAL=$'\e[38;2;255;107;87m' C_DIM=$'\e[2m' C_BOLD=$'\e[1m' C_RED=$'\e[31m' C_GREEN=$'\e[32m'
 step() { printf '\n%s==>%s %s%s%s\n' "$C_CORAL" "$C_RESET" "$C_BOLD" "$*" "$C_RESET"; }
@@ -49,6 +53,7 @@ while [[ $# -gt 0 ]]; do
     --admin-email) ADMIN_EMAIL="${2:-}"; shift 2 ;;
     --admin-name) ADMIN_NAME="${2:-}"; shift 2 ;;
     --yes|-y) ASSUME_YES=1; shift ;;
+    --station-node) STATION_NODE=1; ASSUME_YES=1; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print } /^set -E/ { exit }' "$0"; exit 0 ;;
     *) fail "Unknown option: $1 (see --help)" ;;
   esac
@@ -58,6 +63,8 @@ done
 . /etc/os-release
 [[ "${ID:-}" == "debian" ]] || fail "This installer supports Debian 13 (trixie). Found: ${PRETTY_NAME:-unknown}."
 [[ "${VERSION_CODENAME:-}" == "trixie" ]] || info "Warning: built for Debian 13 (trixie), found ${VERSION_CODENAME:-unknown}. Continuing."
+
+[[ $STATION_NODE -eq 0 || -f "$STATION_NODE_FILE" ]] || fail "--station-node needs $STATION_NODE_FILE; give the node the station node role in the panel instead."
 
 interactive() { [[ $ASSUME_YES -eq 0 && -t 0 ]]; }
 ask() { # ask <var> <question> <default>
@@ -141,6 +148,8 @@ fi
 
 step "Service user and folders"
 id "$SERVICE_USER" >/dev/null 2>&1 || useradd --system --home-dir "$DATA_DIR" --shell /usr/sbin/nologin "$SERVICE_USER"
+# The service reads the link to its main server; it is written by the node agent before the service user exists.
+[[ $STATION_NODE -eq 1 ]] && { chown root:"$SERVICE_USER" "$STATION_NODE_FILE"; chmod 0640 "$STATION_NODE_FILE"; }
 install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_USER" "$DATA_DIR" "$DATA_DIR/run" "$DATA_DIR/stations" "$DATA_DIR/certs" "$DATA_DIR/sftpgo"
 install -d -m 0750 -o root -g "$SERVICE_USER" "$CONF_DIR"
 
@@ -189,6 +198,7 @@ WEB_DIST=${INSTALL_DIR}/apps/web/dist
 TRUSTED_PROXIES=${TRUSTED_ALL}
 SYSTEM_HELPERS=1
 EOF
+  if [[ $STATION_NODE -eq 1 ]]; then printf '# Station node (phase 12): the main server manages the stations here.\nSTATION_NODE=%s\n' "$STATION_NODE_FILE" >> "$ENV_FILE"; fi
   umask 022
   chown root:"$SERVICE_USER" "$ENV_FILE"
   chmod 0640 "$ENV_FILE"
@@ -197,6 +207,9 @@ else
   DB_PASSWORD=$(grep -E '^DATABASE_URL=' "$ENV_FILE" | sed -E 's#.*://[^:]+:([^@]+)@.*#\1#')
   FIRST_INSTALL=0
   info "Keeping the existing configuration in $ENV_FILE"
+  if [[ $STATION_NODE -eq 1 ]] && ! grep -q '^STATION_NODE=' "$ENV_FILE"; then
+    printf '# Station node (phase 12): the main server manages the stations here.\nSTATION_NODE=%s\n' "$STATION_NODE_FILE" >> "$ENV_FILE"
+  fi
 fi
 if ! runuser -u postgres -- psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='hosted_radio'" | grep -q 1; then
   runuser -u postgres -- psql -q -c "CREATE ROLE hosted_radio LOGIN PASSWORD '${DB_PASSWORD}'"
@@ -214,7 +227,7 @@ step "System services"
 "$INSTALL_DIR/deploy/bin/hrs-install-units"
 hrs migrate
 
-if [[ $FIRST_INSTALL -eq 1 ]]; then
+if [[ $FIRST_INSTALL -eq 1 && $STATION_NODE -eq 0 ]]; then
   step "Web server ($PROXY)"
   PROXY_JSON=$(jq -nc --arg mode "$PROXY" --arg domain "$DOMAIN" --arg email "$EMAIL" --arg trusted "$TRUSTED" \
     '{mode:$mode, domain:$domain, acmeEmail:$email, trustedProxies:($trusted|split(",")|map(gsub("^\\s+|\\s+$";""))|map(select(length>0))), httpPort:80}')
@@ -231,6 +244,12 @@ for _ in $(seq 1 60); do
 done
 curl -fsS http://127.0.0.1:8000/api/health >/dev/null 2>&1 || fail "The API did not start. See: journalctl -u hosted-radio-api -n 50"
 systemctl restart hosted-radio-streams
+
+if [[ $STATION_NODE -eq 1 ]]; then
+  step "Done"
+  printf '\n    %sThe station node runtime is running.%s Its stations are managed in the panel of the main server.\n\n' "$C_GREEN" "$C_RESET"
+  exit 0
+fi
 
 ADMIN_PASSWORD=""
 if [[ $FIRST_INSTALL -eq 1 ]]; then

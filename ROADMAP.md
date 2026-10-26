@@ -87,6 +87,16 @@ Phase 8: Distribution network with nodes (relays, source nodes, remote probes), 
 | ![Remote probes from a node](docs/screenshots/phase-8-node-probes.png) | ![Topology, light theme](docs/screenshots/phase-8-topology-light.png) |
 | ![Topology, flat left to right](docs/screenshots/phase-8-topology-flat-lr-dark.png) | ![Topology, flat top to bottom](docs/screenshots/phase-8-topology-flat-tb-light.png) |
 
+Controlled node updates (phase 8): a new version goes to the nodes one at a time, with listeners moved away first and a health check before the next node. Per node or group you choose rolling, a maintenance window or manual, and you can pause updates or roll a node back. Taken on the test server with four nodes.
+
+| English, light | Dutch, dark |
+| --- | --- |
+| ![Nodes with the rollout card: node version and update policy](docs/screenshots/node-updates-nodes-light-en.png) | ![Nodes with the rollout card, in Dutch, dark theme](docs/screenshots/node-updates-nodes-dark-nl.png) |
+| ![Automatic updates paused, with Resume](docs/screenshots/node-updates-nodes-paused-light-en.png) | ![Automatic updates paused, in Dutch, dark theme](docs/screenshots/node-updates-nodes-paused-dark-nl.png) |
+| ![Node detail with the Updates card and Roll back](docs/screenshots/node-updates-node-detail-light-en.png) | ![Node detail with the Updates card, in Dutch, dark theme](docs/screenshots/node-updates-node-detail-dark-nl.png) |
+| ![Node with a maintenance window policy](docs/screenshots/node-updates-node-detail-local-window-light-en.png) | ![Node with a maintenance window policy, in Dutch, dark theme](docs/screenshots/node-updates-node-detail-local-window-dark-nl.png) |
+| ![Node in a manual update group](docs/screenshots/node-updates-node-detail-radionode1-group-manual-light-en.png) | ![Node in a manual update group, in Dutch, dark theme](docs/screenshots/node-updates-node-detail-radionode1-group-manual-dark-nl.png) |
+
 Phase 9: RHIS Studio, the Windows client: live assist, live broadcasting from the sound card or mixing desk, and a cart wall.
 
 | Studio client | Studio client, Dutch |
@@ -118,6 +128,23 @@ Phase 11: FM/MPX and RDS: a node that puts a station on FM, with a live radio di
 | ![FM node on air: PS, RadioText, RT+ tags, levels and signal chain](docs/screenshots/phase-11-fm-overview-light-en.png) | ![FM node on air in Dutch, dark theme](docs/screenshots/phase-11-fm-overview-dark-nl.png) |
 | ![FM settings: station, RDS, output, audio and UECP](docs/screenshots/phase-11-fm-settings-light-en.png) | ![FM settings in Dutch, dark theme](docs/screenshots/phase-11-fm-settings-dark-nl.png) |
 
+Phase 12: Station nodes: a station that runs on a node at the studio, moved there from its settings page, a customer linked to a station node, and the node pushing its streams to the relays. Taken on the test server with radionode3 as station node.
+
+| English, light | Dutch, dark |
+| --- | --- |
+| ![Station settings: where it runs, and moving it to a station node](docs/screenshots/phase-12-where-it-runs-light-en.png) | ![Where it runs, in Dutch, dark theme](docs/screenshots/phase-12-where-it-runs-dark-nl.png) |
+| ![Station node detail with the stations it runs](docs/screenshots/phase-12-station-node-light-en.png) | ![Station node detail in Dutch, dark theme](docs/screenshots/phase-12-station-node-dark-nl.png) |
+| ![Customer linked to a station node](docs/screenshots/phase-12-customer-station-node-light-en.png) | ![Customer linked to a station node, in Dutch, dark theme](docs/screenshots/phase-12-customer-station-node-dark-nl.png) |
+| ![Topology with the station node pushing to the relays](docs/screenshots/phase-12-topology-light-en.png) | ![Topology with the station node, in Dutch, dark theme](docs/screenshots/phase-12-topology-dark-nl.png) |
+
+Phase 13: Orchestrator as control plane: audio runs from the studio through the ingest node to the relays, and the orchestrator is linked to every node by control lines only. Per station you choose the ingest node, a backup ingest and the relays.
+
+| English, light | Dutch, dark |
+| --- | --- |
+| ![2D topology: audio via ingest to relays, control lines only to the orchestrator](docs/screenshots/phase-13-topology-2d-light-en.png) | ![2D topology in Dutch, dark theme](docs/screenshots/phase-13-topology-2d-dark-nl.png) |
+| ![3D topology with the orchestrator as control plane](docs/screenshots/phase-13-topology-3d-light-en.png) | ![3D topology in Dutch, dark theme](docs/screenshots/phase-13-topology-3d-dark-nl.png) |
+| ![Per-station routing: ingest node, backup ingest and relays](docs/screenshots/phase-13-routing-light-en.png) | ![Per-station routing in Dutch, dark theme](docs/screenshots/phase-13-routing-dark-nl.png) |
+
 ## Status
 
 | Phase | Name | Status |
@@ -133,8 +160,8 @@ Phase 11: FM/MPX and RDS: a node that puts a station on FM, with a live radio di
 | 9 | Windows client | Done |
 | 10 | Hosted service | Done |
 | 11 | FM/MPX and RDS module | Done |
-| 12 | Station nodes | In progress |
-| 13 | Orchestrator as control plane | Planned |
+| 12 | Station nodes | Done |
+| 13 | Orchestrator as control plane | Done |
 | 14 | Orchestrator redundancy | Planned |
 | 15 | Cloudflare DNS integration | Planned |
 | 16 | Installer menu and node enrollment | Planned |
@@ -281,8 +308,15 @@ How to set up an FM node: [docs/fm.md](docs/fm.md).
 
 A node role that runs complete stations at the customer's site or in the datacenter.
 
-- The station's music library, AutoDJ, hour clocks and live assist run locally on the node; the main server stays the orchestrator.
-- Configuration is edited centrally and pushed to the node; the node pushes its audio outbound to the assigned relays.
+- The station's music library, AutoDJ, hour clocks, scheduler and live assist run on the node; the main server stays the orchestrator, with the panel, the customers and the statistics.
+- Settings are edited centrally and pushed to the node as a package; everything the node owns (library, playlists, clocks, schedule, queues, requests, on-demand, broadcasts) is mirrored back, so the panel and the public pages keep working while the node is offline (read-only).
+- Panel and public requests for a station on a node travel through a WebSocket tunnel to the node, as the signed-in user.
+- The node pushes its public streams straight to the relay nodes that carry the station (TLS, a token per mount), so listeners never connect to the studio and the listen URLs stay the same.
+- Moving a station to a node, or back, copies the music library first and switches over only when the copy is complete, so listeners hear no gap; a lost node can be taken over on the main server.
+- A customer can be linked to a station node: new stations start there, and existing stations move in one go.
+- The node installs and updates the station software by itself, in the version of the main server.
+
+How it works and how to set one up: [docs/station-nodes.md](docs/station-nodes.md).
 
 ### Phase 13: Orchestrator as control plane
 

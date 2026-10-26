@@ -1,6 +1,7 @@
 import type { AppContext } from '../../lib/context.js';
 import type { GeoInfo } from '../stats/geoip.js';
 import { nodeSettings, relayBaseUrl, relaysByStation, type Node } from './plan.js';
+import { drainingNodes } from './updates.js';
 
 let cache: { at: number; value: Map<string, Node[]> } | null = null;
 
@@ -39,7 +40,8 @@ export function usableRelays(relays: Node[], key: string) {
  */
 export async function pickRelay(ctx: AppContext, stationId: string, slug: string, mountPath: string, geo: GeoInfo | null): Promise<string | null> {
   const key = `${slug}${mountPath}`;
-  const candidates = usableRelays((await cachedRelays(ctx)).get(stationId) ?? [], key);
+  // A node whose update is coming or running gets no new listeners.
+  const candidates = usableRelays((await cachedRelays(ctx)).get(stationId) ?? [], key).filter((n) => !drainingNodes.has(n.id));
   if (!candidates.length) return null;
   const score = (n: Node) => {
     const s = n.status;

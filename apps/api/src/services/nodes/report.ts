@@ -5,7 +5,7 @@ import type { NodeClient, NodeStatus } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
 import { unauthorized } from '../../lib/errors.js';
 import { secretMatches, type NodeHub } from './hub.js';
-import { carried, type Node } from './plan.js';
+import { carried, pairedRelays, type Node } from './plan.js';
 
 const short = (n: number) => z.string().max(n);
 
@@ -73,10 +73,10 @@ export async function authenticateNode(ctx: AppContext, header: string | undefin
  */
 export async function storeReport(ctx: AppContext, hub: NodeHub, node: Node, report: Report) {
   const stations = await ctx.db
-    .select({ id: schema.stations.id, slug: schema.stations.slug, tenantId: schema.stations.tenantId })
+    .select({ id: schema.stations.id, slug: schema.stations.slug, tenantId: schema.stations.tenantId, routing: schema.stations.routing })
     .from(schema.stations)
     .where(node.tenantId ? eq(schema.stations.tenantId, node.tenantId) : undefined);
-  const mine = carried(node, stations);
+  const mine = carried(node, stations, await pairedRelays(ctx));
   const bySlug = new Map(stations.filter((s) => mine.has(s.id)).map((s) => [s.slug, s]));
   const resolve = (key: string) => {
     const i = key.indexOf('/');
@@ -96,8 +96,9 @@ export async function storeReport(ctx: AppContext, hub: NodeHub, node: Node, rep
     .filter((r) => resolve(r.key))
     .map((r) => ({ key: r.key, state: r.state, message: r.message, bitrateKbps: r.bitrateKbps ?? null, listeners: perKey.get(r.key) ?? 0 }));
   const live = hub.liveStatus(node.id);
-  const status: NodeStatus = { ...(live ?? node.status), relays, listeners: clients.length };
-  if (live) Object.assign(live, { relays, listeners: clients.length });
+  const reportedAt = new Date().toISOString();
+  const status: NodeStatus = { ...(live ?? node.status), relays, listeners: clients.length, reportedAt };
+  if (live) Object.assign(live, { relays, listeners: clients.length, reportedAt });
   await ctx.db.update(schema.nodes).set({ clients, status, lastSeenAt: new Date() }).where(eq(schema.nodes.id, node.id));
 
   // Listeners that left: their session ends when they really left, not when the statistics notice they are gone.

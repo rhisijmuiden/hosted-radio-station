@@ -12,7 +12,7 @@ import { scanLibrary, tagsFromFileName } from '../src/services/autodj/library.js
 import { autodjScriptPath, autodjToken, encoder } from '../src/services/autodj/liquidsoap.js';
 import { chooseQueue, nextTrack, playerStarted, requestUri, trackStarted, weightedPick } from '../src/services/autodj/planner.js';
 import { mediaDir } from '../src/services/streaming/icecast.js';
-import { buildStreamsState } from '../src/services/streaming/state.js';
+import { buildStreamsState, runsHere, type Station } from '../src/services/streaming/state.js';
 import { AutodjController } from '../src/streams/autodj.js';
 import { heard, loadSnapshot, resolveMount } from '../src/streams/snapshot.js';
 import { login, setup } from './helpers.js';
@@ -139,6 +139,16 @@ describe('upgrade to Radio station', () => {
     expect(icecast).toMatch(/<mount-name>\/live<\/mount-name>[\s\S]*<fallback-mount>\/autodj<\/fallback-mount>/);
     const state = await buildStreamsState(t.ctx);
     expect(state.autodj.map((a) => a.id)).toEqual([stationId]);
+  });
+
+  it('runs a station here unless it is on a station node, and while it warms up to move back', () => {
+    const move = { direction: 'to_main', nodeId: 'n', state: 'copying', files: 0, filesDone: 0, bytes: 0, bytesDone: 0, startedAt: '' } as const;
+    const st = (s: Partial<Station>) => ({ nodeId: null, nodeMove: null, ...s }) as Station;
+    expect(runsHere(st({}))).toBe(true);
+    expect(runsHere(st({ nodeId: 'n' }))).toBe(false);
+    expect(runsHere(st({ nodeId: 'n', nodeMove: move }))).toBe(false);
+    expect(runsHere(st({ nodeId: 'n', nodeMove: { ...move, warm: true } }))).toBe(true);
+    expect(runsHere(st({ nodeId: 'n', nodeMove: { ...move, direction: 'to_node', warm: true } }))).toBe(false);
   });
 
   it.runIf(hasLiquidsoap)('writes a script Liquidsoap accepts', async () => {

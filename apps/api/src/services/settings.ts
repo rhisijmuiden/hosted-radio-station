@@ -138,10 +138,53 @@ export const statisticsSchema = z.object({
 });
 export type StatisticsSettings = z.infer<typeof statisticsSchema>;
 
+const timeRe = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** Days (0 = Sunday) and local hours in which a node may be updated. An end before the start runs past midnight. */
+export const updateWindowSchema = z.object({
+  days: z.array(z.number().int().min(0).max(6)).max(7).default([0, 1, 2, 3, 4, 5, 6]),
+  start: z.string().regex(timeRe, 'Use HH:MM').default('03:00'),
+  end: z.string().regex(timeRe, 'Use HH:MM').default('05:00'),
+});
+export type UpdateWindow = z.infer<typeof updateWindowSchema>;
+
+/**
+ * How nodes get a new version: rolling = by themselves, one node at a time, as soon as this server has a new version;
+ * window = the same, but only inside the maintenance window; manual = only when someone clicks Update.
+ */
+export const UPDATE_POLICIES = ['rolling', 'window', 'manual'] as const;
+export type UpdatePolicy = (typeof UPDATE_POLICIES)[number];
+
+export const updateGroupSchema = z.object({
+  id: z.string().regex(/^[a-z0-9-]{1,40}$/),
+  name: z.string().trim().min(1).max(60),
+  policy: z.enum(UPDATE_POLICIES).default('rolling'),
+  window: updateWindowSchema.default({ days: [0, 1, 2, 3, 4, 5, 6], start: '03:00', end: '05:00' }),
+});
+export type UpdateGroup = z.infer<typeof updateGroupSchema>;
+
+export const nodeUpdatesSchema = z.object({
+  /** Off = no node is updated by itself, whatever its policy (an emergency brake). */
+  enabled: z.boolean().default(true),
+  /** Policy of nodes without a group. */
+  policy: z.enum(UPDATE_POLICIES).default('rolling'),
+  window: updateWindowSchema.default({ days: [0, 1, 2, 3, 4, 5, 6], start: '03:00', end: '05:00' }),
+  /** Time zone of the maintenance windows. */
+  timezone: z.string().trim().max(60).refine((v) => { try { new Intl.DateTimeFormat('en', { timeZone: v }); return true; } catch { return false; } }, 'Unknown time zone').default('Europe/Amsterdam'),
+  /** Before an update new listeners go to other relays; the ones still on the node are moved over this many seconds. */
+  drainSeconds: z.number().int().min(0).max(1800).default(60),
+  /** After an update the node must stay healthy this long before the next node starts. */
+  healthSeconds: z.number().int().min(15).max(3600).default(120),
+  /** Groups are updated in this order (e.g. a test group first); nodes without a group come last. */
+  groups: z.array(updateGroupSchema).max(20).default([]),
+});
+export type NodeUpdatesSettings = z.infer<typeof nodeUpdatesSchema>;
+
 /** The distribution network: how nodes are updated, checked and used for listeners (phase 8). */
 export const nodesSchema = z.object({
-  /** Nodes follow the version of this server by themselves; off = update them from the panel. */
+  /** Replaced by updates.enabled; kept so older panels and API clients keep working. */
   autoUpdate: z.boolean().default(true),
+  updates: nodeUpdatesSchema.default(() => nodeUpdatesSchema.parse({})),
   /** Players and public pages send listeners to a healthy relay node (nearest first) instead of this server. */
   routeListeners: z.boolean().default(true),
   /** How often nodes check the streams of the stations (remote probes). */
@@ -150,8 +193,67 @@ export const nodesSchema = z.object({
   latencyWarnMs: z.number().int().min(5).max(5000).default(150),
   /** How long node health per minute is kept. */
   metricsRetentionDays: z.number().int().min(1).max(365).default(30),
+  /**
+   * Where source nodes pass encoders on to this server, when its public name does not carry raw TCP (e.g. behind
+   * Cloudflare): an IP address or host name the nodes reach directly. Empty = the public name.
+   */
+  ingestAddress: z
+    .string()
+    .trim()
+    .max(253)
+    .regex(/^$|^[A-Za-z0-9.:-]+$/, 'Use an IP address or host name')
+    .default(''),
 });
 export type NodesSettings = z.infer<typeof nodesSchema>;
+
+const commitRe = /^[0-9a-f]{7,40}$/;
+const versionRef = z.object({ commit: z.string().regex(commitRe).nullable(), branch: z.string().max(100).nullable() });
+
+/** Where the node updates stand. Written by the update planner only (services/nodes/updates.ts), not a setting. */
+export const nodeRolloutSchema = z.object({
+  /** The node being updated now; there is never more than one. */
+  current: z
+    .object({
+      nodeId: z.uuid(),
+      phase: z.enum(['draining', 'updating', 'checking', 'rollingBack']),
+      target: versionRef,
+      from: versionRef,
+      /** Asked for in the panel (Update now, Roll back) rather than by the node's policy. */
+      manual: z.boolean(),
+      by: z.string().max(200).nullable(),
+      startedAt: z.string(),
+      phaseAt: z.string(),
+      /** Seconds the node was offline while it was checked. */
+      offlineSeconds: z.number().default(0),
+      /** What ran before the update, so the check knows what has to come back. */
+      before: z.object({ relays: z.array(z.string()).max(500), fm: z.boolean(), problems: z.array(z.string()).max(20) }),
+      /** The update (or rollback) request reached the node. */
+      sent: z.boolean().default(false),
+      /** The node reported its update running, so a failure it reports is about this update. */
+      seenRunning: z.boolean().default(false),
+      message: z.string().max(300).nullable().default(null),
+    })
+    .nullable()
+    .default(null),
+  /** Updates asked for in the panel, done one by one before any automatic one. */
+  queue: z.array(z.object({ nodeId: z.uuid(), target: versionRef.nullable(), by: z.string().max(200).nullable(), at: z.string() })).max(500).default([]),
+  /** Automatic updates stopped after a failure, until someone resumes them. */
+  paused: z.object({ reason: z.string().max(300), nodeId: z.uuid().nullable(), at: z.string() }).nullable().default(null),
+  /** The last update per node. A failed version is not tried again by itself. */
+  results: z
+    .record(
+      z.string(),
+      z.object({
+        state: z.enum(['succeeded', 'failed', 'rolledBack']),
+        target: versionRef,
+        from: versionRef,
+        message: z.string().max(300).nullable(),
+        at: z.string(),
+      }),
+    )
+    .default({}),
+});
+export type NodeRollout = z.infer<typeof nodeRolloutSchema>;
 
 /** The hosted service: who sends the invoices, VAT, payment terms, dunning and online payments (phase 10). */
 export const billingSettingsSchema = z.object({
@@ -211,6 +313,7 @@ const registry = {
   streaming: { schema: streamingSchema, secrets: [] },
   statistics: { schema: statisticsSchema, secrets: ['geoip.maxmindLicenseKey'] },
   nodes: { schema: nodesSchema, secrets: [] },
+  nodeRollout: { schema: nodeRolloutSchema, secrets: [] },
   billing: { schema: billingSettingsSchema, secrets: ['mollie.apiKey'] },
 } as const;
 type Registry = typeof registry;
