@@ -4,7 +4,7 @@ import net from 'node:net';
 import { AGENT, killClient, listClients, localMount, updateTitle, type IcecastSecrets } from './icecast.js';
 import { log } from './log.js';
 import type { AgentReport, RelayMount } from './protocol.js';
-import { PushReceiver } from './push.js';
+import { LINGER_MS, PushReceiver } from './push.js';
 
 type RelayState = AgentReport['relays'][number];
 
@@ -123,8 +123,13 @@ class Puller {
   private title: string | null = null;
   /** The stream moves to a push (a station node took the station over): keep the source open for it. */
   private handing = false;
-  /** A source connection into Icecast left open by the push this stream had before (see PushReceiver.apply). */
+  /**
+   * A source connection into Icecast left open by the push this stream had before (see PushReceiver.apply), or by
+   * this puller's own last run.
+   */
   inherited: net.Socket | null = null;
+  /** Since when `inherited` waits for the stream; it is given up after LINGER_MS. */
+  private held = 0;
 
   constructor(
     readonly mount: RelayMount,
@@ -172,7 +177,19 @@ class Puller {
     this.res?.destroy();
     // Handing over: Icecast keeps the listeners for a few seconds without data, until the push arrives.
     if (this.handing && this.sock && !this.sock.destroyed) return;
-    this.sock?.destroy();
+    // The stream ended upstream (the main server restarted it or reloaded its web server): keep the source open a
+    // moment, so listeners stay connected when it comes back.
+    if (!this.stopped && this.sock && !this.sock.destroyed) this.inherited = this.sock;
+    else this.sock?.destroy();
+    this.sock = null;
+    if (this.inherited) {
+      this.held ||= Date.now();
+      if (this.inherited.destroyed || Date.now() - this.held > LINGER_MS) {
+        this.inherited.destroy();
+        this.inherited = null;
+        this.held = 0;
+      }
+    }
     if (this.stopped) return;
     this.failures = Date.now() - started > 60_000 ? 0 : this.failures + 1;
     // A stream that is not on air (404) is tried again soon, so listeners hear it when it starts.
@@ -195,6 +212,7 @@ class Puller {
     const target = localMount(this.mount);
     const kept = this.inherited && !this.inherited.destroyed ? this.inherited : null;
     this.inherited = null;
+    this.held = 0;
     const sock = kept ?? await sourceConnection(port, target, this.ctx.secrets.source, {
       'Content-Type': contentType,
       'Ice-Name': this.mount.name,

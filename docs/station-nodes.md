@@ -43,8 +43,9 @@ On the station's Settings tab, **Where it runs** shows the current place and mov
   over to the node's push, so listeners stay connected; they may hear a short jump in the audio. After the switch the
   node takes the latest state of the tables once more.
 - **Back to this server**: the main server fetches the files the node has and this server misses, asks the node for one
-  last full report, and then takes the station over. The relays keep their listeners connected here too: the stream
-  they pull from this server continues on the connection the node's push had.
+  last full report, and then starts the station here (Icecast and AutoDJ) while the node still plays it. It switches
+  over once the station is on air here (at most a minute), so the relays find it at once. The relays keep their
+  listeners connected here too: the stream they pull from this server continues on the connection the node's push had.
 - **Take over here** (only while the node is unreachable) switches the station back without copying. Everything the
   node made since its last report is lost; use it when a node is gone for good.
 
@@ -79,7 +80,10 @@ its relays still have.
   travel with `/admin/metadata` on the same port.
   When a push ends, the relay keeps its own source open for 8 seconds (under Icecast's 10-second source timeout), so
   a push that comes back, or the main server's stream after a move back, continues on it and listeners stay
-  connected. The node retries a dropped push every second for the first few attempts.
+  connected. The node retries a dropped push every second for the first few attempts. A relay that pulls its stream
+  keeps its source open the same way when the pulled stream ends.
+- **Web server.** The panel's web server keeps WebSockets (node control connections and station node tunnels) open
+  when it reloads for new listen routes (`stream_close_delay`), so a move does not disconnect every node.
 - **Listeners and statistics.** Players for a station on a node always go through
   `/api/public/stations/<slug>/listen/<mount>`, which sends them to the nearest healthy relay. The relays report their
   listeners to the main server as they always do, so statistics, GeoIP and the song history are unchanged.
