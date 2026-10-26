@@ -80,3 +80,69 @@ body {
   outline: 2px solid var(--koraal);
   outline-offset: 2px;
 }
+
+/* Topology view: labels and latency pills that follow the 3D scene. */
+.topo-stage {
+  --stage: #eef1f7;
+  background: radial-gradient(ellipse at 50% 42%, color-mix(in srgb, var(--koraal) 9%, var(--stage)) 0%, var(--stage) 62%);
+}
+:root[data-theme='dark'] .topo-stage {
+  --stage: #0a1120;
+}
+.topo-label {
+  text-align: center;
+  white-space: nowrap;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 5px 10px;
+  background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.16);
+  color: var(--ink);
+  transition: opacity 0.2s;
+}
+.topo-label b {
+  display: block;
+  font-size: 12.5px;
+}
+.topo-label small {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+.topo-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-online);
+}
+.topo-dot.degraded {
+  background: var(--status-warning);
+}
+.topo-dot.offline {
+  background: var(--status-offline);
+}
+.topo-dot.unpaired {
+  background: var(--ink-muted);
+}
+.topo-pill {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.topo-pill.degraded {
+  color: var(--status-warning);
+  border-color: color-mix(in srgb, var(--status-warning) 50%, var(--line));
+}
+.topo-pill.down {
+  color: var(--status-offline);
+}

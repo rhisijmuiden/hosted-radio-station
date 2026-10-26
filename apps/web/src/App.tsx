@@ -13,6 +13,8 @@ import { CustomersPage } from './pages/Customers';
 import { DashboardPage } from './pages/Dashboard';
 import { LoginPage } from './pages/Login';
 import { MailServerPage } from './pages/MailServer';
+import { NodeDetailPage } from './pages/NodeDetail';
+import { NodesPage } from './pages/Nodes';
 import { NotFoundPage } from './pages/NotFound';
 import { ProfilePage } from './pages/Profile';
 import { ResetPasswordPage } from './pages/ResetPassword';
@@ -21,6 +23,7 @@ import { StationsPage } from './pages/Stations';
 import { StatisticsPage } from './pages/Statistics';
 import { StatisticsSettingsPage } from './pages/StatisticsSettings';
 import { StreamingPage } from './pages/Streaming';
+import { TopologyPage } from './pages/Topology';
 import { UpdatesPage } from './pages/Updates';
 import { UsersPage } from './pages/Users';
 import { WebServerPage } from './pages/WebServer';
@@ -60,6 +63,9 @@ export function App() {
           <Route path="stations" element={<StationsPage />} />
           <Route path="stations/:id" element={<StationDetailPage />} />
           <Route path="statistics" element={<StatisticsPage />} />
+          <Route path="nodes" element={<NodesPage />} />
+          <Route path="nodes/:id" element={<NodeDetailPage />} />
+          <Route path="topology" element={<TopologyPage />} />
           <Route path="settings/statistics" element={<RequireAuth admin><StatisticsSettingsPage /></RequireAuth>} />
           <Route path="users" element={<RequireAuth admin><UsersPage /></RequireAuth>} />
           <Route path="api-keys" element={<ApiKeysPage />} />

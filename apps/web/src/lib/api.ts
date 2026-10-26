@@ -55,6 +55,7 @@ export interface TenantLimits {
   maxListeners: number;
   maxBitrateKbps: number;
   storageQuotaMb: number;
+  maxNodes: number;
 }
 export interface Tenant {
   id: string;
@@ -396,6 +397,7 @@ export interface TenantDomain {
   checks: DomainCheck[];
   checkedAt: string | null;
   verifiedAt: string | null;
+  ingestNodeId: string | null;
   createdAt: string;
 }
 export interface TenantUsage {
@@ -444,6 +446,8 @@ export interface StatsStation {
   tenantName: string;
   mounts: string[];
   outputs: { id: string; name: string }[];
+  /** Relay nodes that carry the station ("node:<id>" in filters). */
+  nodes: { id: string; name: string }[];
 }
 export interface StatsKpis {
   listeningHours: number;
@@ -782,4 +786,175 @@ export interface SchedulerView {
   now: { date: string; weekday: number; minuteOfDay: number; second: number };
   onAir: { entryId: string | null; clockId: string | null };
   tracks: { id: string; title: string; artist: string; durationSeconds: number | null }[];
+}
+
+// Nodes (distribution network)
+
+export type NodeRole = 'relay' | 'source';
+export interface NodeConfig {
+  publicHost: string;
+  listenPort: number | null;
+  relayStations: 'all' | string[];
+  maxListeners: number;
+  sourcePlainPort: number | null;
+  sourceTlsPort: number | null;
+  probe: boolean;
+}
+export type RelayState = 'connecting' | 'connected' | 'error' | 'idle';
+export interface NodeStatus {
+  online: boolean;
+  version?: string;
+  commit?: string | null;
+  hostname?: string;
+  caddy?: boolean;
+  addresses?: string[];
+  ip?: string | null;
+  country?: string | null;
+  city?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  cpu?: number;
+  memory?: number;
+  load?: number;
+  cores?: number;
+  uptime?: number;
+  rxBps?: number;
+  txBps?: number;
+  rttMs?: number | null;
+  loss?: number;
+  timeouts24h?: number;
+  icmp?: { rttMs: number | null; loss: number } | null;
+  listeners?: number;
+  relays?: { key: string; state: RelayState; message?: string; bitrateKbps?: number | null; listeners?: number }[];
+  encoders?: number;
+  problems?: string[];
+  update?: { state: 'idle' | 'running' | 'succeeded' | 'failed'; message?: string; at?: string } | null;
+  updatedAt?: string;
+}
+export interface NodeItem {
+  id: string;
+  tenantId: string | null;
+  tenantName: string | null;
+  name: string;
+  location: string;
+  roles: NodeRole[];
+  config: NodeConfig;
+  paired: boolean;
+  pairedAt: string | null;
+  pairingExpiresAt: string | null;
+  lastSeenAt: string | null;
+  status: NodeStatus;
+  listenBase: string | null;
+  updateAvailable: boolean;
+  ingestHosts: string[];
+  createdAt: string;
+}
+export interface NodePairing {
+  code: string;
+  expiresAt: string;
+  command: string;
+}
+export interface NodeEvent {
+  id: number;
+  at: string;
+  level: 'info' | 'warning' | 'error';
+  kind: string;
+  details: Record<string, string | number | null>;
+}
+export interface NodeMetric {
+  at: string;
+  rttAvg: number | null;
+  rttMax: number | null;
+  pings: number;
+  lost: number;
+  cpu: number | null;
+  memory: number | null;
+  rxBps: number | null;
+  txBps: number | null;
+  listeners: number | null;
+}
+export interface NodeProbe {
+  target: string;
+  stationId: string;
+  stationName: string;
+  url: string;
+  where: string;
+  whereName: string;
+  ok: boolean;
+  httpStatus: number | null;
+  ttfbMs: number | null;
+  message: string | null;
+  checkedAt: string;
+  lastOkAt: string | null;
+  uptime24h: number | null;
+}
+export interface NodesSettings {
+  autoUpdate: boolean;
+  routeListeners: boolean;
+  probeIntervalSeconds: number;
+  latencyWarnMs: number;
+  metricsRetentionDays: number;
+}
+export interface TopologyNode {
+  id: string;
+  name: string;
+  location: string;
+  roles: NodeRole[];
+  own: boolean;
+  tenantId: string | null;
+  paired: boolean;
+  online: boolean;
+  degraded: boolean;
+  version: string | null;
+  rttMs: number | null;
+  loss: number | null;
+  timeouts24h: number | null;
+  cpu: number | null;
+  txBps: number | null;
+  listeners: number;
+  encoders: number;
+  country: string | null;
+  city: string | null;
+  stations: number;
+  updateAvailable: boolean;
+  relaysUp: number;
+  relaysTotal: number;
+}
+export interface TopologyStudio {
+  id: string;
+  station: string;
+  stationId: string;
+  account: string;
+  mount: string;
+  via: string;
+  nodeId: string | null;
+  since: string;
+}
+export interface TopologyLink {
+  from: string;
+  to: string;
+  kind: 'control' | 'stream';
+  active: boolean;
+  degraded: boolean;
+  rttMs: number | null;
+  loss: number | null;
+}
+export interface Topology {
+  view: 'admin' | 'customer';
+  main: { id: 'main'; name: string; version: string; commit: string | null; branch: string | null; listeners: number; stations: number };
+  nodes: TopologyNode[];
+  studios: TopologyStudio[];
+  links: TopologyLink[];
+  kpis: {
+    nodesOnline: number;
+    nodesTotal: number;
+    degraded: number;
+    listeners: number;
+    relayListeners: number;
+    avgRttMs: number | null;
+    worst: string | null;
+    worstRttMs: number | null;
+    txBps: number;
+    timeouts24h: number;
+  };
 }
