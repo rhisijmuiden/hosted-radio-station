@@ -179,13 +179,15 @@ export class StreamsWorker {
         const now = new Map(stats.map((s) => [s.mount, s]));
         let moved = false;
         if ([...now.keys()].sort().join() !== [...before.keys()].sort().join()) changed = moved = true;
+        const regrouped = moved;
+        this.live.set(view.station.id, now);
         for (const s of stats) {
           const prev = before.get(s.mount);
           if (s.title !== (prev?.title ?? null)) moved = true;
-          if (s.title && s.title !== prev?.title) void this.forwardTitle(view, s.mount, s.title);
+          // When a source comes or goes, mounts that fall back switch to another title too, so send them all again.
+          if (s.title && (regrouped || s.title !== prev?.title)) void this.forwardTitle(view, s.mount, s.title);
           this.enforceBitrate(view, s);
         }
-        this.live.set(view.station.id, now);
         await this.countInternal(view, now);
         await this.collector.observe(view, now, this.internal[view.station.id] ?? {}).catch((err) => this.log.warn({ err }, 'statistics failed'));
         // After the collector, so the new title already has its play with a start time.
@@ -217,23 +219,42 @@ export class StreamsWorker {
 
   private async titleForTranscode(relay: Transcoder) {
     const view = this.snap?.stations.get(relay.input.stationId);
-    const title = this.live.get(relay.input.stationId)?.get(relay.input.mount)?.title ?? undefined;
+    const title = view && this.heardFrom(view, relay.input.mount)?.title;
     if (!view || !title || relay.setTitle(title)) return;
     await updateMetadata({ port: view.station.icecastPort, adminPassword: view.adminPassword }, relay.output, title).catch(() => undefined);
   }
 
-  /** A new title on a mount goes to the mounts converted from it and to the external servers it feeds. */
+  /**
+   * The mount whose audio listeners of a mount hear: the mount itself while it has a source, else the mount it falls
+   * back to (for example /live without a DJ plays /autodj).
+   */
+  private heardFrom(view: StationView, mountPath: string): MountStats | undefined {
+    const live = this.live.get(view.station.id);
+    let cur = view.mounts.find((m) => m.path === mountPath);
+    for (let i = 0; cur && i < 20; i++) {
+      const stats = live?.get(cur.path);
+      if (stats) return stats;
+      const next: string | null = cur.fallbackMountId;
+      cur = next ? view.mounts.find((m) => m.id === next) : undefined;
+    }
+    return undefined;
+  }
+
+  /**
+   * A new title on a mount goes to the mounts converted from it and to the external servers it feeds, also those of
+   * mounts that fall back to it while they have no source of their own.
+   */
   private async forwardTitle(view: StationView, mountPath: string, title: string) {
-    const mount = view.mounts.find((m) => m.path === mountPath);
-    if (!mount) return;
+    const sources = new Set(view.mounts.filter((m) => m.kind === 'source' && this.heardFrom(view, m.path)?.mount === mountPath).map((m) => m.id));
+    if (!sources.size) return;
     // Ogg (Opus, Vorbis) mounts carry the title inside the stream, so their transcoder takes it; others go through
     // Icecast's /admin/metadata.
-    for (const t of view.mounts.filter((m) => m.kind === 'transcode' && m.sourceMountId === mount.id)) {
+    for (const t of view.mounts.filter((m) => m.kind === 'transcode' && m.sourceMountId && sources.has(m.sourceMountId))) {
       const relay = this.relays.get(`transcode:${t.id}`);
       if (relay instanceof Transcoder && relay.setTitle(title)) continue;
       await updateMetadata({ port: view.station.icecastPort, adminPassword: view.adminPassword }, t.path, title).catch(() => undefined);
     }
-    for (const o of view.outputs.filter((o) => o.mountId === mount.id)) {
+    for (const o of view.outputs.filter((o) => o.mountId && sources.has(o.mountId))) {
       const relay = this.relays.get(`push:${o.id}`);
       if (relay instanceof Pusher) await relay.updateTitle(title).catch((err) => this.log.debug({ err, output: o.name }, 'title update failed'));
     }
