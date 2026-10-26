@@ -5,7 +5,7 @@ import type pino from 'pino';
 import { schema } from '../db/index.js';
 import type { OutputStatus } from '../db/schema.js';
 import type { AppContext } from '../lib/context.js';
-import { fetchStats, killSource, updateMetadata, type MountStats } from '../services/streaming/icecast.js';
+import { fetchStats, internalReaders, killSource, updateMetadata, type MountStats } from '../services/streaming/icecast.js';
 import { workerStatusPath, type WorkerStatus } from '../services/streaming/status.js';
 import { IngestGateway } from './gateway.js';
 import { externalListeners, Pusher, Transcoder, type Relay } from './relays.js';
@@ -22,6 +22,8 @@ export class StreamsWorker {
   private relays = new Map<string, Relay>();
   /** Per station: mounts on air with their last title. */
   private live = new Map<string, Map<string, MountStats>>();
+  /** Per station: readers of each mount that are our own transcoders and relays. */
+  private internal: WorkerStatus['internal'] = {};
   private externalPolledAt = 0;
   private timers: NodeJS.Timeout[] = [];
   private reloading: Promise<void> | null = null;
@@ -118,6 +120,7 @@ export class StreamsWorker {
     const snap = this.snap;
     if (!snap) return;
     let changed = false;
+    for (const id of Object.keys(this.internal)) if (!snap.stations.get(id)?.active) delete this.internal[id];
     await Promise.all(
       [...snap.stations.values()].filter((v) => v.active).map(async (view) => {
         let stats: MountStats[];
@@ -135,6 +138,7 @@ export class StreamsWorker {
           this.enforceBitrate(view, s);
         }
         this.live.set(view.station.id, now);
+        await this.countInternal(view, now);
       }),
     );
     if (changed) this.reconcile();
@@ -142,6 +146,19 @@ export class StreamsWorker {
       this.externalPolledAt = Date.now();
       void this.pollExternal(snap);
     }
+  }
+
+  /** Counts the readers of our own jobs on the mounts they read, so the panel can leave them out of listener counts. */
+  private async countInternal(view: StationView, live: Map<string, MountStats>) {
+    const read = new Set([...this.relays.values()].filter((r) => r.input.stationId === view.station.id && live.has(r.input.mount)).map((r) => r.input.mount));
+    const counts: Record<string, number> = {};
+    await Promise.all(
+      [...read].map(async (mount) => {
+        counts[mount] = await internalReaders({ port: view.station.icecastPort, adminPassword: view.adminPassword }, mount).catch(() => 0);
+      }),
+    );
+    if (Object.keys(counts).length) this.internal[view.station.id] = counts;
+    else delete this.internal[view.station.id];
   }
 
   /** A new title on a mount goes to the mounts converted from it and to the external servers it feeds. */
@@ -199,6 +216,7 @@ export class StreamsWorker {
       ingest: { ...this.gateway.portStates(), certificates: this.gateway.certificateHosts },
       relays: [...this.relays.values()].map((r) => r.state),
       encoders: this.gateway.liveCount,
+      internal: this.internal,
     };
     const path = workerStatusPath(this.ctx);
     await mkdir(dirname(path), { recursive: true });

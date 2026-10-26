@@ -16,6 +16,9 @@ import { MailServerPage } from './pages/MailServer';
 import { NotFoundPage } from './pages/NotFound';
 import { ProfilePage } from './pages/Profile';
 import { ResetPasswordPage } from './pages/ResetPassword';
+import { StationDetailPage } from './pages/StationDetail';
+import { StationsPage } from './pages/Stations';
+import { StreamingPage } from './pages/Streaming';
 import { UpdatesPage } from './pages/Updates';
 import { UsersPage } from './pages/Users';
 import { WebServerPage } from './pages/WebServer';
@@ -52,10 +55,13 @@ export function App() {
           <Route index element={<DashboardPage />} />
           <Route path="customers" element={<CustomersPage />} />
           <Route path="customers/:id" element={<CustomerDetailPage />} />
+          <Route path="stations" element={<StationsPage />} />
+          <Route path="stations/:id" element={<StationDetailPage />} />
           <Route path="users" element={<RequireAuth admin><UsersPage /></RequireAuth>} />
           <Route path="api-keys" element={<ApiKeysPage />} />
           <Route path="settings/mail" element={<RequireAuth admin><MailServerPage /></RequireAuth>} />
           <Route path="settings/web-server" element={<RequireAuth admin><WebServerPage /></RequireAuth>} />
+          <Route path="settings/streaming" element={<RequireAuth admin><StreamingPage /></RequireAuth>} />
           <Route path="settings/backups" element={<RequireAuth admin><BackupsPage /></RequireAuth>} />
           <Route path="audit" element={<RequireAuth admin><AuditLogPage /></RequireAuth>} />
           <Route path="settings/updates" element={<RequireAuth admin><UpdatesPage /></RequireAuth>} />

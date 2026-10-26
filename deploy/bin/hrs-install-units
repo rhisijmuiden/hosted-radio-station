@@ -6,26 +6,65 @@ SRC="$INSTALL_DIR/deploy/systemd"
 
 # Tools added after the first release; an update from the panel installs them too.
 missing=()
-for pkg in restic rclone; do command -v "$pkg" >/dev/null || missing+=("$pkg"); done
+for pkg in restic rclone ffmpeg; do command -v "$pkg" >/dev/null || missing+=("$pkg"); done
+command -v icecast2 >/dev/null || missing+=(icecast2)
 if [[ ${#missing[@]} -gt 0 ]]; then
   echo "Installing ${missing[*]}…"
   apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${missing[@]}" >/dev/null
 fi
+# The Debian package starts its own Icecast on port 8000 (where the API listens). Every station runs its own
+# Icecast instead (hosted-radio-icecast@<station>).
+if systemctl list-unit-files icecast2.service >/dev/null 2>&1 && ! systemctl is-enabled icecast2.service 2>/dev/null | grep -q masked; then
+  systemctl disable --now --quiet icecast2.service 2>/dev/null || true
+  systemctl mask --quiet icecast2.service
+fi
+
+# File upload (SFTP, SCP, FTP, FTPS): SFTPGo is not in Debian, so it comes from its GitHub release.
+SFTPGO_VERSION=2.7.6
+if [[ "$(dpkg-query -W -f='${Version}' sftpgo 2>/dev/null)" != "$SFTPGO_VERSION"-* ]]; then
+  echo "Installing SFTPGo $SFTPGO_VERSION…"
+  arch=$(dpkg --print-architecture)
+  tmp=$(mktemp -d)
+  if curl -fsSL -o "$tmp/sftpgo.deb" "https://github.com/drakkan/sftpgo/releases/download/v$SFTPGO_VERSION/sftpgo_$SFTPGO_VERSION-1_$arch.deb"; then
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$tmp/sftpgo.deb" >/dev/null || echo "Warning: installing SFTPGo failed; file upload stays off."
+  else
+    echo "Warning: downloading SFTPGo failed; file upload stays off until the next update."
+  fi
+  rm -rf "$tmp"
+fi
+# The package's own service uses its own users and database; ours runs as hosted-radio with the panel as login source.
+if systemctl list-unit-files sftpgo.service >/dev/null 2>&1 && ! systemctl is-enabled sftpgo.service 2>/dev/null | grep -q masked; then
+  systemctl disable --now --quiet sftpgo.service 2>/dev/null || true
+  systemctl mask --quiet sftpgo.service
+fi
+
+DATA_DIR=/var/lib/hosted-radio
+install -d -m 0750 -o hosted-radio -g hosted-radio "$DATA_DIR/stations" "$DATA_DIR/certs" "$DATA_DIR/sftpgo"
+[[ -f /etc/caddy/hosted-radio-streams.caddy ]] || echo "# Managed by Hosted Radio Station" > /etc/caddy/hosted-radio-streams.caddy
 
 install -m 0644 "$SRC"/hosted-radio-api.service "$SRC"/hosted-radio-update.service "$SRC"/hosted-radio-update.path \
   "$SRC"/hosted-radio-proxy.service "$SRC"/hosted-radio-proxy.path \
-  "$SRC"/hosted-radio-backup.service "$SRC"/hosted-radio-backup.path /etc/systemd/system/
+  "$SRC"/hosted-radio-backup.service "$SRC"/hosted-radio-backup.path \
+  "$SRC"/hosted-radio-streams.service "$SRC"/hosted-radio-icecast@.service "$SRC"/hosted-radio-sftpgo.service \
+  "$SRC"/hosted-radio-streams-apply.service "$SRC"/hosted-radio-streams-apply.path "$SRC"/hosted-radio-streams-apply.timer \
+  /etc/systemd/system/
 install -m 0755 "$INSTALL_DIR/deploy/bin/hrs" /usr/local/bin/hrs
 
 # Sandboxing needs mount namespaces, which some unprivileged LXC containers do not allow. Only enable it when it works.
-mkdir -p /etc/systemd/system/hosted-radio-api.service.d
-if systemd-run --quiet --wait --collect -p ProtectSystem=strict -p PrivateTmp=yes -p ProtectHome=yes /bin/true >/dev/null 2>&1; then
-  install -m 0644 "$SRC/hardening.conf" /etc/systemd/system/hosted-radio-api.service.d/hardening.conf
-else
-  rm -f /etc/systemd/system/hosted-radio-api.service.d/hardening.conf
-  echo "Note: this container does not allow systemd sandboxing; running the API without it."
-fi
+sandbox=0
+systemd-run --quiet --wait --collect -p ProtectSystem=strict -p PrivateTmp=yes -p ProtectHome=yes /bin/true >/dev/null 2>&1 && sandbox=1
+for unit in hosted-radio-api hosted-radio-streams; do
+  mkdir -p "/etc/systemd/system/$unit.service.d"
+  if [[ $sandbox -eq 1 ]]; then
+    install -m 0644 "$SRC/hardening.conf" "/etc/systemd/system/$unit.service.d/hardening.conf"
+  else
+    rm -f "/etc/systemd/system/$unit.service.d/hardening.conf"
+  fi
+done
+[[ $sandbox -eq 1 ]] || echo "Note: this container does not allow systemd sandboxing; running the services without it."
 
 systemctl daemon-reload
-systemctl enable --quiet hosted-radio-api.service hosted-radio-update.path hosted-radio-proxy.path hosted-radio-backup.path
-systemctl start hosted-radio-update.path hosted-radio-proxy.path hosted-radio-backup.path
+systemctl enable --quiet hosted-radio-api.service hosted-radio-streams.service hosted-radio-update.path hosted-radio-proxy.path \
+  hosted-radio-backup.path hosted-radio-streams-apply.path hosted-radio-streams-apply.timer
+systemctl start hosted-radio-update.path hosted-radio-proxy.path hosted-radio-backup.path hosted-radio-streams-apply.path \
+  hosted-radio-streams-apply.timer

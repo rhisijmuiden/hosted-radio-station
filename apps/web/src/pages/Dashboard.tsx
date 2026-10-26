@@ -6,9 +6,10 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { useSystemInfo } from '../components/InfoDialog';
 import { Badge, Button, Card, CardHeader, PageHeader, Table } from '../components/ui';
-import { api, type ApiKey, type BackupTarget, type ProxySettings, type SmtpSettings, type Tenant, type UserDetail } from '../lib/api';
+import { api, type ApiKey, type BackupTarget, type ProxySettings, type SmtpSettings, type StationListItem, type Tenant, type UserDetail } from '../lib/api';
 import { isAdmin, useMe } from '../lib/auth';
 import { formatRelative, shortCommit } from '../lib/format';
+import { StationsTable } from './Stations';
 
 function Stat({ label, value, note, tone = 'online' }: { label: string; value: ReactNode; note?: ReactNode; tone?: 'online' | 'muted' | 'warning' }) {
   return (
@@ -44,6 +45,7 @@ function AdminDashboard() {
   const smtp = useQuery({ queryKey: ['settings', 'smtp'], queryFn: () => api<SmtpSettings>('/settings/smtp') });
   const proxy = useQuery({ queryKey: ['settings', 'proxy'], queryFn: () => api<ProxySettings>('/settings/proxy') });
   const backups = useQuery({ queryKey: ['backup-targets'], queryFn: () => api<BackupTarget[]>('/backups/targets') });
+  const stationList = useQuery({ queryKey: ['stations', 'all'], queryFn: () => api<StationListItem[]>('/stations'), refetchInterval: 15_000 });
   const lastBackup = (backups.data ?? [])
     .map((b) => b.lastSuccess?.finishedAt)
     .filter((d): d is string => !!d)
@@ -53,7 +55,6 @@ function AdminDashboard() {
   const info = useSystemInfo();
 
   const list = tenants.data ?? [];
-  const stations = list.filter((x) => x.plan === 'station').length;
   const steps = [
     { done: !!smtp.data?.enabled, label: t('dashboard.stepMail'), to: '/settings/mail', icon: Mail },
     { done: !!proxy.data?.domain || proxy.data?.mode === 'external', label: t('dashboard.stepWeb'), to: '/settings/web-server', icon: Globe },
@@ -77,7 +78,12 @@ function AdminDashboard() {
       />
       <section className="mb-4 grid grid-cols-2 gap-4 xl:grid-cols-4">
         <Stat label={t('dashboard.customers')} value={tenants.data ? list.length : '…'} note={t('dashboard.activeCount', { count: list.filter((x) => x.active).length })} />
-        <Stat label={t('dashboard.radioStations')} value={tenants.data ? stations : '…'} note={t('dashboard.distributionCount', { count: list.length - stations })} tone="muted" />
+        <Stat
+          label={t('dashboard.stations')}
+          value={stationList.data?.length ?? '…'}
+          note={t('dashboard.onAirCount', { count: stationList.data?.filter((s) => s.onAir).length ?? 0 })}
+          tone="muted"
+        />
         <Stat label={t('dashboard.users')} value={users.data?.length ?? '…'} note={t('dashboard.adminCount', { count: users.data?.filter((u) => u.isSuperadmin).length ?? 0 })} tone="muted" />
         <Stat label={t('dashboard.apiKeys')} value={keys.data?.length ?? '…'} note={t('dashboard.apiKeysNote')} tone="muted" />
       </section>
@@ -188,33 +194,42 @@ function AdminDashboard() {
 function MemberDashboard() {
   const { t } = useTranslation();
   const me = useMe().data!;
+  const stations = useQuery({ queryKey: ['stations', 'all'], queryFn: () => api<StationListItem[]>('/stations'), refetchInterval: 15_000 });
   return (
     <>
       <PageHeader title={t('dashboard.welcome', { name: me.user.name.split(' ')[0] })} description={t('dashboard.memberSubtitle')} />
       {me.memberships.length === 0 ? (
         <Card className="p-8 text-center text-muted">{t('dashboard.noMemberships')}</Card>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {me.memberships.map((m) => (
-            <Link key={m.tenantId} to={`/customers/${m.tenantId}`}>
-              <Card className="p-5 transition-colors hover:bg-hover/60">
-                <div className="flex items-center gap-3">
-                  <span className="grid size-10 place-items-center rounded-[10px] bg-nacht font-bold text-white dark:bg-chip">{m.tenantName.slice(0, 1)}</span>
-                  <div className="min-w-0">
-                    <div className="display truncate text-base">{m.tenantName}</div>
-                    <div className="text-xs text-muted">{t(`roles.${m.role}`)}</div>
+        <>
+          {!!stations.data?.length && (
+            <Card className="mb-4">
+              <CardHeader title={t('nav.stations')} />
+              <StationsTable stations={stations.data} showCustomer={me.memberships.length > 1} />
+            </Card>
+          )}
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {me.memberships.map((m) => (
+              <Link key={m.tenantId} to={`/customers/${m.tenantId}`}>
+                <Card className="p-5 transition-colors hover:bg-hover/60">
+                  <div className="flex items-center gap-3">
+                    <span className="grid size-10 place-items-center rounded-[10px] bg-nacht font-bold text-white dark:bg-chip">{m.tenantName.slice(0, 1)}</span>
+                    <div className="min-w-0">
+                      <div className="display truncate text-base">{m.tenantName}</div>
+                      <div className="text-xs text-muted">{t(`roles.${m.role}`)}</div>
+                    </div>
                   </div>
-                </div>
-                <div className="mt-4 flex items-center justify-between">
-                  <PlanBadge plan={m.plan} />
-                  <span className="inline-flex items-center gap-1 text-xs text-muted">
-                    <Users className="size-3.5" /> {t('common.open')}
-                  </span>
-                </div>
-              </Card>
-            </Link>
-          ))}
-        </div>
+                  <div className="mt-4 flex items-center justify-between">
+                    <PlanBadge plan={m.plan} />
+                    <span className="inline-flex items-center gap-1 text-xs text-muted">
+                      <Users className="size-3.5" /> {t('common.open')}
+                    </span>
+                  </div>
+                </Card>
+              </Link>
+            ))}
+          </div>
+        </>
       )}
     </>
   );

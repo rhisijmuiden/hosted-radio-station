@@ -187,6 +187,15 @@ export async function fetchStats(t: IcecastTarget): Promise<MountStats[]> {
   return parseStats(await adminRequest(t, '/admin/stats'));
 }
 
+/** User agent of the transcoders and relays of the streams service; these readers are not listeners. */
+export const INTERNAL_AGENT = 'Hosted Radio Station';
+
+/** Number of readers of a mount that belong to the streams service (transcoders, relays). */
+export async function internalReaders(t: IcecastTarget, mount: string) {
+  const body = await adminRequest(t, `/admin/listclients?mount=${encodeURIComponent(mount)}`);
+  return [...body.matchAll(/<UserAgent>([^<]*)<\/UserAgent>/g)].filter((m) => decodeEntities(m[1]!).startsWith(INTERNAL_AGENT)).length;
+}
+
 /** Disconnects the encoder of a mount; listeners stay or move to the fallback mount. */
 export async function killSource(t: IcecastTarget, mount: string) {
   await adminRequest(t, `/admin/killsource?mount=${encodeURIComponent(mount)}`);

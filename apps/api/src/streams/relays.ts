@@ -5,7 +5,7 @@ import tls from 'node:tls';
 import type { FastifyBaseLogger } from 'fastify';
 import type { OutputConfig } from '../db/schema.js';
 import type { AppContext } from '../lib/context.js';
-import { CONTENT_TYPES } from '../services/streaming/icecast.js';
+import { CONTENT_TYPES, INTERNAL_AGENT } from '../services/streaming/icecast.js';
 import type { Mount, Output } from '../services/streaming/state.js';
 import type { StationView } from './snapshot.js';
 
@@ -27,6 +27,8 @@ export abstract class Relay {
   private failures = 0;
   /** Changes when the configuration changes, so the supervisor knows to restart. */
   abstract readonly key: string;
+  /** The local mount this job reads, so its connection is not counted as a listener. */
+  abstract readonly input: { stationId: string; mount: string };
   onState?: (s: RelayState) => void;
 
   constructor(
@@ -90,6 +92,7 @@ const codecArgs: Record<Mount['format'], (kbps: number) => string[]> = {
 /** Makes a converted mount (another format or bitrate) from a source mount on the same Icecast server, with ffmpeg. */
 export class Transcoder extends Relay {
   readonly key: string;
+  readonly input: { stationId: string; mount: string };
   private child: ChildProcess | null = null;
 
   constructor(
@@ -100,6 +103,7 @@ export class Transcoder extends Relay {
   ) {
     super(`transcode:${mount.id}`, 'transcode', view.station.slug, `${source.path} → ${mount.path}`, log);
     this.key = JSON.stringify([view.station.icecastPort, view.sourcePassword, source.path, mount.path, mount.format, mount.bitrateKbps, view.station.name]);
+    this.input = { stationId: view.station.id, mount: source.path };
   }
 
   protected run() {
@@ -107,7 +111,7 @@ export class Transcoder extends Relay {
     const base = `127.0.0.1:${station.icecastPort}`;
     const args = [
       '-nostdin', '-hide_banner', '-loglevel', 'error',
-      '-user_agent', 'Hosted Radio Station transcoder',
+      '-user_agent', `${INTERNAL_AGENT} transcoder`,
       '-i', `http://${base}${this.source.path}`,
       '-vn', '-map', '0:a:0', '-ac', '2',
       ...codecArgs[this.mount.format](this.mount.bitrateKbps),
@@ -190,6 +194,7 @@ function readResponse(socket: net.Socket, until: RegExp, max = 8192): Promise<st
  */
 export class Pusher extends Relay {
   readonly key: string;
+  readonly input: { stationId: string; mount: string };
   private sockets: { destroy(): void }[] = [];
 
   constructor(
@@ -201,6 +206,7 @@ export class Pusher extends Relay {
   ) {
     super(`push:${output.id}`, 'push', view.station.slug, output.name, log);
     this.key = JSON.stringify([output.type, output.config, mount.path, view.station.icecastPort, view.station.name, view.station.genre, view.station.website]);
+    this.input = { stationId: view.station.id, mount: mount.path };
   }
 
   private password(enc?: string) {
@@ -208,12 +214,21 @@ export class Pusher extends Relay {
   }
 
   protected async run() {
+    // Whatever step fails, both connections are closed before the next attempt.
+    try {
+      await this.push();
+    } finally {
+      this.halt();
+    }
+  }
+
+  private async push() {
     const c = this.output.config;
     const { station } = this.view;
     // 1. The local mount.
     const local = await new Promise<http.IncomingMessage>((resolve, reject) => {
       const req = http.get(
-        { host: '127.0.0.1', port: station.icecastPort, path: this.mount.path, headers: { 'user-agent': 'Hosted Radio Station relay', 'icy-metadata': '0' } },
+        { host: '127.0.0.1', port: station.icecastPort, path: this.mount.path, headers: { 'user-agent': `${INTERNAL_AGENT} relay`, 'icy-metadata': '0' } },
         (res) => (res.statusCode === 200 ? resolve(res) : (res.resume(), reject(new Error(`local mount ${this.mount.path} is not on air`)))),
       );
       req.on('error', (err) => reject(new Error(`local server: ${err.message}`)));
@@ -276,7 +291,7 @@ export class Pusher extends Relay {
       local.once('error', (err) => reject(new Error(`local server: ${err.message}`)));
       remote.once('error', (err) => reject(new Error(`${c.host}: ${err.message}`)));
       remote.once('close', () => reject(new Error('the external server closed the connection')));
-    }).finally(() => this.halt());
+    });
   }
 
   protected halt() {

@@ -8,6 +8,7 @@ import { conflict } from '../../lib/errors.js';
 import { getSetting, type StreamingSettings } from '../settings.js';
 import { fetchStats, icecastConfigPath, icecastPidPath, mediaDir, renderIcecastConfig, stationDir, type MountStats } from './icecast.js';
 import { renderSftpgoEnv } from './sftpgo.js';
+import { workerStatusPath, workerStatusSchema, type WorkerStatus } from './status.js';
 
 export type Station = typeof schema.stations.$inferSelect;
 export type Mount = typeof schema.stationMounts.$inferSelect;
@@ -38,9 +39,31 @@ export async function allocatePort(ctx: AppContext, column: 'icecastPort' | 'leg
 }
 
 /** Live mounts of a station, or null when its Icecast server does not answer. */
+let internalCache: { at: number; value: WorkerStatus['internal'] } | null = null;
+
+/** Readers per station and mount that belong to the streams service, from its status file (cached briefly). */
+async function internalReaderCounts(ctx: AppContext): Promise<WorkerStatus['internal']> {
+  if (internalCache && Date.now() - internalCache.at < 2000) return internalCache.value;
+  let value: WorkerStatus['internal'] = {};
+  try {
+    const w = workerStatusSchema.parse(JSON.parse(await readFile(workerStatusPath(ctx), 'utf8')));
+    if (Date.now() - new Date(w.updatedAt).getTime() < 30_000) value = w.internal;
+  } catch {
+    /* the streams service is not running */
+  }
+  internalCache = { at: Date.now(), value };
+  return value;
+}
+
+/** Live mounts of a station with their listeners, not counting the transcoders and relays reading them. */
 export async function stationStats(ctx: AppContext, station: Station): Promise<MountStats[] | null> {
   try {
-    return await fetchStats({ port: station.icecastPort, adminPassword: ctx.box.decrypt(station.icecastAdminPassword) });
+    const [stats, internal] = await Promise.all([
+      fetchStats({ port: station.icecastPort, adminPassword: ctx.box.decrypt(station.icecastAdminPassword) }),
+      internalReaderCounts(ctx),
+    ]);
+    const mine = internal[station.id] ?? {};
+    return stats.map((s) => ({ ...s, listeners: Math.max(0, s.listeners - (mine[s.mount] ?? 0)) }));
   } catch {
     return null;
   }

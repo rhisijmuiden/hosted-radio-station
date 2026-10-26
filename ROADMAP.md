@@ -32,13 +32,23 @@ Phase 2: backups, restore, single sign-on per customer and the audit log.
 | ![Restore a backup](docs/screenshots/phase-2-restore.png) | ![Audit log](docs/screenshots/phase-2-audit-log.png) |
 | ![Single sign-on for a customer](docs/screenshots/phase-2-customer-sso.png) | ![Sign-in with single sign-on](docs/screenshots/phase-2-login-sso.png) |
 
+Phase 3: stations with live encoders, mounts and conversions, external servers, DJ accounts, customer domains and limits.
+
+| Light | Dark, Dutch |
+| --- | --- |
+| ![Station live overview with encoder details](docs/screenshots/phase-3-station-overview.png) | ![Station overview in Dutch](docs/screenshots/phase-3-station-overview-dark-nl.png) |
+| ![Mount points with converted streams](docs/screenshots/phase-3-mounts.png) | ![Streaming settings in Dutch](docs/screenshots/phase-3-streaming-dark-nl.png) |
+| ![Add a mount point](docs/screenshots/phase-3-mount-dialog.png) | ![Outputs to external servers](docs/screenshots/phase-3-outputs.png) |
+| ![Customer with stations, domains and limits](docs/screenshots/phase-3-customer-domains.png) | ![DJ accounts](docs/screenshots/phase-3-accounts.png) |
+| ![Stations](docs/screenshots/phase-3-stations.png) | ![Streaming settings and service status](docs/screenshots/phase-3-streaming-settings.png) |
+
 ## Status
 
 | Phase | Name | Status |
 | --- | --- | --- |
 | 1 | Foundation | Done |
 | 2 | Administration and security | Done |
-| 3 | Distribution | Planned |
+| 3 | Distribution | In test |
 | 4 | Statistics | Planned |
 | 5 | Public pages | Planned |
 | 6 | Radio station (AutoDJ) | Planned |
@@ -80,10 +90,14 @@ The standard building blocks of every installation.
 
 The first edition you can offer to customers.
 
-- Stations, mount points and bitrates, streaming to the local Icecast server or to an external Icecast or Shoutcast server.
-- Live DJ accounts and full live broadcasts.
-- Media upload over SFTP, SCP, FTP and FTPS (SFTPGo), straight into the station library.
-- Limits per customer: listeners, bitrate and storage.
+- Stations in the Distribution or Radio station edition, with a one-click upgrade when the customer's plan allows it.
+- Each station runs its own Icecast server on the container (bound to 127.0.0.1, behind Caddy at `/listen/<station>/<mount>`), and can also send to or watch external Icecast and Shoutcast v1/v2 servers, with titles and listener counts.
+- Mount points with bitrates and formats (MP3, AAC, Opus, Vorbis), converted mounts made with FFmpeg, fallback mounts and per-mount listener limits.
+- Live DJ accounts with full live broadcasts: encoders connect over TLS (port 8443) or plain Icecast (8010), and old Shoutcast v1 encoders get their own port per station. Every broadcast is logged (who, when, how long, why it ended); managers can disconnect an encoder, and encoders above the bitrate limit are refused.
+- Own domains per customer: `stream.<domain>` for the panel, pages and streams, `src.<domain>` for encoders. Certificates are only issued for domains that are added and verified (CNAME or A/AAAA) in the panel.
+- Media upload over SFTP, SCP, FTP and FTPS (SFTPGo), logging in with the DJ account, straight into the station's media folder with the customer's storage quota.
+- Limits per customer: stations, listeners, bitrate and storage, with a usage overview.
+- The data model allows several outputs per station, ready for the nodes and relays of phase 8.
 
 ### Phase 4: Statistics
 

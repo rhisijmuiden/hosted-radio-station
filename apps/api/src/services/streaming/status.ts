@@ -28,6 +28,8 @@ export const workerStatusSchema = z.object({
     }),
   ),
   encoders: z.number(),
+  /** Per station id and mount: readers that are transcoders or relays of this service, not listeners. */
+  internal: z.record(z.string(), z.record(z.string(), z.number())).default({}),
 });
 export type WorkerStatus = z.infer<typeof workerStatusSchema>;
 
