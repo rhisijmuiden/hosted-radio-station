@@ -320,7 +320,7 @@ async function writeMediaMounts(ctx: AppContext, active: Station[]): Promise<Med
  * a notification for the streams service and a request for the root helper (start/stop servers, web server routes,
  * certificates).
  */
-export async function applyStreams(ctx: AppContext, opts: { stationIds?: string[]; by?: string } = {}) {
+export async function applyStreams(ctx: AppContext, opts: { stationIds?: string[]; by?: string } = {}): Promise<string | null> {
   for (const id of opts.stationIds ?? []) await writeStationConfig(ctx, id);
   const streaming = await getSetting(ctx, 'streaming');
   const run = join(ctx.config.DATA_DIR, 'run');
@@ -330,8 +330,24 @@ export async function applyStreams(ctx: AppContext, opts: { stationIds?: string[
   const state = await buildStreamsState(ctx);
   await writeAtomic(join(run, 'streams-state.json'), JSON.stringify(state, null, 2), 0o640);
   await ctx.db.execute(sql`select pg_notify(${STREAMS_CHANNEL}, ${JSON.stringify({ stationIds: opts.stationIds ?? [] })})`);
-  if (ctx.config.SYSTEM_HELPERS === '1') {
-    await writeAtomic(join(run, 'streams-request.json'), JSON.stringify({ id: randomBytes(8).toString('hex'), requestedBy: opts.by ?? 'system', at: state.generatedAt }), 0o640);
+  if (ctx.config.SYSTEM_HELPERS !== '1') return null;
+  const id = randomBytes(8).toString('hex');
+  await writeAtomic(join(run, 'streams-request.json'), JSON.stringify({ id, requestedBy: opts.by ?? 'system', at: state.generatedAt }), 0o640);
+  return id;
+}
+
+/**
+ * Waits until the root helper has carried out a request of applyStreams (or the time is up), e.g. so a deleted
+ * station's players are stopped before its files go.
+ */
+export async function waitForApply(ctx: AppContext, id: string | null, timeoutMs = 30_000) {
+  if (!id) return;
+  const path = join(ctx.config.DATA_DIR, 'run', 'streams-apply-status.json');
+  const until = Date.now() + timeoutMs;
+  while (Date.now() < until) {
+    const a = await readFile(path, 'utf8').then((x) => JSON.parse(x) as { id?: string; state?: string }, () => null);
+    if (a?.id === id && a.state !== 'running') return;
+    await new Promise((r) => setTimeout(r, 500));
   }
 }
 
