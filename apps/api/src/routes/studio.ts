@@ -9,10 +9,16 @@ import { badRequest, forbidden, HttpError, notFound } from '../lib/errors.js';
 import { idParam, okOut } from '../lib/schemas.js';
 import { LIVE_TOKEN_PREFIX } from '../services/streaming/sources.js';
 import { studioReleases } from '../services/studio.js';
+import { runningVersion } from '../services/system.js';
 import { stationAccess } from './stations.js';
 
 const LINK_MINUTES = 10;
 const LIVE_TOKEN_HOURS = 12;
+/**
+ * What this server offers RHIS Studio beyond version 0.9 of the client. The client switches a feature off, and says the
+ * server needs an update, when its name is missing here.
+ */
+export const STUDIO_FEATURES = ['playout', 'rundown', 'queue-rule'] as const;
 /** No 0/O, 1/I/L: the code is read from one screen and typed or compared on another. */
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
@@ -232,24 +238,26 @@ export const studioRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   );
 
-  // The client reports its version so the panel can show it.
+  // The client reports its version so the panel can show it, and learns what this server can do.
   app.post(
     '/hello',
     {
       schema: {
         tags: ['Studio client'],
-        summary: 'The client tells which version it runs (shown with the linked PC)',
+        summary:
+          'The client tells which version it runs (shown with the linked PC). The answer has the server version and the client features it supports, so an older server is reported instead of failing.',
         body: z.object({ clientVersion: z.string().trim().max(40) }),
-        response: { 200: okOut },
+        response: { 200: okOut.extend({ serverVersion: z.string(), features: z.array(z.string()) }) },
       },
     },
     async (req) => {
       const auth = requireUser(req);
-      if (auth.via !== 'api_key') return { ok: true as const };
+      const hello = { ok: true as const, serverVersion: (await runningVersion(ctx)).version, features: [...STUDIO_FEATURES] };
+      if (auth.via !== 'api_key') return hello;
       const key = req.headers.authorization!.slice(7).trim();
       const [k] = await ctx.db.select({ id: schema.apiKeys.id }).from(schema.apiKeys).where(eq(schema.apiKeys.hash, sha256(key)));
       if (k) await ctx.db.update(schema.studioLinks).set({ clientVersion: req.body.clientVersion }).where(eq(schema.studioLinks.apiKeyId, k.id));
-      return { ok: true as const };
+      return hello;
     },
   );
 

@@ -3,10 +3,12 @@ import { ChevronsUpDown, Grid3x3, Headphones, LogOut, Mic, Radio, Settings, type
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEngine } from '../lib/engine';
+import { api } from '../lib/api';
 import { useAutoDj, useStatus } from '../lib/queries';
 import { useSession } from '../lib/session';
 import { duration } from '../lib/format';
 import { InfoButton } from './InfoDialog';
+import { RundownList } from './Rundown';
 import { StereoMeter } from './Meter';
 import { LanguageToggle, ThemeToggle } from './Toggles';
 import { Avatar, Badge } from './ui';
@@ -105,11 +107,10 @@ function Sidebar({ page, onPage }: { page: Page; onPage: (p: Page) => void }) {
           </button>
         ))}
       </nav>
-      <div className="mt-6 rounded-md border border-line p-3">
-        <StereoMeter source="output" label={t('meters.stream')} />
+      <div className="flex min-h-0 flex-1 flex-col">
+        <RundownList />
       </div>
-      <div className="flex-1" />
-      <div className="border-t border-line pt-3">
+      <div className="mt-3 border-t border-line pt-3">
         {user && (
           <div className="flex items-center gap-2.5 px-2 py-2">
             <Avatar name={user.name} />
@@ -205,6 +206,35 @@ function TopBar() {
   );
 }
 
+/** The level of the stream this PC sends, at the right edge of every screen, rising from the bottom. */
+function MeterColumn() {
+  const { t } = useTranslation();
+  return (
+    <aside aria-label={t('meters.stream')} className="flex w-[76px] shrink-0 flex-col items-center border-l border-line bg-raised px-2 pt-5 pb-4">
+      <StereoMeter source="output" label={t('meters.stream')} vertical scale className="min-h-0 flex-1" />
+    </aside>
+  );
+}
+
+/**
+ * Manual playout stays on only while a studio PC keeps saying so: every 10 seconds while the server reports it on.
+ * When this PC closes or loses its connection, the server goes back to Auto by itself after 30 seconds.
+ */
+function PlayoutKeepAlive() {
+  const { station, supports } = useSession();
+  const autodj = useAutoDj(station?.edition === 'station' ? station.id : undefined);
+  const manual = !!autodj.data?.playout?.manual;
+  const id = station?.id;
+  const can = supports('playout');
+  useEffect(() => {
+    if (!manual || !id || !can) return;
+    const renew = () => void api(`/stations/${id}/autodj/mode`, { method: 'POST', body: { manual: true } }).catch(() => undefined);
+    const timer = setInterval(renew, 10_000);
+    return () => clearInterval(timer);
+  }, [manual, id, can]);
+  return null;
+}
+
 export function Shell({ page, onPage, children }: { page: Page; onPage: (p: Page) => void; children: ReactNode }) {
   return (
     <div className="flex h-full">
@@ -213,6 +243,8 @@ export function Shell({ page, onPage, children }: { page: Page; onPage: (p: Page
         <TopBar />
         <main className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{children}</main>
       </div>
+      <MeterColumn />
+      <PlayoutKeepAlive />
     </div>
   );
 }

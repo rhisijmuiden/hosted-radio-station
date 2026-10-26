@@ -31,7 +31,7 @@ export const workerStatusSchema = z.object({
   /** Per station id and mount: readers that are transcoders or relays of this service, not listeners. */
   internal: z.record(z.string(), z.record(z.string(), z.number())).default({}),
   /** Per station id: the AutoDJ player as the streams service sees it. */
-  autodj: z.record(z.string(), z.object({ seenAt: z.string().nullable(), paused: z.boolean(), reachable: z.boolean() })).default({}),
+  autodj: z.record(z.string(), z.object({ seenAt: z.string().nullable(), paused: z.boolean(), reachable: z.boolean(), manual: z.boolean().optional(), holding: z.boolean().optional() })).default({}),
   /** Per station id: mounts with a source on this server (its ingest role, phase 13). */
   onAir: z.record(z.string(), z.array(z.string())).default({}),
 });

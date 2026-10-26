@@ -2,7 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import type http from 'node:http';
 import net from 'node:net';
 import type pino from 'pino';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, gt } from 'drizzle-orm';
 import { schema } from '../db/index.js';
 import type { AppContext } from '../lib/context.js';
 import { autodjSocketPath, autodjToken } from '../services/autodj/liquidsoap.js';
@@ -21,6 +21,10 @@ export interface AutodjStatus {
   paused: boolean;
   /** The control socket answered at the last check. */
   reachable: boolean;
+  /** Manual playout (RHIS Studio) is on. */
+  manual?: boolean;
+  /** Manual playout: the track ended and the player waits for Play. */
+  holding?: boolean;
 }
 
 /** Sends one command to a station's Liquidsoap over its control socket and returns the answer. */
@@ -49,6 +53,9 @@ export function playerCommand(path: string, command: string): Promise<string> {
 export class AutodjController {
   private status = new Map<string, AutodjStatus>();
   private sentAt = new Map<string, number>();
+  /** Manual playout as last sent to each player. */
+  private manualSent = new Map<string, boolean>();
+  private lastSnap: Snapshot | null = null;
   /** Hard timed clock items: the cut of the track that plays at their minute. */
   private cuts = new Map<string, NodeJS.Timeout>();
 
@@ -149,6 +156,8 @@ export class AutodjController {
    */
   async sync(snap: Snapshot, broadcasts: Iterable<LiveBroadcast>) {
     const live = [...broadcasts];
+    this.lastSnap = snap;
+    await this.syncManual(snap).catch((err) => this.log.warn({ err }, 'manual playout sync failed'));
     for (const view of snap.stations.values()) {
       const mount = view.autodjMount;
       if (!view.active || !mount) {
@@ -172,12 +181,49 @@ export class AutodjController {
     }
   }
 
+  /**
+   * Manual playout per player: on while RHIS Studio keeps renewing it (`autodj_state.manual_until`). When the client
+   * drops away the time runs out and the player goes back to Auto by itself, so the station never stays silent. Sent
+   * on every change and again every 30 seconds for a restarted player; while manual, the player says whether it holds.
+   */
+  private async syncManual(snap: Snapshot, only?: string) {
+    const rows = await this.ctx.db
+      .select({ stationId: schema.autodjState.stationId })
+      .from(schema.autodjState)
+      .where(gt(schema.autodjState.manualUntil, new Date()));
+    const manual = new Set(rows.map((r) => r.stationId));
+    for (const view of snap.stations.values()) {
+      const id = view.station.id;
+      if (only && id !== only) continue;
+      if (!view.active || !view.autodjMount) continue;
+      const on = manual.has(id);
+      const prev = this.manualSent.get(id);
+      const due = Date.now() - (this.sentAt.get(id) ?? 0) > 30_000;
+      const path = autodjSocketPath(this.ctx, id);
+      try {
+        if (prev !== on || due || only) {
+          await playerCommand(path, `manual ${on}`);
+          this.manualSent.set(id, on);
+          if (prev !== undefined && prev !== on) this.log.info({ station: view.station.slug, manual: on }, on ? 'Manual playout on' : 'Back to automatic playout');
+        }
+        const holding = on && (await playerCommand(path, 'holding')) === 'true';
+        this.touch(id, { manual: on, holding });
+      } catch {
+        this.manualSent.delete(id);
+        this.touch(id, { manual: on, holding: false });
+      }
+    }
+  }
+
   /** A command from the panel. */
   async command(raw: string) {
     try {
       const { stationId, command } = JSON.parse(raw) as { stationId?: string; command?: string };
       if (!stationId || !/^[0-9a-f-]{36}$/.test(stationId)) return;
-      if (command === 'skip') await playerCommand(autodjSocketPath(this.ctx, stationId), 'skip');
+      const path = autodjSocketPath(this.ctx, stationId);
+      if (command === 'skip') await playerCommand(path, 'skip');
+      if (command === 'play' || command === 'stop') await playerCommand(path, command);
+      if (command === 'mode' && this.lastSnap) await this.syncManual(this.lastSnap, stationId);
       // The clock or schedule changed: a hard timed item may need the track that is loaded ahead out of the way.
       if (command === 'replan' && (await flushForClock(this.ctx, stationId))) {
         await playerCommand(autodjSocketPath(this.ctx, stationId), 'flush');
