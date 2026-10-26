@@ -78,7 +78,12 @@ export abstract class Relay {
     this.retry = setTimeout(() => void this.loop(), this.retryDelay(this.failures));
   }
 
-  protected retryDelay(failures: number) {
+  /**
+   * Transcodes and pushes to relay nodes come back within a second the first few times: the relay nodes keep their
+   * listeners connected for a few seconds after a stream ends (LINGER_MS on the node). Others back off from 2 s.
+   */
+  private retryDelay(failures: number) {
+    if ((this.state.kind === 'transcode' || this.state.kind === 'relay') && failures <= 3) return 1000;
     return Math.min(30_000, 2000 * 2 ** Math.min(failures, 4));
   }
 
@@ -316,19 +321,11 @@ export class Pusher extends Relay {
     private readonly mount: Mount,
     log: FastifyBaseLogger,
     /** relay = a push to a relay node of the distribution network (phase 13). */
-    private readonly kind: 'push' | 'relay' = 'push',
+    kind: 'push' | 'relay' = 'push',
   ) {
     super(`${kind}:${output.id}`, kind, view.station.slug, output.name, log);
     this.key = JSON.stringify([output.type, output.config, mount.path, view.station.icecastPort, view.station.name, view.station.genre, view.station.website]);
     this.input = { stationId: view.station.id, mount: mount.path };
-  }
-
-  /**
-   * A relay node keeps its listeners connected for a few seconds after a push ends (LINGER_MS on the node), so a push
-   * to it comes back within a second the first few times.
-   */
-  protected retryDelay(failures: number) {
-    return this.kind === 'relay' && failures <= 3 ? 1000 : super.retryDelay(failures);
   }
 
   private password(enc?: string) {

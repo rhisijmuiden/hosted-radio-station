@@ -159,6 +159,14 @@ export async function writeStationConfig(ctx: AppContext, stationId: string) {
   await signalIcecast(ctx, station.id, 'SIGHUP');
 }
 
+/**
+ * Whether this server runs the station's Icecast and AutoDJ: it is not on a station node, or it is moving back and this
+ * server warms up before it takes over (so the streams are on air at the switch).
+ */
+export function runsHere(station: Station) {
+  return !station.nodeId || (station.nodeMove?.direction === 'to_main' && station.nodeMove.warm === true);
+}
+
 /** The AutoDJ mount of a station whose AutoDJ plays, or null. */
 export function autodjMount(station: Station, mounts: Mount[]) {
   if (!autodjActive(station)) return null;
@@ -169,7 +177,7 @@ export function autodjMount(station: Station, mounts: Mount[]) {
 /** Writes (or removes) the Liquidsoap script of the station's AutoDJ; the system helper (re)starts the player. */
 async function writeAutodjScript(ctx: AppContext, station: Station, mounts: Mount[]) {
   const path = autodjScriptPath(ctx, station.id);
-  const mount = station.nodeId ? null : autodjMount(station, mounts);
+  const mount = runsHere(station) ? autodjMount(station, mounts) : null;
   if (!mount) {
     await rm(path, { force: true });
     return;
@@ -247,7 +255,7 @@ export async function buildStreamsState(ctx: AppContext): Promise<StreamsState> 
     .where(and(eq(schema.tenantDomains.status, 'verified'), eq(schema.tenants.active, true)));
 
   // A station on a station node runs there; its server here stays off.
-  const enabled = (r: (typeof stations)[number]) => r.s.enabled && r.tenantActive && !r.s.nodeId;
+  const enabled = (r: (typeof stations)[number]) => r.s.enabled && r.tenantActive && runsHere(r.s);
   const sftpgoEnv = await renderSftpgoEnv(ctx, streaming);
   const autodj: StreamsState['autodj'] = [];
   for (const r of stations) {
