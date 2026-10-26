@@ -15,6 +15,8 @@ export interface WebState {
   icecastBind: string;
   /** Names the web server gets certificates for (the node's own and customer encoder names). */
   certHosts: string[];
+  /** The node has the station node role: the root helper installs and links the station runtime (phase 12). */
+  station: boolean;
 }
 
 export interface JobStatus {

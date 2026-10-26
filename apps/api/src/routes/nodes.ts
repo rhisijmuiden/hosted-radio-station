@@ -270,6 +270,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
           if (n >= allowed) throw conflict(allowed ? `Your plan allows ${allowed} own node(s)` : 'Your plan does not include own nodes; ask your provider');
         }
       } else requireSuperadmin(req);
+      if (req.body.roles.includes('station') && new Set(req.body.roles).size > 1) throw badRequest('A station node has no other roles; its streams go to relay nodes');
       const [node] = await ctx.db
         .insert(schema.nodes)
         .values({ name: req.body.name, location: req.body.location, tenantId: tenantId ?? null, roles: [...new Set(req.body.roles)], config: storedConfig({}) })
@@ -304,6 +305,11 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         if (b.config.relayStations.some((id) => !ids.has(id))) throw badRequest('A node of a customer can only carry that customer\'s stations');
       }
       const roles = b.roles ? ([...new Set(b.roles)] as NodeRole[]) : node.roles;
+      if (roles.includes('station') && roles.length > 1) throw badRequest('A station node has no other roles; its streams go to relay nodes');
+      if (node.roles.includes('station') && !roles.includes('station')) {
+        const [running] = await ctx.db.select({ n: sql<number>`count(*)::int` }).from(schema.stations).where(eq(schema.stations.nodeId, node.id));
+        if (running && running.n > 0) throw conflict('Stations still run on this node; move them back to this server first');
+      }
       const c = nodeSettings({ config });
       if (roles.includes('source') && c.sourcePlainPort && c.sourcePlainPort === c.sourceTlsPort) throw badRequest('Use two different ports for encoders');
       const [updated] = await ctx.db
