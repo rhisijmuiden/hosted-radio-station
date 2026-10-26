@@ -7,6 +7,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import { schema } from '../db/index.js';
 import type { AppContext } from '../lib/context.js';
 import { authenticateSource, type Account } from '../services/streaming/sources.js';
+import type { LiveBroadcast } from './recorder.js';
 import { resolveMount, type Snapshot, type StationView } from './snapshot.js';
 
 const HEADER_LIMIT = 16 * 1024;
@@ -125,6 +126,10 @@ export class IngestGateway {
   private readonly active = new Set<net.Socket>();
   /** Encoders on air right now. */
   liveCount = 0;
+  /** Broadcasts on air, by live session id (for recordings and now playing). */
+  readonly broadcasts = new Map<string, LiveBroadcast>();
+  /** Called when a broadcast starts or ends. */
+  onBroadcast?: (b: LiveBroadcast, on: boolean) => void;
 
   constructor(
     private readonly ctx: AppContext,
@@ -324,6 +329,9 @@ export class IngestGateway {
       upstream.destroy();
       if (!sessionId) return;
       this.liveCount--;
+      const b = this.broadcasts.get(sessionId);
+      this.broadcasts.delete(sessionId);
+      if (b) this.onBroadcast?.(b, false);
       await this.ctx.db
         .update(schema.liveSessions)
         .set({ endedAt: new Date(), bytesIn, endReason: sql`coalesce(${schema.liveSessions.endReason}, ${reason})` })
@@ -362,7 +370,14 @@ export class IngestGateway {
         upstream.off('data', onAnswer);
         client.write(answer);
         upstream.pipe(client);
-        if (final?.[1] === '200') void this.startSession(target, account, req).then((id) => (sessionId = id));
+        if (final?.[1] === '200') void this.startSession(target, account, req).then((id) => {
+            sessionId = id;
+            // The encoder left while the broadcast was being logged.
+            if (finished) {
+              finished = false;
+              void finish('disconnected');
+            }
+          });
       };
       upstream.on('data', onAnswer);
       client.on('data', (chunk: Buffer) => {
@@ -393,7 +408,10 @@ export class IngestGateway {
         userAgent: req.userAgent?.slice(0, 200) ?? null,
         bitrateKbps: req.bitrate,
       })
-      .returning({ id: schema.liveSessions.id });
+      .returning({ id: schema.liveSessions.id, startedAt: schema.liveSessions.startedAt });
+    const b: LiveBroadcast = { sessionId: row!.id, stationId: target.view.station.id, mountPath: target.mountPath, accountName: account.displayName || account.username, startedAt: row!.startedAt };
+    this.broadcasts.set(b.sessionId, b);
+    this.onBroadcast?.(b, true);
     await this.ctx.db.update(schema.stationAccounts).set({ lastUsedAt: new Date() }).where(eq(schema.stationAccounts.id, account.id));
     this.log.info({ station: target.view.station.slug, mount: target.mountPath, account: account.username, via: req.via, ip: req.ip }, 'encoder on air');
     return row!.id;

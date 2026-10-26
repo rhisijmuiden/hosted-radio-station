@@ -11,7 +11,7 @@ import type { StationView } from './snapshot.js';
 
 export interface RelayState {
   id: string;
-  kind: 'transcode' | 'push' | 'monitor';
+  kind: 'transcode' | 'push' | 'monitor' | 'record';
   station: string;
   name: string;
   state: 'idle' | 'connecting' | 'connected' | 'error';
@@ -105,6 +105,11 @@ export class Transcoder extends Relay {
     super(`transcode:${mount.id}`, 'transcode', view.station.slug, `${source.path} → ${mount.path}`, log);
     this.key = JSON.stringify([view.station.icecastPort, view.sourcePassword, source.path, mount.path, mount.format, mount.bitrateKbps, view.station.name]);
     this.input = { stationId: view.station.id, mount: source.path };
+  }
+
+  /** The converted mount this job feeds. */
+  get output() {
+    return this.mount.path;
   }
 
   protected async run() {
