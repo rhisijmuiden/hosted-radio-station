@@ -111,7 +111,8 @@ export async function buildApp(ctx: AppContext) {
 
   await app.register(fastifyCookie);
   await app.register(fastifyWebsocket, {
-    // Station node tunnels carry body data in frames of up to 128 KiB (phase 12); health with FM status fits easily.
+    // Node agents send their health with problems and FM status in one message; station node tunnels carry body data
+    // in frames of up to 128 KiB (phase 12).
     options: { maxPayload: 256 * 1024 },
     // A client that breaks the protocol (e.g. "Invalid WebSocket frame: invalid status code 1006" from a browser that
     // went away) is the client's problem, not an error of this server.

@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 
-export type SceneKind = 'main' | 'relay' | 'source' | 'fm' | 'node' | 'studio';
+export type SceneKind = 'main' | 'relay' | 'source' | 'station' | 'fm' | 'node' | 'studio';
 export type SceneHealth = 'online' | 'degraded' | 'offline' | 'unpaired';
 
 export interface SceneNode {
@@ -54,6 +54,7 @@ const ICONS: Record<SceneKind, string> = {
   relay: '<circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/>',
   source: '<rect x="4" y="4" width="16" height="7" rx="2"/><rect x="4" y="13" width="16" height="7" rx="2"/><path d="M8 7.5h.01M8 16.5h.01"/>',
   node: '<rect x="4" y="4" width="16" height="7" rx="2"/><rect x="4" y="13" width="16" height="7" rx="2"/><path d="M8 7.5h.01M8 16.5h.01"/>',
+  station: '<circle cx="12" cy="11" r="2"/><path d="M8.5 7a6 6 0 0 0 0 8M15.5 7a6 6 0 0 1 0 8M9 21l3-8 3 8"/>',
   fm: '<path d="M4.9 16.1C1 12.2 1 5.8 4.9 1.9M7.8 4.7a6.14 6.14 0 0 0-.8 7.5M16.2 4.8c2 2 2.26 5.11.8 7.47M19.1 1.9a9.96 9.96 0 0 1 0 14.1"/><circle cx="12" cy="9" r="2"/><path d="M9.5 18h5M8 22l4-11 4 11"/>',
   studio: '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/>',
 };
@@ -62,6 +63,7 @@ const SIZE: Record<SceneKind, { w: number; h: number }> = {
   main: { w: 3, h: 2.2 },
   relay: { w: 2.2, h: 1.1 },
   source: { w: 2.2, h: 1.3 },
+  station: { w: 2.4, h: 1.5 },
   node: { w: 2.2, h: 0.9 },
   fm: { w: 2.2, h: 1.6 },
   studio: { w: 1.8, h: 0.5 },
@@ -91,7 +93,8 @@ export function layout(data: SceneData): Map<string, Placed> {
       const k = i - (list.length - 1) / 2;
       put(n, x + bend * Math.abs(k) * Math.abs(k) * 0.12, 2 + k * gap);
     });
-  column(data.nodes.filter((n) => n.kind === 'source'), -7, 6, -1);
+  // Station nodes push to the relays like an ingest does, so they stand in the same column.
+  column(data.nodes.filter((n) => n.kind === 'source' || n.kind === 'station'), -7, 6, -1);
   column(data.nodes.filter((n) => n.kind === 'relay'), 8, 6, 1);
   // FM transmitters are fed by the relays: they stand beyond them, like masts on the horizon.
   column(data.nodes.filter((n) => n.kind === 'fm'), 17, 6, 1);

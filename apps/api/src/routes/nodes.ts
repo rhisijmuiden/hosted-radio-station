@@ -12,7 +12,7 @@ import { badRequest, conflict, forbidden, HttpError, notFound } from '../lib/err
 import { okOut } from '../lib/schemas.js';
 import { nodeEvent } from '../services/nodes/hub.js';
 import { hashCode, installCommand, newPairingCode, PAIRING_HOURS } from '../services/nodes/pairing.js';
-import { carried, nodeConfigPatch, nodeConfigSchema, nodeSettings, relayBaseUrl, relaysOf, storedConfig, type Node } from '../services/nodes/plan.js';
+import { carried, nodeConfigPatch, nodeConfigSchema, nodeSettings, relayBaseUrl, relaysByStation, relaysOf, storedConfig, type Node } from '../services/nodes/plan.js';
 import { ingestNodes, ingestsOf, localIngest, pushedRouting, stationRouting } from '../services/nodes/routing-rules.js';
 import { readStreamsStatus } from '../services/streaming/status.js';
 import { authenticateNode, reportSchema, storeReport } from '../services/nodes/report.js';
@@ -538,6 +538,8 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
     const nodes = allNodes.filter((n) => {
       if (!scopeSet) return true;
       if (n.tenantId && scopeSet.has(n.tenantId)) return true;
+      // A shared station node that runs one of the customer's stations belongs in its picture too.
+      if (!n.tenantId && n.pairedAt && stations.some((s) => s.nodeId === n.id)) return true;
       return !n.tenantId && !!n.pairedAt && (carried(n, stations, pairedRelayNodes).size > 0 || usedIngest.has(n.id));
     });
     const [live, samples] = await Promise.all([
@@ -587,7 +589,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         encoders: status.encoders ?? 0,
         country: status.country ?? null,
         city: status.city ?? null,
-        stations: carriedIds.length,
+        stations: n.roles.includes('station') ? stations.filter((s) => s.nodeId === n.id).length : carriedIds.length,
         ingestStations: stations.filter((s) => ingestsOf(stationRouting(s)).some((i) => i.ref === n.id)).length,
         updateAvailable: !!status.commit && !!v.commit && status.commit !== v.commit,
         relaysUp: status.relays?.filter((r) => r.state === 'connected').length ?? 0,
@@ -671,6 +673,20 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       if (!s) continue;
       const from = s.nodeId || pushedRouting(stationRouting(s)) ? relaysOf(s, pairedRelayNodes).find((r) => byId.get(r.id)?.online)?.id : 'local:relay';
       if (from) link({ from, to: n.id, kind: 'stream', active: n.online, degraded: n.degraded, rttMs: null, loss: null });
+    }
+    // A station node pushes the streams of its stations straight to the relays that carry them.
+    const relayMap = await relaysByStation(ctx);
+    for (const n of nodeOutList) {
+      if (!n.paired || !n.roles.includes('station')) continue;
+      const mine = stations.filter((s) => s.nodeId === n.id);
+      const runtime = mine.length ? await ctx.db.select({ runtime: schema.stations.nodeRuntime }).from(schema.stations).where(inArray(schema.stations.id, mine.map((s) => s.id))) : [];
+      const states = new Map<string, string>();
+      for (const r of runtime) for (const [relayId, st] of Object.entries(r.runtime?.relays ?? {})) if (st.state === 'connected' || !states.has(relayId)) states.set(relayId, st.state);
+      for (const relayId of new Set(mine.flatMap((s) => (relayMap.get(s.id) ?? []).map((r: Node) => r.id)))) {
+        if (!nodeOutList.some((x) => x.id === relayId)) continue;
+        const state = states.get(relayId);
+        links.push({ from: n.id, to: relayId, kind: 'stream', active: n.online && state === 'connected', degraded: state === 'error', rttMs: null, loss: null });
+      }
     }
     const studios = live.map((l) => {
       const station = stations.find((s) => s.id === l.stationId)!;
@@ -834,7 +850,7 @@ export const listenRedirectRoutes: FastifyPluginAsyncZod = async (app) => {
         await app.nodes.geo.refresh().catch(() => undefined);
         target = await pickRelay(ctx, row.id, slug, path, app.nodes.geo.lookup(req.ip));
       }
-      if (!target && elsewhere) return reply.status(503).header('retry-after', '10').send({ error: { code: 'no_relay', message: 'No relay has this stream right now' } });
+      if (!target && elsewhere) return reply.status(503).header('retry-after', '10').header('cache-control', 'no-store').send({ error: { code: 'no_relay', message: 'No relay has this stream right now' } });
       const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
       return reply
         .header('cache-control', 'no-store')

@@ -52,10 +52,13 @@ export function startBackgroundTasks(ctx: AppContext, log: FastifyBaseLogger) {
   // Hosted service: renewals, reminders and suspensions every ten minutes; webhook retries every minute.
   const billing = only(() => setInterval(safe('billing', () => billingTick(ctx)), 10 * 60_000));
   const webhooks = only(() =>
-    setInterval(safe('webhooks', async () => {
-      await requeueStuck(ctx);
-      await deliverDue(ctx);
-    }), 60_000),
+    setInterval(
+      safe('webhooks', async () => {
+        await requeueStuck(ctx);
+        await deliverDue(ctx);
+      }),
+      60_000,
+    ),
   );
   if (main) setTimeout(safe('billing', () => billingTick(ctx)), 50_000).unref();
   const house = setInterval(safe('housekeeping', () => housekeeping(ctx)), 6 * 3600_000);

@@ -41,6 +41,26 @@ export async function connectionInfo(ctx: AppContext, station: Station, mounts: 
   const ingestHost = domain?.ingestHost ?? (proxy.domain || publicUrl.hostname);
   const listenBase = domain ? `https://${domain.panelHost}` : ctx.config.PUBLIC_URL.replace(/\/$/, '');
   const legacyMount = mounts.find((m) => m.id === station.legacyMountId) ?? mounts.find((m) => m.kind === 'source') ?? null;
+  // A station on a station node (phase 12): encoders and RHIS Studio connect to the node in the studio itself.
+  if (station.nodeId) {
+    const [sn] = await ctx.db.select().from(schema.nodes).where(and(eq(schema.nodes.id, station.nodeId), isNotNull(schema.nodes.pairedAt)));
+    if (sn) {
+      const c = nodeSettings(sn);
+      const host = c.lanAddress || c.publicHost || sn.status.ip || ingestHost;
+      return {
+        ingestHost: host,
+        node: { id: sn.id, name: sn.name },
+        backup: null,
+        uploadHost: domain?.panelHost ?? ingestHost,
+        // The node's own Icecast takes encoders; TLS only with a name and a certificate of its own.
+        tls: { port: streaming.ingestTlsPort, available: false },
+        plain: { port: station.icecastPort },
+        legacy: station.legacyPort ? { port: station.legacyPort, sourcePort: station.legacyPort + 1, mount: legacyMount?.path ?? null } : null,
+        listenBase,
+        mounts: mounts.map((m) => ({ id: m.id, path: m.path, encoderMount: m.path, listenUrl: m.isPublic ? `${listenBase}/listen/${station.slug}${m.path}` : null })),
+      };
+    }
+  }
   const routing = stationRouting(station);
   const nodeRow = async (id: string) => (await ctx.db.select().from(schema.nodes).where(and(eq(schema.nodes.id, id), isNotNull(schema.nodes.pairedAt))))[0];
   // An ingest node (phase 13) takes the encoders itself; its address comes from its own name, else the customer's
