@@ -87,6 +87,16 @@ Phase 8: Distribution network with nodes (relays, source nodes, remote probes), 
 | ![Remote probes from a node](docs/screenshots/phase-8-node-probes.png) | ![Topology, light theme](docs/screenshots/phase-8-topology-light.png) |
 | ![Topology, flat left to right](docs/screenshots/phase-8-topology-flat-lr-dark.png) | ![Topology, flat top to bottom](docs/screenshots/phase-8-topology-flat-tb-light.png) |
 
+Controlled node updates (phase 8): a new version goes to the nodes one at a time, with listeners moved away first and a health check before the next node. Per node or group you choose rolling, a maintenance window or manual, and you can pause updates or roll a node back. Taken on the test server with four nodes.
+
+| English, light | Dutch, dark |
+| --- | --- |
+| ![Nodes with the rollout card: node version and update policy](docs/screenshots/node-updates-nodes-light-en.png) | ![Nodes with the rollout card, in Dutch, dark theme](docs/screenshots/node-updates-nodes-dark-nl.png) |
+| ![Automatic updates paused, with Resume](docs/screenshots/node-updates-nodes-paused-light-en.png) | ![Automatic updates paused, in Dutch, dark theme](docs/screenshots/node-updates-nodes-paused-dark-nl.png) |
+| ![Node detail with the Updates card and Roll back](docs/screenshots/node-updates-node-detail-light-en.png) | ![Node detail with the Updates card, in Dutch, dark theme](docs/screenshots/node-updates-node-detail-dark-nl.png) |
+| ![Node with a maintenance window policy](docs/screenshots/node-updates-node-detail-local-window-light-en.png) | ![Node with a maintenance window policy, in Dutch, dark theme](docs/screenshots/node-updates-node-detail-local-window-dark-nl.png) |
+| ![Node in a manual update group](docs/screenshots/node-updates-node-detail-radionode1-group-manual-light-en.png) | ![Node in a manual update group, in Dutch, dark theme](docs/screenshots/node-updates-node-detail-radionode1-group-manual-dark-nl.png) |
+
 Phase 9: RHIS Studio, the Windows client: live assist, live broadcasting from the sound card or mixing desk, and a cart wall.
 
 | Studio client | Studio client, Dutch |
