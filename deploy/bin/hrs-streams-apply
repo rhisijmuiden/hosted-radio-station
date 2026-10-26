@@ -72,15 +72,18 @@ main() {
     [[ "$slug" =~ $slug_re && "$m" =~ $mount_re ]] && valid_port "$port" || { log "Skipping invalid listen route"; problems=1; continue; }
     printf 'handle /listen/%s%s {\n\trewrite * %s\n\treverse_proxy 127.0.0.1:%s {\n\t\tflush_interval -1\n\t}\n}\n' "$slug" "$m" "$m" "$port" >> "$tmp"
   done < <(jq -r '.listen[] | .slug as $s | .port as $p | .mounts[] | [$s, ($p|tostring), .] | @tsv' "$STATE")
+  local included=0
+  grep -q 'hosted-radio-streams.caddy' /etc/caddy/Caddyfile 2>/dev/null && included=1
   if ! cmp -s "$tmp" "$ROUTES"; then
     install -m 0644 "$tmp" "$ROUTES"
-    if grep -q 'hosted-radio-streams.caddy' /etc/caddy/Caddyfile 2>/dev/null; then
+    if [[ $included -eq 1 ]]; then
       log "Listen routes changed, reloading the web server"
       systemctl reload caddy >>"$LOG" 2>&1 || { log "Reloading Caddy failed"; problems=1; }
-    else
-      log "Listen routes written, but the web server configuration does not include them yet: apply it once under Web server"
-      problems=1
     fi
+  fi
+  if [[ $included -eq 0 ]]; then
+    log "The web server configuration does not include the listen routes yet: apply it once under Web server"
+    problems=1
   fi
   rm -f "$tmp"
 

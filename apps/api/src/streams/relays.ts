@@ -94,6 +94,7 @@ export class Transcoder extends Relay {
   readonly key: string;
   readonly input: { stationId: string; mount: string };
   private child: ChildProcess | null = null;
+  private socket: net.Socket | null = null;
 
   constructor(
     private readonly view: StationView,
@@ -106,39 +107,50 @@ export class Transcoder extends Relay {
     this.input = { stationId: view.station.id, mount: source.path };
   }
 
-  protected run() {
+  protected async run() {
     const { station } = this.view;
     const base = `127.0.0.1:${station.icecastPort}`;
+    // ffmpeg writes to stdout and this process logs in on Icecast, so the source password never shows up in the
+    // process list (ps, /proc/<pid>/cmdline) the way an icecast:// URL would.
+    const target = await sourceConnection(station.icecastPort, this.mount.path, this.view.sourcePassword, {
+      'Content-Type': CONTENT_TYPES[this.mount.format],
+      'ice-name': this.mount.name ? `${station.name} – ${this.mount.name}` : station.name,
+      'ice-public': '0',
+      'ice-audio-info': `bitrate=${this.mount.bitrateKbps}`,
+    });
+    this.socket = target;
     const args = [
       '-nostdin', '-hide_banner', '-loglevel', 'error',
       '-user_agent', `${INTERNAL_AGENT} transcoder`,
       '-i', `http://${base}${this.source.path}`,
       '-vn', '-map', '0:a:0', '-ac', '2',
       ...codecArgs[this.mount.format](this.mount.bitrateKbps),
-      '-content_type', CONTENT_TYPES[this.mount.format],
-      '-ice_name', this.mount.name ? `${station.name} – ${this.mount.name}` : station.name,
-      '-ice_public', '0',
-      `icecast://source:${encodeURIComponent(this.view.sourcePassword)}@${base}${this.mount.path}`,
+      'pipe:1',
     ];
     return new Promise<void>((resolve, reject) => {
-      const child = spawn('ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+      const child = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
       this.child = child;
       let stderr = '';
       child.stderr!.on('data', (d: Buffer) => {
         stderr = (stderr + d.toString()).slice(-2000);
       });
+      child.stdout!.pipe(target);
+      target.on('error', () => child.kill('SIGTERM'));
+      target.on('close', () => child.kill('SIGTERM'));
       // ffmpeg prints nothing while it works; consider it connected after a few seconds without an exit.
       const up = setTimeout(() => this.set('connected'), 4000);
       child.on('error', (err) => {
         clearTimeout(up);
+        target.destroy();
         reject(new Error((err as NodeJS.ErrnoException).code === 'ENOENT' ? 'ffmpeg is not installed' : err.message));
       });
       child.on('exit', (code) => {
         clearTimeout(up);
         this.child = null;
+        target.destroy();
         const last = stderr.trim().split('\n').pop();
         if (code === 0) resolve();
-        else reject(new Error(last ? last.replace(/icecast:\/\/[^@\s]+@/g, 'icecast://***@') : `ffmpeg stopped (${code})`));
+        else reject(new Error(last ?? `ffmpeg stopped (${code})`));
       });
     });
   }
@@ -146,7 +158,40 @@ export class Transcoder extends Relay {
   protected halt() {
     this.child?.kill('SIGTERM');
     this.child = null;
+    this.socket?.destroy();
+    this.socket = null;
   }
+}
+
+/** Logs in as the source of a mount on a station's own Icecast server (HTTP PUT) and returns the open connection. */
+function sourceConnection(port: number, mount: string, password: string, headers: Record<string, string>): Promise<net.Socket> {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect({ host: '127.0.0.1', port });
+    socket.once('error', (err) => reject(new Error(`local server: ${err.message}`)));
+    socket.once('connect', () => {
+      const head = [
+        `PUT ${mount} HTTP/1.1`,
+        `Host: 127.0.0.1:${port}`,
+        `Authorization: Basic ${Buffer.from(`source:${password}`).toString('base64')}`,
+        `User-Agent: ${INTERNAL_AGENT} transcoder`,
+        ...Object.entries(headers).map(([k, v]) => `${k}: ${v.replace(/[\r\n]/g, ' ')}`),
+        'Expect: 100-continue',
+      ];
+      socket.write(`${head.join('\r\n')}\r\n\r\n`);
+      readResponse(socket, /HTTP\/1\.[01] (?!100)\d{3}[^\r\n]*\r\n(?:[^\r\n]+\r\n)*\r\n/).then(
+        (answer) => {
+          const status = [...answer.matchAll(/HTTP\/1\.[01] (\d{3})([^\r\n]*)/g)].map((m) => m[1]).find((code) => code !== '100');
+          if (status === '200') return resolve(socket);
+          socket.destroy();
+          reject(new Error(status === '403' ? `mount ${mount} is in use` : `local server answered ${status ?? '?'}`));
+        },
+        (err: Error) => {
+          socket.destroy();
+          reject(err);
+        },
+      );
+    });
+  });
 }
 
 function connectExternal(c: OutputConfig, port: number): Promise<net.Socket> {

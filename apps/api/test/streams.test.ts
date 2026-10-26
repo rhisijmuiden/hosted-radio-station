@@ -115,6 +115,12 @@ describe.skipIf(!enabled)('streams service', () => {
       headers: admin,
       payload: { path: '/low.mp3', kind: 'transcode', sourceMountId: liveId, format: 'mp3', bitrateKbps: 64 },
     });
+    await t.app.inject({
+      method: 'POST',
+      url: `/api/stations/${stationId}/mounts`,
+      headers: admin,
+      payload: { path: '/opus', kind: 'transcode', sourceMountId: liveId, format: 'opus', bitrateKbps: 64 },
+    });
     const legacy = await t.app.inject({ method: 'PATCH', url: `/api/stations/${stationId}`, headers: admin, payload: { legacy: { enabled: true } } });
     legacyPort = legacy.json().legacyPort;
 
@@ -176,7 +182,12 @@ describe.skipIf(!enabled)('streams service', () => {
     expect(session).toMatchObject({ accountName: 'DJ One', mountPath: '/live', via: 'plain', endedAt: null });
 
     await mountLive('/low.mp3');
+    await mountLive('/opus');
     await mountLive('/relay', PORTS.external, 'ext-admin');
+    // The transcoders log in from this process: no password in any ffmpeg command line.
+    const cmdlines = execFileSync('ps', ['-eo', 'args'], { encoding: 'utf8' }).split('\n').filter((l) => l.includes('ffmpeg') && l.includes('transcoder'));
+    expect(cmdlines.length).toBeGreaterThan(0);
+    for (const line of cmdlines) expect(line).not.toMatch(/icecast:\/\/[^\s]*:[^\s]*@/);
 
     const auth = Buffer.from('dj1:dj1-password').toString('base64');
     const res = await raw(PORTS.plain, `GET /admin/metadata?mount=/test-fm/live&mode=updinfo&song=Artist%20-%20Caf%C3%A9 HTTP/1.0\r\nAuthorization: Basic ${auth}\r\n\r\n`);
