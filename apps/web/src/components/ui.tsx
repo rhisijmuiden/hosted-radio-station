@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { Loader2, X } from 'lucide-react';
+import { Copy, Loader2, X } from 'lucide-react';
 import {
   forwardRef,
   useEffect,
@@ -12,6 +12,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'dark';
 
@@ -299,5 +300,59 @@ export function Avatar({ name, className }: { name: string; className?: string }
     <span className={clsx('grid size-9 shrink-0 place-items-center rounded-full bg-nacht text-[13px] font-bold text-white dark:bg-koraal dark:text-nacht', className)}>
       {letters || '?'}
     </span>
+  );
+}
+
+/** A read-only value with a copy button, e.g. a server address for an encoder. */
+export function CopyField({ label, value, mono = true }: { label: ReactNode; value: string; mono?: boolean }) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex min-w-0 items-center gap-2 rounded-md border border-line px-3 py-2">
+      <div className="min-w-0 flex-1">
+        <div className="text-[11px] text-muted">{label}</div>
+        <div className={clsx('truncate text-[13px]', mono && 'font-mono')} title={value}>
+          {value}
+        </div>
+      </div>
+      <button
+        type="button"
+        className="rounded-md p-1.5 text-muted hover:bg-hover hover:text-ink"
+        title={t('common.copy')}
+        onClick={() => void navigator.clipboard.writeText(value).then(() => toast.success(t('common.copied')))}
+      >
+        <Copy className="size-4" />
+      </button>
+    </div>
+  );
+}
+
+export function Tabs<T extends string>({ value, onChange, tabs }: { value: T; onChange: (v: T) => void; tabs: { value: T; label: ReactNode }[] }) {
+  return (
+    <div className="mb-5 flex gap-1 overflow-x-auto border-b border-line" role="tablist">
+      {tabs.map((tab) => (
+        <button
+          key={tab.value}
+          role="tab"
+          aria-selected={value === tab.value}
+          onClick={() => onChange(tab.value)}
+          className={clsx(
+            '-mb-px border-b-2 px-3 py-2.5 text-sm font-semibold whitespace-nowrap transition-colors',
+            value === tab.value ? 'border-koraal text-ink' : 'border-transparent text-muted hover:text-ink',
+          )}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** A small "label: value" pair in a grid of facts. */
+export function Fact({ label, children }: { label: ReactNode; children: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[11px] tracking-[0.06em] text-muted uppercase">{label}</div>
+      <div className="mt-0.5 truncate text-sm font-semibold">{children}</div>
+    </div>
   );
 }

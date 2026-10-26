@@ -13,7 +13,11 @@ import {
   putSetting,
   SECRET_MASK,
   smtpSchema,
+  streamingSchema,
+  type StreamingSettings,
 } from '../services/settings.js';
+import { applyAllStreams } from '../services/streaming/state.js';
+import { readStreamsStatus, streamsStatusOut } from '../services/streaming/status.js';
 import { getProxyStatus, requestProxyApply } from '../services/system.js';
 import { jobOut } from './system.js';
 
@@ -202,4 +206,63 @@ export const settingsRoutes: FastifyPluginAsyncZod = async (app) => {
       return getSetting(ctx, 'audit');
     },
   );
+
+  // Streaming: encoder ingest, port ranges, file upload
+
+  app.get(
+    '/streaming',
+    { schema: { tags: ['Settings'], summary: 'Encoder ports, port ranges, DNS target for customer domains and SFTP/FTP upload', response: { 200: streamingSchema } } },
+    async (req) => {
+      requireSuperadmin(req);
+      return getSetting(ctx, 'streaming');
+    },
+  );
+
+  app.put(
+    '/streaming',
+    {
+      config: { audit: 'settings.streaming' },
+      schema: { tags: ['Settings'], summary: 'Save the streaming settings and apply them', body: streamingSchema, response: { 200: streamingSchema } },
+    },
+    async (req) => {
+      const auth = requireSuperadmin(req);
+      checkPorts(req.body, ctx.config.PORT);
+      await putSetting(ctx, 'streaming', req.body);
+      await applyAllStreams(ctx, auth.user.email);
+      return getSetting(ctx, 'streaming');
+    },
+  );
+
+  app.get(
+    '/streaming/status',
+    { schema: { tags: ['Settings'], summary: 'State of the streams service (ingest gateway, relays) and the last system change', response: { 200: streamsStatusOut } } },
+    async (req) => {
+      requireSuperadmin(req);
+      return readStreamsStatus(ctx);
+    },
+  );
 };
+
+/** Single ports must differ from each other and stay out of the port ranges; ranges must not overlap. */
+function checkPorts(s: StreamingSettings, apiPort: number) {
+  const singles: [string, number][] = [
+    ['TLS ingest', s.ingestTlsPort],
+    ...(s.ingestPlainPort ? ([['Plain ingest', s.ingestPlainPort]] as [string, number][]) : []),
+    ...(s.sftp.enabled ? ([['SFTP', s.sftp.port]] as [string, number][]) : []),
+    ...(s.ftp.enabled ? ([['FTP', s.ftp.port]] as [string, number][]) : []),
+  ];
+  const reserved: [string, number][] = [['the web server', 80], ['the web server', 443], ['the API', apiPort]];
+  const ranges: [string, number, number][] = [
+    ['Icecast', s.icecastPortFrom, s.icecastPortTo],
+    ['Legacy Shoutcast', s.legacyPortFrom, s.legacyPortTo],
+    ...(s.ftp.enabled ? ([['FTP passive', s.ftp.passivePortFrom, s.ftp.passivePortTo]] as [string, number, number][]) : []),
+  ];
+  for (const [i, [a, p]] of singles.entries()) {
+    for (const [b, q] of [...singles.slice(i + 1), ...reserved]) if (p === q) throw badRequest(`${a} and ${b} cannot share port ${p}`);
+    for (const [b, from, to] of ranges) if (p >= from && p <= to) throw badRequest(`${a} port ${p} lies inside the ${b} range`);
+  }
+  for (const [i, [a, f1, t1]] of ranges.entries()) {
+    for (const [b, f2, t2] of ranges.slice(i + 1)) if (f1 <= t2 && f2 <= t1) throw badRequest(`The ${a} and ${b} ranges overlap`);
+    for (const [b, q] of reserved) if (q >= f1 && q <= t1) throw badRequest(`The ${a} range contains the port of ${b}`);
+  }
+}

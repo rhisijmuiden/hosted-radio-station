@@ -233,3 +233,206 @@ export const backupRuns = pgTable(
   },
   (t) => [index('backup_runs_queued_idx').on(t.queuedAt), index('backup_runs_target_idx').on(t.targetId, t.queuedAt)],
 );
+
+// Phase 3: distribution
+
+/** distribution = streaming, live input and public pages; station = adds the AutoDJ, queues and scheduler (phase 6). */
+export const stationEdition = pgEnum('station_edition', ['distribution', 'station']);
+
+/**
+ * A radio station. Every station has its own Icecast server on this machine (bound to localhost, port `icecastPort`).
+ * Encoders deliver through the ingest gateway; listeners connect through the web server or the station's outputs.
+ */
+export const stations = pgTable(
+  'stations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    /** Globally unique, used in listen URLs (/listen/<slug>/<mount>) and upload logins (<slug>.<user>). */
+    slug: text('slug').notNull().unique(),
+    edition: stationEdition('edition').notNull().default('distribution'),
+    description: text('description').notNull().default(''),
+    genre: text('genre').notNull().default(''),
+    website: text('website').notNull().default(''),
+    enabled: boolean('enabled').notNull().default(true),
+    /** Listeners on this server at the same time. The total over a customer's stations stays within its limit. */
+    maxListeners: integer('max_listeners').notNull(),
+    icecastPort: integer('icecast_port').notNull().unique(),
+    /** Public port for legacy Shoutcast v1 encoders (they also use port + 1). Null = off. */
+    legacyPort: integer('legacy_port').unique(),
+    /** Mount that legacy Shoutcast encoders feed and legacy players hear. */
+    legacyMountId: uuid('legacy_mount_id'),
+    /** Encrypted. Internal passwords of the Icecast server; encoders never see them. */
+    icecastAdminPassword: text('icecast_admin_password').notNull(),
+    icecastSourcePassword: text('icecast_source_password').notNull(),
+    /** Size of the media folder, refreshed after uploads and every few hours. Counts towards the customer's storage limit. */
+    storageBytes: bigint('storage_bytes', { mode: 'number' }).notNull().default(0),
+    storageScannedAt: timestamp('storage_scanned_at', { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('stations_tenant_idx').on(t.tenantId)],
+);
+
+export const mountKind = pgEnum('mount_kind', ['source', 'transcode']);
+export const audioFormat = pgEnum('audio_format', ['mp3', 'aac', 'opus', 'vorbis']);
+
+/**
+ * A mount point on the station's Icecast server. `source` mounts are fed by encoders (live DJs, studios, later the
+ * AutoDJ); `transcode` mounts are made on this server from another mount in another format or bitrate.
+ */
+export const stationMounts = pgTable(
+  'station_mounts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    path: text('path').notNull(),
+    name: text('name').notNull().default(''),
+    kind: mountKind('kind').notNull().default('source'),
+    /** For transcode mounts: the mount that is converted. */
+    sourceMountId: uuid('source_mount_id'),
+    format: audioFormat('format').notNull().default('mp3'),
+    /** Highest bitrate an encoder may send (source) or the bitrate that is made (transcode). */
+    bitrateKbps: integer('bitrate_kbps').notNull().default(128),
+    /** Listeners may connect. A source mount can stay private and only feed transcodes and outputs. */
+    isPublic: boolean('is_public').notNull().default(true),
+    /** The mount public pages and players use. */
+    isDefault: boolean('is_default').notNull().default(false),
+    /** Listeners move here when this mount has no source, and come back when it returns. */
+    fallbackMountId: uuid('fallback_mount_id'),
+    maxListeners: integer('max_listeners'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('station_mounts_path_idx').on(t.stationId, t.path)],
+);
+
+/**
+ * Where a station can be heard. `local` = listeners connect to this server; `icecast` / `shoutcast1` / `shoutcast2` =
+ * an external server, either fed from a local mount (push) or only watched (monitor). Phase 8 adds relay nodes here.
+ */
+export const outputType = pgEnum('output_type', ['local', 'icecast', 'shoutcast1', 'shoutcast2']);
+
+export interface OutputConfig {
+  host?: string;
+  port?: number;
+  tls?: boolean;
+  /** Icecast mount on the external server. */
+  mount?: string;
+  username?: string;
+  /** Encrypted. Source password on the external server. */
+  password?: string;
+  /** Shoutcast 2 stream id. */
+  streamId?: number;
+  /** Encrypted. Admin password, for listener counts of Shoutcast servers. */
+  adminPassword?: string;
+  /** false = encoders deliver to the external server directly and this server only watches it. */
+  push?: boolean;
+  /** Address listeners use on the external server, for public pages. */
+  publicUrl?: string;
+}
+
+export interface OutputStatus {
+  state: 'idle' | 'connecting' | 'connected' | 'error';
+  message?: string;
+  listeners?: number | null;
+  since?: string;
+  checkedAt?: string;
+}
+
+export const stationOutputs = pgTable(
+  'station_outputs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    type: outputType('type').notNull(),
+    name: text('name').notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    /** The local mount that is pushed to the external server. */
+    mountId: uuid('mount_id').references(() => stationMounts.id, { onDelete: 'set null' }),
+    config: jsonb('config').$type<OutputConfig>().notNull().default({}),
+    status: jsonb('status').$type<OutputStatus>(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('station_outputs_station_idx').on(t.stationId)],
+);
+
+/** Log-in for encoders (live DJs, studios) and for uploading files over SFTP/FTP. Scoped to one station. */
+export const stationAccounts = pgTable(
+  'station_accounts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    username: text('username').notNull(),
+    displayName: text('display_name').notNull().default(''),
+    passwordHash: text('password_hash').notNull(),
+    /** The panel user this account belongs to, so a DJ sees their own connection details. */
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    canBroadcast: boolean('can_broadcast').notNull().default(true),
+    canUpload: boolean('can_upload').notNull().default(false),
+    /** Source mounts this account may feed. Empty = all source mounts. */
+    mountIds: uuid('mount_ids').array().notNull().default([]),
+    enabled: boolean('enabled').notNull().default(true),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('station_accounts_username_idx').on(t.stationId, t.username), index('station_accounts_user_idx').on(t.userId)],
+);
+
+/** One encoder connection: who broadcast on which mount, from where, and how long. Written by the ingest gateway. */
+export const liveSessions = pgTable(
+  'live_sessions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    mountId: uuid('mount_id').references(() => stationMounts.id, { onDelete: 'set null' }),
+    mountPath: text('mount_path').notNull(),
+    accountId: uuid('account_id').references(() => stationAccounts.id, { onDelete: 'set null' }),
+    accountName: text('account_name').notNull(),
+    /** tls | plain | shoutcast */
+    via: text('via').notNull(),
+    ip: text('ip'),
+    userAgent: text('user_agent'),
+    bitrateKbps: integer('bitrate_kbps'),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+    bytesIn: bigint('bytes_in', { mode: 'number' }).notNull().default(0),
+    /** disconnected | kicked | bitrate | restart | error */
+    endReason: text('end_reason'),
+  },
+  (t) => [index('live_sessions_station_idx').on(t.stationId, t.startedAt)],
+);
+
+export const domainStatus = pgEnum('domain_status', ['pending', 'verified', 'failed']);
+
+export interface DomainCheck {
+  host: string;
+  ok: boolean;
+  /** What the name points to now: CNAME target or addresses. */
+  found: string[];
+  error?: string;
+}
+
+/**
+ * A customer's own domain: `panelHost` (stream.example.com) serves the panel, public pages and listener streams;
+ * `ingestHost` (src.example.com) takes encoder connections. Certificates are only issued for verified names.
+ */
+export const tenantDomains = pgTable(
+  'tenant_domains',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+    domain: text('domain').notNull(),
+    panelHost: text('panel_host').notNull().unique(),
+    ingestHost: text('ingest_host').notNull().unique(),
+    status: domainStatus('status').notNull().default('pending'),
+    /** Set by an administrator for DNS setups that cannot be checked from here (split DNS, LAN). */
+    verifiedManually: boolean('verified_manually').notNull().default(false),
+    checks: jsonb('checks').$type<DomainCheck[]>().notNull().default([]),
+    checkedAt: timestamp('checked_at', { withTimezone: true }),
+    verifiedAt: timestamp('verified_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index('tenant_domains_tenant_idx').on(t.tenantId)],
+);
