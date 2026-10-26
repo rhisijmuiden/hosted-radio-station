@@ -121,6 +121,8 @@ export class NodeHub {
     for (const t of this.timers) clearInterval(t);
     for (const c of this.conns.values()) {
       clearInterval(c.timer);
+      // Said in a message too: Caddy keeps the agent's side of the WebSocket open after this close.
+      this.send(c, { t: 'restart' });
       c.socket.close(1001, 'server restarting');
     }
     this.conns.clear();
