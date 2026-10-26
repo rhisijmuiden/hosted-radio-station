@@ -44,6 +44,7 @@ import { tenantRoutes } from './routes/tenants.js';
 import { userRoutes } from './routes/users.js';
 import { NowPlayingHub } from './services/public/hub.js';
 import { NodeHub } from './services/nodes/hub.js';
+import { NodeUpdater } from './services/nodes/updates.js';
 import { listenRedirectRoutes, nodeAgentRoutes, nodeRoutes } from './routes/nodes.js';
 import { getVersionInfo } from './services/system.js';
 
@@ -51,6 +52,7 @@ declare module 'fastify' {
   interface FastifyInstance {
     nowPlaying: NowPlayingHub;
     nodes: NodeHub;
+    nodeUpdates: NodeUpdater;
   }
 }
 
@@ -74,6 +76,10 @@ export async function buildApp(ctx: AppContext) {
   app.decorate('nodes', nodeHub);
   await nodeHub.start();
   app.addHook('onClose', async () => nodeHub.stop());
+  const nodeUpdates = new NodeUpdater(ctx, nodeHub, app.log);
+  app.decorate('nodeUpdates', nodeUpdates);
+  await nodeUpdates.start();
+  app.addHook('onClose', async () => nodeUpdates.stop());
 
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof HttpError) {

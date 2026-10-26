@@ -5,6 +5,12 @@ import type { NodeRole } from '../../db/schema.js';
  * these types: keep both in step, and raise PROTOCOL_VERSION when a change is not backwards compatible.
  */
 export const PROTOCOL_VERSION = 1;
+/**
+ * The oldest agent protocol the main server still accepts. Nodes are updated one by one (or not at all, when an
+ * administrator keeps them on their version), so the server must keep talking to agents of the previous version: when
+ * PROTOCOL_VERSION goes up, leave this one behind for at least one release.
+ */
+export const MIN_PROTOCOL_VERSION = 1;
 
 /** Close codes of the control channel. */
 export const CLOSE = {
@@ -144,6 +150,11 @@ export type ServerMessage =
   | { t: 'plan'; plan: NodePlan }
   | { t: 'ping'; seq: number }
   | { t: 'update'; branch: string | null; commit: string | null }
+  /**
+   * An update of this node is coming: no new listeners are sent here, and the agent moves the ones it has over this
+   * many seconds (they reconnect through the listen route, which picks another relay). 0 = stop draining.
+   */
+  | { t: 'drain'; seconds: number }
   /** FM/MPX: who is live and which show runs, for the RadioText (the song comes from the stream itself). */
   | { t: 'fm'; dj: string | null; show: string | null };
 

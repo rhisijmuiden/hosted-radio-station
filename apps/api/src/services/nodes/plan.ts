@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { schema } from '../../db/index.js';
 import type { NodeConfig, NodeRole } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
-import { getSetting } from '../settings.js';
+import { getSetting, UPDATE_POLICIES, updateWindowSchema } from '../settings.js';
 import { platformHost } from '../streaming/state.js';
 import { getVersionInfo, type VersionInfo } from '../system.js';
 import { buildFmPlan, fmConfigSchema } from './fm.js';
@@ -29,6 +29,12 @@ export const nodeConfigSchema = z.object({
   sourceTlsPort: z.number().int().min(1024).max(65535).nullable().default(8443),
   probe: z.boolean().default(true),
   fm: fmConfigSchema.default(fmConfigSchema.parse({})),
+  /** How this node gets new versions; inherit = from its update group, or the network's default. */
+  updatePolicy: z.enum(['inherit', ...UPDATE_POLICIES]).default('inherit'),
+  /** Id of an update group in the network settings, null = no group. */
+  updateGroup: z.string().regex(/^[a-z0-9-]{1,40}$/).nullable().default(null),
+  /** Own maintenance window for policy "window"; null = the group's or the network's. */
+  updateWindow: updateWindowSchema.nullable().default(null),
 });
 export type NodeSettings = z.infer<typeof nodeConfigSchema>;
 
@@ -181,7 +187,9 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
     source,
     probes,
     fm,
-    update: { branch: v.branch, commit: v.commit, auto: settings.autoUpdate },
+    // Never true: agents up to this version update themselves as soon as it is, all at the same time. The update
+    // planner (updates.ts) sends each node an update message when its turn comes.
+    update: { branch: v.branch, commit: v.commit, auto: false },
   };
   return { ...plan, revision: createHash('sha256').update(JSON.stringify(plan)).digest('hex').slice(0, 16) };
 }

@@ -857,6 +857,58 @@ export interface NodeConfig {
   sourceTlsPort: number | null;
   probe: boolean;
   fm: FmConfig;
+  updatePolicy: 'inherit' | UpdatePolicy;
+  updateGroup: string | null;
+  updateWindow: UpdateWindow | null;
+}
+export type UpdatePolicy = 'rolling' | 'window' | 'manual';
+export interface UpdateWindow {
+  days: number[];
+  start: string;
+  end: string;
+}
+export interface UpdateGroup {
+  id: string;
+  name: string;
+  policy: UpdatePolicy;
+  window: UpdateWindow;
+}
+export interface NodeUpdatesSettings {
+  enabled: boolean;
+  policy: UpdatePolicy;
+  window: UpdateWindow;
+  timezone: string;
+  drainSeconds: number;
+  healthSeconds: number;
+  groups: UpdateGroup[];
+}
+export interface VersionRef {
+  commit: string | null;
+  branch: string | null;
+}
+export type NodeUpdateState = 'upToDate' | 'waiting' | 'scheduled' | 'manual' | 'paused' | 'disabled' | 'failed' | 'queued' | 'draining' | 'updating' | 'checking' | 'rollingBack';
+export interface NodeUpdateInfo {
+  policy: UpdatePolicy;
+  source: 'node' | 'group' | 'role' | 'network';
+  group: { id: string; name: string } | null;
+  window: UpdateWindow;
+  state: NodeUpdateState;
+  target: VersionRef;
+  nextWindowAt: string | null;
+  phaseAt: string | null;
+  phaseEndsAt: string | null;
+  message: string | null;
+  queuePosition: number | null;
+  last: { state: 'succeeded' | 'failed' | 'rolledBack'; target: VersionRef; from: VersionRef; message: string | null; at: string; rollbackTo: string | null } | null;
+}
+export interface NodeRolloutInfo {
+  target: VersionRef & { version: string };
+  enabled: boolean;
+  paused: { reason: string; nodeId: string | null; nodeName: string | null; at: string } | null;
+  current: { nodeId: string; nodeName: string; phase: 'draining' | 'updating' | 'checking' | 'rollingBack'; target: VersionRef; manual: boolean; by: string | null; startedAt: string; message: string | null } | null;
+  queue: { nodeId: string; nodeName: string; by: string | null }[];
+  upToDate: number;
+  paired: number;
 }
 export type RelayState = 'connecting' | 'connected' | 'error' | 'idle';
 export interface NodeStatus {
@@ -907,6 +959,7 @@ export interface NodeItem {
   status: NodeStatus;
   listenBase: string | null;
   updateAvailable: boolean;
+  update: NodeUpdateInfo;
   ingestHosts: string[];
   createdAt: string;
 }
@@ -951,6 +1004,7 @@ export interface NodeProbe {
 }
 export interface NodesSettings {
   autoUpdate: boolean;
+  updates: NodeUpdatesSettings;
   routeListeners: boolean;
   probeIntervalSeconds: number;
   latencyWarnMs: number;

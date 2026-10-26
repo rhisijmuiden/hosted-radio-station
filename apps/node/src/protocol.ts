@@ -144,6 +144,11 @@ export type ServerMessage =
   | { t: 'plan'; plan: NodePlan }
   | { t: 'ping'; seq: number }
   | { t: 'update'; branch: string | null; commit: string | null }
+  /**
+   * An update of this node is coming: no new listeners are sent here, and the agent moves the ones it has over this
+   * many seconds (they reconnect through the listen route, which picks another relay). 0 = stop draining.
+   */
+  | { t: 'drain'; seconds: number }
   /** FM/MPX: who is live and which show runs, for the RadioText (the song comes from the stream itself). */
   | { t: 'fm'; dj: string | null; show: string | null };
 

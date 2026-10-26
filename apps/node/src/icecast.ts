@@ -166,3 +166,5 @@ export const listClients = async (port: number, password: string, mount: string)
 
 export const updateTitle = (port: number, password: string, mount: string, title: string) =>
   admin(port, password, `/admin/metadata?${new URLSearchParams({ mount, mode: 'updinfo', song: title, charset: 'UTF-8' })}`);
+
+export const killClient = (port: number, password: string, mount: string, id: string) => admin(port, password, `/admin/killclient?${new URLSearchParams({ mount, id })}`);

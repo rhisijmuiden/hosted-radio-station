@@ -15,7 +15,8 @@ import { hashCode, installCommand, newPairingCode, PAIRING_HOURS } from '../serv
 import { carried, nodeConfigPatch, nodeConfigSchema, nodeSettings, relayBaseUrl, storedConfig, type Node } from '../services/nodes/plan.js';
 import { authenticateNode, reportSchema, storeReport } from '../services/nodes/report.js';
 import { forgetRelays, pickRelay } from '../services/nodes/routing.js';
-import { getSetting, nodesSchema, putSetting } from '../services/settings.js';
+import { nodeUpdateInfo, type UpdateOverview } from '../services/nodes/updates.js';
+import { getSetting, nodesSchema, putSetting, UPDATE_POLICIES, updateWindowSchema } from '../services/settings.js';
 import { applyStreams } from '../services/streaming/state.js';
 import { getVersionInfo } from '../services/system.js';
 
@@ -77,6 +78,25 @@ const statusOut = z
     updatedAt: z.string().optional(),
   });
 
+const refOut = z.object({ commit: z.string().nullable(), branch: z.string().nullable() });
+const UPDATE_STATES = ['upToDate', 'waiting', 'scheduled', 'manual', 'paused', 'disabled', 'failed', 'queued', 'draining', 'updating', 'checking', 'rollingBack'] as const;
+const updateInfoOut = z.object({
+  policy: z.enum(UPDATE_POLICIES),
+  source: z.enum(['node', 'group', 'role', 'network']),
+  group: z.object({ id: z.string(), name: z.string() }).nullable(),
+  window: updateWindowSchema,
+  state: z.enum(UPDATE_STATES),
+  target: refOut,
+  nextWindowAt: z.string().nullable(),
+  phaseAt: z.string().nullable(),
+  phaseEndsAt: z.string().nullable(),
+  message: z.string().nullable(),
+  queuePosition: z.number().nullable(),
+  last: z
+    .object({ state: z.enum(['succeeded', 'failed', 'rolledBack']), target: refOut, from: refOut, message: z.string().nullable(), at: z.string(), rollbackTo: z.string().nullable() })
+    .nullable(),
+});
+
 const nodeOut = z.object({
   id: z.uuid(),
   tenantId: z.uuid().nullable(),
@@ -94,6 +114,8 @@ const nodeOut = z.object({
   listenBase: z.string().nullable(),
   /** The node runs another version than this server. */
   updateAvailable: z.boolean(),
+  /** How and when the node gets the version of this server, and how far its update is. */
+  update: updateInfoOut,
   /** Encoder names (src.<domain>) routed to this node. */
   ingestHosts: z.array(z.string()),
   createdAt: z.date(),
@@ -179,10 +201,11 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
     if (!nodes.length) return [];
     const ids = nodes.map((n) => n.id);
     const tenantIds = [...new Set(nodes.map((n) => n.tenantId).filter((t): t is string => !!t))];
-    const [tenants, domains, v] = await Promise.all([
+    const [tenants, domains, v, ov] = await Promise.all([
       tenantIds.length ? ctx.db.select({ id: schema.tenants.id, name: schema.tenants.name }).from(schema.tenants).where(inArray(schema.tenants.id, tenantIds)) : [],
       ctx.db.select({ nodeId: schema.tenantDomains.ingestNodeId, host: schema.tenantDomains.ingestHost }).from(schema.tenantDomains).where(inArray(schema.tenantDomains.ingestNodeId, ids)),
       getVersionInfo(ctx),
+      app.nodeUpdates.overview(),
     ]);
     const tenantName = new Map(tenants.map((t) => [t.id, t.name]));
     return nodes.map((n) => {
@@ -202,6 +225,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         status,
         listenBase: n.roles.includes('relay') ? relayBaseUrl({ ...n, status }) : null,
         updateAvailable: !!n.pairedAt && !!status.commit && !!v.commit && status.commit !== v.commit,
+        update: nodeUpdateInfo(n, status, ov),
         ingestHosts: domains.filter((d) => d.nodeId === n.id).map((d) => d.host),
         createdAt: n.createdAt,
       };
@@ -235,6 +259,8 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
     { config: { audit: 'settings.nodes' }, schema: { tags: ['Nodes'], summary: 'Change the settings of the distribution network', body: nodesSchema, response: { 200: nodesSchema } } },
     async (req) => {
       requireSuperadmin(req);
+      const ids = req.body.updates.groups.map((g) => g.id);
+      if (new Set(ids).size !== ids.length) throw badRequest('Two update groups have the same id');
       await putSetting(ctx, 'nodes', req.body);
       forgetRelays();
       void hub.refreshAll();
@@ -318,6 +344,10 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
     async (req) => {
       const node = await nodeAccess(ctx, req, req.params.id, 'owner');
       const b = req.body;
+      if (b.config?.updateGroup !== undefined && b.config.updateGroup !== (nodeSettings(node).updateGroup ?? null)) {
+        requireSuperadmin(req);
+        if (b.config.updateGroup && !(await getSetting(ctx, 'nodes')).updates.groups.some((g) => g.id === b.config!.updateGroup)) throw badRequest('Unknown update group');
+      }
       const config = b.config ? storedConfig(b.config, node.config) : node.config;
       if (b.config?.relayStations && b.config.relayStations !== 'all' && node.tenantId) {
         const own = await ctx.db.select({ id: schema.stations.id }).from(schema.stations).where(eq(schema.stations.tenantId, node.tenantId));
@@ -375,6 +405,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         .where(eq(schema.nodes.id, node.id))
         .returning();
       await nodeEvent(ctx, node.id, 'unpaired', 'warning', { by: req.auth?.user.email ?? null });
+      await app.nodeUpdates.forget(node.id);
       Object.assign(req.auditInfo, { tenantId: node.tenantId, targetId: node.id, details: { name: node.name } });
       await replan(node.id, req.auth?.user.email, node.roles.includes('relay'));
       return (await toOut([updated!]))[0]!;
@@ -383,14 +414,105 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
 
   app.post(
     '/:id/update',
-    { config: { audit: 'node.update_request' }, schema: { tags: ['Nodes'], summary: 'Update the node to the version of this server now', params: nodeParams, response: { 200: okOut } } },
+    {
+      config: { audit: 'node.update_request' },
+      schema: {
+        tags: ['Nodes'],
+        summary: 'Update the node to the version of this server, whatever its policy. It waits for any other node update to finish, and is checked and rolled back like any other.',
+        params: nodeParams,
+        response: { 200: okOut.extend({ position: z.number() }) },
+      },
+    },
     async (req) => {
       const node = await nodeAccess(ctx, req, req.params.id, 'owner');
-      const v = await getVersionInfo(ctx);
-      if (!hub.requestUpdate(node.id, v.branch, v.commit)) throw conflict('The node is offline');
-      await nodeEvent(ctx, node.id, 'update_requested', 'info', { commit: v.commit?.slice(0, 7) ?? null, by: req.auth?.user.email ?? null });
-      Object.assign(req.auditInfo, { tenantId: node.tenantId, targetId: node.id, details: { name: node.name, commit: v.commit } });
+      if (!node.pairedAt) throw conflict('The node is not paired');
+      const position = await app.nodeUpdates.enqueue(node.id, null, req.auth?.user.email ?? null);
+      Object.assign(req.auditInfo, { tenantId: node.tenantId, targetId: node.id, details: { name: node.name } });
+      return { ok: true as const, position };
+    },
+  );
+
+  app.post(
+    '/:id/rollback',
+    {
+      config: { audit: 'node.rollback' },
+      schema: { tags: ['Nodes'], summary: 'Put the node back on the version it had before its last update', params: nodeParams, response: { 200: okOut.extend({ position: z.number() }) } },
+    },
+    async (req) => {
+      const node = await nodeAccess(ctx, req, req.params.id, 'owner');
+      const last = (await getSetting(ctx, 'nodeRollout')).results[node.id];
+      if (!last || last.state !== 'succeeded' || !last.from.commit) throw conflict('There is no previous version to go back to');
+      const position = await app.nodeUpdates.enqueue(node.id, { commit: last.from.commit, branch: last.from.branch }, req.auth?.user.email ?? null);
+      Object.assign(req.auditInfo, { tenantId: node.tenantId, targetId: node.id, details: { name: node.name, commit: last.from.commit } });
+      return { ok: true as const, position };
+    },
+  );
+
+  app.post(
+    '/:id/update/cancel',
+    { config: { audit: 'node.update_cancel' }, schema: { tags: ['Nodes'], summary: 'Stop an update that has not started yet', params: nodeParams, response: { 200: okOut } } },
+    async (req) => {
+      const node = await nodeAccess(ctx, req, req.params.id, 'owner');
+      await app.nodeUpdates.cancel(node.id, req.auth?.user.email ?? null);
+      Object.assign(req.auditInfo, { tenantId: node.tenantId, targetId: node.id, details: { name: node.name } });
       return { ok: true as const };
+    },
+  );
+
+  // The rollout over all nodes (administrators).
+
+  const rolloutOut = z.object({
+    target: refOut.extend({ version: z.string() }),
+    enabled: z.boolean(),
+    paused: z.object({ reason: z.string(), nodeId: z.string().nullable(), nodeName: z.string().nullable(), at: z.string() }).nullable(),
+    current: z
+      .object({ nodeId: z.string(), nodeName: z.string(), phase: z.enum(['draining', 'updating', 'checking', 'rollingBack']), target: refOut, manual: z.boolean(), by: z.string().nullable(), startedAt: z.string(), message: z.string().nullable() })
+      .nullable(),
+    queue: z.array(z.object({ nodeId: z.string(), nodeName: z.string(), by: z.string().nullable() })),
+    /** Paired nodes on the version of this server, and all paired nodes. */
+    upToDate: z.number(),
+    paired: z.number(),
+  });
+
+  async function rollout(ov?: UpdateOverview) {
+    const o = ov ?? (await app.nodeUpdates.overview());
+    const nodes = await ctx.db.select({ id: schema.nodes.id, name: schema.nodes.name, pairedAt: schema.nodes.pairedAt, status: schema.nodes.status }).from(schema.nodes);
+    const name = (id: string | null) => (id ? (nodes.find((n) => n.id === id)?.name ?? null) : null);
+    const paired = nodes.filter((n) => n.pairedAt);
+    const r = o.rollout;
+    return {
+      target: o.target,
+      enabled: o.settings.autoUpdate && o.settings.updates.enabled,
+      paused: r.paused ? { ...r.paused, nodeName: name(r.paused.nodeId) } : null,
+      current: r.current ? { nodeId: r.current.nodeId, nodeName: name(r.current.nodeId) ?? '?', phase: r.current.phase, target: r.current.target, manual: r.current.manual, by: r.current.by, startedAt: r.current.startedAt, message: r.current.message } : null,
+      queue: r.queue.map((q) => ({ nodeId: q.nodeId, nodeName: name(q.nodeId) ?? '?', by: q.by })),
+      upToDate: paired.filter((n) => (hub.liveStatus(n.id) ?? n.status).commit === o.target.commit).length,
+      paired: paired.length,
+    };
+  }
+
+  app.get('/updates', { schema: { tags: ['Nodes'], summary: 'Where the node updates stand: the version nodes get, the node being updated now, the line', response: { 200: rolloutOut } } }, async (req) => {
+    requireSuperadmin(req);
+    return rollout();
+  });
+
+  app.post(
+    '/updates/pause',
+    { config: { audit: 'nodes.updates_pause' }, schema: { tags: ['Nodes'], summary: 'Stop automatic node updates (a running one finishes)', response: { 200: rolloutOut } } },
+    async (req) => {
+      requireSuperadmin(req);
+      await app.nodeUpdates.setPaused(true, req.auth?.user.email ?? null);
+      return rollout();
+    },
+  );
+
+  app.post(
+    '/updates/resume',
+    { config: { audit: 'nodes.updates_resume' }, schema: { tags: ['Nodes'], summary: 'Resume automatic node updates after a pause or a failed update', response: { 200: rolloutOut } } },
+    async (req) => {
+      requireSuperadmin(req);
+      await app.nodeUpdates.setPaused(false, req.auth?.user.email ?? null);
+      return rollout();
     },
   );
 
@@ -398,6 +520,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
     const node = await nodeAccess(ctx, req, req.params.id, 'owner');
     hub.disconnect(node.id);
     await ctx.db.delete(schema.nodes).where(eq(schema.nodes.id, node.id));
+    await app.nodeUpdates.forget(node.id);
     Object.assign(req.auditInfo, { tenantId: node.tenantId, targetId: node.id, details: { name: node.name } });
     forgetRelays();
     if (node.roles.includes('relay')) await applyStreams(ctx, { by: req.auth?.user.email });

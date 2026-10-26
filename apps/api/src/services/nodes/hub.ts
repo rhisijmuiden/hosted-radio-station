@@ -9,7 +9,7 @@ import { getSetting } from '../settings.js';
 import { GeoIp } from '../stats/geoip.js';
 import { fmContext } from './fm.js';
 import { buildPlan, type Node } from './plan.js';
-import { CLOSE, PROTOCOL_VERSION, type AgentMessage, type AgentStats, type FmStatus, type ServerMessage } from './protocol.js';
+import { CLOSE, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, type AgentMessage, type AgentStats, type FmStatus, type ServerMessage } from './protocol.js';
 
 const PING_MS = 5000;
 /** A ping without an answer after this long counts as a timeout. */
@@ -166,7 +166,7 @@ export class NodeHub {
   }
 
   private async hello(socket: WebSocket, msg: Extract<AgentMessage, { t: 'hello' }>, ip: string | null): Promise<Conn | null> {
-    if (msg.protocol !== PROTOCOL_VERSION) {
+    if (typeof msg.protocol !== 'number' || msg.protocol < MIN_PROTOCOL_VERSION || msg.protocol > PROTOCOL_VERSION) {
       socket.close(CLOSE.protocol, `protocol ${PROTOCOL_VERSION} expected`);
       return null;
     }
@@ -417,6 +417,14 @@ export class NodeHub {
     if (!c) return false;
     this.send(c, { t: 'update', branch, commit });
     c.status.update = { state: 'running', message: 'Requested', at: new Date().toISOString() };
+    return true;
+  }
+
+  /** Tells a node an update is coming (seconds > 0) or that it is over (0). Returns false when it is not connected. */
+  drain(nodeId: string, seconds: number) {
+    const c = this.conns.get(nodeId);
+    if (!c) return false;
+    this.send(c, { t: 'drain', seconds });
     return true;
   }
 
