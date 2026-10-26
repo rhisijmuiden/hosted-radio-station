@@ -97,6 +97,8 @@ beforeAll(async () => {
   target = (await t.app.nodeUpdates.target()).commit!;
   // The planner is driven by hand here.
   t.app.nodeUpdates.stop();
+  // Skip the grace period after start, in which the planner waits for nodes to reconnect.
+  Object.assign(t.app.nodeUpdates, { startedAt: 0 });
 });
 afterAll(() => t.close());
 
@@ -246,6 +248,44 @@ describe('node updates', () => {
     await eventually(() => expect(am.updates()).toEqual([expect.objectContaining({ commit: target })]));
     am.close();
     aw.close();
+    await reset();
+  });
+
+  it('does not count a node that is offline before its update as a failure', async () => {
+    await setUpdates({ drainSeconds: 30, healthSeconds: 15 });
+    const n = await pairNode('h-relay-8');
+    const a = agent(n.id, n.secret);
+    await a.open();
+    await tick();
+    await eventually(async () => expect((await nodeInfo(n.id)).update.state).toBe('draining'));
+    // The connection drops (e.g. this server restarted): still draining, nothing paused.
+    a.close();
+    await settle();
+    await tick();
+    await eventually(async () => expect((await nodeInfo(n.id)).update.state).toBe('draining'));
+    // Gone for good: postponed, without a result or a pause.
+    const r = await getSetting(t.ctx, 'nodeRollout');
+    r.current!.offlineSeconds = 1000;
+    await putSetting(t.ctx, 'nodeRollout', r);
+    await tick();
+    const after = await getSetting(t.ctx, 'nodeRollout');
+    expect(after).toMatchObject({ current: null, paused: null });
+    expect(after.results[n.id]).toBeUndefined();
+    expect(drainingNodes.has(n.id)).toBe(false);
+    await reset();
+  });
+
+  it('judges nothing right after this server starts', async () => {
+    const r = await getSetting(t.ctx, 'nodeRollout');
+    Object.assign(t.app.nodeUpdates, { startedAt: Date.now() });
+    await putSetting(t.ctx, 'nodeRollout', { ...r, queue: [] });
+    const n = await pairNode('i-relay-9');
+    const a = agent(n.id, n.secret);
+    await a.open();
+    await tick();
+    expect(a.updates()).toEqual([]);
+    Object.assign(t.app.nodeUpdates, { startedAt: 0 });
+    a.close();
     await reset();
   });
 

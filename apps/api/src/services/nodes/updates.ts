@@ -29,6 +29,8 @@ const OFFLINE_LIMIT_S = 90;
 const CHECK_GRACE_MS = 60_000;
 /** A failure the node reports this long after the request is about this update, even if its start was missed. */
 const FAILURE_TRUST_MS = 60_000;
+/** After this server starts, nodes need a moment to connect again; until then nobody counts as offline. */
+const START_GRACE_MS = 30_000;
 
 export type Ref = { commit: string | null; branch: string | null };
 type Current = NonNullable<NodeRollout['current']>;
@@ -203,6 +205,7 @@ export function nodeUpdateInfo(node: Pick<Node, 'id' | 'config' | 'roles' | 'pai
 export class NodeUpdater {
   private timer: NodeJS.Timeout | null = null;
   private lock: Promise<unknown> = Promise.resolve();
+  private startedAt = Date.now();
   private versionCache: { at: number; value: Ref & { version: string } } | null = null;
 
   constructor(
@@ -212,6 +215,7 @@ export class NodeUpdater {
   ) {}
 
   async start() {
+    this.startedAt = Date.now();
     const r = await getSetting(this.ctx, 'nodeRollout').catch(() => null);
     if (r?.current) drainingNodes.add(r.current.nodeId);
     this.timer = setInterval(() => void this.tick(), TICK_MS);
@@ -304,6 +308,8 @@ export class NodeUpdater {
   // Steps
 
   private async step() {
+    // Right after a restart of this server every node is briefly offline: judge nothing until they are back.
+    if (Date.now() - this.startedAt < START_GRACE_MS) return;
     const [settings, r] = await Promise.all([getSetting(this.ctx, 'nodes'), getSetting(this.ctx, 'nodeRollout')]);
     const before = JSON.stringify(r);
     if (r.current) await this.advance(r, settings);
@@ -410,7 +416,12 @@ export class NodeUpdater {
 
     switch (cur.phase) {
       case 'draining': {
-        if (!s) return this.finish(r, 'failed', 'The node went offline before its update.');
+        if (!s) {
+          // Not a failure of the new version: give the node back its listeners and try again when it is online.
+          cur.offlineSeconds += TICK_MS / 1000;
+          if (cur.offlineSeconds > OFFLINE_LIMIT_S) return this.postpone(r, 'The node went offline before its update; it is tried again when it is back.');
+          return;
+        }
         // Wait at least a few seconds so the routing caches have seen the drain, then go when the node is empty.
         if (age >= u.drainSeconds * 1000 + 5000 || (age > 10_000 && (s.listeners ?? 0) === 0)) {
           this.setPhase(cur, 'updating');
@@ -482,6 +493,16 @@ export class NodeUpdater {
       r.paused = { reason: message ?? 'An update failed.', nodeId: cur.nodeId, at: new Date().toISOString() };
       this.log.warn({ node: cur.nodeId, message }, 'automatic node updates paused');
     }
+  }
+
+  /** Stops an update that has not started yet, without a result (so it is not a failure and nothing pauses). */
+  private async postpone(r: NodeRollout, message: string) {
+    const cur = r.current!;
+    r.current = null;
+    this.undrain(cur.nodeId);
+    // A manual request stays in line; one for this server's version follows whatever version that is by then.
+    if (cur.manual) r.queue.unshift({ nodeId: cur.nodeId, target: cur.target.commit === (await this.target()).commit ? null : cur.target, by: cur.by, at: new Date().toISOString() });
+    await nodeEvent(this.ctx, cur.nodeId, 'update_postponed', 'warning', { message });
   }
 
   private undrain(nodeId: string) {
