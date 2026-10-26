@@ -3,6 +3,7 @@ import { createDb } from '../db/index.js';
 import { loadConfig } from '../lib/config.js';
 import { createContext } from '../lib/context.js';
 import { STREAMS_CHANNEL } from '../services/streaming/state.js';
+import { AUTODJ_CHANNEL } from './autodj.js';
 import { StreamsWorker } from './worker.js';
 
 /** Entry point of hosted-radio-streams.service. */
@@ -14,6 +15,7 @@ async function main() {
   const worker = new StreamsWorker(ctx, log);
   await worker.start();
   await client.listen(STREAMS_CHANNEL, () => void worker.reload());
+  await client.listen(AUTODJ_CHANNEL, (payload) => void worker.autodj.command(payload));
   log.info('streams service started');
   const shutdown = async (signal: string) => {
     log.info({ signal }, 'shutting down');

@@ -37,3 +37,13 @@ export function formatDuration(from: string, to?: string | null) {
   const sec = String(s % 60).padStart(2, '0');
   return h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
 }
+
+/** "4:05" or "1:02:03" for a number of seconds. */
+export function formatSeconds(total: number | null | undefined) {
+  if (total == null || !Number.isFinite(total)) return '—';
+  const s = Math.max(0, Math.round(total));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = String(s % 60).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
+}

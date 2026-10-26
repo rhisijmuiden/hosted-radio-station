@@ -215,7 +215,7 @@ describe('song requests', () => {
     await settings({ requests: { enabled: true, onlyWhenLive: false, perHour: 2, message: '' } });
     await t.app.nowPlaying.refresh('schermer-fm', false);
     expect((await send({ artist: 'Headhunterz', title: 'Orange Heart', name: 'Kim', message: 'Groetjes!' })).statusCode).toBe(200);
-    expect((await send({ artist: 'x', title: 'y', website: 'http://spam' })).json()).toEqual({ ok: true, id: null });
+    expect((await send({ artist: 'x', title: 'y', website: 'http://spam' })).json()).toEqual({ ok: true, id: null, queued: false });
     expect((await send({ artist: 'Wildstylez', title: 'Year of Summer' })).statusCode).toBe(200);
     expect((await send({ artist: 'One', title: 'Too many' })).statusCode).toBe(429);
   });

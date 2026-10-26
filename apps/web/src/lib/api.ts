@@ -587,6 +587,8 @@ export interface PublicPageInfo {
 export type RequestStatus = 'pending' | 'accepted' | 'played' | 'rejected';
 export interface SongRequest {
   id: string;
+  /** Picked from the library (Radio stations). */
+  mediaId: string | null;
   artist: string;
   title: string;
   message: string;
@@ -612,4 +614,110 @@ export interface OnDemandItem {
   createdAt: string;
   recording: boolean;
   previewUrl: string;
+}
+
+// Phase 6: AutoDJ
+
+export type QueueName = 'q1' | 'q2';
+export type QueueRuleMode = 'alternate' | 'ratio' | 'q1_first' | 'q2_first';
+export interface AutodjSettings {
+  enabled: boolean;
+  mountId: string | null;
+  crossfadeSeconds: number;
+  normalize: boolean;
+  rule: { mode: QueueRuleMode; q1: number; q2: number };
+  queueDepth: number;
+  fill: { q1: boolean; q2: boolean };
+  artistSeparationMinutes: number;
+  trackSeparationMinutes: number;
+  pauseWhenLive: boolean;
+  requests: { fromLibrary: boolean; autoQueue: boolean; queue: QueueName; repeatMinutes: number };
+}
+export interface QueueRow {
+  id: string;
+  queue: QueueName;
+  state: 'queued' | 'cued' | 'playing';
+  origin: 'rotation' | 'request' | 'manual';
+  addedBy: string | null;
+  requestId: string | null;
+  playlistName: string | null;
+  startedAt: string | null;
+  media: { id: string; title: string; artist: string; album: string; durationSeconds: number | null; location: string; path: string };
+}
+export interface AutodjView {
+  edition: Edition;
+  settings: AutodjSettings;
+  mount: { id: string; path: string; format: AudioFormat; bitrateKbps: number } | null;
+  coveredMounts: string[];
+  player: { expected: boolean; connected: boolean; seenAt: string | null; paused: boolean };
+  nowPlaying: QueueRow | null;
+  queues: { q1: QueueRow[]; q2: QueueRow[] };
+  library: { tracks: number; enabled: number; playlists: number };
+}
+export interface MediaFile {
+  id: string;
+  location: string;
+  path: string;
+  title: string;
+  artist: string;
+  album: string;
+  genre: string;
+  year: number | null;
+  durationSeconds: number | null;
+  bitrateKbps: number | null;
+  gainDb: number | null;
+  sizeBytes: number;
+  enabled: boolean;
+  edited: boolean;
+  playCount: number;
+  lastPlayedAt: string | null;
+  createdAt: string;
+  playlistIds: string[];
+}
+export interface LibraryLocation {
+  id: string;
+  name: string;
+  type: 'storage' | 'local' | 'smb' | 'nfs';
+  tracks: number;
+}
+export interface LibraryFolders {
+  locations: LibraryLocation[];
+  folders: { location: string; path: string; tracks: number }[];
+}
+export interface ScanProgress {
+  running: boolean;
+  location: string | null;
+  found: number;
+  added: number;
+  updated: number;
+  removed: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+  errors: string[];
+}
+export interface PlaylistFolder {
+  location: string;
+  path: string;
+}
+export interface Playlist {
+  id: string;
+  name: string;
+  queue: QueueName;
+  weight: number;
+  order: 'shuffle' | 'random' | 'sequential';
+  folders: PlaylistFolder[];
+  enabled: boolean;
+  trackCount: number;
+  createdAt: string;
+}
+export type MediaSourceType = 'local' | 'smb' | 'nfs';
+export interface MediaSource {
+  id: string;
+  name: string;
+  type: MediaSourceType;
+  enabled: boolean;
+  config: { path?: string; host?: string; share?: string; export?: string; username?: string; password?: string; domain?: string; version?: string };
+  status: { state: 'pending' | 'ok' | 'error'; message?: string; checkedAt?: string } | null;
+  fileCount: number;
+  scannedAt: string | null;
 }

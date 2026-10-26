@@ -59,6 +59,15 @@ Phase 5: public station page with live now playing, embeddable widgets, song req
 | ![Embeddable player, history and request widgets](docs/screenshots/phase-5-embeds.png) | ![On demand with recordings and uploads](docs/screenshots/phase-5-admin-ondemand.png) |
 | ![Public station page on a phone](docs/screenshots/phase-5-page-mobile.png) | |
 
+Phase 6: Radio station with AutoDJ, music library, playlists and two queues.
+
+| Light | Light |
+| --- | --- |
+| ![AutoDJ with now playing and queues Q1 and Q2](docs/screenshots/phase-6-autodj.png) | ![Music library with folders and shares](docs/screenshots/phase-6-library.png) |
+| ![Playlists per queue](docs/screenshots/phase-6-playlists.png) | ![Playlist with weight, order and folders](docs/screenshots/phase-6-playlist-dialog.png) |
+| ![Bulk upload](docs/screenshots/phase-6-upload.png) | ![Listeners request songs from the library](docs/screenshots/phase-6-request-library.png) |
+| ![AutoDJ in Dutch, dark](docs/screenshots/phase-6-autodj-dark-nl.png) | ![Library in Dutch, dark](docs/screenshots/phase-6-library-dark-nl.png) |
+
 ## Status
 
 | Phase | Name | Status |
@@ -68,7 +77,7 @@ Phase 5: public station page with live now playing, embeddable widgets, song req
 | 3 | Distribution | Done |
 | 4 | Statistics | Done |
 | 5 | Public pages | Done |
-| 6 | Radio station (AutoDJ) | Planned |
+| 6 | Radio station (AutoDJ) | Done |
 | 7 | Scheduler | Planned |
 | 8 | Distribution network and orchestration | Planned |
 | 9 | Windows client | Planned |
@@ -144,9 +153,13 @@ What listeners see.
 
 The upgrade from Distribution.
 
-- Media library on local storage, SMB or NFS, with bulk import of existing music collections.
-- Liquidsoap per station: playlists, crossfades and two queues (Q1 and Q2) with configurable rules for which queue plays next.
-- One-click upgrade from Distribution to Radio station.
+- Media library on the station storage, SMB or NFS shares (mounted read-only) or a folder on the server. Bulk import: upload many files at once in the panel, drop them in the `music` folder over SFTP/FTP, or point a share at an existing collection. Tags, length and ReplayGain are read automatically; scans are incremental and run every 30 minutes and after every SFTP upload. Folder tree, search, preview, tag editing and bulk actions in the panel.
+- Liquidsoap per station (its own systemd unit), feeding a private `/autodj` mount. The default mount falls back to it, so listeners hear the AutoDJ whenever no DJ is live; when a DJ connects the AutoDJ pauses and continues the track afterwards.
+- Playlists built from folders or hand-picked tracks, with a weight and an order (shuffle by least recently played, random or in order). Artist and track separation.
+- Two queues, Q1 and Q2, each filled by its own playlists. The pick rule decides which queue plays next: a ratio (for example 3:1), alternate, or one queue first. Queues are visible live in the panel, with drag and drop, skip, and tracks added by hand at the top or bottom.
+- Crossfades and volume normalisation; the AutoDJ follows the format and bitrate of a chosen mount.
+- Song requests from the library: listeners search the music on the public page, and requests go into the queue automatically or after a DJ accepts them, with a minimum time before a track can be requested again.
+- One-click upgrade from Distribution to Radio station (and back): the AutoDJ mount, fallback, a first playlist and the AutoDJ are set up in one step. Administrators can upgrade the customer plan at the same time.
 
 ### Phase 7: Scheduler
 

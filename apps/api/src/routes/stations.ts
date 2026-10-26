@@ -9,6 +9,8 @@ import { hashPassword, requireTenantRole, requireUser, type Role } from '../lib/
 import type { AppContext } from '../lib/context.js';
 import { badRequest, conflict, forbidden, isUniqueViolation, notFound } from '../lib/errors.js';
 import { okOut, slugSchema } from '../lib/schemas.js';
+import { downgradeStation, upgradeStation } from '../services/autodj/edition.js';
+import { autodjSettings } from '../services/autodj/settings.js';
 import { getSetting, SECRET_MASK } from '../services/settings.js';
 import { killSource, stationDir } from '../services/streaming/icecast.js';
 import { connectionInfo } from '../services/streaming/info.js';
@@ -389,6 +391,7 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
         if (isUniqueViolation(err)) throw conflict('A station with this short name already exists');
         throw err;
       }
+      if (station.edition === 'station') station = (await upgradeStation(ctx, station)).station;
       Object.assign(req.auditInfo, { tenantId: tenant.id, targetId: station.id, details: { name: station.name, slug: station.slug } });
       await apply(req, station.id);
       reply.status(201);
@@ -437,7 +440,8 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
         throw badRequest('The Radio station edition needs the Radio station plan for this customer');
       }
       if (body.maxListeners !== undefined) await checkListenerBudget(ctx, tenant, body.maxListeners, station.id);
-      const set: Partial<typeof schema.stations.$inferInsert> = { ...body, updatedAt: new Date() };
+      const { edition, ...details } = body;
+      const set: Partial<typeof schema.stations.$inferInsert> = { ...details, updatedAt: new Date() };
       if (legacy) {
         if (legacy.enabled && !station.legacyPort) {
           const s = await getSetting(ctx, 'streaming');
@@ -456,7 +460,13 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
         throw err;
       }
       req.auditInfo.details = { changed: Object.keys(req.body).filter((k) => req.body[k as keyof typeof req.body] !== undefined) };
-      if (body.edition && body.edition !== station.edition) req.auditInfo.details.edition = { from: station.edition, to: body.edition };
+      if (edition && edition !== station.edition) {
+        // The same as the upgrade and downgrade actions: the AutoDJ mount, fallback and first playlist come with it.
+        const [fresh] = await ctx.db.select().from(schema.stations).where(eq(schema.stations.id, station.id));
+        if (edition === 'station') await upgradeStation(ctx, fresh!);
+        else await downgradeStation(ctx, fresh!);
+        req.auditInfo.details.edition = { from: station.edition, to: edition };
+      }
       await apply(req, station.id);
       return detail(station.id, access.role);
     },
@@ -668,6 +678,7 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
       const mount = mounts.find((m) => m.id === req.params.mountId);
       if (!mount) throw notFound('Mount');
       if (mounts.some((m) => m.sourceMountId === mount.id)) throw conflict('Other mounts are converted from this mount; remove those first');
+      if (autodjSettings(station).mountId === mount.id && station.edition === 'station') throw conflict('The AutoDJ feeds this mount; choose another mount under AutoDJ first');
       const outputs = await ctx.db.select().from(schema.stationOutputs).where(eq(schema.stationOutputs.mountId, mount.id));
       if (outputs.length) throw conflict(`The output "${outputs[0]!.name}" sends this mount; change it first`);
       await ctx.db.update(schema.stationMounts).set({ fallbackMountId: null }).where(eq(schema.stationMounts.fallbackMountId, mount.id));

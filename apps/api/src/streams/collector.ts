@@ -63,6 +63,8 @@ export class ListenerCollector {
   /** Latest listener count per external output, from the 30-second poll. */
   private external = new Map<string, { stationId: string; listeners: number }>();
   private lastReconcile = 0;
+  /** Other local hooks on the same port (the AutoDJ players); returns true when it handled the request. */
+  extraHandler?: (req: http.IncomingMessage, res: http.ServerResponse) => boolean;
 
   constructor(
     private readonly ctx: AppContext,
@@ -105,6 +107,7 @@ export class ListenerCollector {
       res.writeHead(200, { 'icecast-auth-user': '1', 'content-type': 'text/plain' });
       res.end('ok');
     };
+    if (this.extraHandler?.(req, res)) return;
     const m = req.url?.match(/^\/icecast\/([0-9a-f-]{36})\/(add|remove)$/);
     if (req.method !== 'POST' || !m) {
       res.writeHead(404).end();

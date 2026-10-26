@@ -1,0 +1,908 @@
+import { createWriteStream } from 'node:fs';
+import { mkdir, rename, rm, stat } from 'node:fs/promises';
+import { extname, join } from 'node:path';
+import { pipeline } from 'node:stream/promises';
+import fastifyMultipart from '@fastify/multipart';
+import { and, asc, count, desc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
+import type { FastifyRequest } from 'fastify';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
+import { z } from 'zod';
+import { schema } from '../db/index.js';
+import type { MediaSourceConfig } from '../db/schema.js';
+import { badRequest, forbidden, notFound } from '../lib/errors.js';
+import { okOut } from '../lib/schemas.js';
+import { downgradeStation, upgradeStation } from '../services/autodj/edition.js';
+import {
+  filePath,
+  MEDIA_EXTENSIONS,
+  MUSIC_FOLDER,
+  refreshSourceStatus,
+  scanLibrary,
+  scanProgress,
+  STORAGE,
+  type MediaSource,
+} from '../services/autodj/library.js';
+import { clearQueue, dropDisabled, enqueue, fillQueues, inPlaylist, mediaPath, moveItem, queueRows } from '../services/autodj/planner.js';
+import { autodjSchema, autodjSettings } from '../services/autodj/settings.js';
+import { AUDIO_TYPES } from '../services/public/ondemand.js';
+import { SECRET_MASK } from '../services/settings.js';
+import { mediaDir } from '../services/streaming/icecast.js';
+import { applyStreams, type Station } from '../services/streaming/state.js';
+import { readStreamsStatus } from '../services/streaming/status.js';
+import { scanStationStorage, tenantStorageUsage } from '../services/streaming/storage.js';
+import { AUTODJ_CHANNEL } from '../streams/autodj.js';
+import { sendFile } from './public.js';
+import { stationAccess } from './stations.js';
+
+const stationParams = z.object({ id: z.uuid() });
+const queueSchema = z.enum(['q1', 'q2']);
+
+const mediaOut = z.object({
+  id: z.uuid(),
+  location: z.string(),
+  path: z.string(),
+  title: z.string(),
+  artist: z.string(),
+  album: z.string(),
+  genre: z.string(),
+  year: z.number().int().nullable(),
+  durationSeconds: z.number().nullable(),
+  bitrateKbps: z.number().int().nullable(),
+  gainDb: z.number().nullable(),
+  sizeBytes: z.number(),
+  enabled: z.boolean(),
+  edited: z.boolean(),
+  playCount: z.number().int(),
+  lastPlayedAt: z.date().nullable(),
+  createdAt: z.date(),
+  /** Playlists the track is in (by folder or by hand). */
+  playlistIds: z.array(z.uuid()),
+});
+const folderSchema = z.object({ location: z.string().max(64), path: z.string().max(500) });
+const playlistBody = z.object({
+  name: z.string().trim().min(1).max(80),
+  queue: queueSchema.default('q1'),
+  weight: z.number().int().min(1).max(10).default(5),
+  order: z.enum(['shuffle', 'random', 'sequential']).default('shuffle'),
+  folders: z.array(folderSchema).max(50).default([]),
+  enabled: z.boolean().default(true),
+});
+const playlistOut = playlistBody.extend({ id: z.uuid(), trackCount: z.number().int(), createdAt: z.date() });
+const sourceStatusOut = z.object({ state: z.enum(['pending', 'ok', 'error']), message: z.string().optional(), checkedAt: z.string().optional() }).nullable();
+const sourceBody = z.object({
+  name: z.string().trim().min(1).max(80),
+  type: z.enum(['local', 'smb', 'nfs']),
+  enabled: z.boolean().default(true),
+  config: z
+    .object({
+      path: z.string().trim().max(500).optional(),
+      host: z
+        .string()
+        .trim()
+        .toLowerCase()
+        .regex(/^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$|^\d{1,3}(\.\d{1,3}){3}$/, 'Invalid host name')
+        .optional(),
+      share: z
+        .string()
+        .trim()
+        .regex(/^[A-Za-z0-9._$ -]{1,80}(\/[A-Za-z0-9._ -]{1,80}){0,8}$/, 'Use the share name, optionally followed by /folder')
+        .refine((v) => !v.split('/').some((p) => p.trim() === '.' || p.trim() === '..'), 'Use the share name, optionally followed by /folder')
+        .optional(),
+      export: z
+        .string()
+        .trim()
+        .regex(/^\/[A-Za-z0-9._/-]{0,200}$/, 'Use the exported path, e.g. /export/music')
+        .refine((v) => !v.split('/').includes('..'), 'Use the exported path, e.g. /export/music')
+        .optional(),
+      username: z
+        .string()
+        .trim()
+        .max(100)
+        .regex(/^[^\r\n,=]*$/, 'Invalid user name')
+        .optional(),
+      password: z
+        .string()
+        .max(200)
+        .regex(/^[^\r\n]*$/, 'Invalid password')
+        .optional(),
+      domain: z
+        .string()
+        .trim()
+        .max(100)
+        .regex(/^[A-Za-z0-9._-]*$/, 'Invalid domain')
+        .optional(),
+      version: z.enum(['', '1.0', '2.0', '2.1', '3.0', '3.1.1', '3', '4', '4.1', '4.2']).optional(),
+    })
+    .default({}),
+});
+const sourceOut = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  type: z.enum(['local', 'smb', 'nfs']),
+  enabled: z.boolean(),
+  config: sourceBody.shape.config,
+  status: sourceStatusOut,
+  fileCount: z.number().int(),
+  scannedAt: z.date().nullable(),
+});
+const scanOut = z.object({
+  running: z.boolean(),
+  location: z.string().nullable(),
+  found: z.number().int(),
+  added: z.number().int(),
+  updated: z.number().int(),
+  removed: z.number().int(),
+  startedAt: z.string().nullable(),
+  finishedAt: z.string().nullable(),
+  errors: z.array(z.string()),
+});
+const queueRowOut = z.object({
+  id: z.uuid(),
+  queue: queueSchema,
+  state: z.enum(['queued', 'cued', 'playing']),
+  origin: z.string(),
+  addedBy: z.string().nullable(),
+  requestId: z.uuid().nullable(),
+  playlistName: z.string().nullable(),
+  startedAt: z.date().nullable(),
+  media: z.object({ id: z.uuid(), title: z.string(), artist: z.string(), album: z.string(), durationSeconds: z.number().nullable(), location: z.string(), path: z.string() }),
+});
+const autodjOut = z.object({
+  edition: z.enum(['distribution', 'station']),
+  settings: autodjSchema,
+  mount: z.object({ id: z.uuid(), path: z.string(), format: z.string(), bitrateKbps: z.number().int() }).nullable(),
+  /** Mounts whose listeners hear the AutoDJ when no DJ is live. */
+  coveredMounts: z.array(z.string()),
+  player: z.object({
+    /** The AutoDJ should play (Radio station, switched on, station enabled). */
+    expected: z.boolean(),
+    /** The player asked for a track or reported one in the last few minutes. */
+    connected: z.boolean(),
+    seenAt: z.string().nullable(),
+    paused: z.boolean(),
+  }),
+  nowPlaying: queueRowOut.nullable(),
+  queues: z.object({ q1: z.array(queueRowOut), q2: z.array(queueRowOut) }),
+  library: z.object({ tracks: z.number().int(), enabled: z.number().int(), playlists: z.number().int() }),
+});
+
+const contentType = (path: string) => AUDIO_TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream';
+
+/** Media library, shares, playlists and the AutoDJ of Radio stations. */
+export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
+  const { ctx } = app;
+  await app.register(fastifyMultipart, { limits: { fileSize: 1024 * 1024 * 1024, files: 200, fields: 5 } });
+  const apply = (req: FastifyRequest, stationId: string) =>
+    applyStreams(ctx, { stationIds: [stationId], by: req.auth?.user.email }).catch((err) => req.log.error({ err }, 'applying stream configuration failed'));
+
+  /** Station access for the Radio station features. */
+  async function radio(req: FastifyRequest, stationId: string, minRole: 'dj' | 'manager' | 'owner') {
+    const r = await stationAccess(ctx, req, stationId, minRole);
+    if (r.station.edition !== 'station') throw badRequest('This needs the Radio station edition; upgrade the station first');
+    return r;
+  }
+
+  async function sourcesOf(stationId: string) {
+    return new Map((await ctx.db.select().from(schema.mediaSources).where(eq(schema.mediaSources.stationId, stationId))).map((s) => [s.id, s] as const));
+  }
+
+  function checkLocation(location: string, sources: Map<string, MediaSource>) {
+    if (location !== STORAGE && !sources.has(location)) throw badRequest('Unknown library location');
+  }
+
+  // Edition
+
+  app.post(
+    '/:id/upgrade',
+    {
+      config: { audit: 'station.upgrade' },
+      schema: {
+        tags: ['AutoDJ'],
+        summary:
+          'Upgrade a station to the Radio station edition in one step: AutoDJ mount, fallback of the default mount, a first playlist and the AutoDJ switched on. Owners; administrators can upgrade the customer plan at the same time.',
+        params: stationParams,
+        body: z.object({ upgradeCustomer: z.boolean().default(false) }).default({ upgradeCustomer: false }),
+        response: { 200: autodjOut },
+      },
+    },
+    async (req) => {
+      const { station, tenant, access } = await stationAccess(ctx, req, req.params.id, 'owner');
+      if (tenant.plan !== 'station') {
+        if (!req.body.upgradeCustomer || access.role !== 'superadmin') throw badRequest('The customer has the Distribution plan; an administrator upgrades the customer first');
+        await ctx.db.update(schema.tenants).set({ plan: 'station' }).where(eq(schema.tenants.id, tenant.id));
+      }
+      const { station: updated } = await upgradeStation(ctx, station);
+      req.auditInfo.details = { from: station.edition, to: 'station', customerUpgraded: tenant.plan !== 'station' };
+      await apply(req, station.id);
+      await fillQueues(ctx, station.id).catch(() => undefined);
+      void scanLibrary(ctx, station.id).catch(() => undefined);
+      return describe(updated);
+    },
+  );
+
+  app.post(
+    '/:id/downgrade',
+    {
+      config: { audit: 'station.downgrade' },
+      schema: {
+        tags: ['AutoDJ'],
+        summary: 'Back to the Distribution edition: the AutoDJ stops. Library and playlists are kept. Owners.',
+        params: stationParams,
+        response: { 200: okOut },
+      },
+    },
+    async (req) => {
+      const { station } = await stationAccess(ctx, req, req.params.id, 'owner');
+      if (station.edition !== 'station') throw badRequest('This station has the Distribution edition');
+      await downgradeStation(ctx, station);
+      req.auditInfo.details = { from: 'station', to: 'distribution' };
+      await apply(req, station.id);
+      return { ok: true as const };
+    },
+  );
+
+  // AutoDJ
+
+  async function describe(station: Station): Promise<z.infer<typeof autodjOut>> {
+    const settings = autodjSettings(station);
+    const [mounts, rows, [lib], [pl], status] = await Promise.all([
+      ctx.db.select().from(schema.stationMounts).where(eq(schema.stationMounts.stationId, station.id)),
+      queueRows(ctx, station.id),
+      ctx.db
+        .select({ tracks: count(), enabled: sql<number>`count(*) filter (where ${schema.mediaFiles.enabled})::int` })
+        .from(schema.mediaFiles)
+        .where(eq(schema.mediaFiles.stationId, station.id)),
+      ctx.db.select({ n: count() }).from(schema.playlists).where(eq(schema.playlists.stationId, station.id)),
+      readStreamsStatus(ctx),
+    ]);
+    const mount = mounts.find((m) => m.id === settings.mountId);
+    const byId = new Map(mounts.map((m) => [m.id, m]));
+    const covered = mount
+      ? mounts
+          .filter((m) => {
+            let cur = m.fallbackMountId ? byId.get(m.fallbackMountId) : undefined;
+            for (let i = 0; cur && i < 20; i++) {
+              if (cur.id === mount.id) return true;
+              cur = cur.fallbackMountId ? byId.get(cur.fallbackMountId) : undefined;
+            }
+            return false;
+          })
+          .map((m) => m.path)
+      : [];
+    const p = status.worker?.alive ? status.worker.autodj[station.id] : undefined;
+    const [db] = await ctx.db.select().from(schema.autodjState).where(eq(schema.autodjState.stationId, station.id));
+    const seenAt = p?.seenAt ?? db?.seenAt?.toISOString() ?? null;
+    const expected = station.edition === 'station' && settings.enabled && !!mount && station.enabled;
+    const playing = rows.find((r) => r.state === 'playing') ?? null;
+    return {
+      edition: station.edition,
+      settings,
+      mount: mount ? { id: mount.id, path: mount.path, format: mount.format, bitrateKbps: mount.bitrateKbps } : null,
+      coveredMounts: covered,
+      player: {
+        expected,
+        // The player asks for a track at least once per track; allow for long tracks and a held player.
+        connected: expected && !!(p?.reachable || (seenAt && Date.now() - new Date(seenAt).getTime() < 20 * 60_000)),
+        seenAt,
+        paused: !!p?.paused,
+      },
+      nowPlaying: playing,
+      queues: { q1: rows.filter((r) => r.queue === 'q1' && r.state !== 'playing'), q2: rows.filter((r) => r.queue === 'q2' && r.state !== 'playing') },
+      library: { tracks: lib?.tracks ?? 0, enabled: lib?.enabled ?? 0, playlists: pl?.n ?? 0 },
+    };
+  }
+
+  app.get(
+    '/:id/autodj',
+    { schema: { tags: ['AutoDJ'], summary: 'AutoDJ settings, player state, the track on air and both queues', params: stationParams, response: { 200: autodjOut } } },
+    async (req) => {
+      const { station } = await stationAccess(ctx, req, req.params.id, 'dj');
+      return describe(station);
+    },
+  );
+
+  app.put(
+    '/:id/autodj',
+    {
+      config: { audit: 'autodj.update' },
+      schema: {
+        tags: ['AutoDJ'],
+        summary: 'Change the AutoDJ settings (managers). Crossfade, loudness and mount changes restart the player.',
+        params: stationParams,
+        body: autodjSchema,
+        response: { 200: autodjOut },
+      },
+    },
+    async (req) => {
+      const { station } = await radio(req, req.params.id, 'manager');
+      if (req.body.mountId) {
+        const [m] = await ctx.db.select().from(schema.stationMounts).where(and(eq(schema.stationMounts.id, req.body.mountId), eq(schema.stationMounts.stationId, station.id)));
+        if (!m || m.kind !== 'source') throw badRequest('The AutoDJ needs a source mount of this station');
+      }
+      if (req.body.enabled && !req.body.mountId) throw badRequest('Choose the mount the AutoDJ feeds');
+      const [row] = await ctx.db.update(schema.stations).set({ autodj: req.body, updatedAt: new Date() }).where(eq(schema.stations.id, station.id)).returning();
+      req.auditInfo.details = { enabled: req.body.enabled, rule: req.body.rule };
+      await apply(req, station.id);
+      await fillQueues(ctx, station.id, true).catch(() => undefined);
+      return describe(row!);
+    },
+  );
+
+  app.post(
+    '/:id/autodj/skip',
+    { config: { audit: 'autodj.skip' }, schema: { tags: ['AutoDJ'], summary: 'Skip the track on air (DJs too)', params: stationParams, response: { 200: okOut } } },
+    async (req) => {
+      const { station } = await radio(req, req.params.id, 'dj');
+      await ctx.db.execute(sql`select pg_notify(${AUTODJ_CHANNEL}, ${JSON.stringify({ stationId: station.id, command: 'skip' })})`);
+      return { ok: true as const };
+    },
+  );
+
+  app.post(
+    '/:id/autodj/queue',
+    {
+      schema: {
+        tags: ['AutoDJ'],
+        summary: 'Put a library track in Q1 or Q2, at the top or the bottom (DJs too)',
+        params: stationParams,
+        body: z.object({ mediaId: z.uuid(), queue: queueSchema, at: z.enum(['top', 'bottom']).default('bottom') }),
+        response: { 200: autodjOut },
+      },
+    },
+    async (req) => {
+      const { station, access } = await radio(req, req.params.id, 'dj');
+      await enqueue(ctx, station.id, req.body.mediaId, req.body.queue, { at: req.body.at, origin: 'manual', addedBy: access.user.name });
+      return describe(station);
+    },
+  );
+
+  app.patch(
+    '/:id/autodj/queue/:itemId',
+    {
+      schema: {
+        tags: ['AutoDJ'],
+        summary: 'Move a waiting track: to the other queue and/or before another track (null = to the end)',
+        params: stationParams.extend({ itemId: z.uuid() }),
+        body: z.object({ queue: queueSchema, beforeId: z.uuid().nullable().default(null) }),
+        response: { 200: autodjOut },
+      },
+    },
+    async (req) => {
+      const { station } = await radio(req, req.params.id, 'dj');
+      await moveItem(ctx, station.id, req.params.itemId, req.body.queue, req.body.beforeId);
+      return describe(station);
+    },
+  );
+
+  app.delete(
+    '/:id/autodj/queue/:itemId',
+    {
+      schema: { tags: ['AutoDJ'], summary: 'Remove a waiting track from its queue', params: stationParams.extend({ itemId: z.uuid() }), response: { 200: autodjOut } },
+    },
+    async (req) => {
+      const { station } = await radio(req, req.params.id, 'dj');
+      const deleted = await ctx.db
+        .delete(schema.queueItems)
+        .where(and(eq(schema.queueItems.id, req.params.itemId), eq(schema.queueItems.stationId, station.id), eq(schema.queueItems.state, 'queued')))
+        .returning();
+      if (!deleted.length) throw notFound('Waiting track');
+      return describe(station);
+    },
+  );
+
+  app.post(
+    '/:id/autodj/queue/clear',
+    {
+      schema: {
+        tags: ['AutoDJ'],
+        summary: 'Empty a queue. `rotationOnly` keeps requests and tracks added by hand; the playlists fill it again.',
+        params: stationParams,
+        body: z.object({ queue: queueSchema, rotationOnly: z.boolean().default(true) }),
+        response: { 200: autodjOut },
+      },
+    },
+    async (req) => {
+      const { station } = await radio(req, req.params.id, 'dj');
+      await clearQueue(ctx, station.id, req.body.queue, req.body.rotationOnly);
+      await fillQueues(ctx, station.id);
+      return describe(station);
+    },
+  );
+
+  // Library
+
+  const libraryQuery = z.object({
+    q: z.string().trim().max(200).optional(),
+    location: z.string().max(64).optional(),
+    folder: z.string().max(500).optional(),
+    playlistId: z.uuid().optional(),
+    enabled: z.enum(['all', 'yes', 'no']).default('all'),
+    sort: z.enum(['artist', 'title', 'album', 'added', 'played', 'plays', 'duration', 'path']).default('artist'),
+    dir: z.enum(['asc', 'desc']).default('asc'),
+    offset: z.coerce.number().int().min(0).default(0),
+    limit: z.coerce.number().int().min(1).max(500).default(100),
+  });
+
+  app.get(
+    '/:id/library',
+    {
+      schema: {
+        tags: ['AutoDJ'],
+        summary: 'Tracks in the library, searchable and filtered by folder or playlist',
+        params: stationParams,
+        querystring: libraryQuery,
+        response: { 200: z.object({ items: z.array(mediaOut), total: z.number().int() }) },
+      },
+    },
+    async (req) => {
+      const { station } = await radio(req, req.params.id, 'dj');
+      const q = req.query;
+      const mf = schema.mediaFiles;
+      const where: (SQL | undefined)[] = [eq(mf.stationId, station.id)];
+      if (q.q) {
+        const like = `%${q.q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+        where.push(or(ilike(mf.title, like), ilike(mf.artist, like), ilike(mf.album, like), ilike(mf.path, like)));
+      }
+      if (q.location) where.push(eq(mf.location, q.location));
+      if (q.folder) where.push(sql`${mf.path} like ${`${q.folder.replace(/[\\%_]/g, (c) => `\\${c}`)}/%`}`);
+      if (q.enabled !== 'all') where.push(eq(mf.enabled, q.enabled === 'yes'));
+      const playlists = await ctx.db.select().from(schema.playlists).where(eq(schema.playlists.stationId, station.id));
+      if (q.playlistId) {
+        const p = playlists.find((x) => x.id === q.playlistId);
+        if (!p) throw notFound('Playlist');
+        where.push(inPlaylist(p));
+      }
+      const column = { artist: mf.artist, title: mf.title, album: mf.album, added: mf.createdAt, played: mf.lastPlayedAt, plays: mf.playCount, duration: mf.durationSeconds, path: mf.path }[q.sort];
+      const dir = q.dir === 'asc' ? asc : desc;
+      const [items, [total]] = await Promise.all([
+        ctx.db
+          .select()
+          .from(mf)
+          .where(and(...where))
+          .orderBy(dir(column), asc(mf.title), asc(mf.id))
+          .limit(q.limit)
+          .offset(q.offset),
+        ctx.db.select({ n: count() }).from(mf).where(and(...where)),
+      ]);
+      const explicit = items.length
+        ? await ctx.db
+            .select()
+            .from(schema.playlistItems)
+            .where(inArray(schema.playlistItems.mediaId, items.map((i) => i.id)))
+        : [];
+      return {
+        items: items.map((i) => ({
+          ...i,
+          playlistIds: playlists
+            .filter((p) => explicit.some((e) => e.playlistId === p.id && e.mediaId === i.id) || p.folders.some((f) => f.location === i.location && (!f.path || i.path.startsWith(`${f.path}/`))))
+            .map((p) => p.id),
+        })),
+        total: total?.n ?? 0,
+      };
+    },
+  );
+
+  app.get(
+    '/:id/library/folders',
+    {
+      schema: {
+        tags: ['AutoDJ'],
+        summary: 'Folders of the library per location, with the number of tracks directly in them',
+        params: stationParams,
+        response: {
+          200: z.object({
+            locations: z.array(z.object({ id: z.string(), name: z.string(), type: z.string(), tracks: z.number().int() })),
+            folders: z.array(z.object({ location: z.string(), path: z.string(), tracks: z.number().int() })),
+          }),
+        },
+      },
+    },
+    async (req) => {
+      const { station } = await radio(req, req.params.id, 'dj');
+      const sources = await sourcesOf(station.id);
+      const rows = await ctx.db
+        .select({
+          location: schema.mediaFiles.location,
+          path: sql<string>`case when position('/' in ${schema.mediaFiles.path}) > 0 then regexp_replace(${schema.mediaFiles.path}, '/[^/]*$', '') else '' end`,
+          tracks: sql<number>`count(*)::int`,
+        })
+        .from(schema.mediaFiles)
+        .where(eq(schema.mediaFiles.stationId, station.id))
+        .groupBy(sql`1`, sql`2`)
+        .orderBy(sql`1`, sql`2`);
+      const perLocation = new Map<string, number>();
+      for (const r of rows) perLocation.set(r.location, (perLocation.get(r.location) ?? 0) + r.tracks);
+      return {
+        locations: [
+          { id: STORAGE, name: 'Station storage', type: 'storage', tracks: perLocation.get(STORAGE) ?? 0 },
+          ...[...sources.values()].map((s) => ({ id: s.id, name: s.name, type: s.type, tracks: perLocation.get(s.id) ?? 0 })),
+        ],
+        folders: rows.filter((r) => r.path !== ''),
+      };
+    },
+  );
+
+  app.get(
+    '/:id/library/scan',
+    { schema: { tags: ['AutoDJ'], summary: 'Progress of the last library scan', params: stationParams, response: { 200: scanOut } } },
+    async (req) => {
+      const { station } = await radio(req, req.params.id, 'dj');
+      return scanProgress(station.id);
+    },
+  );
+
+  app.post(
+    '/:id/library/scan',
+    {
+      schema: {
+        tags: ['AutoDJ'],
+        summary: 'Scan the library now (new, changed and removed files). Runs in the background; poll GET for progress.',
+        params: stationParams,
+        body: z.object({ location: z.string().max(64).optional() }).default({}),
+        response: { 200: scanOut },
+      },
+    },
+    async (req) => {
+      const { station } = await radio(req, req.params.id, 'manager');
+      void scanLibrary(ctx, station.id, req.body.location).then(() => fillQueues(ctx, station.id)).catch(() => undefined);
+      return scanProgress(station.id);
+    },
+  );
+
+  app.post(
+    '/:id/library/upload',
+    {
+      config: { audit: 'library.upload' },
+      schema: {
+        tags: ['AutoDJ'],
+        summary: `Upload audio files (multipart, field "files") into the station storage, by default the "${MUSIC_FOLDER}" folder. Counts towards the storage limit.`,
+        params: stationParams,
+        querystring: z.object({ folder: z.string().trim().max(300).optional() }),
+        response: { 200: z.object({ saved: z.array(z.string()), skipped: z.array(z.object({ name: z.string(), reason: z.string() })) }) },
+      },
+    },
+    async (req) => {
+      const { station, tenant } = await radio(req, req.params.id, 'manager');
+      const folder = (req.query.folder ?? MUSIC_FOLDER).replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+      if (folder.split('/').some((p) => p === '..' || p.startsWith('.')) || /[\0]/.test(folder)) throw badRequest('Invalid folder');
+      if (['ondemand', 'recordings'].includes(folder.split('/')[0]!)) throw badRequest('That folder is not part of the music library');
+      const root = mediaDir(ctx, station.id);
+      const dir = filePath(root, folder || MUSIC_FOLDER);
+      await mkdir(dir, { recursive: true, mode: 0o775 });
+      const quota = tenant.limits.storageQuotaMb * 1024 * 1024;
+      let used = await tenantStorageUsage(ctx, tenant.id);
+      const saved: string[] = [];
+      const skipped: { name: string; reason: string }[] = [];
+      for await (const part of req.files()) {
+        const name = part.filename.split(/[\\/]/).pop()!.replace(/[\0\r\n]/g, '').trim();
+        if (!name || name.startsWith('.') || !MEDIA_EXTENSIONS.has(extname(name).toLowerCase())) {
+          part.file.resume();
+          skipped.push({ name: part.filename, reason: 'not an audio file' });
+          continue;
+        }
+        const target = join(dir, name);
+        const tmp = join(dir, `.${name}.upload`);
+        await pipeline(part.file, createWriteStream(tmp, { mode: 0o664 }));
+        const size = (await stat(tmp)).size;
+        if (part.file.truncated) {
+          await rm(tmp, { force: true });
+          skipped.push({ name, reason: 'larger than 1 GB' });
+        } else if (quota > 0 && used + size > quota) {
+          await rm(tmp, { force: true });
+          skipped.push({ name, reason: 'storage limit reached' });
+        } else {
+          await rename(tmp, target);
+          used += size;
+          saved.push(`${folder}/${name}`);
+        }
+      }
+      if (saved.length) void scanStationStorage(ctx, station.id).catch(() => undefined);
+      req.auditInfo.details = { files: saved.length, folder };
+      if (saved.length) void scanLibrary(ctx, station.id, STORAGE).then(() => fillQueues(ctx, station.id)).catch(() => undefined);
+      return { saved, skipped };
+    },
+  );
+
+  app.patch(
+    '/:id/library/:mediaId',
+    {
+      config: { audit: 'library.update' },
+      schema: {
+        tags: ['AutoDJ'],
+        summary: 'Correct the tags of a track (kept when the file is scanned again) or switch it off for the AutoDJ',
+        params: stationParams.extend({ mediaId: z.uuid() }),
+        body: z.object({
+          title: z.string().trim().min(1).max(300).optional(),
+          artist: z.string().trim().max(300).optional(),
+          album: z.string().trim().max(300).optional(),
+          genre: z.string().trim().max(100).optional(),
+          year: z.number().int().min(1000).max(2999).nullable().optional(),
+          enabled: z.boolean().optional(),
+        }),
+        response: { 200: mediaOut },
+      },
+    },
+    async (req) => {
+      const { station } = await radio(req, req.params.id, 'manager');
+      const { enabled, ...tags } = req.body;
+      const tagged = Object.values(tags).some((v) => v !== undefined);
+      const [row] = await ctx.db
+        .update(schema.mediaFiles)
+        .set({ ...tags, ...(enabled !== undefined ? { enabled } : {}), ...(tagged ? { edited: true } : {}), updatedAt: new Date() })
+        .where(and(eq(schema.mediaFiles.id, req.params.mediaId), eq(schema.mediaFiles.stationId, station.id)))
+        .returning();
+      if (!row) throw notFound('Track');
+      if (enabled === false) await dropDisabled(ctx, station.id, [row.id]);
+      return { ...row, playlistIds: [] };
+    },
+  );
+
+  app.post(
+    '/:id/library/bulk',
+    {
+      config: { audit: 'library.bulk' },
+      schema: {
+        tags: ['AutoDJ'],
+        summary: 'Act on several tracks: switch on or off, add to or remove from a playlist, or delete (files in the station storage only)',
+        params: stationParams,
+        body: z.object({
+          ids: z.array(z.uuid()).min(1).max(1000),
+          action: z.enum(['enable', 'disable', 'add', 'remove', 'delete']),
+          playlistId: z.uuid().optional(),
+        }),
+        response: { 200: z.object({ changed: z.number().int(), skipped: z.number().int() }) },
+      },
+    },
+    async (req) => {
+      const { station } = await radio(req, req.params.id, 'manager');
+      const { ids, action, playlistId } = req.body;
+      const rows = await ctx.db.select().from(schema.mediaFiles).where(and(eq(schema.mediaFiles.stationId, station.id), inArray(schema.mediaFiles.id, ids)));
+      const found = rows.map((r) => r.id);
+      req.auditInfo.details = { action, tracks: found.length, playlistId };
+      if (action === 'enable' || action === 'disable') {
+        if (found.length) await ctx.db.update(schema.mediaFiles).set({ enabled: action === 'enable', updatedAt: new Date() }).where(inArray(schema.mediaFiles.id, found));
+        if (action === 'disable') await dropDisabled(ctx, station.id, found);
+        return { changed: found.length, skipped: ids.length - found.length };
+      }
+      if (action === 'add' || action === 'remove') {
+        const [p] = playlistId ? await ctx.db.select().from(schema.playlists).where(and(eq(schema.playlists.id, playlistId), eq(schema.playlists.stationId, station.id))) : [];
+        if (!p) throw badRequest('Choose a playlist of this station');
+        if (action === 'add' && found.length) {
+          await ctx.db.insert(schema.playlistItems).values(found.map((mediaId) => ({ playlistId: p.id, mediaId }))).onConflictDoNothing();
+        } else if (found.length) {
+          await ctx.db.delete(schema.playlistItems).where(and(eq(schema.playlistItems.playlistId, p.id), inArray(schema.playlistItems.mediaId, found)));
+        }
+        return { changed: found.length, skipped: ids.length - found.length };
+      }
+      // Delete: only files this server stores; shares and server folders are read-only.
+      const own = rows.filter((r) => r.location === STORAGE);
+      const root = mediaDir(ctx, station.id);
+      for (const r of own) await rm(filePath(root, r.path), { force: true }).catch(() => undefined);
+      if (own.length) await ctx.db.delete(schema.mediaFiles).where(inArray(schema.mediaFiles.id, own.map((r) => r.id)));
+      return { changed: own.length, skipped: ids.length - own.length };
+    },
+  );
+
+  app.get(
+    '/:id/library/:mediaId/audio',
+    { schema: { tags: ['AutoDJ'], summary: 'Listen to a library track in the panel', params: stationParams.extend({ mediaId: z.uuid() }) } },
+    async (req, reply) => {
+      const { station } = await radio(req, req.params.id, 'dj');
+      const [media] = await ctx.db.select().from(schema.mediaFiles).where(and(eq(schema.mediaFiles.id, req.params.mediaId), eq(schema.mediaFiles.stationId, station.id)));
+      if (!media) throw notFound('Track');
+      const full = mediaPath(ctx, media, await sourcesOf(station.id));
+      if (!full) throw notFound('File');
+      return sendFile(reply, full, contentType(media.path), req.headers.range, 'private, no-store');
+    },
+  );
+
+  // Playlists
+
+  async function playlistsOut(stationId: string) {
+    const lists = await ctx.db.select().from(schema.playlists).where(eq(schema.playlists.stationId, stationId)).orderBy(asc(schema.playlists.queue), asc(schema.playlists.name));
+    const counts = await Promise.all(
+      lists.map((p) =>
+        ctx.db
+          .select({ n: count() })
+          .from(schema.mediaFiles)
+          .where(and(eq(schema.mediaFiles.stationId, stationId), inPlaylist(p)))
+          .then((r) => r[0]?.n ?? 0),
+      ),
+    );
+    return lists.map((p, i) => ({ id: p.id, name: p.name, queue: p.queue, weight: p.weight, order: p.order, folders: p.folders, enabled: p.enabled, trackCount: counts[i]!, createdAt: p.createdAt }));
+  }
+
+  async function checkFolders(stationId: string, folders: { location: string; path: string }[]) {
+    const sources = await sourcesOf(stationId);
+    return folders.map((f) => {
+      checkLocation(f.location, sources);
+      const path = f.path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+      if (path.split('/').some((p) => p === '..')) throw badRequest('Invalid folder');
+      return { location: f.location, path };
+    });
+  }
+
+  app.get(
+    '/:id/playlists',
+    { schema: { tags: ['AutoDJ'], summary: 'Playlists of the AutoDJ with the queue they feed and their number of tracks', params: stationParams, response: { 200: z.array(playlistOut) } } },
+    async (req) => {
+      const { station } = await radio(req, req.params.id, 'dj');
+      return playlistsOut(station.id);
+    },
+  );
+
+  app.post(
+    '/:id/playlists',
+    {
+      config: { audit: 'playlist.create' },
+      schema: { tags: ['AutoDJ'], summary: 'Add a playlist (managers)', params: stationParams, body: playlistBody, response: { 201: playlistOut } },
+    },
+    async (req, reply) => {
+      const { station } = await radio(req, req.params.id, 'manager');
+      const folders = await checkFolders(station.id, req.body.folders);
+      const [p] = await ctx.db.insert(schema.playlists).values({ ...req.body, folders, stationId: station.id }).returning();
+      Object.assign(req.auditInfo, { targetType: 'playlist', targetId: p!.id, details: { name: p!.name } });
+      await fillQueues(ctx, station.id, true).catch(() => undefined);
+      reply.status(201);
+      return (await playlistsOut(station.id)).find((x) => x.id === p!.id)!;
+    },
+  );
+
+  app.put(
+    '/:id/playlists/:playlistId',
+    {
+      config: { audit: 'playlist.update' },
+      schema: { tags: ['AutoDJ'], summary: 'Change a playlist', params: stationParams.extend({ playlistId: z.uuid() }), body: playlistBody, response: { 200: playlistOut } },
+    },
+    async (req) => {
+      const { station } = await radio(req, req.params.id, 'manager');
+      const folders = await checkFolders(station.id, req.body.folders);
+      const [p] = await ctx.db
+        .update(schema.playlists)
+        .set({ ...req.body, folders })
+        .where(and(eq(schema.playlists.id, req.params.playlistId), eq(schema.playlists.stationId, station.id)))
+        .returning();
+      if (!p) throw notFound('Playlist');
+      Object.assign(req.auditInfo, { targetType: 'playlist', targetId: p.id, details: { name: p.name } });
+      await fillQueues(ctx, station.id, true).catch(() => undefined);
+      return (await playlistsOut(station.id)).find((x) => x.id === p.id)!;
+    },
+  );
+
+  app.delete(
+    '/:id/playlists/:playlistId',
+    {
+      config: { audit: 'playlist.delete' },
+      schema: { tags: ['AutoDJ'], summary: 'Remove a playlist (its tracks stay in the library)', params: stationParams.extend({ playlistId: z.uuid() }), response: { 200: okOut } },
+    },
+    async (req) => {
+      const { station } = await radio(req, req.params.id, 'manager');
+      const deleted = await ctx.db.delete(schema.playlists).where(and(eq(schema.playlists.id, req.params.playlistId), eq(schema.playlists.stationId, station.id))).returning();
+      if (!deleted.length) throw notFound('Playlist');
+      Object.assign(req.auditInfo, { targetType: 'playlist', details: { name: deleted[0]!.name } });
+      await fillQueues(ctx, station.id, true).catch(() => undefined);
+      return { ok: true as const };
+    },
+  );
+
+  // Library sources (shares)
+
+  const toSourceOut = (s: MediaSource): z.infer<typeof sourceOut> => ({
+    id: s.id,
+    name: s.name,
+    type: s.type,
+    enabled: s.enabled,
+    config: { ...s.config, password: s.config.password ? SECRET_MASK : undefined } as z.infer<typeof sourceOut>['config'],
+    status: s.status ?? null,
+    fileCount: s.fileCount,
+    scannedAt: s.scannedAt,
+  });
+
+  async function sourceValues(req: FastifyRequest, body: z.infer<typeof sourceBody>, current?: MediaSource): Promise<MediaSourceConfig> {
+    const c = body.config;
+    if (body.type === 'local') {
+      if (!req.auth?.user.isSuperadmin || req.auth.keyTenantId) throw forbidden('Only administrators can add folders of this server');
+      if (!c.path || !c.path.startsWith('/') || c.path.split('/').includes('..')) throw badRequest('Enter the full path of the folder, e.g. /mnt/music');
+      const st = await stat(c.path).catch(() => null);
+      if (!st?.isDirectory()) throw badRequest(`${c.path} is not a folder on this server`);
+      return { path: c.path.replace(/\/+$/, '') || '/' };
+    }
+    if (!c.host) throw badRequest('Enter the host name or address of the file server');
+    if (body.type === 'smb') {
+      if (!c.share) throw badRequest('Enter the share name');
+      const password = c.password === SECRET_MASK ? current?.config.password : c.password ? ctx.box.encrypt(c.password) : undefined;
+      return { host: c.host, share: c.share, username: c.username || undefined, password: c.username ? password : undefined, domain: c.domain || undefined, version: c.version || undefined };
+    }
+    if (!c.export) throw badRequest('Enter the exported path, e.g. /export/music');
+    return { host: c.host, export: c.export, version: c.version || undefined };
+  }
+
+  app.get(
+    '/:id/sources',
+    { schema: { tags: ['AutoDJ'], summary: 'Music collections outside the station storage: server folders and SMB/NFS shares', params: stationParams, response: { 200: z.array(sourceOut) } } },
+    async (req) => {
+      const { station } = await radio(req, req.params.id, 'dj');
+      return (await refreshSourceStatus(ctx, station.id)).map(toSourceOut);
+    },
+  );
+
+  app.post(
+    '/:id/sources',
+    {
+      config: { audit: 'library_source.create' },
+      schema: {
+        tags: ['AutoDJ'],
+        summary: `Add a share (SMB or NFS, mounted read-only) or a server folder (administrators). Files are indexed in place. Secrets are masked as "${SECRET_MASK}".`,
+        params: stationParams,
+        body: sourceBody,
+        response: { 201: sourceOut },
+      },
+    },
+    async (req, reply) => {
+      const { station } = await radio(req, req.params.id, 'manager');
+      const config = await sourceValues(req, req.body);
+      const [s] = await ctx.db
+        .insert(schema.mediaSources)
+        .values({ stationId: station.id, name: req.body.name, type: req.body.type, enabled: req.body.enabled, config, status: { state: 'pending' } })
+        .returning();
+      Object.assign(req.auditInfo, { targetType: 'library_source', targetId: s!.id, details: { name: s!.name, type: s!.type, host: config.host } });
+      await apply(req, station.id);
+      // Shares are mounted by the system helper in the background; scan once it is likely done.
+      setTimeout(() => void scanLibrary(ctx, station.id, s!.id).catch(() => undefined), s!.type === 'local' ? 0 : 8000).unref();
+      reply.status(201);
+      return toSourceOut(s!);
+    },
+  );
+
+  app.put(
+    '/:id/sources/:sourceId',
+    {
+      config: { audit: 'library_source.update' },
+      schema: { tags: ['AutoDJ'], summary: 'Change a share or server folder', params: stationParams.extend({ sourceId: z.uuid() }), body: sourceBody, response: { 200: sourceOut } },
+    },
+    async (req) => {
+      const { station } = await radio(req, req.params.id, 'manager');
+      const [current] = await ctx.db.select().from(schema.mediaSources).where(and(eq(schema.mediaSources.id, req.params.sourceId), eq(schema.mediaSources.stationId, station.id)));
+      if (!current) throw notFound('Source');
+      if (current.type !== req.body.type) throw badRequest('The type of a source cannot change');
+      const config = await sourceValues(req, req.body, current);
+      const [s] = await ctx.db
+        .update(schema.mediaSources)
+        .set({ name: req.body.name, enabled: req.body.enabled, config, status: { state: 'pending' } })
+        .where(eq(schema.mediaSources.id, current.id))
+        .returning();
+      Object.assign(req.auditInfo, { targetType: 'library_source', targetId: s!.id, details: { name: s!.name } });
+      await apply(req, station.id);
+      setTimeout(() => void scanLibrary(ctx, station.id, s!.id).catch(() => undefined), s!.type === 'local' ? 0 : 8000).unref();
+      return toSourceOut(s!);
+    },
+  );
+
+  app.delete(
+    '/:id/sources/:sourceId',
+    {
+      config: { audit: 'library_source.delete' },
+      schema: {
+        tags: ['AutoDJ'],
+        summary: 'Remove a share or server folder from the library (the files themselves are not touched)',
+        params: stationParams.extend({ sourceId: z.uuid() }),
+        response: { 200: okOut },
+      },
+    },
+    async (req) => {
+      const { station } = await radio(req, req.params.id, 'manager');
+      const deleted = await ctx.db.delete(schema.mediaSources).where(and(eq(schema.mediaSources.id, req.params.sourceId), eq(schema.mediaSources.stationId, station.id))).returning();
+      if (!deleted.length) throw notFound('Source');
+      // Playlist folders in this location point nowhere now.
+      const lists = await ctx.db.select().from(schema.playlists).where(eq(schema.playlists.stationId, station.id));
+      for (const p of lists) {
+        if (p.folders.some((f) => f.location === deleted[0]!.id)) {
+          await ctx.db.update(schema.playlists).set({ folders: p.folders.filter((f) => f.location !== deleted[0]!.id) }).where(eq(schema.playlists.id, p.id));
+        }
+      }
+      Object.assign(req.auditInfo, { targetType: 'library_source', details: { name: deleted[0]!.name } });
+      await apply(req, station.id);
+      return { ok: true as const };
+    },
+  );
+};

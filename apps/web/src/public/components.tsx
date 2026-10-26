@@ -1,6 +1,6 @@
 import clsx from 'clsx';
-import { Check, Globe, LoaderCircle, Moon, Pause, Play, Radio, Send, Sun, Volume2, VolumeX } from 'lucide-react';
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { Check, Globe, LoaderCircle, Moon, Music2, Pause, Play, Radio, Search, Send, Sun, Volume2, VolumeX } from 'lucide-react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { clock, params, seconds, timeAgo, useLang, useT, type LivePlayer, type NowPlaying, type OnDemandItem, type Song } from './lib';
 
 /** Album art, else the station logo, else a soft gradient with a radio. */
@@ -195,24 +195,122 @@ export function HistoryList({ items, limit }: { items: NowPlaying['history']; li
 const inputClass =
   'h-11 w-full rounded-md border border-line bg-raised px-3.5 text-sm text-ink placeholder:text-muted/70 focus:border-[var(--station)] focus:outline-none disabled:opacity-60';
 
+interface LibraryTrack {
+  id: string;
+  artist: string;
+  title: string;
+  album: string;
+  durationSeconds: number | null;
+  requestable: boolean;
+}
+
+/** Search box over the station's music library; the listener picks a track instead of typing one. */
+function LibraryPicker({ slug, picked, onPick }: { slug: string; picked: LibraryTrack | null; onPick: (t: LibraryTrack | null) => void }) {
+  const t = useT();
+  const [q, setQ] = useState('');
+  const [items, setItems] = useState<LibraryTrack[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    if (q.trim().length < 2) {
+      setItems(null);
+      return;
+    }
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => {
+      setLoading(true);
+      fetch(`/api/public/stations/${slug}/library?q=${encodeURIComponent(q.trim())}`, { signal: ctrl.signal })
+        .then((r) => (r.ok ? (r.json() as Promise<{ items: LibraryTrack[] }>) : { items: [] }))
+        .then((r) => setItems(r.items))
+        .catch(() => undefined)
+        .finally(() => setLoading(false));
+    }, 250);
+    return () => {
+      clearTimeout(timer);
+      ctrl.abort();
+    };
+  }, [q, slug]);
+
+  if (picked) {
+    return (
+      <div className="flex items-center gap-3 rounded-md border border-[var(--station)] bg-raised px-3.5 py-2.5">
+        <Music2 className="size-4 shrink-0 text-[var(--station)]" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-semibold">{picked.title}</div>
+          <div className="truncate text-xs text-muted">{picked.artist}</div>
+        </div>
+        <button type="button" onClick={() => onPick(null)} className="shrink-0 text-[13px] font-semibold text-[var(--station)] hover:underline">
+          {t('requestChange')}
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="relative">
+        <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted" />
+        <input className={clsx(inputClass, 'pl-10')} placeholder={t('requestSearch')} value={q} onChange={(e) => setQ(e.target.value)} />
+        {loading && <LoaderCircle className="absolute top-1/2 right-3.5 size-4 -translate-y-1/2 animate-spin text-muted" />}
+      </div>
+      {items && (
+        <ul className="max-h-64 overflow-y-auto rounded-md border border-line bg-raised">
+          {items.map((i) => (
+            <li key={i.id}>
+              <button
+                type="button"
+                disabled={!i.requestable}
+                onClick={() => onPick(i)}
+                className="flex w-full items-center gap-3 border-t border-line px-3.5 py-2 text-left first:border-t-0 enabled:hover:bg-chip disabled:opacity-50"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-semibold">{i.title}</div>
+                  <div className="truncate text-xs text-muted">{[i.artist, i.album].filter(Boolean).join(' · ')}</div>
+                </div>
+                <span className="shrink-0 text-xs text-muted tabular-nums">{i.requestable ? seconds(i.durationSeconds) : t('requestRecent')}</span>
+              </button>
+            </li>
+          ))}
+          {!items.length && <li className="px-3.5 py-3 text-[13px] text-muted">{t('requestNoResults')}</li>}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export function RequestForm({ np }: { np: NowPlaying }) {
   const t = useT();
   const [form, setForm] = useState({ artist: '', title: '', name: '', message: '', website: '' });
   const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [error, setError] = useState('');
+  const [freeText, setFreeText] = useState(false);
+  const [picked, setPicked] = useState<LibraryTrack | null>(null);
+  const [queued, setQueued] = useState(false);
   if (!np.requests.enabled) return null;
+  const library = !!np.requests.library && !freeText;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    if (library && !picked) return;
     setState('sending');
     try {
-      const res = await fetch(`/api/public/stations/${np.station.slug}/requests`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(form) });
+      const body = library ? { mediaId: picked!.id, name: form.name, message: form.message, website: form.website } : form;
+      const res = await fetch(`/api/public/stations/${np.station.slug}/requests`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
       if (res.ok) {
+        const out = (await res.json().catch(() => null)) as { queued?: boolean } | null;
+        setQueued(!!out?.queued);
         setState('sent');
+        setPicked(null);
         setForm({ ...form, artist: '', title: '', message: '' });
         return;
       }
       const code = ((await res.json().catch(() => null)) as { error?: { code?: string } } | null)?.error?.code;
-      setError(code === 'too_many_requests' || res.status === 429 ? t('requestsTooMany') : code === 'requests_closed' ? t('requestsClosed') : t('requestFailed'));
+      setError(
+        code === 'too_many_requests' || res.status === 429
+          ? t('requestsTooMany')
+          : code === 'requests_closed'
+            ? t('requestsClosed')
+            : code === 'not_requestable'
+              ? t('requestNotRequestable')
+              : t('requestFailed'),
+      );
       setState('error');
     } catch {
       setError(t('requestFailed'));
@@ -226,7 +324,7 @@ export function RequestForm({ np }: { np: NowPlaying }) {
         <span className="grid size-10 place-items-center rounded-full bg-online text-white">
           <Check className="size-5" />
         </span>
-        <p className="text-sm font-semibold">{t('requestSent')}</p>
+        <p className="text-sm font-semibold">{queued ? t('requestQueued') : t('requestSent')}</p>
         <button type="button" onClick={() => setState('idle')} className="text-[13px] font-semibold text-[var(--station)] hover:underline">
           {t('requestAnother')}
         </button>
@@ -237,10 +335,19 @@ export function RequestForm({ np }: { np: NowPlaying }) {
   return (
     <form onSubmit={submit} className="flex flex-col gap-2.5">
       {np.requests.message && <p className="text-[13px] text-muted">{np.requests.message}</p>}
-      <div className="grid gap-2.5 sm:grid-cols-2">
-        <input required maxLength={120} className={inputClass} placeholder={t('requestArtist')} value={form.artist} onChange={set('artist')} />
-        <input required maxLength={160} className={inputClass} placeholder={t('requestSong')} value={form.title} onChange={set('title')} />
-      </div>
+      {library ? (
+        <LibraryPicker slug={np.station.slug} picked={picked} onPick={setPicked} />
+      ) : (
+        <div className="grid gap-2.5 sm:grid-cols-2">
+          <input required maxLength={120} className={inputClass} placeholder={t('requestArtist')} value={form.artist} onChange={set('artist')} />
+          <input required maxLength={160} className={inputClass} placeholder={t('requestSong')} value={form.title} onChange={set('title')} />
+        </div>
+      )}
+      {np.requests.library && (
+        <button type="button" onClick={() => setFreeText(!freeText)} className="self-start text-[13px] font-semibold text-[var(--station)] hover:underline">
+          {freeText ? t('requestUseLibrary') : t('requestTypeIt')}
+        </button>
+      )}
       <input maxLength={60} className={inputClass} placeholder={t('requestName')} value={form.name} onChange={set('name')} />
       <textarea maxLength={300} rows={2} className={clsx(inputClass, 'h-auto py-2.5')} placeholder={t('requestMessage')} value={form.message} onChange={set('message')} />
       {/* Left empty by people; bots fill in every field. */}
@@ -248,7 +355,7 @@ export function RequestForm({ np }: { np: NowPlaying }) {
       {state === 'error' && <p className="text-[13px] text-offline">{error}</p>}
       <button
         type="submit"
-        disabled={state === 'sending'}
+        disabled={state === 'sending' || (library && !picked)}
         className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-[var(--station)] px-5 text-sm font-bold text-[var(--on-station)] transition hover:brightness-95 disabled:opacity-60"
       >
         {state === 'sending' ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}

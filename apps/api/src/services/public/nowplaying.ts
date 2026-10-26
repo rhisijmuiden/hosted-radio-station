@@ -1,6 +1,7 @@
-import { and, asc, desc, eq, isNotNull, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { schema } from '../../db/index.js';
 import type { AppContext } from '../../lib/context.js';
+import { libraryRequests } from '../autodj/requests.js';
 import { CONTENT_TYPES } from '../streaming/icecast.js';
 import { connectionInfo } from '../streaming/info.js';
 import { stationStats, type Mount, type Station } from '../streaming/state.js';
@@ -36,7 +37,7 @@ export interface NowPlaying {
   listeners: number | null;
   mounts: { path: string; name: string; format: string; contentType: string; bitrateKbps: number; isDefault: boolean; live: boolean; listenUrl: string | null }[];
   history: (Song & { playedAt: string })[];
-  requests: { enabled: boolean; open: boolean; message: string };
+  requests: { enabled: boolean; open: boolean; message: string; library: boolean };
   onDemand: { enabled: boolean };
   updatedAt: string;
 }
@@ -73,13 +74,25 @@ export async function songOf(ctx: AppContext, artwork: ArtworkFinder | null, bas
   return { text, artist, title, artworkUrl: file ? `${base}/api/public/artwork/${file}` : null };
 }
 
-/** Recently played titles of a station (newest first), without the one playing now. */
-export async function recentlyPlayed(ctx: AppContext, artwork: ArtworkFinder | null, station: PublicStation, base: string, limit: number, mountPath: string | null) {
-  if (!mountPath) return [];
+/** The mount and the mounts down its fallback chain (e.g. /live, then /autodj): what its listeners hear. */
+export function heardMounts(mounts: Mount[], mount: Mount | null): string[] {
+  const byId = new Map(mounts.map((m) => [m.id, m]));
+  const out: string[] = [];
+  for (let cur: Mount | undefined = mount ?? undefined, i = 0; cur && i < 20; i++) {
+    if (!out.includes(cur.path)) out.push(cur.path);
+    cur = cur.fallbackMountId ? byId.get(cur.fallbackMountId) : undefined;
+  }
+  return out;
+}
+
+/** Recently played titles of a station (newest first), without the one playing now, over the given mounts. */
+export async function recentlyPlayed(ctx: AppContext, artwork: ArtworkFinder | null, station: PublicStation, base: string, limit: number, mountPath: string | string[] | null) {
+  const paths = (Array.isArray(mountPath) ? mountPath : [mountPath]).filter((p): p is string => !!p);
+  if (!paths.length) return [];
   const rows = await ctx.db
     .select({ title: schema.songPlays.title, startedAt: schema.songPlays.startedAt })
     .from(schema.songPlays)
-    .where(and(eq(schema.songPlays.stationId, station.id), eq(schema.songPlays.mountPath, mountPath), isNotNull(schema.songPlays.endedAt)))
+    .where(and(eq(schema.songPlays.stationId, station.id), inArray(schema.songPlays.mountPath, paths), isNotNull(schema.songPlays.endedAt)))
     .orderBy(desc(schema.songPlays.startedAt))
     .limit(limit * 2);
   const out: (Song & { playedAt: string })[] = [];
@@ -164,8 +177,8 @@ export async function buildNowPlaying(ctx: AppContext, station: PublicStation, a
       live: byPath.has(m.path),
       listenUrl: conn.mounts.find((c) => c.id === m.id)?.listenUrl ?? null,
     })),
-    history: s.showHistory ? await recentlyPlayed(ctx, artwork, station, base, Math.min(s.historyCount, 10), playMount) : [],
-    requests: { enabled: s.requests.enabled, open: requestsOpen, message: s.requests.message },
+    history: s.showHistory ? await recentlyPlayed(ctx, artwork, station, base, Math.min(s.historyCount, 10), [...new Set([playMount, ...heardMounts(mounts, source)].filter((p): p is string => !!p))]) : [],
+    requests: { enabled: s.requests.enabled, open: requestsOpen, message: s.requests.message, library: libraryRequests(station) },
     onDemand: { enabled: s.onDemand.enabled },
     updatedAt: new Date().toISOString(),
   };

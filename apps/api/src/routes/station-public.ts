@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { schema } from '../db/index.js';
 import { badRequest, notFound } from '../lib/errors.js';
 import { okOut } from '../lib/schemas.js';
+import { queueRequest } from '../services/autodj/requests.js';
 import { itemPath, scanOnDemand } from '../services/public/ondemand.js';
 import { publicPageSchema, publicSettings } from '../services/public/settings.js';
 import { connectionInfo } from '../services/streaming/info.js';
@@ -26,6 +27,7 @@ const publicOut = z.object({
 });
 const requestOut = z.object({
   id: z.uuid(),
+  mediaId: z.uuid().nullable(),
   artist: z.string(),
   title: z.string(),
   message: z.string(),
@@ -200,6 +202,11 @@ export const stationPublicRoutes: FastifyPluginAsyncZod = async (app) => {
         .where(and(eq(schema.songRequests.id, req.params.requestId), eq(schema.songRequests.stationId, station.id)))
         .returning();
       if (!row) throw notFound('Request');
+      // Radio stations: an accepted request goes into the AutoDJ queue when it matches a library track.
+      if (req.body.status === 'accepted') await queueRequest(ctx, station, row, access.user.name).catch((err) => req.log.warn({ err }, 'queueing a request failed'));
+      if (req.body.status === 'rejected' || req.body.status === 'pending') {
+        await ctx.db.delete(schema.queueItems).where(and(eq(schema.queueItems.requestId, row.id), eq(schema.queueItems.state, 'queued')));
+      }
       return row;
     },
   );

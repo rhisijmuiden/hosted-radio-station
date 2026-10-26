@@ -38,7 +38,7 @@ export interface NowPlaying {
   listeners: number | null;
   mounts: PublicMount[];
   history: (Song & { playedAt: string })[];
-  requests: { enabled: boolean; open: boolean; message: string };
+  requests: { enabled: boolean; open: boolean; message: string; library: boolean };
   onDemand: { enabled: boolean };
   updatedAt: string;
 }
