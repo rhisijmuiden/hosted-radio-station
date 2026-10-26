@@ -95,6 +95,7 @@ export class NodeHub {
   private conns = new Map<string, Conn>();
   private timers: NodeJS.Timeout[] = [];
   private refreshing: Promise<void> | null = null;
+  private refreshAgain = false;
   readonly geo: GeoIp;
 
   constructor(
@@ -430,16 +431,30 @@ export class NodeHub {
   }
 
   /** Re-plans every connected node; called when stations change and every minute. */
-  refreshAll() {
-    this.refreshing ??= (async () => {
-      try {
-        for (const id of [...this.conns.keys()]) await this.refresh(id);
-      } catch (err) {
-        this.log.warn({ err }, 'planning nodes failed');
-      } finally {
-        this.refreshing = null;
-      }
-    })();
+  refreshAll(): Promise<void> {
+    // A change made while a round runs gets a round of its own, so no node keeps a plan from before the change.
+    if (this.refreshing) {
+      this.refreshAgain = true;
+      return this.refreshing;
+    }
+    const round = async () => {
+      do {
+        this.refreshAgain = false;
+        // One node that cannot be planned must not keep the others on an old plan.
+        for (const id of [...this.conns.keys()]) {
+          let timer: NodeJS.Timeout | undefined;
+          const late = new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error('planning took longer than 20 s')), 20_000)));
+          await Promise.race([this.refresh(id), late])
+            .catch((err) => this.log.warn({ err, nodeId: id }, 'planning a node failed'))
+            .finally(() => clearTimeout(timer));
+        }
+      } while (this.refreshAgain);
+    };
+    // Cleared in a callback, so also after a round without nodes that finishes at once: clearing it inside the round
+    // would run before the assignment and leave a finished round in place for good, so no node got a new plan again.
+    this.refreshing = round().finally(() => {
+      this.refreshing = null;
+    });
     return this.refreshing;
   }
 

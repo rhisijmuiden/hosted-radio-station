@@ -982,6 +982,8 @@ export interface NodesSettings {
   probeIntervalSeconds: number;
   latencyWarnMs: number;
   metricsRetentionDays: number;
+  /** Where source nodes pass encoders on to this server; empty = its public name. */
+  ingestAddress: string;
 }
 export interface TopologyNode {
   id: string;

@@ -30,6 +30,8 @@ interface Slot {
   local: net.Socket | null;
   /** The source connection being opened, so two ingests that arrive together share it. */
   opening: Promise<net.Socket> | null;
+  /** The last title per priority, so a switch to the backup brings its title along at once. */
+  titles: Map<number, string>;
   since: number;
   state: RelayState;
 }
@@ -78,7 +80,7 @@ export class PushReceiver {
         this.slots.delete(key);
       } else s.mount = want;
     }
-    for (const [key, m] of wanted) if (!this.slots.has(key)) this.slots.set(key, { mount: m, feeds: [], client: null, local: null, opening: null, since: 0, state: { key, state: 'idle', message: 'Waiting for the ingest' } });
+    for (const [key, m] of wanted) if (!this.slots.has(key)) this.slots.set(key, { mount: m, feeds: [], client: null, local: null, opening: null, titles: new Map(), since: 0, state: { key, state: 'idle', message: 'Waiting for the ingest' } });
     const listen = wanted.size ? port : null;
     if (listen === this.port) return;
     this.server?.close();
@@ -184,6 +186,7 @@ export class PushReceiver {
       if (!slot || user !== 'source' || !pass || !same(pass, slot.mount.push!.token)) return this.reply(socket, '401 Unauthorized');
       const song = url.searchParams.get('song');
       // Titles of an ingest that stands by would not match the audio.
+      if (song) slot.titles.set(priority, song);
       if (song && slot.local && (!slot.client || priority <= slot.client.priority)) await updateTitle(this.ctx.icecastPort(), this.ctx.secrets.admin, localMount(slot.mount), song).catch(() => undefined);
       return this.reply(socket, '200 OK');
     }
@@ -250,6 +253,8 @@ export class PushReceiver {
       slot.client?.socket.resume();
       slot.client = best;
       best?.socket.resume();
+      const title = best && slot.titles.get(best.priority);
+      if (title && slot.local) void updateTitle(this.ctx.icecastPort(), this.ctx.secrets.admin, localMount(slot.mount), title).catch(() => undefined);
     }
     slot.state = best
       ? { key: slot.mount.key, state: 'connected', bitrateKbps: best.bitrateKbps, ...(best.priority > 0 ? { message: 'From the backup ingest' } : {}) }
@@ -262,6 +267,7 @@ export class PushReceiver {
     slot.feeds.splice(i, 1);
     if (slot.client === feed) slot.client = null;
     if (!closed) feed.socket.destroy();
+    if (!slot.feeds.some((f) => f.priority === feed.priority)) slot.titles.delete(feed.priority);
     if (slot.feeds.length) return this.promote(slot);
     if (replaced) return;
     // Nobody pushes any more: let Icecast end the stream, so listeners move on or reconnect.

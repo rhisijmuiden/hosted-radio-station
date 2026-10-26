@@ -1892,6 +1892,8 @@ export const nl: Translation = {
       latencyWarnHint: 'Een node met een hogere rondetijd wordt als verminderd getoond.',
       retention: 'Gezondheid bewaren (dagen)',
       retentionHint: 'Gezondheid per minuut wordt daarna verwijderd.',
+      ingestAddress: 'Direct adres van deze server',
+      ingestAddressHint: 'Waar source-nodes encoders aan doorgeven, als de publieke naam geen ruwe TCP doorlaat (bijvoorbeeld achter Cloudflare). Leeg = de publieke naam.',
       saved: 'Netwerkinstellingen opgeslagen',
     },
     detail: {

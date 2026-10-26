@@ -193,7 +193,7 @@ export class SourceForwarder {
       client.resume();
     });
     upstream.on('error', (err) => {
-      log.warn('passing an encoder on failed', { ip, err });
+      log.warn('passing an encoder on failed', { ip, upstream: `${up.host}:${up.port}`, err: (err as NodeJS.ErrnoException).code ?? err.message });
       if (!client.destroyed) client.end('HTTP/1.0 503 Service Unavailable\r\nContent-Type: text/plain\r\n\r\nThe main server cannot be reached right now.\r\n');
       end();
     });

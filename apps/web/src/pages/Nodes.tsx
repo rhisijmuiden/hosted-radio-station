@@ -198,6 +198,9 @@ function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void 
               <Input type="number" min={1} max={365} value={draft.metricsRetentionDays} onChange={(e) => set({ metricsRetentionDays: Number(e.target.value) })} />
             </Field>
           </div>
+          <Field label={t('nodes.settings.ingestAddress')} hint={t('nodes.settings.ingestAddressHint')}>
+            <Input value={draft.ingestAddress} placeholder="10.10.4.240" onChange={(e) => set({ ingestAddress: e.target.value })} />
+          </Field>
         </div>
       )}
     </Dialog>
