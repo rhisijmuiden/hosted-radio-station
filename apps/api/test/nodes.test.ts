@@ -166,6 +166,17 @@ describe('nodes', () => {
     const [row] = await t.db.select().from(schema.nodes).where(eq(schema.nodes.id, node.id));
     expect(row!.clients).toHaveLength(2);
 
+    // Two minutes in the same hour (the previous one), so they fall in one hourly bucket.
+    const hour = Math.floor(Date.now() / 3600_000) * 3600_000 - 3600_000;
+    await t.db.insert(schema.nodeMetrics).values([
+      { nodeId: node.id, at: new Date(hour + 60_000), rttAvg: 10, rttMax: 20, pings: 12, lost: 0, cpu: 0.2, memory: 0.4, rxBps: 1000, txBps: 5000, listeners: 2 },
+      { nodeId: node.id, at: new Date(hour + 120_000), rttAvg: 30, rttMax: 60, pings: 12, lost: 3, cpu: 0.3, memory: 0.4, rxBps: 1000, txBps: 7000, listeners: 4 },
+    ]);
+    const metrics = await t.app.inject({ method: 'GET', url: `/api/nodes/${node.id}/metrics?hours=168`, headers: admin });
+    expect(metrics.statusCode).toBe(200);
+    expect(metrics.json()).toEqual([expect.objectContaining({ rttAvg: 20, rttMax: 60, pings: 24, lost: 3, listeners: 4 })]);
+    expect((await t.app.inject({ method: 'GET', url: `/api/nodes/${node.id}/metrics?hours=2`, headers: admin })).json()).toHaveLength(2);
+
     const probes = (await t.app.inject({ method: 'GET', url: `/api/nodes/${node.id}/probes`, headers: admin })).json();
     expect(probes).toEqual([expect.objectContaining({ stationName: 'Harder FM', where: 'main', ok: true, ttfbMs: 42, uptime24h: 1 })]);
 

@@ -220,7 +220,7 @@ export class RelayManager {
   private clients = new Map<string, Client>();
   private lastCheck = 0;
 
-  constructor(private readonly ctx: { icecastPort: () => number; secrets: IcecastSecrets; nodeId: string }) {}
+  constructor(private readonly ctx: { icecastPort: () => number; secrets: IcecastSecrets; nodeId: string; trustClientHeader: boolean }) {}
 
   apply(mounts: RelayMount[]) {
     const wanted = new Map(mounts.map((m) => [m.key, m]));
@@ -263,7 +263,8 @@ export class RelayManager {
     const agent = p.get('agent') ?? '';
     // Our own probes and other nodes are not listeners.
     if (agent.startsWith('Hosted Radio Station')) return;
-    const ip = p.get('h_x-hrs-client') || p.get('ip') || null;
+    // Only the node's own web server sets X-Hrs-Client; without it a listener could send any address.
+    const ip = (this.ctx.trustClientHeader && p.get('h_x-hrs-client')) || p.get('ip') || null;
     this.clients.set(`${key}#${id}`, { key, id, ip, userAgent: agent || null, referer: p.get('h_referer') || null, since: Date.now() });
   }
 

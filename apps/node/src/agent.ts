@@ -28,6 +28,8 @@ export class Agent {
   private hooks: http.Server | null = null;
   private timers: NodeJS.Timeout[] = [];
   private retries = 0;
+  /** Last message from the main server; it pings every 5 seconds, so silence means a dead connection. */
+  private heardAt = 0;
   private stopped = false;
   private icmp: { rttMs: number | null; loss: number } | null = null;
   private layout: IcecastLayout | null = null;
@@ -42,7 +44,7 @@ export class Agent {
 
   async start() {
     this.secrets = await icecastSecrets();
-    this.relay = new RelayManager({ icecastPort: () => this.layout?.port ?? ports.icecast, secrets: this.secrets, nodeId: this.file.nodeId });
+    this.relay = new RelayManager({ icecastPort: () => this.layout?.port ?? ports.icecast, secrets: this.secrets, nodeId: this.file.nodeId, trustClientHeader: this.file.web === 'caddy' });
     await this.startHooks();
     // The plan of the last connection, so the node keeps serving listeners when it starts while the main server is down.
     const saved = await readFile(planPath(), 'utf8').catch(() => null);
@@ -53,6 +55,7 @@ export class Agent {
     this.timers.push(setInterval(() => void this.relay?.check(), 15_000));
     this.timers.push(setInterval(() => void this.source.refreshCertificates(), 10 * 60_000));
     this.timers.push(setInterval(() => void this.pingMain(), 60_000));
+    this.timers.push(setInterval(() => this.watchdog(), 5000));
     void this.pingMain();
     this.connect();
     log.info('node agent started', { node: this.file.nodeId, server: this.file.server, version: this.version.version, commit: this.version.commit?.slice(0, 7) });
@@ -75,11 +78,14 @@ export class Agent {
     const url = `${this.file.server.replace(/^http/, 'ws')}/api/nodes/connect`;
     const ws = new WebSocket(url);
     this.ws = ws;
+    this.heardAt = Date.now();
     ws.onopen = () => {
+      this.heardAt = Date.now();
       const f = facts(this.file.web);
       this.send({ t: 'hello', protocol: PROTOCOL_VERSION, nodeId: this.file.nodeId, secret: this.file.secret, version: this.version.version, commit: this.version.commit, hostname: f.hostname, facts: f.facts });
     };
     ws.onmessage = (ev) => {
+      this.heardAt = Date.now();
       let msg: ServerMessage;
       try {
         msg = JSON.parse(String(ev.data));
@@ -109,6 +115,24 @@ export class Agent {
       setTimeout(() => this.connect(), delay);
     };
     ws.onerror = () => undefined;
+  }
+
+  /**
+   * A connection that hangs while connecting, or goes quiet (a half-open TCP connection after a restart or a network
+   * change), is dropped so the reconnect starts. A stuck socket may never fire its close event, so the agent moves on.
+   */
+  private watchdog() {
+    const ws = this.ws;
+    if (!ws || this.stopped || Date.now() - this.heardAt < 30_000) return;
+    log.warn('no answer from the main server; reconnecting', { state: ws.readyState });
+    this.ws = null;
+    ws.onclose = null;
+    try {
+      ws.close();
+    } catch {
+      // already closing
+    }
+    setTimeout(() => this.connect(), 1000);
   }
 
   private send(msg: AgentMessage) {

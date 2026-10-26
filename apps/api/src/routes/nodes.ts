@@ -407,7 +407,8 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       // About 120–300 points whatever the period.
       const bucket = hours <= 2 ? 1 : hours <= 12 ? 5 : hours <= 48 ? 10 : hours <= 24 * 7 ? 60 : 240;
       const m = schema.nodeMetrics;
-      const at = sql<Date>`date_bin(${`${bucket} minutes`}::interval, ${m.at}, 'epoch'::timestamptz)`;
+      // Inline (bucket is one of a few fixed numbers): as a parameter, GROUP BY would not match the selected column.
+      const at = sql<Date>`date_bin(${sql.raw(`'${bucket} minutes'`)}::interval, ${m.at}, 'epoch'::timestamptz)`;
       const rows = await ctx.db
         .select({
           at,

@@ -89,17 +89,20 @@ export function layout(data: SceneData): Map<string, Placed> {
   fan(data.nodes.filter((n) => n.kind === 'source'), Math.PI, Math.min(120, 30 + data.nodes.filter((n) => n.kind === 'source').length * 25) * deg, 7.5);
   const idle = data.nodes.filter((n) => n.kind === 'node');
   idle.forEach((n, i) => put(n, (i - (idle.length - 1) / 2) * 3.4, 9 + (main ? 0 : 0)));
-  // Studios sit to the left of the node their encoder connects to.
+  // Studios connected to this server sit in a column on the left; studios on a node sit beside that node.
   const perTarget = new Map<string, number>();
   for (const s of data.nodes.filter((n) => n.kind === 'studio')) {
     const link = data.links.find((l) => l.from === s.id);
     const target = link ? out.get(link.to) : undefined;
-    const k = perTarget.get(link?.to ?? '') ?? 0;
-    perTarget.set(link?.to ?? '', k + 1);
-    const base = target ?? out.get('main');
-    const x = base ? (base.node.kind === 'main' ? -13.5 : base.pos.x - 6) : -13.5;
-    const z = (base?.pos.z ?? 0) + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 2.6;
-    put(s, x, z);
+    const key = target && target.node.kind !== 'main' ? target.node.id : 'main';
+    const k = perTarget.get(key) ?? 0;
+    perTarget.set(key, k + 1);
+    if (key === 'main' || !target) {
+      put(s, -13.5, (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 2.6);
+    } else {
+      // Beside the node, away from this server, so the labels do not overlap.
+      put(s, target.pos.x + (target.pos.x >= 0 ? 5.5 : -5.5), target.pos.z - 1 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 2.6);
+    }
   }
   return out;
 }
@@ -340,7 +343,7 @@ export class TopologyScene {
     (grid.material as THREE.Material).opacity = p.dark ? 0.55 : 0.8;
     grid.position.y = -0.01;
     this.content.add(grid);
-    const glow = new THREE.Mesh(new THREE.PlaneGeometry(26, 26), new THREE.MeshBasicMaterial({ map: this.texture(`glow:${p.koraal}`, () => radialTexture(p.koraal, p.dark ? 0.28 : 0.18)), transparent: true, depthWrite: false }));
+    const glow = new THREE.Mesh(new THREE.PlaneGeometry(26, 26), new THREE.MeshBasicMaterial({ map: this.texture(`glow:${p.koraal}`, () => radialTexture(p.koraal, p.dark ? 0.2 : 0.11)), transparent: true, depthWrite: false }));
     glow.rotation.x = -Math.PI / 2;
     this.content.add(glow);
     const shadowTex = this.texture('shadow', () => radialTexture('#000000', p.dark ? 0.55 : 0.28));
@@ -365,8 +368,8 @@ export class TopologyScene {
           metalness: 0.08,
           transparent: opacity < 1,
           opacity,
-          emissive: node.health === 'degraded' ? p.warning : node.id === this.selected || node.kind === 'main' ? p.koraal : '#000000',
-          emissiveIntensity: node.health === 'degraded' ? 0.18 : node.id === this.selected ? 0.22 : node.kind === 'main' ? 0.1 : 0,
+          emissive: node.health === 'degraded' ? p.warning : node.id === this.selected ? p.koraal : '#000000',
+          emissiveIntensity: node.health === 'degraded' ? 0.1 : node.id === this.selected ? 0.12 : 0,
         }),
       );
       box.position.y = size.h / 2;
@@ -437,7 +440,7 @@ export class TopologyScene {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pts, 3));
     const dot = this.texture(`dot:${this.palette.lucht}`, () => radialTexture(this.palette.lucht, 1));
-    const cloud = new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.32, map: dot, color: this.palette.lucht, transparent: true, depthWrite: false, blending: this.palette.dark ? THREE.AdditiveBlending : THREE.NormalBlending }));
+    const cloud = new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.55, map: dot, color: this.palette.lucht, transparent: true, depthWrite: false, blending: this.palette.dark ? THREE.AdditiveBlending : THREE.NormalBlending }));
     g.add(cloud);
     this.clouds.push(cloud);
   }
