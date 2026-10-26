@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { schema } from '../db/index.js';
@@ -13,6 +13,7 @@ const keyOut = z.object({
   tenantId: z.uuid().nullable(),
   tenantName: z.string().nullable(),
   readOnly: z.boolean(),
+  scope: z.enum(['full', 'provisioning']),
   lastUsedAt: z.date().nullable(),
   expiresAt: z.date().nullable(),
   createdAt: z.date(),
@@ -31,6 +32,7 @@ export const apiKeyRoutes: FastifyPluginAsyncZod = async (app) => {
         tenantId: schema.apiKeys.tenantId,
         tenantName: schema.tenants.name,
         readOnly: schema.apiKeys.readOnly,
+        scope: sql<'full' | 'provisioning'>`${schema.apiKeys.scope}`,
         lastUsedAt: schema.apiKeys.lastUsedAt,
         expiresAt: schema.apiKeys.expiresAt,
         createdAt: schema.apiKeys.createdAt,
@@ -58,6 +60,8 @@ export const apiKeyRoutes: FastifyPluginAsyncZod = async (app) => {
           name: z.string().trim().min(1).max(80),
           tenantId: z.uuid().nullish(),
           readOnly: z.boolean().default(false),
+          /** provisioning = only the sign-up API, for the website that sells the service (administrators only). */
+          scope: z.enum(['full', 'provisioning']).default('full'),
           expiresInDays: z.number().int().min(1).max(3650).nullish(),
         }),
         response: { 201: keyOut.extend({ secret: z.string() }) },
@@ -67,6 +71,9 @@ export const apiKeyRoutes: FastifyPluginAsyncZod = async (app) => {
       const auth = requireUser(req);
       if (auth.via === 'api_key') throw forbidden('API keys can only be created from the admin panel');
       if (req.body.tenantId) await requireTenantRole(ctx, req, req.body.tenantId, 'dj');
+      if (req.body.scope === 'provisioning' && (!auth.user.isSuperadmin || req.body.tenantId)) {
+        throw forbidden('Provisioning keys are for administrators and not limited to a customer');
+      }
       const { secret, prefix, hash } = generateApiKey();
       const [row] = await ctx.db
         .insert(schema.apiKeys)
@@ -77,11 +84,12 @@ export const apiKeyRoutes: FastifyPluginAsyncZod = async (app) => {
           prefix,
           hash,
           readOnly: req.body.readOnly,
+          scope: req.body.scope,
           expiresAt: req.body.expiresInDays ? new Date(Date.now() + req.body.expiresInDays * 86400_000) : null,
         })
         .returning({ id: schema.apiKeys.id });
       const [key] = await select().where(eq(schema.apiKeys.id, row!.id));
-      req.auditInfo = { tenantId: key!.tenantId, targetId: key!.id, details: { name: key!.name, readOnly: key!.readOnly } };
+      req.auditInfo = { tenantId: key!.tenantId, targetId: key!.id, details: { name: key!.name, readOnly: key!.readOnly, scope: key!.scope } };
       reply.status(201);
       return { ...key!, secret };
     },

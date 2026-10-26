@@ -8,6 +8,12 @@ import { ThemeContext } from './lib/theme-context';
 import { ApiKeysPage } from './pages/ApiKeys';
 import { AuditLogPage } from './pages/AuditLog';
 import { BackupsPage } from './pages/Backups';
+import { BillingPage } from './pages/Billing';
+import { BillingSettingsPage } from './pages/BillingSettings';
+import { InvoicesPage } from './pages/Invoices';
+import { PackagesPage } from './pages/Packages';
+import { SubscriptionPage } from './pages/Subscription';
+import { WebhooksPage } from './pages/Webhooks';
 import { CustomerDetailPage } from './pages/CustomerDetail';
 import { CustomersPage } from './pages/Customers';
 import { DashboardPage } from './pages/Dashboard';
@@ -69,6 +75,12 @@ export function App() {
           <Route path="topology" element={<TopologyPage />} />
           <Route path="studio" element={<StudioPage />} />
           <Route path="link" element={<StudioLinkPage />} />
+          <Route path="billing" element={<RequireAuth admin><BillingPage /></RequireAuth>} />
+          <Route path="billing/packages" element={<RequireAuth admin><PackagesPage /></RequireAuth>} />
+          <Route path="billing/invoices" element={<RequireAuth admin><InvoicesPage /></RequireAuth>} />
+          <Route path="settings/billing" element={<RequireAuth admin><BillingSettingsPage /></RequireAuth>} />
+          <Route path="settings/webhooks" element={<RequireAuth admin><WebhooksPage /></RequireAuth>} />
+          <Route path="subscription" element={<SubscriptionPage />} />
           <Route path="settings/statistics" element={<RequireAuth admin><StatisticsSettingsPage /></RequireAuth>} />
           <Route path="users" element={<RequireAuth admin><UsersPage /></RequireAuth>} />
           <Route path="api-keys" element={<ApiKeysPage />} />

@@ -95,6 +95,16 @@ Phase 9: RHIS Studio, the Windows client: live assist, live broadcasting from th
 | ![Sound card, channels and routing](docs/screenshots/phase-9-settings.png) | ![Info with update channel](docs/screenshots/phase-9-info.png) |
 | ![Linking the PC: the code in the client](docs/screenshots/phase-9-sign-in.png) | ![Approving the PC in the panel](docs/screenshots/phase-9-panel-link.png) |
 
+Phase 10: Hosted service: packages, subscriptions, invoices with VAT and online payment, and the provisioning API for the website.
+
+| Administrator | Customer, Dutch |
+| --- | --- |
+| ![Hosted service overview: revenue, subscriptions and open invoices](docs/screenshots/phase-10-overview.png) | ![My subscription in the customer panel](docs/screenshots/phase-10-my-subscription-nl.png) |
+| ![Packages with limits and prices](docs/screenshots/phase-10-packages.png) | ![Changing package as a customer](docs/screenshots/phase-10-my-change-nl.png) |
+| ![Invoices numbered per year](docs/screenshots/phase-10-invoices.png) | ![Invoice page with online payment](docs/screenshots/phase-10-invoice-page.png) |
+| ![Subscription on the customer page](docs/screenshots/phase-10-customer-admin.png) | ![Packages in Dutch, dark theme](docs/screenshots/phase-10-packages-dark-nl.png) |
+| ![Billing settings: company, VAT, reminders, Mollie](docs/screenshots/phase-10-settings.png) | ![Signed webhooks for the website](docs/screenshots/phase-10-webhooks.png) |
+
 ## Status
 
 | Phase | Name | Status |
@@ -108,7 +118,7 @@ Phase 9: RHIS Studio, the Windows client: live assist, live broadcasting from th
 | 7 | Scheduler | Done |
 | 8 | Distribution network and orchestration | Done |
 | 9 | Windows client | Done |
-| 10 | Hosted service | Planned |
+| 10 | Hosted service | Done |
 | 11 | FM/MPX and RDS module | Planned |
 | 12 | Open source edition | Planned |
 
@@ -228,7 +238,14 @@ How to install and use the client: [docs/studio.md](docs/studio.md).
 
 The commercial layer.
 
-- Packages for both editions, customers created automatically from the RHIS website through the API, and later billing.
+- Packages for both editions: edition, limits (stations, listeners, bitrate, storage, own nodes), monthly and yearly prices, setup fee, trial, and public or hidden.
+- Subscriptions per customer with trial, upgrades (prorated, right away) and downgrades (at the end of the period), custom price or discount, cancel and resume.
+- Customers created automatically from the RHIS website through the provisioning API (its own API key scope, idempotent sign-up, optional first station, welcome e-mail with activation link), and a public package list for the pricing page.
+- Billing: invoices numbered per year with a PDF in the RHIS house style, Dutch VAT, EU reverse charge and export, online payment with Mollie, reminders, and suspension when an invoice stays unpaid (back on the air when paid).
+- Signed webhooks (customer, subscription and invoice events) with retries, so the website and accounting can follow along.
+- Customers see their package and invoices and can change package in their own panel.
+
+How it works and the API: [docs/hosted-service.md](docs/hosted-service.md).
 
 ### Phase 11: FM/MPX and RDS module
 
