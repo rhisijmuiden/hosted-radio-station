@@ -10,7 +10,7 @@ import { Badge, Button, Card, Dialog, EmptyState, Field, Input, PageHeader, Sele
 import { api, ApiError, type NodeItem, type NodePairing, type NodeRole, type NodesSettings, type Tenant } from '../lib/api';
 import { isAdmin, useMe } from '../lib/auth';
 
-export const ROLES: NodeRole[] = ['relay', 'source'];
+export const ROLES: NodeRole[] = ['relay', 'source', 'station'];
 
 /** Role toggles with a line on what each role does. */
 export function RolePicker({ value, onChange }: { value: NodeRole[]; onChange: (v: NodeRole[]) => void }) {
@@ -24,7 +24,8 @@ export function RolePicker({ value, onChange }: { value: NodeRole[]; onChange: (
             key={r}
             type="button"
             aria-pressed={on}
-            onClick={() => onChange(on ? value.filter((x) => x !== r) : [...value, r])}
+            // A station node does nothing else: its streams go to relay nodes.
+            onClick={() => onChange(on ? value.filter((x) => x !== r) : r === 'station' ? ['station'] : [...value.filter((x) => x !== 'station'), r])}
             className={clsx('rounded-md border p-3 text-left transition-colors', on ? 'border-koraal bg-koraal/8 ring-1 ring-koraal' : 'border-line hover:bg-hover')}
           >
             <div className="text-sm font-semibold">{t(`nodes.roles.${r}`)}</div>

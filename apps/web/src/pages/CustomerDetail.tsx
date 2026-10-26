@@ -9,6 +9,7 @@ import { AuditLogView } from '../components/AuditLog';
 import { SsoCard } from '../components/SsoCard';
 import { SubscriptionPanel, TenantInvoicesCard } from '../components/billing';
 import { DomainsCard, UsageCard } from '../components/DomainsCard';
+import { CustomerStationNodeCard } from '../components/station/CustomerNode';
 import { api, ApiError, type Member, type Role, type StationListItem, type Tenant } from '../lib/api';
 import { isAdmin, useMailConfigured, useMe } from '../lib/auth';
 import { formatDate } from '../lib/format';
@@ -364,6 +365,7 @@ export function CustomerDetailPage() {
         <div className="flex flex-col gap-4">
           {rank[myRole] >= rank.manager && <DomainsCard tenantId={c.id} canEdit={rank[myRole] >= rank.owner} admin={admin} />}
           {rank[myRole] >= rank.manager && <MembersCard tenantId={c.id} myRole={myRole} />}
+          {rank[myRole] >= rank.owner && <CustomerStationNodeCard tenant={c} canEdit={rank[myRole] >= rank.owner} />}
           {rank[myRole] >= rank.owner && <SsoCard tenantId={c.id} admin={admin} />}
           {admin && (
             <Card className="border-offline/30 p-5">

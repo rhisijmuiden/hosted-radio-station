@@ -77,14 +77,15 @@ Phase 7: Scheduler with hour clocks, a weekly schedule and live shows.
 | ![Live show with its DJs](docs/screenshots/phase-7-show-dialog.png) | ![AutoDJ playing the commercials of the hour clock](docs/screenshots/phase-7-autodj.png) |
 | ![Playlists only for hour clocks](docs/screenshots/phase-7-playlists.png) | ![Programme on the public page](docs/screenshots/phase-7-public.png) |
 
-Phase 8: Distribution network with nodes (relays, source nodes, remote probes) and a live 3D topology.
+Phase 8: Distribution network with nodes (relays, source nodes, remote probes), a live 3D topology and flat 2D flow views (left to right or top to bottom). Taken on the test server with two real relay nodes.
 
 | Administrator | Customer, Dutch |
 | --- | --- |
-| ![Topology of the whole network](docs/screenshots/phase-8-topology-admin-dark.png) | ![My setup: the customer's own node and its studio](docs/screenshots/phase-8-topology-customer-nl.png) |
-| ![Nodes with status, version, latency, listeners, CPU and traffic](docs/screenshots/phase-8-nodes.png) | ![My nodes in Dutch](docs/screenshots/phase-8-my-nodes-nl.png) |
+| ![Topology of the whole network](docs/screenshots/phase-8-topology-dark.png) | ![My setup: the customer's own nodes and streams](docs/screenshots/phase-8-my-setup.png) |
+| ![Nodes with status, version, latency, listeners, CPU and traffic](docs/screenshots/phase-8-nodes.png) | ![Add a node and get a pairing code](docs/screenshots/phase-8-add-node.png) |
 | ![Node detail: machine, connection and relayed streams](docs/screenshots/phase-8-node-detail.png) | ![Health of a node over time](docs/screenshots/phase-8-node-health.png) |
-| ![Remote probes from a node](docs/screenshots/phase-8-node-probes.png) | ![Topology, light theme](docs/screenshots/phase-8-topology-admin-light.png) |
+| ![Remote probes from a node](docs/screenshots/phase-8-node-probes.png) | ![Topology, light theme](docs/screenshots/phase-8-topology-light.png) |
+| ![Topology, flat left to right](docs/screenshots/phase-8-topology-flat-lr-dark.png) | ![Topology, flat top to bottom](docs/screenshots/phase-8-topology-flat-tb-light.png) |
 
 Phase 9: RHIS Studio, the Windows client: live assist, live broadcasting from the sound card or mixing desk, and a cart wall.
 
@@ -93,7 +94,12 @@ Phase 9: RHIS Studio, the Windows client: live assist, live broadcasting from th
 | ![Live assist: now playing, Q1 and Q2, library](docs/screenshots/phase-9-assist.png) | ![Live assist in Dutch, dark theme](docs/screenshots/phase-9-assist-dark-nl.png) |
 | ![Going live with meters and show title](docs/screenshots/phase-9-live.png) | ![Cart wall on F1–F12](docs/screenshots/phase-9-carts.png) |
 | ![Sound card, channels and routing](docs/screenshots/phase-9-settings.png) | ![Info with update channel](docs/screenshots/phase-9-info.png) |
-| ![Linking the PC: the code in the client](docs/screenshots/phase-9-sign-in.png) | ![Approving the PC in the panel](docs/screenshots/phase-9-panel-link.png) |
+| ![Linking the PC: the code in the client](docs/screenshots/phase-9-sign-in.png) | |
+
+| Panel | Panel, Dutch |
+| --- | --- |
+| ![Windows client page with download channels and linked PCs](docs/screenshots/phase-9-studio.png) | ![Windows client page in Dutch, dark theme](docs/screenshots/phase-9-studio-dark-nl.png) |
+| ![Approving a studio PC in the panel](docs/screenshots/phase-9-link.png) | ![Approving a studio PC in Dutch, dark theme](docs/screenshots/phase-9-link-dark-nl.png) |
 
 Phase 10: Hosted service: packages, subscriptions, invoices with VAT and online payment, and the provisioning API for the website.
 
@@ -104,6 +110,13 @@ Phase 10: Hosted service: packages, subscriptions, invoices with VAT and online 
 | ![Invoices numbered per year](docs/screenshots/phase-10-invoices.png) | ![Invoice page with online payment](docs/screenshots/phase-10-invoice-page.png) |
 | ![Subscription on the customer page](docs/screenshots/phase-10-customer-admin.png) | ![Packages in Dutch, dark theme](docs/screenshots/phase-10-packages-dark-nl.png) |
 | ![Billing settings: company, VAT, reminders, Mollie](docs/screenshots/phase-10-settings.png) | ![Signed webhooks for the website](docs/screenshots/phase-10-webhooks.png) |
+
+Phase 11: FM/MPX and RDS: a node that puts a station on FM, with a live radio display of the PS and RadioText, modulation meters and the signal chain. Taken on the test server with MPX over IP.
+
+| FM node | FM node, Dutch |
+| --- | --- |
+| ![FM node on air: PS, RadioText, RT+ tags, levels and signal chain](docs/screenshots/phase-11-fm-overview-light-en.png) | ![FM node on air in Dutch, dark theme](docs/screenshots/phase-11-fm-overview-dark-nl.png) |
+| ![FM settings: station, RDS, output, audio and UECP](docs/screenshots/phase-11-fm-settings-light-en.png) | ![FM settings in Dutch, dark theme](docs/screenshots/phase-11-fm-settings-dark-nl.png) |
 
 ## Status
 
@@ -119,8 +132,10 @@ Phase 10: Hosted service: packages, subscriptions, invoices with VAT and online 
 | 8 | Distribution network and orchestration | Done |
 | 9 | Windows client | Done |
 | 10 | Hosted service | Done |
-| 11 | FM/MPX and RDS module | Planned |
-| 12 | Open source edition | Planned |
+| 11 | FM/MPX and RDS module | Done |
+| 12 | Station nodes | Done |
+| 13 | Orchestrator as control plane | Planned |
+| 14 | Orchestrator redundancy | Planned |
 
 ## Phases
 
@@ -220,6 +235,7 @@ Scale out with remote nodes; the main server becomes the orchestrator.
 - Topology view: an interactive, modern 3D-style map (WebGL) of how studios, source servers, stations, relays and listeners connect, with animated stream flows and live health, latency, ping timeouts and packet loss between each node and the main server.
 - Bring your own node: customers can register their own node. It shows up in their customer panel with the same topology view, limited to their own setup: node health, distribution status and connection quality to the main server.
 - Updates come from the main server: nodes follow the main server's version and channel, and update from the panel.
+- Controlled node updates: a new version is never rolled out to all nodes at once. Choose per node or group: automatically in a maintenance window, rolling (one node at a time, listeners moved to another relay first, next node only after a health check), or manually. Nodes can stay on their current version, and a failed update rolls back.
 - Remote probes that monitor stream availability from other locations.
 
 How to add and run nodes: [docs/nodes.md](docs/nodes.md).
@@ -251,12 +267,52 @@ How it works and the API: [docs/hosted-service.md](docs/hosted-service.md).
 
 A separate LXC package for FM broadcasters.
 
-- Runs as the FM/MPX role on a node: its own Debian 13 LXC with the node installer, paired with a one-time pairing code and updated from the main server.
-- Receives a station stream and generates a complete MPX signal (stereo encoder plus RDS).
-- RDS PS, RadioText and RadioText+ filled automatically from now-playing data, so FM receivers show the right song titles.
-- Output through a 192 kHz sound card or as MPX over IP, or control of an existing RDS encoder over UECP.
+- Runs as the FM/MPX role on a node: its own Debian 13 LXC with its own installer (`install-fm.sh`), paired with a one-time pairing code and updated from the main server.
+- Receives a station stream and generates a complete MPX signal at 192 kHz: stereo encoder (pilot and 38 kHz subcarrier), pre-emphasis, limiter, 15 kHz low-pass and RDS.
+- RDS PS, RadioText and RadioText+ filled automatically from the titles in the stream (in step with the music) and the live DJ or show, plus PI, PTY, TP/TA, alternative frequencies and clock time. Fixed or scrolling PS.
+- Output through a 192 kHz sound card or as MPX over IP (RTP, L24 192 kHz, with the SDP in the panel), or control of an existing RDS encoder over UECP (TCP, UDP or serial).
+- A live radio display in the panel with modulation and audio meters, and the transmitter in the topology. Pilot and RDS stay on air while the stream is away; the node corrects the clock drift between the stream and the sound card.
 
-### Phase 12: Open source edition
+How to set up an FM node: [docs/fm.md](docs/fm.md).
+
+### Phase 12: Station nodes
+
+A node role that runs complete stations at the customer's site or in the datacenter.
+
+- The station's music library, AutoDJ, hour clocks, scheduler and live assist run on the node; the main server stays the orchestrator, with the panel, the customers and the statistics.
+- Settings are edited centrally and pushed to the node as a package; everything the node owns (library, playlists, clocks, schedule, queues, requests, on-demand, broadcasts) is mirrored back, so the panel and the public pages keep working while the node is offline (read-only).
+- Panel and public requests for a station on a node travel through a WebSocket tunnel to the node, as the signed-in user.
+- The node pushes its public streams straight to the relay nodes that carry the station (TLS, a token per mount), so listeners never connect to the studio and the listen URLs stay the same.
+- Moving a station to a node, or back, copies the music library first and switches over only when the copy is complete, so listeners hear no gap; a lost node can be taken over on the main server.
+- A customer can be linked to a station node: new stations start there, and existing stations move in one go.
+- The node installs and updates the station software by itself, in the version of the main server.
+
+How it works and how to set one up: [docs/station-nodes.md](docs/station-nodes.md).
+
+### Phase 13: Orchestrator as control plane
+
+The orchestrator manages, the nodes carry the audio.
+
+- The orchestrator handles no audio at all: it only manages nodes, remote probes, configuration, statistics and the panel.
+- Per station you choose which ingest node receives the stream and which relays it feeds; the ingest node sends the audio directly to those relays.
+- Routing rules with fallbacks: a backup ingest per station and automatic rerouting when a relay or ingest drops out.
+- Single-server installs keep working: there the same machine runs the ingest and relay roles next to the orchestrator, shown as separate roles.
+- The topology view shows the difference: audio paths run from studio to ingest to relays to listeners, and the orchestrator is connected to every node only by control lines.
+
+### Phase 14: Orchestrator redundancy
+
+Optional high availability for the main server, switched on in the panel when you need it.
+
+- A standby orchestrator on a second Debian 13 LXC, paired like a node, with continuous database replication and synchronised configuration and files.
+- Automatic failover through a floating IP (VRRP) or DNS failover, with a witness (a node or probe) to prevent split-brain.
+- Nodes know both orchestrators and switch over by themselves. Because the orchestrator carries no audio (phase 13), streams keep running while it is unreachable.
+- Status, replication lag and a failover test in the panel and in the topology view; updates and backups coordinated across both servers.
+
+## Future ideas
+
+Not scheduled in a phase yet.
+
+### Open source edition
 
 A community edition on its own branch.
 

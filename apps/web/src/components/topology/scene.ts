@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 
-export type SceneKind = 'main' | 'relay' | 'source' | 'node' | 'studio';
+export type SceneKind = 'main' | 'relay' | 'source' | 'station' | 'node' | 'studio';
 export type SceneHealth = 'online' | 'degraded' | 'offline' | 'unpaired';
 
 export interface SceneNode {
@@ -54,6 +54,7 @@ const ICONS: Record<SceneKind, string> = {
   relay: '<circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/>',
   source: '<rect x="4" y="4" width="16" height="7" rx="2"/><rect x="4" y="13" width="16" height="7" rx="2"/><path d="M8 7.5h.01M8 16.5h.01"/>',
   node: '<rect x="4" y="4" width="16" height="7" rx="2"/><rect x="4" y="13" width="16" height="7" rx="2"/><path d="M8 7.5h.01M8 16.5h.01"/>',
+  station: '<circle cx="12" cy="11" r="2"/><path d="M8.5 7a6 6 0 0 0 0 8M15.5 7a6 6 0 0 1 0 8M9 21l3-8 3 8"/>',
   studio: '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/>',
 };
 
@@ -61,6 +62,7 @@ const SIZE: Record<SceneKind, { w: number; h: number }> = {
   main: { w: 3, h: 2.2 },
   relay: { w: 2.2, h: 1.1 },
   source: { w: 2.2, h: 1.3 },
+  station: { w: 2.4, h: 1.5 },
   node: { w: 2.2, h: 0.9 },
   studio: { w: 1.8, h: 0.5 },
 };
@@ -87,6 +89,8 @@ export function layout(data: SceneData): Map<string, Placed> {
   const deg = Math.PI / 180;
   fan(data.nodes.filter((n) => n.kind === 'relay'), 0, Math.min(150, 40 + data.nodes.filter((n) => n.kind === 'relay').length * 22) * deg, 10);
   fan(data.nodes.filter((n) => n.kind === 'source'), Math.PI, Math.min(120, 30 + data.nodes.filter((n) => n.kind === 'source').length * 25) * deg, 7.5);
+  // Station nodes sit below this server: their streams run from there to the relays.
+  fan(data.nodes.filter((n) => n.kind === 'station'), Math.PI / 2, Math.min(100, 30 + data.nodes.filter((n) => n.kind === 'station').length * 25) * deg, 8.5);
   const idle = data.nodes.filter((n) => n.kind === 'node');
   idle.forEach((n, i) => put(n, (i - (idle.length - 1) / 2) * 3.4, 9 + (main ? 0 : 0)));
   // Studios connected to this server sit in a column on the left; studios on a node sit beside that node.

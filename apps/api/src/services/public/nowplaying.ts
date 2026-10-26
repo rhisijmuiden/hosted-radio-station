@@ -153,7 +153,8 @@ export async function buildNowPlaying(ctx: AppContext, station: PublicStation, a
   // Relay nodes: their listeners count too, and players go through the redirect that picks the nearest relay.
   const [relays, nodeSettings] = await Promise.all([cachedRelays(ctx).then((r) => r.get(station.id) ?? []), getSetting(ctx, 'nodes')]);
   const relayListeners = relays.reduce((n, r) => n + (r.status.online ? (r.status.relays ?? []).filter((x) => x.key.startsWith(`${station.slug}/`)).reduce((a, x) => a + (x.listeners ?? 0), 0) : 0), 0);
-  const routed = nodeSettings.routeListeners && relays.length > 0;
+  // A station on a station node is not served here at all, so its players always go through the redirect.
+  const routed = (nodeSettings.routeListeners || !!station.nodeId) && relays.length > 0;
   const listeners =
     (stats ?? []).reduce((n, x) => n + x.listeners, 0) +
     outputs.reduce((n, o) => n + (o.type !== 'local' && o.enabled && o.status?.listeners ? o.status.listeners : 0), 0) +
