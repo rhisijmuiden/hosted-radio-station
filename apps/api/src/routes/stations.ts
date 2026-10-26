@@ -136,6 +136,7 @@ const accountOut = z.object({
 });
 const connectionOut = z.object({
   ingestHost: z.string(),
+  node: z.object({ id: z.uuid(), name: z.string() }).nullable(),
   tls: z.object({ port: z.number(), available: z.boolean() }),
   plain: z.object({ port: z.number() }).nullable(),
   legacy: z.object({ port: z.number(), sourcePort: z.number(), mount: z.string().nullable() }).nullable(),
@@ -263,7 +264,7 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
       connection: {
         ...conn,
         upload: {
-          host: conn.ingestHost,
+          host: conn.uploadHost,
           sftpPort: streaming.sftp.enabled ? streaming.sftp.port : null,
           ftpPort: streaming.ftp.enabled ? streaming.ftp.port : null,
           ftpRequireTls: streaming.ftp.requireTls,

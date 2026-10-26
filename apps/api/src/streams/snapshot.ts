@@ -1,6 +1,7 @@
-import { eq } from 'drizzle-orm';
+import { eq, isNotNull } from 'drizzle-orm';
 import { schema } from '../db/index.js';
 import type { AppContext } from '../lib/context.js';
+import { carried } from '../services/nodes/plan.js';
 import { getSetting, type StreamingSettings } from '../services/settings.js';
 import { autodjMount, type Mount, type Output, type Station } from '../services/streaming/state.js';
 
@@ -28,10 +29,14 @@ export interface Snapshot {
   bySlug: Map<string, StationView>;
   /** Ingest or panel host of a verified customer domain → customer id. */
   hostTenant: Map<string, string>;
+  /** Paired source nodes that may pass encoders on to this server, with their secret. */
+  sourceNodes: Map<string, { id: string; tenantId: string | null; secret: string }>;
+  /** Stations that relay nodes pull from this server (their readers are not listeners). */
+  relayed: Set<string>;
 }
 
 export async function loadSnapshot(ctx: AppContext): Promise<Snapshot> {
-  const [streaming, proxy, rows, mounts, outputs, domains] = await Promise.all([
+  const [streaming, proxy, rows, mounts, outputs, domains, nodes] = await Promise.all([
     getSetting(ctx, 'streaming'),
     getSetting(ctx, 'proxy'),
     ctx.db
@@ -41,7 +46,17 @@ export async function loadSnapshot(ctx: AppContext): Promise<Snapshot> {
     ctx.db.select().from(schema.stationMounts),
     ctx.db.select().from(schema.stationOutputs),
     ctx.db.select().from(schema.tenantDomains).where(eq(schema.tenantDomains.status, 'verified')),
+    ctx.db.select({ id: schema.nodes.id, tenantId: schema.nodes.tenantId, roles: schema.nodes.roles, config: schema.nodes.config, secret: schema.nodes.secret }).from(schema.nodes).where(isNotNull(schema.nodes.secret)),
   ]);
+  const sourceNodes: Snapshot['sourceNodes'] = new Map();
+  for (const n of nodes) {
+    if (!n.roles.includes('source') || !n.secret) continue;
+    try {
+      sourceNodes.set(n.id, { id: n.id, tenantId: n.tenantId, secret: ctx.box.decrypt(n.secret) });
+    } catch {
+      /* a secret of another installation (restored backup); the node must pair again */
+    }
+  }
   const stations = new Map<string, StationView>();
   for (const r of rows) {
     stations.set(r.s.id, {
@@ -57,6 +72,9 @@ export async function loadSnapshot(ctx: AppContext): Promise<Snapshot> {
       autodjMount: null,
     });
   }
+  const relayed = new Set<string>();
+  const all = rows.map((r) => ({ id: r.s.id, tenantId: r.s.tenantId }));
+  for (const n of nodes) for (const id of carried(n, all)) relayed.add(id);
   for (const m of mounts) stations.get(m.stationId)?.mounts.push(m);
   for (const o of outputs) stations.get(o.stationId)?.outputs.push(o);
   for (const v of stations.values()) v.autodjMount = autodjMount(v.station, v.mounts);
@@ -72,6 +90,8 @@ export async function loadSnapshot(ctx: AppContext): Promise<Snapshot> {
     stations,
     bySlug: new Map([...stations.values()].map((v) => [v.station.slug, v])),
     hostTenant,
+    sourceNodes,
+    relayed,
   };
 }
 

@@ -31,6 +31,8 @@ export interface TenantLimits {
   maxListeners: number;
   maxBitrateKbps: number;
   storageQuotaMb: number;
+  /** Own nodes the customer may register (phase 8). */
+  maxNodes: number;
 }
 
 export const tenants = pgTable('tenants', {
@@ -403,6 +405,8 @@ export const liveSessions = pgTable(
     accountName: text('account_name').notNull(),
     /** tls | plain | shoutcast */
     via: text('via').notNull(),
+    /** The source node the encoder delivered through, if any. */
+    nodeId: uuid('node_id').references((): AnyPgColumn => nodes.id, { onDelete: 'set null' }),
     ip: text('ip'),
     userAgent: text('user_agent'),
     bitrateKbps: integer('bitrate_kbps'),
@@ -438,6 +442,8 @@ export const tenantDomains = pgTable(
     panelHost: text('panel_host').notNull().unique(),
     ingestHost: text('ingest_host').notNull().unique(),
     status: domainStatus('status').notNull().default('pending'),
+    /** Source node that takes the encoders of `ingestHost` (phase 8). Null = this server. */
+    ingestNodeId: uuid('ingest_node_id').references((): AnyPgColumn => nodes.id, { onDelete: 'set null' }),
     /** Set by an administrator for DNS setups that cannot be checked from here (split DNS, LAN). */
     verifiedManually: boolean('verified_manually').notNull().default(false),
     checks: jsonb('checks').$type<DomainCheck[]>().notNull().default([]),
@@ -464,7 +470,9 @@ export const listenerSessions = pgTable(
     mountPath: text('mount_path').notNull(),
     /** Set for listeners of an external server. */
     outputId: uuid('output_id').references(() => stationOutputs.id, { onDelete: 'set null' }),
-    /** web = through the web server, legacy = the Shoutcast port, external = an external server. */
+    /** Set for listeners of a relay node. */
+    nodeId: uuid('node_id').references((): AnyPgColumn => nodes.id, { onDelete: 'set null' }),
+    /** web = through the web server, legacy = the Shoutcast port, external = an external server, relay = a relay node. */
     via: text('via').notNull(),
     /** Client id on the server that reported it, to match the disconnect. */
     clientKey: text('client_key'),
@@ -850,4 +858,165 @@ export const scheduleEntries = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index('schedule_entries_station_idx').on(t.stationId)],
+);
+
+// Phase 8: distribution network and orchestration
+
+export const NODE_ROLES = ['relay', 'source'] as const;
+export type NodeRole = (typeof NODE_ROLES)[number];
+
+/** Settings of a node, made in the panel. Read through nodeConfigSchema for defaults. */
+export interface NodeConfig {
+  /** Host name listeners and encoders use for this node; with a domain the node gets a certificate. */
+  publicHost?: string;
+  /** Port listeners connect to when the node has no domain (or no web server of its own). */
+  listenPort?: number | null;
+  /** Relay: the stations it carries, "all" = every station it may carry. */
+  relayStations?: 'all' | string[];
+  /** Relay: most listeners at the same time on this node. 0 = no limit. */
+  maxListeners?: number;
+  /** Source: ports for encoders, plain Icecast and TLS. */
+  sourcePlainPort?: number | null;
+  sourceTlsPort?: number | null;
+  /** Check the streams of the stations from this node. */
+  probe?: boolean;
+}
+
+/** What a node reported last, kept with the node so every process (API, streams) can read it. */
+export interface NodeStatus {
+  online: boolean;
+  version?: string;
+  commit?: string | null;
+  hostname?: string;
+  /** The node runs its own web server (Caddy), so it can serve HTTPS and get certificates. */
+  caddy?: boolean;
+  /** Addresses of the node's own network interfaces. */
+  addresses?: string[];
+  /** Address the node connects from, as seen by the main server. */
+  ip?: string | null;
+  country?: string | null;
+  city?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  cpu?: number;
+  memory?: number;
+  load?: number;
+  cores?: number;
+  uptime?: number;
+  rxBps?: number;
+  txBps?: number;
+  /** Round trip over the control channel, last minute. */
+  rttMs?: number | null;
+  /** Share of pings without an answer over the last 5 minutes, 0..1. */
+  loss?: number;
+  /** Pings without an answer in the last 24 hours. */
+  timeouts24h?: number;
+  /** ICMP ping from the node to the main server, when available. */
+  icmp?: { rttMs: number | null; loss: number } | null;
+  listeners?: number;
+  /** Relay: state per carried mount ("<slug>/<mount>"). */
+  relays?: { key: string; state: 'connecting' | 'connected' | 'error' | 'idle'; message?: string; bitrateKbps?: number | null; listeners?: number }[];
+  /** Source: encoders connected through this node. */
+  encoders?: number;
+  /** Errors applying the configuration on the node (web server, ports). */
+  problems?: string[];
+  update?: { state: 'idle' | 'running' | 'succeeded' | 'failed'; message?: string; at?: string } | null;
+  updatedAt?: string;
+}
+
+/** A listener on a relay node, as the node reported it. */
+export interface NodeClient {
+  stationId: string;
+  mount: string;
+  id: string;
+  ip: string | null;
+  userAgent: string | null;
+  referer: string | null;
+  connectedSeconds: number;
+}
+
+/**
+ * A remote node: its own Debian LXC with the node agent, paired with a one-time code and steered from here. Roles say
+ * what it does (relay for listeners, source for encoders). A node of a customer (`tenantId`) only serves that customer.
+ */
+export const nodes = pgTable(
+  'nodes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    /** Free text shown in the panel and topology, e.g. "Amsterdam". */
+    location: text('location').notNull().default(''),
+    roles: text('roles').array().$type<NodeRole[]>().notNull().default([]),
+    config: jsonb('config').$type<NodeConfig>().notNull().default({}),
+    /** sha256 of the one-time pairing code, until it is used or expires. */
+    pairingCodeHash: text('pairing_code_hash'),
+    pairingExpiresAt: timestamp('pairing_expires_at', { withTimezone: true }),
+    /** Encrypted. The node's secret, set when it pairs; it signs the encoder connections it forwards. */
+    secret: text('secret'),
+    pairedAt: timestamp('paired_at', { withTimezone: true }),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
+    status: jsonb('status').$type<NodeStatus>().notNull().default({ online: false }),
+    /** Listeners on the node right now (relay), replaced by every report. */
+    clients: jsonb('clients').$type<NodeClient[]>().notNull().default([]),
+    createdAt: createdAt(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('nodes_tenant_idx').on(t.tenantId), uniqueIndex('nodes_pairing_idx').on(t.pairingCodeHash)],
+);
+
+/** Health of a node per minute: control channel latency and lost pings, load, traffic and listeners. */
+export const nodeMetrics = pgTable(
+  'node_metrics',
+  {
+    nodeId: uuid('node_id').notNull().references(() => nodes.id, { onDelete: 'cascade' }),
+    at: timestamp('at', { withTimezone: true }).notNull(),
+    rttAvg: doublePrecision('rtt_avg'),
+    rttMax: doublePrecision('rtt_max'),
+    pings: integer('pings').notNull().default(0),
+    lost: integer('lost').notNull().default(0),
+    cpu: doublePrecision('cpu'),
+    memory: doublePrecision('memory'),
+    rxBps: doublePrecision('rx_bps'),
+    txBps: doublePrecision('tx_bps'),
+    listeners: integer('listeners'),
+  },
+  (t) => [primaryKey({ columns: [t.nodeId, t.at] }), index('node_metrics_at_idx').on(t.at)],
+);
+
+/** What happened to a node: paired, online/offline, roles, updates, warnings. `kind` + `details` are shown translated. */
+export const nodeEvents = pgTable(
+  'node_events',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    nodeId: uuid('node_id').notNull().references(() => nodes.id, { onDelete: 'cascade' }),
+    at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+    /** info | warning | error */
+    level: text('level').notNull().default('info'),
+    kind: text('kind').notNull(),
+    details: jsonb('details').$type<Record<string, string | number | null>>().notNull().default({}),
+  },
+  (t) => [index('node_events_node_idx').on(t.nodeId, t.at)],
+);
+
+/** Latest result of a stream check from a node (remote probe), per station stream it watches. */
+export const nodeProbes = pgTable(
+  'node_probes',
+  {
+    nodeId: uuid('node_id').notNull().references(() => nodes.id, { onDelete: 'cascade' }),
+    /** "<station slug>/<mount>@<where>", where = main or the id of a relay node. */
+    target: text('target').notNull(),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    url: text('url').notNull(),
+    ok: boolean('ok').notNull(),
+    httpStatus: integer('http_status'),
+    /** Time to the first audio bytes. */
+    ttfbMs: integer('ttfb_ms'),
+    message: text('message'),
+    checkedAt: timestamp('checked_at', { withTimezone: true }).notNull(),
+    lastOkAt: timestamp('last_ok_at', { withTimezone: true }),
+    /** Checks and failures over the last 24 hours, kept as per-hour buckets [hour, checks, failures]. */
+    buckets: jsonb('buckets').$type<[number, number, number][]>().notNull().default([]),
+  },
+  (t) => [primaryKey({ columns: [t.nodeId, t.target] }), index('node_probes_station_idx').on(t.stationId)],
 );

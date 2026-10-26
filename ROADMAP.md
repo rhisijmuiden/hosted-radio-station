@@ -77,6 +77,15 @@ Phase 7: Scheduler with hour clocks, a weekly schedule and live shows.
 | ![Live show with its DJs](docs/screenshots/phase-7-show-dialog.png) | ![AutoDJ playing the commercials of the hour clock](docs/screenshots/phase-7-autodj.png) |
 | ![Playlists only for hour clocks](docs/screenshots/phase-7-playlists.png) | ![Programme on the public page](docs/screenshots/phase-7-public.png) |
 
+Phase 8: Distribution network with nodes (relays, source nodes, remote probes) and a live 3D topology.
+
+| Administrator | Customer, Dutch |
+| --- | --- |
+| ![Topology of the whole network](docs/screenshots/phase-8-topology-admin-dark.png) | ![My setup: the customer's own node and its studio](docs/screenshots/phase-8-topology-customer-nl.png) |
+| ![Nodes with status, version, latency, listeners, CPU and traffic](docs/screenshots/phase-8-nodes.png) | ![My nodes in Dutch](docs/screenshots/phase-8-my-nodes-nl.png) |
+| ![Node detail: machine, connection and relayed streams](docs/screenshots/phase-8-node-detail.png) | ![Health of a node over time](docs/screenshots/phase-8-node-health.png) |
+| ![Remote probes from a node](docs/screenshots/phase-8-node-probes.png) | ![Topology, light theme](docs/screenshots/phase-8-topology-admin-light.png) |
+
 ## Status
 
 | Phase | Name | Status |
@@ -88,7 +97,7 @@ Phase 7: Scheduler with hour clocks, a weekly schedule and live shows.
 | 5 | Public pages | Done |
 | 6 | Radio station (AutoDJ) | Done |
 | 7 | Scheduler | Done |
-| 8 | Distribution network and orchestration | Planned |
+| 8 | Distribution network and orchestration | Done |
 | 9 | Windows client | Planned |
 | 10 | Hosted service | Planned |
 | 11 | FM/MPX and RDS module | Planned |
@@ -194,13 +203,7 @@ Scale out with remote nodes; the main server becomes the orchestrator.
 - Updates come from the main server: nodes follow the main server's version and channel, and update from the panel.
 - Remote probes that monitor stream availability from other locations.
 
-Design preview of the topology view: the administrator sees every node, a customer sees only their own setup.
-
-| Administrator (dark) | Customer, own node (dark) |
-| --- | --- |
-| ![Topology, administrator view](docs/screenshots/phase-8-topology-admin-dark.png) | ![Topology, customer view](docs/screenshots/phase-8-topology-customer-dark.png) |
-
-![Topology, administrator view, light theme](docs/screenshots/phase-8-topology-admin-light.png)
+How to add and run nodes: [docs/nodes.md](docs/nodes.md).
 
 ### Phase 9: Windows client
 

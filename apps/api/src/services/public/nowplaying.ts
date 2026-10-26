@@ -1,5 +1,7 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { schema } from '../../db/index.js';
+import { cachedRelays } from '../nodes/routing.js';
+import { getSetting } from '../settings.js';
 import type { AppContext } from '../../lib/context.js';
 import { libraryRequests } from '../autodj/requests.js';
 import { publicShows, scheduleIsPublic, type PublicShow } from '../scheduler/public.js';
@@ -148,8 +150,14 @@ export async function buildNowPlaying(ctx: AppContext, station: PublicStation, a
   ]);
 
   const onAir = visible.some((m) => byPath.has(m.path));
+  // Relay nodes: their listeners count too, and players go through the redirect that picks the nearest relay.
+  const [relays, nodeSettings] = await Promise.all([cachedRelays(ctx).then((r) => r.get(station.id) ?? []), getSetting(ctx, 'nodes')]);
+  const relayListeners = relays.reduce((n, r) => n + (r.status.online ? (r.status.relays ?? []).filter((x) => x.key.startsWith(`${station.slug}/`)).reduce((a, x) => a + (x.listeners ?? 0), 0) : 0), 0);
+  const routed = nodeSettings.routeListeners && relays.length > 0;
   const listeners =
-    (stats ?? []).reduce((n, x) => n + x.listeners, 0) + outputs.reduce((n, o) => n + (o.type !== 'local' && o.enabled && o.status?.listeners ? o.status.listeners : 0), 0);
+    (stats ?? []).reduce((n, x) => n + x.listeners, 0) +
+    outputs.reduce((n, o) => n + (o.type !== 'local' && o.enabled && o.status?.listeners ? o.status.listeners : 0), 0) +
+    relayListeners;
   const links = Object.fromEntries(Object.entries(s.links).filter(([, v]) => v)) as NowPlaying['station']['links'];
   const requestsOpen = s.requests.enabled && (!s.requests.onlyWhenLive || !!session);
 
@@ -178,7 +186,7 @@ export async function buildNowPlaying(ctx: AppContext, station: PublicStation, a
       bitrateKbps: m.bitrateKbps,
       isDefault: m === def,
       live: byPath.has(m.path),
-      listenUrl: conn.mounts.find((c) => c.id === m.id)?.listenUrl ?? null,
+      listenUrl: routed ? `${base}/api/public/stations/${station.slug}/listen${m.path}` : (conn.mounts.find((c) => c.id === m.id)?.listenUrl ?? null),
     })),
     history: s.showHistory ? await recentlyPlayed(ctx, artwork, station, base, Math.min(s.historyCount, 10), [...new Set([playMount, ...heardMounts(mounts, source)].filter((p): p is string => !!p))]) : [],
     requests: { enabled: s.requests.enabled, open: requestsOpen, message: s.requests.message, library: libraryRequests(station) },

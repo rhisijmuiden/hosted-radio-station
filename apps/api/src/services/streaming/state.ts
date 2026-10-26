@@ -7,6 +7,7 @@ import type { AppContext } from '../../lib/context.js';
 import { conflict } from '../../lib/errors.js';
 import { autodjScriptPath, renderScript, scriptHash } from '../autodj/liquidsoap.js';
 import { autodjActive, autodjSettings } from '../autodj/settings.js';
+import { relaysByStation } from '../nodes/plan.js';
 import { getSetting, type StreamingSettings } from '../settings.js';
 import { fetchStats, icecastConfigPath, icecastPidPath, mediaDir, renderIcecastConfig, stationDir, type MountStats } from './icecast.js';
 import { renderSftpgoEnv } from './sftpgo.js';
@@ -193,9 +194,10 @@ export async function buildStreamsState(ctx: AppContext): Promise<StreamsState> 
         .from(schema.stationOutputs)
         .where(and(inArray(schema.stationOutputs.stationId, ids), eq(schema.stationOutputs.type, 'local'), eq(schema.stationOutputs.enabled, true)))
     : [];
-  const listening = new Set(localOutputs.map((o) => o.stationId));
+  // Relay nodes pull their streams from the listen routes too.
+  const listening = new Set([...localOutputs.map((o) => o.stationId), ...(await relaysByStation(ctx)).keys()]);
   const domains = await ctx.db
-    .select({ ingestHost: schema.tenantDomains.ingestHost, panelHost: schema.tenantDomains.panelHost })
+    .select({ ingestHost: schema.tenantDomains.ingestHost, panelHost: schema.tenantDomains.panelHost, ingestNodeId: schema.tenantDomains.ingestNodeId })
     .from(schema.tenantDomains)
     .innerJoin(schema.tenants, eq(schema.tenants.id, schema.tenantDomains.tenantId))
     .where(and(eq(schema.tenantDomains.status, 'verified'), eq(schema.tenants.active, true)));
@@ -219,7 +221,8 @@ export async function buildStreamsState(ctx: AppContext): Promise<StreamsState> 
         mounts: mounts.filter((m) => m.stationId === r.s.id && m.isPublic).map((m) => m.path).sort(),
       }))
       .filter((l) => l.mounts.length > 0),
-    certHosts: proxy.mode === 'builtin' ? [...new Set([proxy.domain, ...domains.map((d) => d.ingestHost)].filter(Boolean))].sort() : [],
+    // Encoder names routed to a source node get their certificate on that node.
+    certHosts: proxy.mode === 'builtin' ? [...new Set([proxy.domain, ...domains.filter((d) => !d.ingestNodeId).map((d) => d.ingestHost)].filter(Boolean))].sort() : [],
     defaultCertHost: proxy.mode === 'builtin' && proxy.domain ? proxy.domain : null,
     sftpgo: { enabled: streaming.sftp.enabled || streaming.ftp.enabled, hash: createHash('sha256').update(sftpgoEnv).digest('hex').slice(0, 16) },
     autodj,

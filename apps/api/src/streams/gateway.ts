@@ -8,7 +8,10 @@ import { schema } from '../db/index.js';
 import type { AppContext } from '../lib/context.js';
 import { authenticateSource, type Account, type OutsideShow } from '../services/streaming/sources.js';
 import type { LiveBroadcast } from './recorder.js';
+import { PREAMBLE_PREFIX, verifyPreamble } from '../services/nodes/preamble.js';
 import { resolveMount, type Snapshot, type StationView } from './snapshot.js';
+
+type SourceNode = Snapshot['sourceNodes'] extends Map<string, infer N> ? N : never;
 
 const HEADER_LIMIT = 16 * 1024;
 const HEADER_TIMEOUT = 15_000;
@@ -248,26 +251,46 @@ export class IngestGateway {
     socket.on('close', () => this.active.delete(socket));
     socket.on('error', () => socket.destroy());
     socket.setNoDelay(true);
-    const ip = (socket.remoteAddress ?? '').replace(/^::ffff:/, '');
+    let ip = (socket.remoteAddress ?? '').replace(/^::ffff:/, '');
     try {
       if (this.limiter.blocked(ip)) return reply(socket, '403 Forbidden', 'Too many failed log-ins. Try again later.');
       if (via === 'shoutcast') return await this.handleLegacy(socket, ip, legacyStationId!);
-      const { head, rest } = await readUntil(socket, '\r\n\r\n');
+      let { head, rest } = await readUntil(socket, '\r\n\r\n');
+      // A source node in front: its signed first line carries the encoder's real address.
+      let node: SourceNode | null = null;
+      let sni = via === 'tls' ? (socket as tls.TLSSocket).servername || null : null;
+      if (head.startsWith(PREAMBLE_PREFIX)) {
+        const nl = head.indexOf('\n');
+        const pre = verifyPreamble(head.slice(0, nl < 0 ? head.length : nl), (id) => this.snap?.sourceNodes.get(id)?.secret ?? null);
+        if (!pre) {
+          this.limiter.fail(ip);
+          return reply(socket, '403 Forbidden', 'Unknown node');
+        }
+        node = this.snap!.sourceNodes.get(pre.nodeId)!;
+        head = nl < 0 ? '' : head.slice(nl + 1);
+        if (!head) ({ head, rest } = await readUntil(socket, '\r\n\r\n'));
+        ip = pre.ip;
+        via = pre.via;
+        sni = pre.host;
+        if (this.limiter.blocked(ip)) return reply(socket, '403 Forbidden', 'Too many failed log-ins. Try again later.');
+      }
       const req = parseHead(head, rest);
       if (!req) return reply(socket, '400 Bad Request', 'Not an Icecast source request');
-      const host = (via === 'tls' ? (socket as tls.TLSSocket).servername : null) || req.headers.get('host')?.replace(/:\d+$/, '') || null;
-      await this.handleHttp(socket, req, via, ip, host, null);
+      const host = sni || req.headers.get('host')?.replace(/:\d+$/, '') || null;
+      await this.handleHttp(socket, req, via, ip, host, null, node);
     } catch (err) {
       if ((err as Error).message !== 'closed') this.log.debug({ err, ip }, 'ingest connection failed');
       socket.destroy();
     }
   }
 
-  private async handleHttp(socket: net.Socket, req: Head, via: Via, ip: string, host: string | null, fixed: StationView | null) {
+  private async handleHttp(socket: net.Socket, req: Head, via: Via, ip: string, host: string | null, fixed: StationView | null, node: SourceNode | null = null) {
     const snap = this.snap!;
     if (req.method === 'SOURCE' || req.method === 'PUT') {
       const target = fixed ? this.legacyTarget(fixed, req.path) : resolveMount(snap, host, req.path);
       if (!target) return reply(socket, '404 Not Found', `Unknown mount ${req.path}. Use /<station>/<mount>, for example /my-station/live.`);
+      // A customer's own node only carries that customer's stations.
+      if (node?.tenantId && node.tenantId !== target.view.tenantId) return reply(socket, '403 Forbidden', 'This node cannot deliver to this station.');
       const creds = basicAuth(req.headers.get('authorization'));
       if (!creds) return reply(socket, '401 Unauthorized', 'Log-in required', ['WWW-Authenticate: Basic realm="Icecast2 Server"']);
       let outside: OutsideShow | null = null;
@@ -294,6 +317,7 @@ export class IngestGateway {
         ip,
         bitrate,
         userAgent: req.headers.get('user-agent') ?? null,
+        nodeId: node?.id ?? null,
       });
     }
     if (req.method === 'GET' && /^\/admin\/metadata(\.xsl)?(\?|$)/.test(req.path)) return this.metadata(socket, req, ip, host, fixed);
@@ -323,7 +347,7 @@ export class IngestGateway {
     client: net.Socket,
     target: { view: StationView; mountPath: string; mountId: string },
     account: Account,
-    req: { method: string; version: string; headers: [string, string][]; rest: Buffer; via: Via; ip: string; bitrate: number | null; userAgent: string | null },
+    req: { method: string; version: string; headers: [string, string][]; rest: Buffer; via: Via; ip: string; bitrate: number | null; userAgent: string | null; nodeId: string | null },
   ) {
     const { station } = target.view;
     const upstream = net.connect({ host: '127.0.0.1', port: station.icecastPort });
@@ -401,7 +425,7 @@ export class IngestGateway {
   private async startSession(
     target: { view: StationView; mountPath: string; mountId: string },
     account: Account,
-    req: { via: Via; ip: string; bitrate: number | null; userAgent: string | null },
+    req: { via: Via; ip: string; bitrate: number | null; userAgent: string | null; nodeId: string | null },
   ) {
     this.liveCount++;
     const [row] = await this.ctx.db
@@ -416,6 +440,7 @@ export class IngestGateway {
         ip: req.ip,
         userAgent: req.userAgent?.slice(0, 200) ?? null,
         bitrateKbps: req.bitrate,
+        nodeId: req.nodeId,
       })
       .returning({ id: schema.liveSessions.id, startedAt: schema.liveSessions.startedAt });
     const b: LiveBroadcast = { sessionId: row!.id, stationId: target.view.station.id, mountPath: target.mountPath, accountName: account.displayName || account.username, startedAt: row!.startedAt };
@@ -512,6 +537,7 @@ export class IngestGateway {
       via: 'shoutcast',
       ip,
       bitrate,
+      nodeId: null,
       userAgent: icyHeaders.get('user-agent') ?? 'Shoutcast v1 encoder',
     });
   }

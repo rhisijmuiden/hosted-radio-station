@@ -19,6 +19,8 @@ import {
   BarChart3,
   Radio,
   RadioTower,
+  Server,
+  Network,
   type LucideIcon,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -164,6 +166,13 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
     ...(admin || me.memberships.some((m) => m.role !== 'dj') ? [{ to: '/statistics', label: t('nav.statistics'), icon: BarChart3 }] : []),
     { to: '/customers', label: admin ? t('nav.customers') : t('nav.myCustomers'), icon: Building2 },
   ];
+  const infra: NavItem[] =
+    admin || me.memberships.some((m) => m.role !== 'dj')
+      ? [
+          { to: '/nodes', label: admin ? t('nav.nodes') : t('nav.myNodes'), icon: Server },
+          { to: '/topology', label: admin ? t('nav.topology') : t('nav.mySetup'), icon: Network },
+        ]
+      : [];
   const administration: NavItem[] = admin
     ? [
         { to: '/users', label: t('nav.users'), icon: Users },
@@ -195,6 +204,10 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
       </div>
       <nav className="flex flex-col gap-0.5 overflow-y-auto">
         {main.map((item) => (
+          <NavItemLink key={item.to} item={item} onNavigate={onNavigate} />
+        ))}
+        {!!infra.length && <div className="px-2.5 pt-4 pb-1.5 text-[11px] tracking-[0.08em] text-muted uppercase">{t('nav.infrastructure')}</div>}
+        {infra.map((item) => (
           <NavItemLink key={item.to} item={item} onNavigate={onNavigate} />
         ))}
         <div className="px-2.5 pt-4 pb-1.5 text-[11px] tracking-[0.08em] text-muted uppercase">{admin ? t('nav.administration') : t('nav.developer')}</div>

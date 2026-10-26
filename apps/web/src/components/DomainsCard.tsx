@@ -3,9 +3,9 @@ import { CheckCircle2, Globe, Plus, RefreshCw, Trash2, XCircle } from 'lucide-re
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { api, ApiError, type TenantDomain, type TenantUsage } from '../lib/api';
+import { api, ApiError, type NodeItem, type TenantDomain, type TenantUsage } from '../lib/api';
 import { formatBytes, formatRelative } from '../lib/format';
-import { Badge, Button, Card, CardHeader, CopyField, Dialog, Field, Input, Spinner, Switch } from './ui';
+import { Badge, Button, Card, CardHeader, CopyField, Dialog, Field, Input, Select, Spinner, Switch } from './ui';
 
 function AddDomainDialog({ tenantId, open, onClose }: { tenantId: string; open: boolean; onClose: () => void }) {
   const { t } = useTranslation();
@@ -84,6 +84,16 @@ export function DomainsCard({ tenantId, canEdit, admin }: { tenantId: string; ca
     onError: (err) => toast.error((err as Error).message),
   });
   const target = domains.data?.target;
+  const nodes = useQuery({ queryKey: ['nodes', admin ? 'all' : tenantId], queryFn: () => api<NodeItem[]>(admin ? '/nodes' : `/nodes?tenantId=${tenantId}`) });
+  const sourceNodes = (nodes.data ?? []).filter((n) => n.roles.includes('source') && (n.tenantId === tenantId || (admin && !n.tenantId)));
+  const ingestNode = useMutation({
+    mutationFn: ({ d, nodeId }: { d: TenantDomain; nodeId: string | null }) => api(`/tenants/${tenantId}/domains/${d.id}/ingest-node`, { method: 'PUT', body: { nodeId } }),
+    onSuccess: () => {
+      refresh();
+      toast.success(t('domains.ingestNodeSaved'));
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
 
   return (
     <Card>
@@ -154,6 +164,32 @@ export function DomainsCard({ tenantId, canEdit, admin }: { tenantId: string; ca
                   );
                 })}
               </div>
+              {(!!sourceNodes.length || d.ingestNodeId) && (
+                <div className="flex flex-wrap items-center gap-2 text-[13px]">
+                  <span className="text-muted">{t('domains.ingestVia')}</span>
+                  <div className="w-full sm:w-64">
+                    <Select
+                      className="h-9"
+                      value={d.ingestNodeId ?? ''}
+                      disabled={!canEdit || ingestNode.isPending}
+                      onChange={(e) => ingestNode.mutate({ d, nodeId: e.target.value || null })}
+                    >
+                      <option value="">{t('domains.ingestMain')}</option>
+                      {sourceNodes.map((n) => (
+                        <option key={n.id} value={n.id}>
+                          {n.name}
+                          {n.location ? ` (${n.location})` : ''}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  {d.ingestNodeId && (() => {
+                    const n = sourceNodes.find((x) => x.id === d.ingestNodeId);
+                    const to = n?.config.publicHost || n?.status.ip;
+                    return to ? <span className="text-xs text-muted">{t('domains.ingestPointTo', { host: d.ingestHost, target: to })}</span> : null;
+                  })()}
+                </div>
+              )}
               <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted">
                 <span>{d.checkedAt ? t('domains.checked', { when: formatRelative(d.checkedAt) }) : ''}</span>
                 {admin && (

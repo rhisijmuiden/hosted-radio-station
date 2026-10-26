@@ -1,0 +1,368 @@
+import { timingSafeEqual } from 'node:crypto';
+import { and, eq, gt, lt, sql } from 'drizzle-orm';
+import type { FastifyBaseLogger } from 'fastify';
+import type { WebSocket } from 'ws';
+import { schema } from '../../db/index.js';
+import type { NodeStatus } from '../../db/schema.js';
+import type { AppContext } from '../../lib/context.js';
+import { getSetting } from '../settings.js';
+import { GeoIp } from '../stats/geoip.js';
+import { buildPlan, type Node } from './plan.js';
+import { CLOSE, PROTOCOL_VERSION, type AgentMessage, type AgentStats, type ServerMessage } from './protocol.js';
+
+const PING_MS = 5000;
+/** A ping without an answer after this long counts as a timeout. */
+const PING_TIMEOUT_MS = 4000;
+const HELLO_TIMEOUT_MS = 10_000;
+
+interface Minute {
+  rtts: number[];
+  pings: number;
+  lost: number;
+}
+
+interface Conn {
+  nodeId: string;
+  socket: WebSocket;
+  status: NodeStatus;
+  seq: number;
+  pending: Map<number, number>;
+  minute: Minute;
+  /** Outcome of the last five minutes of pings, for the loss figure: [pings, lost] per minute. */
+  recent: [number, number][];
+  revision: string | null;
+  savedAt: number;
+  latencyHigh: boolean;
+  timer: NodeJS.Timeout;
+}
+
+/** Compares a secret with the stored (encrypted) one in constant time. */
+export function secretMatches(ctx: AppContext, sealed: string | null, given: string) {
+  if (!sealed || !given) return false;
+  let plain: string;
+  try {
+    plain = ctx.box.decrypt(sealed);
+  } catch {
+    return false;
+  }
+  const a = Buffer.from(plain);
+  const b = Buffer.from(given);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+export async function nodeEvent(ctx: AppContext, nodeId: string, kind: string, level: 'info' | 'warning' | 'error' = 'info', details: Record<string, string | number | null> = {}) {
+  await ctx.db.insert(schema.nodeEvents).values({ nodeId, kind, level, details }).catch(() => undefined);
+}
+
+/**
+ * The control channel to the nodes. Every paired node keeps one WebSocket open to this server: it authenticates with
+ * its secret, gets its plan (roles, streams, probes, version) and sends its health every few seconds. The hub pings
+ * each node every five seconds for latency and timeouts, and writes a health figure per minute.
+ */
+export class NodeHub {
+  private conns = new Map<string, Conn>();
+  private timers: NodeJS.Timeout[] = [];
+  private refreshing: Promise<void> | null = null;
+  readonly geo: GeoIp;
+
+  constructor(
+    private readonly ctx: AppContext,
+    private readonly log: FastifyBaseLogger,
+  ) {
+    this.geo = new GeoIp(ctx);
+  }
+
+  async start() {
+    // Nobody is connected right after a start.
+    await this.ctx.db.execute(sql`update nodes set status = jsonb_set(status, '{online}', 'false') where (status->>'online')::boolean`).catch(() => undefined);
+    this.timers.push(setInterval(() => void this.flushMinute().catch((err) => this.log.warn({ err }, 'saving node health failed')), 60_000));
+    // Probe targets depend on which relays are online; plans are cheap to compare.
+    this.timers.push(setInterval(() => void this.refreshAll(), 60_000));
+    this.timers.push(setInterval(() => void this.cleanup().catch((err) => this.log.warn({ err }, 'cleaning up node health failed')), 3600_000));
+    for (const t of this.timers) t.unref();
+  }
+
+  async stop() {
+    for (const t of this.timers) clearInterval(t);
+    for (const c of this.conns.values()) {
+      clearInterval(c.timer);
+      c.socket.close(1001, 'server restarting');
+    }
+    this.conns.clear();
+  }
+
+  isOnline(nodeId: string) {
+    return this.conns.has(nodeId);
+  }
+
+  /** Live status of a connected node (fresher than the stored one). */
+  liveStatus(nodeId: string): NodeStatus | null {
+    return this.conns.get(nodeId)?.status ?? null;
+  }
+
+  private send(c: Conn, msg: ServerMessage) {
+    if (c.socket.readyState === c.socket.OPEN) c.socket.send(JSON.stringify(msg));
+  }
+
+  /** Takes a new agent connection: waits for its hello and checks the secret. */
+  attach(socket: WebSocket, ip: string | null) {
+    let conn: Conn | null = null;
+    const helloTimer = setTimeout(() => socket.close(CLOSE.unauthorized, 'hello expected'), HELLO_TIMEOUT_MS);
+    socket.on('message', (data: Buffer) => {
+      let msg: AgentMessage;
+      try {
+        msg = JSON.parse(data.toString('utf8'));
+      } catch {
+        return;
+      }
+      if (!conn) {
+        if (msg.t !== 'hello') return;
+        clearTimeout(helloTimer);
+        void this.hello(socket, msg, ip).then((c) => (conn = c)).catch((err) => {
+          this.log.warn({ err }, 'node hello failed');
+          socket.close(1011, 'error');
+        });
+        return;
+      }
+      this.onMessage(conn, msg);
+    });
+    socket.on('close', () => {
+      clearTimeout(helloTimer);
+      if (conn && this.conns.get(conn.nodeId) === conn) void this.gone(conn);
+    });
+    socket.on('error', () => socket.terminate());
+  }
+
+  private async hello(socket: WebSocket, msg: Extract<AgentMessage, { t: 'hello' }>, ip: string | null): Promise<Conn | null> {
+    if (msg.protocol !== PROTOCOL_VERSION) {
+      socket.close(CLOSE.protocol, `protocol ${PROTOCOL_VERSION} expected`);
+      return null;
+    }
+    const id = typeof msg.nodeId === 'string' && /^[0-9a-f-]{36}$/.test(msg.nodeId) ? msg.nodeId : null;
+    const [node] = id ? await this.ctx.db.select().from(schema.nodes).where(eq(schema.nodes.id, id)) : [];
+    if (!node || !secretMatches(this.ctx, node.secret, String(msg.secret ?? ''))) {
+      socket.close(CLOSE.unauthorized, 'unknown node or wrong secret');
+      return null;
+    }
+    const old = this.conns.get(node.id);
+    if (old) {
+      clearInterval(old.timer);
+      this.conns.delete(node.id);
+      old.socket.close(CLOSE.replaced, 'replaced by a new connection');
+    }
+    await this.geo.refresh().catch(() => undefined);
+    const geo = this.geo.lookup(ip);
+    const status: NodeStatus = {
+      ...node.status,
+      online: true,
+      version: String(msg.version ?? '').slice(0, 40),
+      commit: typeof msg.commit === 'string' ? msg.commit.slice(0, 40) : null,
+      hostname: String(msg.hostname ?? '').slice(0, 100),
+      caddy: !!msg.facts?.caddy,
+      cores: Number(msg.facts?.cores) || undefined,
+      addresses: Array.isArray(msg.facts?.addresses) ? msg.facts.addresses.slice(0, 10).map(String) : [],
+      ip,
+      country: geo?.country ?? null,
+      city: geo?.city ?? null,
+      latitude: geo?.latitude ?? null,
+      longitude: geo?.longitude ?? null,
+      updatedAt: new Date().toISOString(),
+    };
+    const conn: Conn = {
+      nodeId: node.id,
+      socket,
+      status,
+      seq: 0,
+      pending: new Map(),
+      minute: { rtts: [], pings: 0, lost: 0 },
+      recent: [],
+      revision: null,
+      savedAt: Date.now(),
+      latencyHigh: false,
+      timer: setInterval(() => this.ping(conn), PING_MS),
+    };
+    conn.timer.unref();
+    this.conns.set(node.id, conn);
+    await this.ctx.db.update(schema.nodes).set({ status, lastSeenAt: new Date() }).where(eq(schema.nodes.id, node.id));
+    await nodeEvent(this.ctx, node.id, 'online', 'info', { ip, version: status.version ?? null });
+    this.log.info({ node: node.name, ip }, 'node connected');
+    this.send(conn, { t: 'welcome', nodeId: node.id, name: node.name, serverTime: new Date().toISOString() });
+    await this.pushPlan(conn, { ...node, status });
+    this.ping(conn);
+    return conn;
+  }
+
+  private ping(c: Conn) {
+    const now = Date.now();
+    for (const [seq, sent] of c.pending) {
+      if (now - sent > PING_TIMEOUT_MS) {
+        c.pending.delete(seq);
+        c.minute.lost++;
+      }
+    }
+    c.seq++;
+    c.pending.set(c.seq, now);
+    c.minute.pings++;
+    this.send(c, { t: 'ping', seq: c.seq });
+  }
+
+  private onMessage(c: Conn, msg: AgentMessage) {
+    if (msg.t === 'pong') {
+      const sent = c.pending.get(msg.seq);
+      if (sent === undefined) return;
+      c.pending.delete(msg.seq);
+      const rtt = Date.now() - sent;
+      c.minute.rtts.push(rtt);
+      // Show a rolling figure right away instead of waiting for the minute.
+      const last = c.minute.rtts.slice(-12);
+      c.status.rttMs = Math.round((last.reduce((a, b) => a + b, 0) / last.length) * 10) / 10;
+    } else if (msg.t === 'stats') {
+      this.onStats(c, msg);
+    } else if (msg.t === 'event' && typeof msg.kind === 'string' && /^[a-z_]{1,40}$/.test(msg.kind)) {
+      const level = msg.level === 'warning' || msg.level === 'error' ? msg.level : 'info';
+      const details: Record<string, string | number | null> = {};
+      for (const [k, v] of Object.entries(msg.details ?? {}).slice(0, 10)) {
+        if (typeof v === 'number' || v === null) details[k.slice(0, 40)] = v;
+        else details[k.slice(0, 40)] = String(v).slice(0, 300);
+      }
+      void nodeEvent(this.ctx, c.nodeId, msg.kind, level, details);
+    }
+  }
+
+  private onStats(c: Conn, m: AgentStats) {
+    const num = (v: unknown, max = Number.MAX_SAFE_INTEGER) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(max, v)) : undefined);
+    const s = c.status;
+    s.cpu = num(m.cpu, 1);
+    s.memory = num(m.memory, 1);
+    s.load = num(m.load);
+    s.uptime = num(m.uptime);
+    s.rxBps = num(m.rxBps);
+    s.txBps = num(m.txBps);
+    s.listeners = num(m.listeners);
+    s.encoders = num(m.encoders);
+    s.icmp = m.icmp && typeof m.icmp === 'object' ? { rttMs: num(m.icmp.rttMs) ?? null, loss: num(m.icmp.loss, 1) ?? 0 } : null;
+    s.problems = Array.isArray(m.problems) ? m.problems.slice(0, 10).map((p) => String(p).slice(0, 300)) : [];
+    if (m.update && typeof m.update === 'object') {
+      const prev = s.update?.state;
+      s.update = { state: m.update.state, message: m.update.message?.slice(0, 300), at: m.update.at };
+      if (prev && prev !== m.update.state && (m.update.state === 'succeeded' || m.update.state === 'failed')) {
+        void nodeEvent(this.ctx, c.nodeId, m.update.state === 'succeeded' ? 'update_done' : 'update_failed', m.update.state === 'succeeded' ? 'info' : 'error', { message: m.update.message ?? null });
+      }
+    }
+    s.updatedAt = new Date().toISOString();
+    if (Date.now() - c.savedAt > 10_000) void this.save(c);
+  }
+
+  private async save(c: Conn) {
+    c.savedAt = Date.now();
+    await this.ctx.db
+      .update(schema.nodes)
+      .set({ status: c.status, lastSeenAt: new Date() })
+      .where(eq(schema.nodes.id, c.nodeId))
+      .catch((err) => this.log.warn({ err }, 'saving node status failed'));
+  }
+
+  private async gone(c: Conn) {
+    clearInterval(c.timer);
+    this.conns.delete(c.nodeId);
+    c.status = { ...c.status, online: false, updatedAt: new Date().toISOString() };
+    await this.writeMinute(c).catch(() => undefined);
+    await this.ctx.db.update(schema.nodes).set({ status: c.status, lastSeenAt: new Date() }).where(eq(schema.nodes.id, c.nodeId)).catch(() => undefined);
+    await nodeEvent(this.ctx, c.nodeId, 'offline', 'warning');
+    this.log.info({ node: c.nodeId }, 'node disconnected');
+  }
+
+  /** Removes health figures and events older than the retention. */
+  async cleanup() {
+    const { metricsRetentionDays } = await getSetting(this.ctx, 'nodes');
+    await this.ctx.db.delete(schema.nodeMetrics).where(lt(schema.nodeMetrics.at, new Date(Date.now() - metricsRetentionDays * 86400_000)));
+    await this.ctx.db.delete(schema.nodeEvents).where(lt(schema.nodeEvents.at, new Date(Date.now() - Math.max(90, metricsRetentionDays) * 86400_000)));
+  }
+
+  /** Writes the health figures of the minute that ended for every connected node. */
+  async flushMinute() {
+    const settings = await getSetting(this.ctx, 'nodes');
+    for (const c of this.conns.values()) {
+      await this.writeMinute(c, settings.latencyWarnMs);
+      await this.save(c);
+    }
+  }
+
+  private async writeMinute(c: Conn, warnMs?: number) {
+    const m = c.minute;
+    c.minute = { rtts: [], pings: 0, lost: 0 };
+    if (!m.pings) return;
+    const at = new Date(Math.floor(Date.now() / 60_000) * 60_000 - 60_000);
+    const rttAvg = m.rtts.length ? m.rtts.reduce((a, b) => a + b, 0) / m.rtts.length : null;
+    const s = c.status;
+    await this.ctx.db
+      .insert(schema.nodeMetrics)
+      .values({ nodeId: c.nodeId, at, rttAvg, rttMax: m.rtts.length ? Math.max(...m.rtts) : null, pings: m.pings, lost: m.lost, cpu: s.cpu ?? null, memory: s.memory ?? null, rxBps: s.rxBps ?? null, txBps: s.txBps ?? null, listeners: s.listeners ?? null })
+      .onConflictDoUpdate({
+        target: [schema.nodeMetrics.nodeId, schema.nodeMetrics.at],
+        set: { pings: sql`${schema.nodeMetrics.pings} + excluded.pings`, lost: sql`${schema.nodeMetrics.lost} + excluded.lost` },
+      });
+    c.recent = [...c.recent, [m.pings, m.lost] as [number, number]].slice(-5);
+    const pings = c.recent.reduce((n, r) => n + r[0], 0);
+    s.loss = pings ? c.recent.reduce((n, r) => n + r[1], 0) / pings : 0;
+    if (rttAvg !== null) s.rttMs = Math.round(rttAvg * 10) / 10;
+    const [day] = await this.ctx.db
+      .select({ lost: sql<number>`coalesce(sum(${schema.nodeMetrics.lost}), 0)::int` })
+      .from(schema.nodeMetrics)
+      .where(and(eq(schema.nodeMetrics.nodeId, c.nodeId), gt(schema.nodeMetrics.at, new Date(Date.now() - 86400_000))));
+    s.timeouts24h = day?.lost ?? 0;
+    if (warnMs !== undefined && rttAvg !== null) {
+      const high = rttAvg > warnMs || m.lost > m.pings / 2;
+      if (high !== c.latencyHigh) {
+        c.latencyHigh = high;
+        await nodeEvent(this.ctx, c.nodeId, high ? 'latency_high' : 'latency_ok', high ? 'warning' : 'info', { ms: Math.round(rttAvg), lost: m.lost });
+      }
+    }
+  }
+
+  private async pushPlan(c: Conn, node: Node) {
+    const plan = await buildPlan(this.ctx, node);
+    if (plan.revision === c.revision) return;
+    c.revision = plan.revision;
+    this.send(c, { t: 'plan', plan });
+  }
+
+  /** Sends a node its plan again when anything in it changed (after a change in the panel). */
+  async refresh(nodeId: string) {
+    const c = this.conns.get(nodeId);
+    if (!c) return;
+    const [node] = await this.ctx.db.select().from(schema.nodes).where(eq(schema.nodes.id, nodeId));
+    if (node) await this.pushPlan(c, { ...node, status: c.status });
+  }
+
+  /** Re-plans every connected node; called when stations change and every minute. */
+  refreshAll() {
+    this.refreshing ??= (async () => {
+      try {
+        for (const id of [...this.conns.keys()]) await this.refresh(id);
+      } catch (err) {
+        this.log.warn({ err }, 'planning nodes failed');
+      } finally {
+        this.refreshing = null;
+      }
+    })();
+    return this.refreshing;
+  }
+
+  /** Asks a node to update to the version of this server now. Returns false when it is not connected. */
+  requestUpdate(nodeId: string, branch: string | null, commit: string | null) {
+    const c = this.conns.get(nodeId);
+    if (!c) return false;
+    this.send(c, { t: 'update', branch, commit });
+    c.status.update = { state: 'running', message: 'Requested', at: new Date().toISOString() };
+    return true;
+  }
+
+  /** Closes the connection of a node that was unpaired or removed; the agent stops trying. */
+  disconnect(nodeId: string) {
+    const c = this.conns.get(nodeId);
+    if (!c) return;
+    void this.gone(c);
+    c.socket.close(CLOSE.unauthorized, 'unpaired');
+  }
+}
