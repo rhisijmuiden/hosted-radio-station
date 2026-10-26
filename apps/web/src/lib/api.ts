@@ -320,6 +320,10 @@ export interface Output {
 }
 export interface ConnectionInfo {
   ingestHost: string;
+  /** The ingest node behind the ingest host, when the station is routed to one. */
+  node: { id: string; name: string } | null;
+  /** The backup ingest: encoders can use it as their backup server. */
+  backup: { host: string; node: { id: string; name: string } | null; tls: { port: number; available: boolean }; plain: { port: number } | null } | null;
   tls: { port: number; available: boolean };
   plain: { port: number } | null;
   legacy: { port: number; sourcePort: number; mount: string | null } | null;
@@ -899,6 +903,10 @@ export interface NodesSettings {
 export interface TopologyNode {
   id: string;
   name: string;
+  /** One of this server's own roles (local:ingest, local:relay), not a node. */
+  local: boolean;
+  /** Stations this node is the main or backup ingest of. */
+  ingestStations: number;
   location: string;
   roles: NodeRole[];
   own: boolean;
@@ -920,6 +928,33 @@ export interface TopologyNode {
   updateAvailable: boolean;
   relaysUp: number;
   relaysTotal: number;
+}
+/** "local" = this server's own ingest; otherwise an ingest node id. */
+export type IngestRef = 'local' | string;
+export interface StationRouting {
+  ingest: IngestRef;
+  backupIngest: IngestRef | null;
+  relays: 'auto' | string[];
+  spareRelays: boolean;
+}
+export interface RoutingChoice {
+  id: string;
+  name: string;
+  location: string;
+  online: boolean;
+  own: boolean;
+}
+export interface StationRoutingView {
+  routing: StationRouting;
+  locked: 'station_node' | null;
+  autodjHere: boolean;
+  canEdit: boolean;
+  options: { ingests: RoutingChoice[]; relays: RoutingChoice[] };
+  status: {
+    active: IngestRef | null;
+    ingests: { ref: IngestRef; priority: number; name: string; online: boolean; onAir: boolean }[];
+    relays: { id: string; name: string; online: boolean; connected: number; total: number; spare: boolean }[];
+  };
 }
 export interface TopologyStudio {
   id: string;

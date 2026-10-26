@@ -8,14 +8,14 @@ import { formatMs, formatPct } from '../nodes/common';
 export type FlatLayout = 'lr' | 'tb';
 
 type Health = 'online' | 'degraded' | 'offline' | 'unpaired';
-type Lane = 'studios' | 'ingest' | 'core' | 'distribution' | 'audience';
-const LANES: Lane[] = ['studios', 'ingest', 'core', 'distribution', 'audience'];
+type Lane = 'studios' | 'ingest' | 'distribution' | 'audience';
+const LANES: Lane[] = ['studios', 'ingest', 'distribution', 'audience'];
 
 interface Card {
   key: string;
-  /** What a click selects (a node, a studio or the main server). */
+  /** What a click selects (a node, a studio or the orchestrator). */
   select: string | null;
-  lane: Lane;
+  lane: Lane | 'control';
   icon: ReactNode;
   title: string;
   meta: string;
@@ -40,9 +40,15 @@ const healthOf = (n: TopologyNode): Health => (!n.paired ? 'unpaired' : !n.onlin
 const CARD_H = 54;
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
+/** The name of a node, or of one of this server's own roles. */
+export function nodeName(t: (k: string, o?: Record<string, unknown>) => string, n: TopologyNode, customer: boolean) {
+  if (n.local) return t(n.id === 'local:ingest' ? 'topology.local.ingest' : 'topology.local.relay');
+  return customer && n.own ? t('topology.myNode', { name: n.name }) : n.name;
+}
+
 /**
- * The topology as a flat signal flow: studios and encoders → ingest → main server → distribution → listeners, left
- * to right or top to bottom, with the latency and packet loss of each node on its line.
+ * The topology as a flat signal flow: studios and encoders → ingest → relays → listeners, left to right or top to
+ * bottom. The orchestrator stands apart and only has (dashed) control lines to the nodes; it carries no audio.
  */
 export default function TopologyFlat({
   data,
@@ -73,146 +79,84 @@ export default function TopologyFlat({
     const edges: Edge[] = [];
     const customer = data.view === 'customer';
     const latency = (n: TopologyNode) => (n.online && n.rttMs != null ? `${formatMs(n.rttMs)} · ${formatPct(n.loss ?? 0)}` : null);
-    const state = (n: TopologyNode): Edge['state'] => (!n.online ? 'down' : n.degraded ? 'degraded' : 'ok');
-    const streams = new Set(data.links.filter((l) => l.kind === 'stream' && l.active).map((l) => `${l.from}>${l.to}`));
-    const name = (n: TopologyNode) => (customer && n.own ? t('topology.myNode', { name: n.name }) : n.name);
     const meta = (n: TopologyNode, text: string) => (!n.paired ? t('nodes.health.unpaired') : !n.online ? t('nodes.health.offline') : text);
+    const keys = new Set<string>();
+    const add = (c: Card) => {
+      cards.push(c);
+      keys.add(c.key);
+    };
 
-    for (const s of data.studios) {
-      const viaNode = s.nodeId ? data.nodes.find((n) => n.id === s.nodeId && n.roles.includes('source')) : undefined;
-      cards.push({
-        key: s.id,
-        select: s.id,
-        lane: 'studios',
-        icon: <Mic />,
-        title: t('topology.studioOf', { station: s.station }),
-        meta: `${s.account} · ${s.via}`,
-        health: 'online',
-        dim: dimmed.has(s.id),
-      });
-      edges.push({
-        from: s.id,
-        to: viaNode ? `${viaNode.id}#in` : 'main',
-        kind: 'stream',
-        state: 'ok',
-        label: null,
-        dim: dimmed.has(s.id),
-      });
-    }
-    for (const n of data.nodes.filter((x) => x.roles.includes('source'))) {
-      const key = `${n.id}#in`;
-      cards.push({
-        key,
-        select: n.id,
-        lane: 'ingest',
-        icon: <Server />,
-        title: name(n),
-        meta: meta(n, t('topology.encodersCount', { count: n.encoders })),
-        health: healthOf(n),
-        own: customer && n.own,
-        dim: dimmed.has(n.id),
-      });
-      edges.push({
-        from: key,
-        to: 'main',
-        kind: streams.has(`${n.id}>main`) ? 'stream' : 'control',
-        state: state(n),
-        label: latency(n),
-        dim: dimmed.has(n.id),
-      });
-    }
     cards.push({
       key: 'main',
       select: 'main',
-      lane: 'core',
+      lane: 'control',
       icon: <Cpu />,
       title: t('topology.main'),
-      meta: `${t('topology.orchestrator')} · v${data.main.version}`,
+      meta: `${t('topology.controlOnly')} · v${data.main.version}`,
       health: 'online',
       core: true,
       dim: false,
     });
-    for (const n of data.nodes.filter((x) => x.roles.includes('relay') || !x.roles.includes('source'))) {
-      const key = `${n.id}#out`;
+    for (const s of data.studios) {
+      add({ key: s.id, select: s.id, lane: 'studios', icon: <Mic />, title: t('topology.studioOf', { station: s.station }), meta: `${s.account} · ${s.via}`, health: 'online', dim: dimmed.has(s.id) });
+    }
+    for (const n of data.nodes) {
+      const ingest = n.roles.includes('source');
       const relay = n.roles.includes('relay');
-      cards.push({
-        key,
-        select: n.id,
-        lane: 'distribution',
-        icon: relay ? <Radio /> : <Server />,
-        title: name(n),
-        meta: meta(n, relay ? t('topology.listenersCount', { count: n.listeners }) : n.location || t('nodes.noRoles')),
-        health: healthOf(n),
-        own: customer && n.own,
-        dim: dimmed.has(n.id),
-      });
-      edges.push({
-        from: 'main',
-        to: key,
-        kind: streams.has(`main>${n.id}`) ? 'stream' : 'control',
-        state: state(n),
-        label: latency(n),
-        dim: dimmed.has(n.id),
-      });
+      const common = { select: n.id, title: nodeName(t, n, customer), health: healthOf(n), own: customer && n.own, dim: dimmed.has(n.id) };
+      if (ingest) add({ ...common, key: `${n.id}#in`, lane: 'ingest', icon: <Server />, meta: meta(n, t('topology.encodersCount', { count: n.encoders })) });
+      if (relay || !ingest) add({ ...common, key: `${n.id}#out`, lane: 'distribution', icon: relay ? <Radio /> : <Server />, meta: meta(n, relay ? t('topology.listenersCount', { count: n.listeners }) : n.location || t('nodes.noRoles')) });
+      // Control only: the orchestrator steers the node, the audio does not pass it.
+      if (n.paired && !n.local) edges.push({ from: 'main', to: ingest ? `${n.id}#in` : `${n.id}#out`, kind: 'control', state: !n.online ? 'down' : n.degraded ? 'degraded' : 'ok', label: latency(n), dim: dimmed.has(n.id) });
+      if (n.local) edges.push({ from: 'main', to: ingest ? `${n.id}#in` : `${n.id}#out`, kind: 'control', state: n.online ? 'ok' : 'down', label: null, dim: dimmed.has(n.id) });
       if (relay) {
-        const where = n.location || n.city || n.country;
-        cards.push({
+        const where = n.local ? t('topology.flat.direct') : n.location || n.city || n.country;
+        add({
           key: `aud:${n.id}`,
           select: n.id,
           lane: 'audience',
-          icon: <Users />,
+          icon: n.local ? <Headphones /> : <Users />,
           title: where || t('topology.flat.listeners'),
           meta: t('topology.flat.now', { count: n.online ? n.listeners : 0 }),
           health: null,
           audience: true,
           dim: dimmed.has(n.id),
         });
-        edges.push({
-          from: key,
-          to: `aud:${n.id}`,
-          kind: 'listen',
-          state: n.online && n.listeners > 0 ? 'ok' : 'idle',
-          label: null,
-          dim: dimmed.has(n.id),
-        });
+        edges.push({ from: `${n.id}#out`, to: `aud:${n.id}`, kind: 'listen', state: n.online && n.listeners > 0 ? 'ok' : 'idle', label: null, dim: dimmed.has(n.id) });
       }
     }
-    cards.push({
-      key: 'aud:main',
-      select: 'main',
-      lane: 'audience',
-      icon: <Headphones />,
-      title: t('topology.flat.direct'),
-      meta: t('topology.flat.now', { count: data.main.listeners }),
-      health: null,
-      audience: true,
-      dim: false,
-    });
-    edges.push({
-      from: 'main',
-      to: 'aud:main',
-      kind: 'listen',
-      state: data.main.listeners > 0 ? 'ok' : 'idle',
-      label: null,
-      dim: false,
-    });
+    // Audio as the server reports it: studio → ingest, ingest → relay.
+    const card = (id: string, side: 'in' | 'out') => {
+      if (id === 'main' || keys.has(id)) return id;
+      const want = `${id}#${side}`;
+      return keys.has(want) ? want : `${id}#${side === 'in' ? 'out' : 'in'}`;
+    };
+    for (const l of data.links.filter((x) => x.kind === 'stream')) {
+      const from = card(l.from, 'in');
+      const to = card(l.to, l.from.startsWith('studio:') ? 'in' : 'out');
+      edges.push({ from, to, kind: 'stream', state: !l.active ? 'down' : l.degraded ? 'degraded' : 'ok', label: null, dim: dimmed.has(l.from) || dimmed.has(l.to) });
+    }
     return { cards, edges };
   }, [data, dimmed, t]);
 
   const lr = layout === 'lr';
   const perLane = LANES.map((l) => cards.filter((c) => c.lane === l));
   const most = Math.max(...perLane.map((c) => c.length), 1);
+  const n = LANES.length;
+  // The orchestrator gets a band of its own: above the flow (left to right) or beside it (top to bottom).
+  const BAND = lr ? 92 : 190;
   // The view fits the box; it only grows (and scrolls) when the cards would get too small. Room is kept at the bottom
   // for the legend and the zoom buttons.
-  const W = lr ? Math.max(box.w, 5 * 186 + 48) : Math.max(box.w, most * 158 + 48);
-  const H = lr ? Math.max(box.h, most * 72 + 120) : Math.max(box.h, 5 * 112 + 120);
-  const cardW = lr ? clamp((W - 48) / 5 - 36, 150, 180) : clamp((W - 48) / most - 18, 140, 172);
+  const W = lr ? Math.max(box.w, n * 186 + 48) : Math.max(box.w, BAND + most * 158 + 48);
+  const H = lr ? Math.max(box.h, BAND + most * 72 + 120) : Math.max(box.h, n * 112 + 120);
+  const cardW = lr ? clamp((W - 48) / n - 36, 150, 180) : clamp((W - BAND - 48) / most - 18, 140, 172);
   const [start, end] = lr ? [cardW / 2 + 24, cardW / 2 + 24] : [76, 140];
-  const along = (i: number) => start + (i * ((lr ? W : H) - start - end)) / (LANES.length - 1);
+  const along = (i: number) => start + (i * ((lr ? W : H) - start - end)) / (n - 1);
   const pos = new Map<string, { x: number; y: number }>();
+  pos.set('main', lr ? { x: W / 2, y: 46 } : { x: BAND / 2 + 4, y: (H - 64) / 2 });
   perLane.forEach((list, i) => {
     const a = along(i);
-    const [from, to] = lr ? [52, H - 64] : [24, W - 24];
+    const [from, to] = lr ? [BAND + 52, H - 64] : [BAND + 24, W - 24];
     list.forEach((c, j) => {
       const b = from + ((j + 0.5) * (to - from)) / list.length;
       pos.set(c.key, lr ? { x: a, y: b } : { x: b, y: a });
@@ -223,10 +167,18 @@ export default function TopologyFlat({
     const A = pos.get(e.from);
     const B = pos.get(e.to);
     if (!A || !B) return [];
-    const d = lr
-      ? `M${A.x + cardW / 2} ${A.y} C${(A.x + B.x) / 2} ${A.y} ${(A.x + B.x) / 2} ${B.y} ${B.x - cardW / 2} ${B.y}`
-      : `M${A.x} ${A.y + CARD_H / 2} C${A.x} ${(A.y + B.y) / 2} ${B.x} ${(A.y + B.y) / 2} ${B.x} ${B.y - CARD_H / 2}`;
-    return [{ ...e, d, mid: { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 } }];
+    let d: string;
+    if (e.kind === 'control') {
+      // From the orchestrator's band into the top (or the left) of the node.
+      d = lr
+        ? `M${A.x} ${A.y + CARD_H / 2} C${A.x} ${A.y + 70} ${B.x} ${B.y - CARD_H / 2 - 50} ${B.x} ${B.y - CARD_H / 2}`
+        : `M${A.x + cardW / 2} ${A.y} C${A.x + cardW / 2 + 60} ${A.y} ${B.x - cardW / 2 - 50} ${B.y} ${B.x - cardW / 2} ${B.y}`;
+    } else
+      d = lr
+        ? `M${A.x + cardW / 2} ${A.y} C${(A.x + B.x) / 2} ${A.y} ${(A.x + B.x) / 2} ${B.y} ${B.x - cardW / 2} ${B.y}`
+        : `M${A.x} ${A.y + CARD_H / 2} C${A.x} ${(A.y + B.y) / 2} ${B.x} ${(A.y + B.y) / 2} ${B.x} ${B.y - CARD_H / 2}`;
+    const mid = e.kind === 'control' ? (lr ? { x: B.x, y: B.y - CARD_H / 2 - 16 } : { x: B.x - cardW / 2 - 34, y: B.y }) : { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
+    return [{ ...e, d, mid }];
   });
   const isSel = (c: Card) => !!selected && c.select === selected && !c.audience;
 
@@ -246,18 +198,18 @@ export default function TopologyFlat({
                       style={{
                         left: a - cardW / 2 - 12,
                         width: cardW + 24,
-                        top: 40,
+                        top: BAND + 40,
                         bottom: 56,
                       }}
                     />
-                    <div className="topo-lane-title absolute -translate-x-1/2" style={{ left: a, top: 16 }}>
+                    <div className="topo-lane-title absolute -translate-x-1/2" style={{ left: a, top: BAND + 16 }}>
                       {t(`topology.flat.lanes.${l}`)}
                     </div>
                   </div>
                 ) : (
                   <div key={l}>
-                    <div className="topo-lane absolute" style={{ top: a - 40, height: 80, left: 16, right: 16 }} />
-                    <div className="topo-lane-title absolute" style={{ top: a - 56, left: 24 }}>
+                    <div className="topo-lane absolute" style={{ top: a - 40, height: 80, left: BAND + 16, right: 16 }} />
+                    <div className="topo-lane-title absolute" style={{ top: a - 56, left: BAND + 24 }}>
                       {t(`topology.flat.lanes.${l}`)}
                     </div>
                   </div>
@@ -265,8 +217,8 @@ export default function TopologyFlat({
               })}
               <svg className="pointer-events-none absolute inset-0" width={W} height={H}>
                 {paths.map((p) => (
-                  <g key={`${p.from}>${p.to}`} opacity={p.dim ? 0.25 : 1}>
-                    <path className="topo-edge base" d={p.d} />
+                  <g key={`${p.from}>${p.to}>${p.kind}`} opacity={p.dim ? 0.25 : 1}>
+                    {p.kind !== 'control' && <path className="topo-edge base" d={p.d} />}
                     <path className={clsx('topo-edge', p.kind, p.state)} d={p.d} />
                   </g>
                 ))}
@@ -302,7 +254,7 @@ export default function TopologyFlat({
                 .filter((p) => p.label)
                 .map((p) => (
                   <span
-                    key={`l:${p.from}>${p.to}`}
+                    key={`l:${p.from}>${p.to}>${p.kind}`}
                     className={clsx(
                       'topo-pill pointer-events-none absolute -translate-x-1/2 -translate-y-1/2',
                       p.state === 'degraded' || p.state === 'down' ? p.state : undefined,
