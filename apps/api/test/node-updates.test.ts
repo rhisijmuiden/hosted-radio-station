@@ -22,7 +22,8 @@ function agent(nodeId: string, secret: string, commit = OLD) {
       ws.onmessage = (ev) => {
         const m = JSON.parse(String(ev.data));
         if (m.t === 'ping') ws.send(JSON.stringify({ t: 'pong', seq: m.seq }));
-        if (m.t === 'welcome') resolve();
+        // Ready once the plan is in: the hub sends it right after the welcome.
+        if (m.t === 'plan') resolve();
         messages.push(m);
       };
     });
