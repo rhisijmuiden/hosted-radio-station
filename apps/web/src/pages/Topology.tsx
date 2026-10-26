@@ -46,7 +46,7 @@ function useLayout(userId: string): [Layout, (l: Layout) => void] {
 
 type Filter = 'all' | 'relays' | 'sources' | 'problems' | 'mine' | 'streams';
 
-const kindOf = (n: TopologyNode): SceneKind => (n.roles.includes('relay') ? 'relay' : n.roles.includes('source') ? 'source' : 'node');
+const kindOf = (n: TopologyNode): SceneKind => (n.roles.includes('relay') ? 'relay' : n.roles.includes('source') ? 'source' : n.roles.includes('fm') ? 'fm' : 'node');
 const healthOf = (n: TopologyNode): SceneHealth => (!n.paired ? 'unpaired' : !n.online ? 'offline' : n.degraded ? 'degraded' : 'online');
 const healthTone = { online: 'online', degraded: 'warning', offline: 'offline', unpaired: 'neutral' } as const;
 
@@ -232,7 +232,11 @@ export function TopologyPage() {
               ? t('topology.listenersCount', { count: n.listeners })
               : kind === 'source'
                 ? t('topology.encodersCount', { count: n.encoders })
-                : n.location || t('nodes.noRoles');
+                : kind === 'fm'
+                  ? n.fmOnAir
+                    ? t('topology.fmOnAir')
+                    : t('topology.fmOff')
+                  : n.location || t('nodes.noRoles');
         return { id: n.id, kind, label: customer && n.own ? t('topology.myNode', { name: n.name }) : n.name, meta, health: healthOf(n), listeners: n.online ? n.listeners : 0, dim: !matches(n), own: customer && n.own };
       }),
       ...data.studios.map((s) => ({

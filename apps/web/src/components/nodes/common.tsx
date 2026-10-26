@@ -40,7 +40,8 @@ export function nodeHealth(n: Pick<NodeItem, 'paired' | 'status'>, latencyWarnMs
   if (!n.paired) return 'unpaired';
   const s = n.status;
   if (!s.online) return 'offline';
-  if ((s.rttMs ?? 0) > latencyWarnMs || (s.loss ?? 0) > 0.05 || !!s.problems?.length || !!s.relays?.some((r) => r.state === 'error')) return 'degraded';
+  const fmError = !!s.fm && (s.fm.input === 'error' || s.fm.output === 'error' || s.fm.uecp === 'error');
+  if ((s.rttMs ?? 0) > latencyWarnMs || (s.loss ?? 0) > 0.05 || !!s.problems?.length || !!s.relays?.some((r) => r.state === 'error') || fmError) return 'degraded';
   return 'online';
 }
 

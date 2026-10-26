@@ -256,6 +256,55 @@ describe('nodes', () => {
     expect(node.ingestHosts).toEqual(['src.harder.fm']);
   });
 
+  it('runs an FM/MPX node: settings, plan with RDS, live DJ and the on-air status', async () => {
+    const { node, pairing, paired } = await pair(admin, { name: 'fm-schermer', location: 'IJmuiden', roles: ['fm'] });
+    expect(pairing.command).toContain('install-fm.sh');
+    // A change sends only what changes; the rest keeps its value.
+    let res = await t.app.inject({ method: 'PATCH', url: `/api/nodes/${node.id}`, headers: admin, payload: { config: { fm: { stationId, pi: '8abc', ps: 'HARDERFM', af: [98.6, 101.2] } } } });
+    expect(res.statusCode).toBe(200);
+    res = await t.app.inject({ method: 'PATCH', url: `/api/nodes/${node.id}`, headers: admin, payload: { config: { fm: { pty: 10 }, probe: false } } });
+    expect(res.json().config.fm).toMatchObject({ stationId, pi: '8ABC', ps: 'HARDERFM', pty: 10, af: [98.6, 101.2], output: 'soundcard', rtSong: '{artist} - {title}' });
+    expect(res.json().config).toMatchObject({ probe: false, publicHost: '' });
+    const bad = await t.app.inject({ method: 'PATCH', url: `/api/nodes/${node.id}`, headers: admin, payload: { config: { fm: { pi: 'XYZ1' } } } });
+    expect(bad.statusCode).toBe(400);
+
+    const a = agent(node.id, paired.json().secret);
+    const plan = (await a.next('plan')).plan as Record<string, any>;
+    expect(plan.roles).toEqual(['fm']);
+    expect(plan.relay).toBeNull();
+    expect(plan.fm).toMatchObject({
+      station: { id: stationId, slug: 'harder-fm', name: 'Harder FM' },
+      url: 'http://localhost:8000/listen/harder-fm/live',
+      texts: { ps: 'HARDERFM', psMode: 'static' },
+      rds: { enabled: true, pi: 0x8abc, pty: 10, af: [98.6, 101.2], timezone: 'Europe/Amsterdam' },
+      output: { kind: 'soundcard', device: 'default', channels: 2 },
+      uecp: null,
+    });
+    expect(await a.next('fm')).toMatchObject({ dj: null, show: null });
+
+    // A DJ goes live: the node hears about it.
+    const nextFm = a.nextNew('fm');
+    await t.db.insert(schema.liveSessions).values({ stationId, mountPath: '/live', accountName: 'dj-rob', via: 'tls' });
+    t.app.nodes.fmNotify(stationId);
+    expect(await nextFm).toMatchObject({ dj: 'dj-rob' });
+
+    // UECP to an existing encoder.
+    const next = a.nextNew('plan');
+    await t.app.inject({ method: 'PATCH', url: `/api/nodes/${node.id}`, headers: admin, payload: { config: { fm: { uecp: true, uecpHost: '10.0.0.20', uecpPort: 4001, output: 'none' } } } });
+    expect(((await next).plan as Record<string, any>).fm).toMatchObject({ output: { kind: 'none' }, uecp: { transport: 'tcp', host: '10.0.0.20', port: 4001, site: 0, encoder: 0 } });
+
+    const fm = { input: 'connected', title: 'Avicii - Levels', output: 'off', uecp: 'connected', meters: null, ps: 'HARDERFM', psFrames: ['HARDERFM'], rt: 'Avicii - Levels', tags: [{ type: 4, start: 0, length: 6 }], groups: { '0A': 10 }, evil: 'x'.repeat(10) };
+    a.ws.send(JSON.stringify({ t: 'stats', cpu: 0.1, memory: 0.2, load: 0, uptime: 1, rxBps: 0, txBps: 0, listeners: 0, encoders: 0, icmp: null, problems: [], update: null, revision: null, fm }));
+    await new Promise((r) => setTimeout(r, 150));
+    const got = (await t.app.inject({ method: 'GET', url: `/api/nodes/${node.id}`, headers: admin })).json();
+    expect(got.status.fm).toMatchObject({ input: 'connected', uecp: 'connected', rt: 'Avicii - Levels', tags: [{ type: 4, start: 0, length: 6 }] });
+    expect(got.status.fm.evil).toBeUndefined();
+    const topo = (await t.app.inject({ method: 'GET', url: '/api/nodes/topology', headers: admin })).json();
+    expect(topo.nodes.find((n: { id: string }) => n.id === node.id)).toMatchObject({ fmOnAir: true });
+    expect(topo.links).toContainEqual(expect.objectContaining({ from: 'main', to: node.id, kind: 'stream' }));
+    a.ws.close();
+  });
+
   it('signs and checks the encoder preamble', () => {
     const id = '11111111-2222-4333-8444-555555555555';
     const line = signPreamble('s3cret', { nodeId: id, via: 'tls', ip: '203.0.113.7', host: 'src.example.com' });

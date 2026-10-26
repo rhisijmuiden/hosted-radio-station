@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { Cpu, Headphones, Maximize2, Mic, Minus, Plus, Radio, Server, Users } from 'lucide-react';
+import { Cpu, Headphones, Maximize2, Mic, Minus, Plus, Radio, RadioTower, Server, Users } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Topology, TopologyNode } from '../../lib/api';
@@ -135,13 +135,14 @@ export default function TopologyFlat({
     for (const n of data.nodes.filter((x) => x.roles.includes('relay') || !x.roles.includes('source'))) {
       const key = `${n.id}#out`;
       const relay = n.roles.includes('relay');
+      const fm = !relay && n.roles.includes('fm');
       cards.push({
         key,
         select: n.id,
         lane: 'distribution',
-        icon: relay ? <Radio /> : <Server />,
+        icon: relay ? <Radio /> : fm ? <RadioTower /> : <Server />,
         title: name(n),
-        meta: meta(n, relay ? t('topology.listenersCount', { count: n.listeners }) : n.location || t('nodes.noRoles')),
+        meta: meta(n, relay ? t('topology.listenersCount', { count: n.listeners }) : fm ? (n.fmOnAir ? t('topology.fmOnAir') : t('topology.fmOff')) : n.location || t('nodes.noRoles')),
         health: healthOf(n),
         own: customer && n.own,
         dim: dimmed.has(n.id),
@@ -154,6 +155,20 @@ export default function TopologyFlat({
         label: latency(n),
         dim: dimmed.has(n.id),
       });
+      if (n.roles.includes('fm')) {
+        cards.push({
+          key: `fm:${n.id}`,
+          select: n.id,
+          lane: 'audience',
+          icon: <RadioTower />,
+          title: t('topology.flat.fmListeners', { where: n.location || n.city || '' }).trim(),
+          meta: n.fmOnAir ? t('topology.fmOnAir') : t('topology.fmOff'),
+          health: null,
+          audience: true,
+          dim: dimmed.has(n.id),
+        });
+        edges.push({ from: key, to: `fm:${n.id}`, kind: 'listen', state: n.online && n.fmOnAir ? 'ok' : 'idle', label: null, dim: dimmed.has(n.id) });
+      }
       if (relay) {
         const where = n.location || n.city || n.country;
         cards.push({

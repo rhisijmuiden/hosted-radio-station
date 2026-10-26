@@ -94,7 +94,18 @@ export async function buildApp(ctx: AppContext) {
   });
 
   await app.register(fastifyCookie);
-  await app.register(fastifyWebsocket, { options: { maxPayload: 4096 } });
+  await app.register(fastifyWebsocket, {
+    // Node agents send their health with problems and FM status in one message; 16 KB leaves room.
+    options: { maxPayload: 16_384 },
+    // A client that breaks the protocol (e.g. "Invalid WebSocket frame: invalid status code 1006" from a browser that
+    // went away) is the client's problem, not an error of this server.
+    errorHandler: (err, socket, req) => {
+      const code = (err as { code?: string }).code;
+      if (code?.startsWith('WS_ERR_')) req.log.warn({ err: err.message, code }, 'websocket client error');
+      else req.log.error(err);
+      socket.terminate();
+    },
+  });
   await app.register(fastifyRateLimit, {
     global: false,
     redis: config.REDIS_URL ? new Redis(config.REDIS_URL, { lazyConnect: false, maxRetriesPerRequest: 1 }) : undefined,
