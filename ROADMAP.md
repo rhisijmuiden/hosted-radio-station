@@ -163,6 +163,8 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 12 | Station nodes | Done |
 | 13 | Orchestrator as control plane | Done |
 | 14 | Orchestrator redundancy | Planned |
+| 15 | Cloudflare DNS integration | Planned |
+| 16 | Installer menu and node enrollment | Planned |
 
 ## Phases
 
@@ -334,6 +336,26 @@ Optional high availability for the main server, switched on in the panel when yo
 - Automatic failover through a floating IP (VRRP) or DNS failover, with a witness (a node or probe) to prevent split-brain.
 - Nodes know both orchestrators and switch over by themselves. Because the orchestrator carries no audio (phase 13), streams keep running while it is unreachable.
 - Status, replication lag and a failover test in the panel and in the topology view; updates and backups coordinated across both servers.
+
+### Phase 15: Cloudflare DNS integration
+
+The orchestrator manages the DNS records of the platform and its customers through the Cloudflare API, so a new node or station is reachable by name right away.
+
+- Connect one or more Cloudflare accounts with a scoped API token (Zone: DNS edit, Zone: read), per installation or per customer for their own domains.
+- Naming per node: give a node a host name such as `relay1` or `ingest1` and the orchestrator creates the A/AAAA record (`relay1.example.com`) with its public address, updates it when the address changes and removes it when the node is removed.
+- Station records: `stream.<domain>` and `src.<domain>` for customer domains, created when the domain is added, with a check that they point to the right place.
+- The right proxy setting per record: panel and public pages may go through the Cloudflare proxy (caching, WAF, HTTPS); stream, push and encoder names stay DNS only, because Cloudflare's proxy is not meant for long-running audio streams, hides the listener's real location from GeoIP and breaks non-HTTP ports.
+- Optional extras through the API: cache rules for the public pages, artwork and on-demand files, and DNS-01 certificates so nodes behind a firewall still get HTTPS.
+- Dry run and a record overview in the panel (what exists, what the platform would change), and an audit log entry for every change.
+
+### Phase 16: Installer menu and node enrollment
+
+One installer with a menu, for the standalone Debian 13 install and the Proxmox LXC install.
+
+- Text-based menu (whiptail) to choose what to install: **Orchestrator**, **Node** or **All-in-one** (orchestrator plus ingest and relay on one machine). Non-interactive flags (`--orchestrator`, `--node`) stay available for automation.
+- A node installs only the bare agent; services such as Icecast are rolled out once a role is assigned in the panel.
+- Enrollment: the installer asks for the orchestrator address, the node registers and shows a short code on screen. It appears under "Pending nodes" in the panel with hostname, IP and the same code, and only gets its keys after you accept it. A preferred role can be picked in the menu and is applied after acceptance.
+- Pairing codes from the panel keep working for scripted installs; pending registrations expire after 24 hours and open registration can be switched off.
 
 ## Future ideas
 
