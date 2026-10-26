@@ -24,8 +24,11 @@ main() {
   status() { # status <state> <message>
     local p='[]'
     [[ ${#problems[@]} -gt 0 ]] && p=$(printf '%s\n' "${problems[@]}" | jq -R . | jq -s .)
-    jq -n --arg id "$id" --arg state "$1" --arg message "$2" --arg t "$(date -Is)" --argjson problems "$p" \
-      '{id:$id, state:$state, message:$message, problems:$problems, at:$t}' > "$STATUS.tmp"
+    # A failure carries the end of the log, so it can be read in the panel without logging in to the node.
+    local log_tail='[]'
+    [[ "$1" == failed ]] && log_tail=$(tail -n 20 "$LOG" | cut -c1-200 | jq -R . | jq -s .)
+    jq -n --arg id "$id" --arg state "$1" --arg message "$2" --arg t "$(date -Is)" --argjson problems "$p" --argjson log "$log_tail" \
+      '{id:$id, state:$state, message:$message, problems:$problems, log:$log, at:$t}' > "$STATUS.tmp"
     chown hrs-node: "$STATUS.tmp"; mv "$STATUS.tmp" "$STATUS"
   }
   status running "Applying"

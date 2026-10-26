@@ -305,6 +305,8 @@ export class NodeHub {
       }));
     } else delete s.ingest;
     s.problems = Array.isArray(m.problems) ? m.problems.slice(0, 10).map((p) => String(p).slice(0, 300)) : [];
+    if (Array.isArray(m.applyLog) && m.applyLog.length) s.applyLog = m.applyLog.slice(-20).map((l) => String(l).slice(0, 200));
+    else delete s.applyLog;
     if (m.update && typeof m.update === 'object') {
       const prev = s.update?.state;
       s.update = { state: m.update.state, message: m.update.message?.slice(0, 300), at: m.update.at };

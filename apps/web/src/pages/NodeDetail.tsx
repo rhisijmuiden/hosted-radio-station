@@ -165,6 +165,12 @@ function Overview({ node, warnMs }: { node: NodeItem; warnMs: number }) {
                   <li key={p}>{p}</li>
                 ))}
               </ul>
+              {!!s.applyLog?.length && (
+                <details className="mt-2 text-[12px]">
+                  <summary className="cursor-pointer text-muted hover:text-ink">{t('nodes.detail.applyLog')}</summary>
+                  <pre className="mt-1 max-h-64 overflow-auto rounded-md bg-chip p-2 font-mono text-[11.5px] whitespace-pre-wrap">{s.applyLog.join('\n')}</pre>
+                </details>
+              )}
             </div>
           </div>
         </Card>

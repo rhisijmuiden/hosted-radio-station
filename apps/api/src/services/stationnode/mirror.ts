@@ -5,7 +5,7 @@ import type { StationNodeRuntime } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
 import { NOWPLAYING_CHANNEL } from '../public/hub.js';
 import type { Node } from '../nodes/plan.js';
-import { columnName, fromWire, NODE_TABLES, rowKey, upsertRows, type NodeTable, type WireRow } from './tables.js';
+import { columnName, fromWire, NODE_TABLES, rowKey, upsertRows, withoutMainOnly, type NodeTable, type WireRow } from './tables.js';
 
 const mountSchema = z.object({
   mount: z.string().max(100),
@@ -78,11 +78,11 @@ export async function applyMirror(ctx: AppContext, node: Node, batch: MirrorBatc
       for (const t of NODE_TABLES) {
         const raw = (batch.upserts[t.name] ?? []) as WireRow[];
         if (!raw.length) continue;
-        let rows = raw.map((r) => fromWire(t, r, ctx.box));
+        let rows = raw.map((r) => withoutMainOnly(t, fromWire(t, r, ctx.box)));
         if (t.station) {
           rows = rows.filter((r) => stationIds.includes(String(r[t.station!])));
           const col = (t.table as never as Record<string, never>)[t.station];
-          await upsertRows(tx as never, t, rows, sql`${col} = excluded.${sql.identifier(columnName(t, t.station))}`);
+          await upsertRows(tx as never, t, rows, sql`${col} = excluded.${sql.identifier(columnName(t, t.station))}`, (t as NodeTable).mainOnly);
         } else {
           // playlist_items: both ends must belong to these stations.
           const playlistIds = [...new Set(rows.map((r) => String(r.playlistId)))];
