@@ -237,6 +237,14 @@ if [[ $FIRST_INSTALL -eq 1 && $STATION_NODE -eq 0 ]]; then
   "$INSTALL_DIR/deploy/bin/hrs-proxy-apply" || info "Web server configuration failed; fix it later under Settings → Web server."
 fi
 
+# The panel's Info page shows the last update job: a run of install.sh replaces it, so it does not show an old log.
+INSTALLED="$(git -C "$INSTALL_DIR" log -1 --format='%h %s')"
+printf '[%s] Installed with install.sh (%s): %s\n' "$(date +%H:%M:%S)" "$REF" "$INSTALLED" > "$DATA_DIR/run/update.log"
+jq -n --arg id "install-$(date +%s)" --arg ch "$CHANNEL" --arg to "$(git -C "$INSTALL_DIR" rev-parse HEAD)" --arg at "$(date -Is)" \
+  --arg message "Installed $(git -C "$INSTALL_DIR" rev-parse --short HEAD) with install.sh." \
+  '{id:$id, state:"succeeded", message:$message, channel:$ch, fromCommit:"", toCommit:$to, startedAt:$at, finishedAt:$at}' > "$DATA_DIR/run/update-status.json"
+chown "$SERVICE_USER": "$DATA_DIR/run/update.log" "$DATA_DIR/run/update-status.json"
+
 systemctl restart hosted-radio-api
 for _ in $(seq 1 60); do
   curl -fsS http://127.0.0.1:8000/api/health >/dev/null 2>&1 && break
