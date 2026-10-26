@@ -78,10 +78,12 @@ systemctl enable --quiet hosted-radio-api.service hosted-radio-streams.service h
 systemctl start hosted-radio-update.path hosted-radio-proxy.path hosted-radio-backup.path hosted-radio-streams-apply.path \
   hosted-radio-streams-apply.timer
 
-# Caddyfiles written before phase 3 lack the listen routes of the stations, and before phase 4 the listener hooks
-# (statistics): write them again from the stored setting.
+# Caddyfiles written before phase 3 lack the listen routes of the stations, before phase 4 the listener hooks
+# (statistics), and before phase 12 stream_close_delay (WebSockets that stay open on a reload): write them again from
+# the stored setting. This runs from the new version during an update, unlike hrs-update itself.
 if grep -q 'Managed by Hosted Radio Station' /etc/caddy/Caddyfile 2>/dev/null \
-  && { ! grep -q 'hosted-radio-streams.caddy' /etc/caddy/Caddyfile || ! grep -q 'hosted-radio-hooks' /etc/caddy/Caddyfile; }; then
+  && { ! grep -q 'hosted-radio-streams.caddy' /etc/caddy/Caddyfile || ! grep -q 'hosted-radio-hooks' /etc/caddy/Caddyfile \
+    || ! grep -q 'stream_close_delay' /etc/caddy/Caddyfile; }; then
   if proxy=$(/usr/local/bin/hrs get-setting proxy 2>/dev/null) && [[ -n "$proxy" ]]; then
     echo "Adding the station listen routes and listener statistics to the web server configuration…"
     echo "$proxy" | jq --arg id "units-$(date +%s)" '. + {id:$id, requestedBy:"hrs-install-units"}' > "$DATA_DIR/run/proxy-request.json"
