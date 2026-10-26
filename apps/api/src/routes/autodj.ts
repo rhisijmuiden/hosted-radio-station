@@ -24,6 +24,7 @@ import {
 } from '../services/autodj/library.js';
 import { clearQueue, dropDisabled, enqueue, fillQueues, inPlaylist, mediaPath, moveItem, queueRows } from '../services/autodj/planner.js';
 import { autodjSchema, autodjSettings } from '../services/autodj/settings.js';
+import { loadSchedule } from '../services/scheduler/runtime.js';
 import { AUDIO_TYPES } from '../services/public/ondemand.js';
 import { SECRET_MASK } from '../services/settings.js';
 import { mediaDir } from '../services/streaming/icecast.js';
@@ -66,6 +67,8 @@ const playlistBody = z.object({
   order: z.enum(['shuffle', 'random', 'sequential']).default('shuffle'),
   folders: z.array(folderSchema).max(50).default([]),
   enabled: z.boolean().default(true),
+  /** Feeds its queue; off = only played where an hour clock asks for it (news, commercials, jingles). */
+  rotation: z.boolean().default(true),
 });
 const playlistOut = playlistBody.extend({ id: z.uuid(), trackCount: z.number().int(), createdAt: z.date() });
 const sourceStatusOut = z.object({ state: z.enum(['pending', 'ok', 'error']), message: z.string().optional(), checkedAt: z.string().optional() }).nullable();
@@ -144,6 +147,7 @@ const queueRowOut = z.object({
   addedBy: z.string().nullable(),
   requestId: z.uuid().nullable(),
   playlistName: z.string().nullable(),
+  label: z.string().nullable(),
   startedAt: z.date().nullable(),
   media: z.object({ id: z.uuid(), title: z.string(), artist: z.string(), album: z.string(), durationSeconds: z.number().nullable(), location: z.string(), path: z.string() }),
 });
@@ -164,6 +168,12 @@ const autodjOut = z.object({
   nowPlaying: queueRowOut.nullable(),
   queues: z.object({ q1: z.array(queueRowOut), q2: z.array(queueRowOut) }),
   library: z.object({ tracks: z.number().int(), enabled: z.number().int(), playlists: z.number().int() }),
+  /** What the schedule runs now (phase 7). */
+  schedule: z.object({
+    enabled: z.boolean(),
+    clock: z.object({ id: z.uuid(), name: z.string(), color: z.string() }).nullable(),
+    entry: z.object({ id: z.uuid(), name: z.string(), live: z.boolean() }).nullable(),
+  }),
 });
 
 const contentType = (path: string) => AUDIO_TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream';
@@ -274,6 +284,10 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
     const seenAt = p?.seenAt ?? db?.seenAt?.toISOString() ?? null;
     const expected = station.edition === 'station' && settings.enabled && !!mount && station.enabled;
     const playing = rows.find((r) => r.state === 'playing') ?? null;
+    const plan = await loadSchedule(ctx.db, station);
+    const now = Date.now();
+    const clock = plan.settings.enabled ? plan.clockAt(now) : null;
+    const entry = plan.settings.enabled ? plan.entryAt(now) : null;
     return {
       edition: station.edition,
       settings,
@@ -289,6 +303,11 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
       nowPlaying: playing,
       queues: { q1: rows.filter((r) => r.queue === 'q1' && r.state !== 'playing'), q2: rows.filter((r) => r.queue === 'q2' && r.state !== 'playing') },
       library: { tracks: lib?.tracks ?? 0, enabled: lib?.enabled ?? 0, playlists: pl?.n ?? 0 },
+      schedule: {
+        enabled: plan.settings.enabled,
+        clock: clock && { id: clock.id, name: clock.name, color: clock.color },
+        entry: entry && { id: entry.id, name: entry.name, live: entry.live },
+      },
     };
   }
 
@@ -709,7 +728,18 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
           .then((r) => r[0]?.n ?? 0),
       ),
     );
-    return lists.map((p, i) => ({ id: p.id, name: p.name, queue: p.queue, weight: p.weight, order: p.order, folders: p.folders, enabled: p.enabled, trackCount: counts[i]!, createdAt: p.createdAt }));
+    return lists.map((p, i) => ({
+      id: p.id,
+      name: p.name,
+      queue: p.queue,
+      weight: p.weight,
+      order: p.order,
+      folders: p.folders,
+      enabled: p.enabled,
+      rotation: p.rotation,
+      trackCount: counts[i]!,
+      createdAt: p.createdAt,
+    }));
   }
 
   async function checkFolders(stationId: string, folders: { location: string; path: string }[]) {

@@ -2,6 +2,8 @@ import { timingSafeEqual } from 'node:crypto';
 import type http from 'node:http';
 import net from 'node:net';
 import type pino from 'pino';
+import { and, eq } from 'drizzle-orm';
+import { schema } from '../db/index.js';
 import type { AppContext } from '../lib/context.js';
 import { autodjSocketPath, autodjToken } from '../services/autodj/liquidsoap.js';
 import { nextTrack, playerStarted, trackStarted } from '../services/autodj/planner.js';
@@ -47,6 +49,8 @@ export function playerCommand(path: string, command: string): Promise<string> {
 export class AutodjController {
   private status = new Map<string, AutodjStatus>();
   private sentAt = new Map<string, number>();
+  /** Hard timed clock items: the cut of the track that plays at their minute. */
+  private cuts = new Map<string, NodeJS.Timeout>();
 
   constructor(
     private readonly ctx: AppContext,
@@ -81,6 +85,7 @@ export class AutodjController {
         : m[2] === 'next'
           ? nextTrack(this.ctx, stationId).then((next) => {
               seen();
+              if (next?.cutAt) this.scheduleCut(stationId, next.itemId, next.cutAt);
               reply(next?.uri ?? '');
             })
           : trackStarted(this.ctx, stationId, m[3]!).then(() => {
@@ -92,6 +97,32 @@ export class AutodjController {
       res.writeHead(500).end();
     });
     return true;
+  }
+
+  /**
+   * Cuts the playing track at `at`, so the clock item loaded after it (`itemId`) starts on the minute. Nothing happens
+   * when that item is no longer waiting by then (skipped, or the player restarted).
+   */
+  private scheduleCut(stationId: string, itemId: string, at: number) {
+    clearTimeout(this.cuts.get(stationId));
+    const timer = setTimeout(
+      () => {
+        this.cuts.delete(stationId);
+        void this.ctx.db
+          .select({ state: schema.queueItems.state })
+          .from(schema.queueItems)
+          .where(and(eq(schema.queueItems.id, itemId), eq(schema.queueItems.stationId, stationId)))
+          .then(async ([item]) => {
+            if (item?.state !== 'cued') return;
+            await playerCommand(autodjSocketPath(this.ctx, stationId), 'skip');
+            this.log.info({ stationId }, 'Cut the track for a timed clock item');
+          })
+          .catch((err) => this.log.warn({ err, stationId }, 'Cutting the track for a timed clock item failed'));
+      },
+      Math.max(0, at - Date.now()),
+    );
+    timer.unref();
+    this.cuts.set(stationId, timer);
   }
 
   private touch(stationId: string, patch: Partial<AutodjStatus>) {

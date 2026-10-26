@@ -5,6 +5,8 @@ import type { Db } from '../../db/index.js';
 import type { AppContext } from '../../lib/context.js';
 import { badRequest, notFound } from '../../lib/errors.js';
 import type { Station } from '../streaming/state.js';
+import { decide, skipItem, type ClockState } from '../scheduler/clock.js';
+import { loadSchedule } from '../scheduler/runtime.js';
 import { filePath, locationRoot, type MediaFile, type MediaSource } from './library.js';
 import { autodjSettings, type AutodjSettings } from './settings.js';
 
@@ -130,7 +132,10 @@ async function afterRequests(tx: Tx, stationId: string, queue: Queue) {
 
 /** Tops up the queues that are filled from playlists to the configured depth. */
 async function refill(tx: Tx, station: Station, s: AutodjSettings) {
-  const lists = await tx.select().from(schema.playlists).where(and(eq(schema.playlists.stationId, station.id), eq(schema.playlists.enabled, true)));
+  const lists = await tx
+    .select()
+    .from(schema.playlists)
+    .where(and(eq(schema.playlists.stationId, station.id), eq(schema.playlists.enabled, true), eq(schema.playlists.rotation, true)));
   for (const queue of ['q1', 'q2'] as const) {
     if (!s.fill[queue]) continue;
     const [c] = await tx
@@ -178,11 +183,88 @@ export function mediaPath(ctx: AppContext, media: MediaFile, sources: Map<string
   }
 }
 
+/** What the next track comes from under the hour clock; null = the queues as usual. */
+interface ClockPick {
+  item: typeof schema.queueItems.$inferSelect;
+  media: MediaFile;
+  cutAt: number | null;
+}
+
 /**
- * The player asks for its next track: top up the queues, choose the queue by the rule, take its first track and mark it
- * cued. Missing files are dropped from the queue. Returns null when the library has nothing to play.
+ * When the station runs a schedule: asks the hour clock what plays next and puts a clock item or a track of the
+ * clock's playlist on top of Q1, loaded right away. Returns null when the queues play (rotation), as without a clock.
+ * The clock's progress is stored as it goes, so an item whose playlist is empty is skipped.
  */
-export async function nextTrack(ctx: AppContext, stationId: string): Promise<{ uri: string; itemId: string } | null> {
+async function clockPick(tx: Tx, station: Station, s: AutodjSettings, musicSeconds: number): Promise<ClockPick | null> {
+  const schedule = await loadSchedule(tx, station);
+  if (!schedule.settings.enabled) return null;
+  const now = Date.now();
+  // The track that starts now (loaded last) ends when the next one starts.
+  const [loading] = await tx
+    .select({ item: schema.queueItems, duration: schema.mediaFiles.durationSeconds })
+    .from(schema.queueItems)
+    .innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.queueItems.mediaId))
+    .where(and(eq(schema.queueItems.stationId, station.id), inArray(schema.queueItems.state, ['cued', 'playing'])))
+    .orderBy(desc(schema.queueItems.cuedAt))
+    .limit(1);
+  const base = loading?.item.startedAt?.getTime() ?? now;
+  const at = Math.max(now, base + Math.max(0, (loading?.duration ?? 0) - s.crossfadeSeconds) * 1000);
+  const [row] = await tx.select().from(schema.autodjState).where(eq(schema.autodjState.stationId, station.id));
+  let state: ClockState = { hour: row?.clockHour?.getTime() ?? null, clockId: row?.clockId ?? null, step: row?.clockStep ?? 0, done: row?.clockDone ?? 0 };
+  const save = (st: ClockState) => {
+    const v = { clockHour: st.hour === null ? null : new Date(st.hour), clockId: st.clockId, clockStep: st.step, clockDone: st.done };
+    return tx.insert(schema.autodjState).values({ stationId: station.id, ...v }).onConflictDoUpdate({ target: schema.autodjState.stationId, set: v });
+  };
+  const playlists = new Map((await tx.select().from(schema.playlists).where(eq(schema.playlists.stationId, station.id))).map((p) => [p.id, p] as const));
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const d = decide({ at, now, tz: schedule.settings.timezone, clockAt: schedule.clockAt, state, musicSeconds });
+    state = d.state;
+    let track: MediaFile | null = null;
+    let label: string | null = null;
+    let playlistId: string | null = null;
+    if (d.kind === 'music') {
+      await save(state);
+      const p = d.playlistId ? playlists.get(d.playlistId) : undefined;
+      if (!p) return null;
+      track = await pickTrack(tx, station, s, p);
+      // An empty playlist: the queues play instead.
+      if (!track) return null;
+      label = d.label;
+      playlistId = p.id;
+    } else {
+      const { item } = d;
+      if (item.kind === 'track' && item.mediaId) {
+        [track = null] = await tx
+          .select()
+          .from(schema.mediaFiles)
+          .where(and(eq(schema.mediaFiles.id, item.mediaId), eq(schema.mediaFiles.stationId, station.id), eq(schema.mediaFiles.enabled, true)));
+      } else if (item.kind === 'playlist' && item.playlistId && playlists.has(item.playlistId)) {
+        playlistId = item.playlistId;
+        track = await pickTrack(tx, station, s, playlists.get(item.playlistId)!);
+      }
+      if (!track) {
+        state = skipItem(state);
+        continue;
+      }
+      await save(state);
+      label = item.label || (playlistId ? playlists.get(playlistId)!.name : null);
+    }
+    const [queued] = await tx
+      .insert(schema.queueItems)
+      .values({ stationId: station.id, queue: 'q1', mediaId: track.id, position: await top(tx, station.id, 'q1'), origin: d.kind === 'item' ? 'clock' : 'rotation', playlistId, label })
+      .returning();
+    return { item: queued!, media: track, cutAt: d.kind === 'item' ? d.cutAt : null };
+  }
+  await save(state);
+  return null;
+}
+
+/**
+ * The player asks for its next track: top up the queues, follow the hour clock when the station has a schedule, else
+ * choose the queue by the rule, take its first track and mark it cued. Missing files are dropped from the queue.
+ * Returns null when the library has nothing to play; `cutAt` asks to cut the playing track then (hard timed item).
+ */
+export async function nextTrack(ctx: AppContext, stationId: string): Promise<{ uri: string; itemId: string; cutAt: number | null } | null> {
   return ctx.db.transaction(async (tx) => {
     await lock(tx, stationId);
     const [station] = await tx.select().from(schema.stations).where(eq(schema.stations.id, stationId));
@@ -202,6 +284,8 @@ export async function nextTrack(ctx: AppContext, stationId: string): Promise<{ u
       const first = (q: Queue) => heads.find((h) => h.item.queue === q);
       let queue = chooseQueue(s.rule, state?.lastQueue ?? null, state?.streak ?? 0, { q1: !!first('q1'), q2: !!first('q2') });
       let pick = queue ? first(queue) : undefined;
+      const scheduled = await clockPick(tx, station, s, pick?.media.durationSeconds ?? 210);
+      if (scheduled) pick = scheduled;
       if (!pick) {
         // Both queues are empty (no playlists, or nothing left in them): any track from the library.
         const track = await pickTrack(tx, station, s, null);
@@ -216,14 +300,19 @@ export async function nextTrack(ctx: AppContext, stationId: string): Promise<{ u
         continue;
       }
       await tx.update(schema.queueItems).set({ state: 'cued', cuedAt: new Date() }).where(eq(schema.queueItems.id, pick.item.id));
-      const streak = state?.lastQueue === queue ? state.streak + 1 : 1;
-      await tx
-        .insert(schema.autodjState)
-        .values({ stationId, lastQueue: queue!, streak, seenAt: new Date() })
-        .onConflictDoUpdate({ target: schema.autodjState.stationId, set: { lastQueue: queue!, streak, seenAt: new Date() } });
+      // Clock items do not count for the queue rule.
+      if (!scheduled) {
+        const streak = state?.lastQueue === queue ? state.streak + 1 : 1;
+        await tx
+          .insert(schema.autodjState)
+          .values({ stationId, lastQueue: queue!, streak, seenAt: new Date() })
+          .onConflictDoUpdate({ target: schema.autodjState.stationId, set: { lastQueue: queue!, streak, seenAt: new Date() } });
+      } else {
+        await tx.update(schema.autodjState).set({ seenAt: new Date() }).where(eq(schema.autodjState.stationId, stationId));
+      }
       // Keep the queues full for the panel.
       await refill(tx, station, s);
-      return { uri: requestUri({ id: pick.item.id, queue: queue! }, pick.media, full, s), itemId: pick.item.id };
+      return { uri: requestUri({ id: pick.item.id, queue: pick.item.queue }, pick.media, full, s), itemId: pick.item.id, cutAt: scheduled?.cutAt ?? null };
     }
     return null;
   });
@@ -343,6 +432,8 @@ export interface QueueRow {
   addedBy: string | null;
   requestId: string | null;
   playlistName: string | null;
+  /** Clock item it came from. */
+  label: string | null;
   startedAt: Date | null;
   media: { id: string; title: string; artist: string; album: string; durationSeconds: number | null; location: string; path: string };
 }
@@ -365,6 +456,7 @@ export async function queueRows(ctx: AppContext, stationId: string): Promise<Que
     addedBy: item.addedBy,
     requestId: item.requestId,
     playlistName,
+    label: item.label,
     startedAt: item.startedAt,
     media: { id: media.id, title: media.title, artist: media.artist, album: media.album, durationSeconds: media.durationSeconds, location: media.location, path: media.path },
   }));
