@@ -54,6 +54,12 @@ Every node is pinged over its control channel every 5 seconds. The panel shows t
 
 The **Topology** page (customers: **My setup**) shows all of this live as a 3D map: the main server, nodes, live studios and the streams between them. Customers see their own nodes and, without names, the platform relays that carry their stations.
 
+Next to the 3D map there are two flat views (the switch **3D / 2D → / 2D ↓** above the map, remembered per user): the signal flow in lanes, Studios & encoders → Ingest → Core → Distribution → Audience, from left to right or from top to bottom. Every line to a node carries its latency and packet loss (for example `6.0 ms · 0.02%`); live streams are animated, a degraded node's line is orange and an offline node's line is red. Click a block for its details.
+
+| 2D, left to right | 2D, top to bottom |
+| --- | --- |
+| ![Topology, flat left to right](screenshots/phase-8-topology-flat-lr-dark.png) | ![Topology, flat top to bottom](screenshots/phase-8-topology-flat-tb-light.png) |
+
 ## Updates
 
 Nodes follow the version and channel of the main server: when the main server is updated, the nodes update themselves (Nodes → Network settings → **Update nodes automatically**). With that off, use **Update now** on the node page. A failed update is rolled back.
