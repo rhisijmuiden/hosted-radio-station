@@ -46,6 +46,7 @@ import { userRoutes } from './routes/users.js';
 import { NowPlayingHub } from './services/public/hub.js';
 import { NodeHub } from './services/nodes/hub.js';
 import { NodeUpdater } from './services/nodes/updates.js';
+import { forgetMissingStations } from './services/nodes/routing.js';
 import { listenRedirectRoutes, nodeAgentRoutes, nodeRoutes } from './routes/nodes.js';
 import { stationNodeAgentRoutes, stationPlacementRoutes, tenantStationNodeRoutes } from './routes/station-nodes.js';
 import { stationNodeInternalRoutes } from './routes/station-node-internal.js';
@@ -89,6 +90,8 @@ export async function buildApp(ctx: AppContext) {
   app.decorate('nowPlaying', hub);
   hub.start();
   app.addHook('onClose', async () => hub.stop());
+  // Nodes still pointing at a station that is gone get their lists cleaned before their plans go out.
+  await forgetMissingStations(ctx).catch((err) => app.log.warn({ err }, 'cleaning up node station lists failed'));
   const nodeHub = new NodeHub(ctx, app.log);
   app.decorate('nodes', nodeHub);
   await nodeHub.start();
