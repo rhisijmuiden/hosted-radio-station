@@ -20,7 +20,7 @@ export const nl: Translation = {
     noResults: 'Niets gevonden',
   },
   nav: {
-    hostedService: 'Hosted service',
+    hostedService: 'Hostingdienst',
     billingOverview: 'Overzicht',
     packages: 'Pakketten',
     invoices: 'Facturen',
@@ -1982,7 +1982,7 @@ export const nl: Translation = {
       prorateHint: 'Over de rest van deze periode.',
     },
     overview: {
-      title: 'Hosted service',
+      title: 'Hostingdienst',
       subtitle: 'Terugkerende omzet, abonnementen en facturen die aandacht nodig hebben.',
       run: 'Facturatie nu draaien',
       runHint: 'Verlengingen, herinneringen en blokkades draaien ook vanzelf elke tien minuten.',
