@@ -96,7 +96,8 @@ export default function TopologyFlat({
       lane: 'control',
       icon: <Cpu />,
       title: t('topology.main'),
-      meta: `${t('topology.controlOnly')} · v${data.main.version}`,
+      // The version first: the bus beside the card already says it carries no audio.
+      meta: `v${data.main.version} · ${t('topology.controlOnly')}`,
       health: 'online',
       core: true,
       dim: false,
@@ -207,7 +208,8 @@ export default function TopologyFlat({
       d = lr
         ? `M${A.x + cardW / 2} ${A.y} C${(A.x + B.x) / 2} ${A.y} ${(A.x + B.x) / 2} ${B.y} ${B.x - cardW / 2} ${B.y}`
         : `M${A.x} ${A.y + CARD_H / 2} C${A.x} ${(A.y + B.y) / 2} ${B.x} ${(A.y + B.y) / 2} ${B.x} ${B.y - CARD_H / 2}`;
-    const mid = e.kind === 'control' ? (lr ? { x: B.x, y: B.y - CARD_H / 2 - 16 } : { x: B.x - cardW / 2 - 34, y: B.y }) : { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
+    // A control pill sits just above its node, clear of the neighbouring cards.
+    const mid = e.kind === 'control' ? { x: B.x, y: B.y - CARD_H / 2 - (lr ? 16 : 10) } : { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
     return [{ ...e, d, mid }];
   });
   const isSel = (c: Card) => !!selected && c.select === selected && !c.audience;

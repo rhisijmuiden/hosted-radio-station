@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { ArrowRight, Eye, EyeOff, Plus, X } from 'lucide-react';
-import { lazy, Suspense, useMemo, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router';
 import { formatBps, formatMs, formatPct } from '../components/nodes/common';
@@ -238,6 +238,12 @@ export function TopologyPage() {
   const tenantId = admin ? (params.get('customer') ?? '') : '';
   const [filter, setFilter] = useState<Filter>('all');
   const [selected, setSelected] = useState<string | null>(null);
+  // Escape clears the selection.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setSelected(null);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   // Control lines stay hidden unless asked for, or for the selected block: the audio paths stay readable.
   const [showControl, setShowControl] = useState(false);
   const [layout, setLayout] = useLayout(me.user.id);
@@ -336,7 +342,10 @@ export function TopologyPage() {
                   role="radio"
                   aria-checked={layout === l}
                   title={t(`topology.layout.${l}Title`)}
-                  onClick={() => setLayout(l)}
+                  onClick={() => {
+                    setLayout(l);
+                    setSelected(null);
+                  }}
                   className={clsx('rounded-full px-3 py-1 text-xs font-semibold whitespace-nowrap transition-colors', layout === l ? 'bg-nacht text-white dark:bg-koraal dark:text-nacht' : 'text-muted hover:text-ink')}
                 >
                   {t(`topology.layout.${l}`)}
