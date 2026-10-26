@@ -48,7 +48,7 @@ Phase 3: stations with live encoders, mounts and conversions, external servers, 
 | --- | --- | --- |
 | 1 | Foundation | Done |
 | 2 | Administration and security | Done |
-| 3 | Distribution | In test |
+| 3 | Distribution | Done |
 | 4 | Statistics | Planned |
 | 5 | Public pages | Planned |
 | 6 | Radio station (AutoDJ) | Planned |
