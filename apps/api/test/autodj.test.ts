@@ -140,6 +140,8 @@ describe('upgrade to Radio station', () => {
     expect(script).toContain('[gated, hold, emergency]');
     expect(script).toContain('server.register("play"');
     expect(script).toContain('server.register("manual"');
+    // The track is reported when the gate lets it through, not when the queue begins it (it may wait for play).
+    expect(script).toMatch(/gated = source.on_track\(switch\(id="hrs_gate".*hrs_on_air\)/);
     const icecast = await readFile(join(t.ctx.config.DATA_DIR, 'stations', stationId, 'icecast.xml'), 'utf8');
     expect(icecast).toMatch(/<mount-name>\/live<\/mount-name>[\s\S]*<fallback-mount>\/autodj<\/fallback-mount>/);
     const state = await buildStreamsState(t.ctx);
