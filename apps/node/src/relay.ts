@@ -123,6 +123,8 @@ class Puller {
   private title: string | null = null;
   /** The stream moves to a push (a station node took the station over): keep the source open for it. */
   private handing = false;
+  /** A source connection into Icecast left open by the push this stream had before (see PushReceiver.apply). */
+  inherited: net.Socket | null = null;
 
   constructor(
     readonly mount: RelayMount,
@@ -140,6 +142,8 @@ class Puller {
     if (this.retry) clearTimeout(this.retry);
     this.res?.destroy();
     this.sock?.destroy();
+    this.inherited?.destroy();
+    this.inherited = null;
   }
 
   /** Keeps the source connection into Icecast open, also when the pulled stream ends, until a push takes it. */
@@ -172,7 +176,8 @@ class Puller {
     if (this.stopped) return;
     this.failures = Date.now() - started > 60_000 ? 0 : this.failures + 1;
     // A stream that is not on air (404) is tried again soon, so listeners hear it when it starts.
-    const delay = Math.min(15_000, 1000 * 2 ** Math.min(this.failures, 4));
+    // While it holds the open source of the push before it, every second: Icecast drops an idle source after 10 s.
+    const delay = this.inherited && !this.inherited.destroyed ? 1000 : Math.min(15_000, 1000 * 2 ** Math.min(this.failures, 4));
     this.retry = setTimeout(() => void this.loop(), delay);
   }
 
@@ -188,7 +193,9 @@ class Puller {
     const br = Number(res.headers['icy-br']) || Number(String(res.headers['ice-audio-info'] ?? '').match(/bitrate=(\d+)/)?.[1]) || null;
     const port = this.ctx.icecastPort();
     const target = localMount(this.mount);
-    const sock = await sourceConnection(port, target, this.ctx.secrets.source, {
+    const kept = this.inherited && !this.inherited.destroyed ? this.inherited : null;
+    this.inherited = null;
+    const sock = kept ?? await sourceConnection(port, target, this.ctx.secrets.source, {
       'Content-Type': contentType,
       'Ice-Name': this.mount.name,
       'Ice-Public': '0',
@@ -252,7 +259,8 @@ export class RelayManager {
 
   apply(mounts: RelayMount[], pushPort: number | null = null) {
     this.mounts = mounts;
-    void this.push.apply(pushPort, mounts).catch((err) => log.error('push port failed', { err }));
+    const handedBack = new Map<string, net.Socket>();
+    void this.push.apply(pushPort, mounts, (key, local) => handedBack.set(key, local)).catch((err) => log.error('push port failed', { err }));
     const wanted = new Map(mounts.filter((m) => m.url).map((m) => [m.key, m]));
     const pushed = new Set(mounts.filter((m) => m.push && !m.url).map((m) => m.key));
     for (const [key, p] of this.pullers) {
@@ -270,9 +278,12 @@ export class RelayManager {
     for (const [key, m] of wanted) {
       if (this.pullers.has(key)) continue;
       const p = new Puller(m, this.ctx);
+      p.inherited = handedBack.get(key) ?? null;
+      handedBack.delete(key);
       this.pullers.set(key, p);
       p.start();
     }
+    for (const local of handedBack.values()) local.destroy();
   }
 
   /**

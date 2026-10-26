@@ -166,6 +166,8 @@ export class StreamsWorker {
         if (id.startsWith('push:')) void this.saveOutputStatus(id.slice(5), { state: s.state, message: s.message, since: s.since });
         // A converted mount that (re)connects gets the title that is playing now, not only the next one.
         if (relay instanceof Transcoder && s.state === 'connected') void this.titleForTranscode(relay);
+        // So does a push to another server (or to a relay node, which otherwise keeps the title it had before).
+        if (relay instanceof Pusher && s.state === 'connected') void this.titleForPusher(relay);
       };
       this.relays.set(id, relay);
       relay.start();
@@ -291,6 +293,16 @@ export class StreamsWorker {
     await updateMetadata({ port: view.station.icecastPort, adminPassword: view.adminPassword }, relay.output, title).catch(() => undefined);
   }
 
+  private async titleForPusher(relay: Pusher) {
+    const view = this.snap?.stations.get(relay.input.stationId);
+    if (!view) return;
+    // A converted mount plays what its source plays.
+    const m = view.mounts.find((x) => x.path === relay.input.mount);
+    const from = m?.kind === 'transcode' ? view.mounts.find((x) => x.id === m.sourceMountId) : m;
+    const title = from && this.heardFrom(view, from.path)?.title;
+    if (title) await relay.updateTitle(title).catch((err) => this.log.debug({ err }, 'title update failed'));
+  }
+
   /**
    * The mount whose audio listeners of a mount hear: the mount itself while it has a source, else the mount it falls
    * back to (for example /live without a DJ plays /autodj).
@@ -321,8 +333,11 @@ export class StreamsWorker {
       if (relay instanceof Transcoder && relay.setTitle(title)) continue;
       await updateMetadata({ port: view.station.icecastPort, adminPassword: view.adminPassword }, t.path, title).catch(() => undefined);
     }
-    for (const o of view.outputs.filter((o) => o.mountId && sources.has(o.mountId))) {
-      const relay = this.relays.get(`push:${o.id}`);
+    // Outputs and pushes to relay nodes of those mounts and of the mounts converted from them.
+    const fed = new Set([...sources, ...view.mounts.filter((m) => m.kind === 'transcode' && m.sourceMountId && sources.has(m.sourceMountId)).map((m) => m.id)]);
+    const pushes = [...view.outputs.map((o) => ({ o, key: `push:${o.id}` })), ...view.ingest.pushes.map((o) => ({ o, key: `relay:${o.id}` }))];
+    for (const { o, key } of pushes.filter((p) => p.o.mountId && fed.has(p.o.mountId))) {
+      const relay = this.relays.get(key);
       if (relay instanceof Pusher) await relay.updateTitle(title).catch((err) => this.log.debug({ err, output: o.name }, 'title update failed'));
     }
   }

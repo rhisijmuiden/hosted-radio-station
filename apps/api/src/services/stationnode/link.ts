@@ -376,7 +376,7 @@ export class StationNodeLink {
     peer.onRequest = (head, body, respond) => this.local(head, body, respond);
     let alive = Date.now();
     const watchdog = setInterval(() => {
-      // The main server pings every 15 seconds.
+      // The main server sends a heartbeat every 15 seconds.
       if (Date.now() - alive > 45_000) ws.terminate();
     }, 5000);
     watchdog.unref();
@@ -389,6 +389,7 @@ export class StationNodeLink {
     ws.on('ping', () => (alive = Date.now()));
     ws.on('message', (data, isBinary) => {
       alive = Date.now();
+      if (!isBinary && String(data) === '{"t":"hb"}') return ws.send('{"t":"hb"}');
       peer.handle(data as Buffer, isBinary);
     });
     ws.on('unexpected-response', (_req, res) => {
