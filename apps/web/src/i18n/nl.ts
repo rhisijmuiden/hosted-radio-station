@@ -2142,6 +2142,6 @@ export const nl: Translation = {
     emptyHint: 'Voeg het adres van je website toe om te horen over nieuwe klanten en betalingen.',
     howTitle: 'De handtekening controleren',
     how: 'Elke aanroep heeft de naam van de gebeurtenis en een handtekening met tijdstempel. Weiger aanroepen waarvan de handtekening niet klopt of de tijdstempel ouder is dan vijf minuten.',
-    state: { pending: 'Wacht', delivered: 'Afgeleverd', failed: 'Mislukt' },
+    state: { pending: 'Wacht', sending: 'Wordt verstuurd', delivered: 'Afgeleverd', failed: 'Mislukt' },
   },
 };

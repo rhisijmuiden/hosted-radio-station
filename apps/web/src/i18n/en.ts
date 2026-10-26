@@ -2140,7 +2140,7 @@ export const en = {
     emptyHint: 'Add the address of your website to hear about new customers and payments.',
     howTitle: 'Checking the signature',
     how: 'Each call has the event name and a signature with a timestamp. Refuse calls whose signature does not match or whose timestamp is older than five minutes.',
-    state: { pending: 'Waiting', delivered: 'Delivered', failed: 'Failed' },
+    state: { pending: 'Waiting', sending: 'Sending', delivered: 'Delivered', failed: 'Failed' },
   },
 };
 
