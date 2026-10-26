@@ -1,0 +1,172 @@
+//! RHIS Studio: the Windows client of Hosted Radio Station.
+
+mod carts;
+mod engine;
+mod resample;
+mod secrets;
+mod streamer;
+mod updater;
+
+use std::{path::PathBuf, sync::Arc};
+
+use engine::{AudioConfig, Devices, Engine, EngineInfo, Event};
+use serde::Serialize;
+use streamer::{Status, Target};
+use tauri::{AppHandle, Emitter, Manager, State};
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppInfo {
+    version: &'static str,
+    os: &'static str,
+    arch: &'static str,
+    hostname: String,
+    asio: bool,
+}
+
+#[tauri::command]
+fn app_info() -> AppInfo {
+    AppInfo {
+        version: env!("CARGO_PKG_VERSION"),
+        os: std::env::consts::OS,
+        arch: std::env::consts::ARCH,
+        hostname: gethostname::gethostname().to_string_lossy().into_owned(),
+        asio: cfg!(feature = "asio"),
+    }
+}
+
+#[tauri::command]
+async fn list_devices() -> Devices {
+    tauri::async_runtime::spawn_blocking(engine::list_devices).await.unwrap_or_default()
+}
+
+#[tauri::command]
+async fn configure_audio(engine: State<'_, Arc<Engine>>, config: AudioConfig) -> Result<EngineInfo, String> {
+    let e = engine.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || e.configure(config)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn engine_info(engine: State<'_, Arc<Engine>>) -> EngineInfo {
+    engine.info.lock().clone()
+}
+
+#[tauri::command]
+fn load_cart(engine: State<'_, Arc<Engine>>, slot: usize, path: String, looped: bool) {
+    engine.load_cart(slot, PathBuf::from(path), looped);
+}
+
+#[tauri::command]
+fn clear_cart(engine: State<'_, Arc<Engine>>, slot: usize) {
+    engine.clear_cart(slot);
+}
+
+#[tauri::command]
+fn play_cart(engine: State<'_, Arc<Engine>>, slot: usize) {
+    engine.play_cart(slot);
+}
+
+#[tauri::command]
+fn stop_cart(engine: State<'_, Arc<Engine>>, slot: usize) {
+    engine.stop_cart(slot);
+}
+
+#[tauri::command]
+fn stop_all_carts(engine: State<'_, Arc<Engine>>) {
+    engine.stop_all_carts();
+}
+
+#[tauri::command]
+fn start_broadcast(engine: State<'_, Arc<Engine>>, target: Target) -> Result<(), String> {
+    engine.start_broadcast(target)
+}
+
+#[tauri::command]
+fn stop_broadcast(engine: State<'_, Arc<Engine>>) {
+    engine.stop_broadcast();
+}
+
+#[tauri::command]
+fn broadcast_status(engine: State<'_, Arc<Engine>>) -> Status {
+    engine.broadcast.lock().clone()
+}
+
+#[tauri::command]
+async fn send_metadata(target: Target, title: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || streamer::send_metadata(&target, &title).map_err(|e| format!("{e:#}")))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn secret_get(server: String) -> Result<Option<String>, String> {
+    secrets::get(&server)
+}
+
+#[tauri::command]
+fn secret_set(server: String, key: String) -> Result<(), String> {
+    secrets::set(&server, &key)
+}
+
+#[tauri::command]
+fn secret_delete(server: String) -> Result<(), String> {
+    secrets::delete(&server)
+}
+
+#[tauri::command]
+async fn install_update(app: AppHandle, url: String, sha256: String, version: String) -> Result<(), String> {
+    let a = app.clone();
+    let path = tauri::async_runtime::spawn_blocking(move || {
+        updater::download(&url, &sha256, &version, |p| {
+            let _ = a.emit("update-progress", p);
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))?;
+    updater::launch(&path).map_err(|e| format!("{e:#}"))?;
+    app.exit(0);
+    Ok(())
+}
+
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            let handle = app.handle().clone();
+            let engine = Engine::start(Arc::new(move |e: Event| {
+                let _ = handle.emit("engine", e);
+            }));
+            app.manage(Arc::new(engine));
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            app_info,
+            list_devices,
+            configure_audio,
+            engine_info,
+            load_cart,
+            clear_cart,
+            play_cart,
+            stop_cart,
+            stop_all_carts,
+            start_broadcast,
+            stop_broadcast,
+            broadcast_status,
+            send_metadata,
+            secret_get,
+            secret_set,
+            secret_delete,
+            install_update
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running RHIS Studio");
+}

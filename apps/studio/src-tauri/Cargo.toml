@@ -1,0 +1,50 @@
+[package]
+name = "rhis-studio"
+version = "0.9.0"
+description = "RHIS Studio: the Windows client of Hosted Radio Station"
+authors = ["RHIS"]
+edition = "2021"
+rust-version = "1.80"
+
+[lib]
+name = "rhis_studio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[features]
+default = []
+# Steinberg ASIO for professional sound cards (needs the ASIO SDK at build time, see README).
+asio = ["cpal/asio"]
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-http = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+parking_lot = "0.12"
+crossbeam-channel = "0.5"
+cpal = "0.16"
+mp3lame-encoder = "0.2"
+symphonia = { version = "0.5", default-features = false, features = ["mp3", "flac", "wav", "pcm", "ogg", "vorbis", "aac", "isomp4"] }
+native-tls = "0.2"
+base64 = "0.22"
+keyring = { version = "3", features = ["windows-native", "apple-native", "sync-secret-service"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking", "json"] }
+sha2 = "0.10"
+hex = "0.4"
+gethostname = "1"
+log = "0.4"
+ringbuf = "0.4"
+rubato = "0.16"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+strip = true
