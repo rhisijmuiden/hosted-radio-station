@@ -201,15 +201,18 @@ export class StreamsWorker {
     if (Date.now() - this.externalPolledAt > 30_000) {
       this.externalPolledAt = Date.now();
       void this.pollExternal(snap);
+      void this.collector.refreshNodes().catch(() => undefined);
     }
   }
 
-  /** Counts the readers of our own jobs on the mounts they read, so the panel can leave them out of listener counts. */
+  /**
+   * Counts the readers of our own jobs (transcoders, relays, relay nodes), so the panel can leave them out of listener
+   * counts. Every mount on air is checked: a reader of a mount that is off air lands on its fallback mount.
+   */
   private async countInternal(view: StationView, live: Map<string, MountStats>) {
-    const read = new Set([...this.relays.values()].filter((r) => r.input.stationId === view.station.id && live.has(r.input.mount)).map((r) => r.input.mount));
     const counts: Record<string, number> = {};
     await Promise.all(
-      [...read].map(async (mount) => {
+      [...live.keys()].map(async (mount) => {
         counts[mount] = await internalReaders({ port: view.station.icecastPort, adminPassword: view.adminPassword }, mount).catch(() => 0);
       }),
     );

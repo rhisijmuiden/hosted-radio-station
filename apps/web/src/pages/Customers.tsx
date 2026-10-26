@@ -10,7 +10,7 @@ import { isAdmin, useMailConfigured, useMe } from '../lib/auth';
 import { formatDate } from '../lib/format';
 import { PlanBadge } from './Dashboard';
 
-export const defaultLimits: TenantLimits = { maxStations: 1, maxListeners: 100, maxBitrateKbps: 192, storageQuotaMb: 10240 };
+export const defaultLimits: TenantLimits = { maxStations: 1, maxListeners: 100, maxBitrateKbps: 192, storageQuotaMb: 10240, maxNodes: 0 };
 
 export const slugify = (s: string) =>
   s
@@ -43,6 +43,9 @@ export function LimitsFields({ value, onChange, disabled }: { value: TenantLimit
       </Field>
       <Field label={t('limits.storage')}>
         <Input {...num('storageQuotaMb')} />
+      </Field>
+      <Field label={t('limits.maxNodes')} hint={t('limits.maxNodesHint')}>
+        <Input {...num('maxNodes')} />
       </Field>
     </div>
   );

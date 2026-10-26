@@ -1,0 +1,16 @@
+{
+  "name": "@hrs/node",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Node agent of Hosted Radio Station: relay, source and probe roles on a remote Debian 13 LXC",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test build-test/test/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3"
+  }
+}

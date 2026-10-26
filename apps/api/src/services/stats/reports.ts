@@ -38,7 +38,7 @@ function useSamples(s: Scope, bucketMinutes: number, settings: StatisticsSetting
   return bucketMinutes < 60 && s.from.getTime() > Date.now() - settings.sampleRetentionDays * 86400_000;
 }
 
-const target = (s: Scope) => (s.mount ? (s.mount.startsWith('output:') ? s.mount : `mount:${s.mount}`) : '*');
+const target = (s: Scope) => (s.mount ? (s.mount.startsWith('output:') || s.mount.startsWith('node:') ? s.mount : `mount:${s.mount}`) : '*');
 
 /** Listeners over time: average and peak per bucket, summed over the stations. */
 export async function timeseries(ctx: AppContext, s: Scope) {
@@ -101,7 +101,9 @@ function sessionFilter(s: Scope, settings: StatisticsSettings) {
   const mount = s.mount
     ? s.mount.startsWith('output:')
       ? sql`and output_id = ${s.mount.slice(7)}::uuid`
-      : sql`and mount_path = ${s.mount} and output_id is null`
+      : s.mount.startsWith('node:')
+        ? sql`and node_id = ${s.mount.slice(5)}::uuid`
+        : sql`and mount_path = ${s.mount} and output_id is null and node_id is null`
     : sql``;
   return sql`station_id in (${ids(s.stationIds)})
     and started_at < ${s.to.toISOString()}::timestamptz
@@ -141,7 +143,7 @@ const dimensionExpr: Record<Dimension, SQL> = {
   device: sql`coalesce(device, 'other')`,
   player: sql`coalesce(player, 'Unknown')`,
   os: sql`coalesce(os, 'Unknown')`,
-  mount: sql`case when output_id is null then mount_path else 'output:' || output_id::text end`,
+  mount: sql`case when output_id is not null then 'output:' || output_id::text when node_id is not null then 'node:' || node_id::text else mount_path end`,
   referrer: sql`coalesce(referrer, '')`,
   network: sql`coalesce(network, '')`,
 };

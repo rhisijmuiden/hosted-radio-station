@@ -3,6 +3,7 @@ import { createDb, runMigrations } from './db/index.js';
 import { loadConfig } from './lib/config.js';
 import { createContext } from './lib/context.js';
 import { NOWPLAYING_CHANNEL } from './services/public/hub.js';
+import { STREAMS_CHANNEL } from './services/streaming/state.js';
 import { startBackgroundTasks } from './services/tasks.js';
 
 const config = loadConfig();
@@ -14,6 +15,8 @@ const app = await buildApp(ctx);
 const stopTasks = startBackgroundTasks(ctx, app.log);
 // The streams service reports new titles and live DJs; the public live feeds pass them on right away.
 await client.listen(NOWPLAYING_CHANNEL, (stationId) => app.nowPlaying.notify(stationId));
+// Stations, mounts or domains changed: nodes get a new plan when it affects them.
+await client.listen(STREAMS_CHANNEL, () => void app.nodes.refreshAll());
 
 const shutdown = async (signal: string) => {
   app.log.info({ signal }, 'shutting down');

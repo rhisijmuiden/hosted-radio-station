@@ -14,6 +14,7 @@ import { autodjSettings } from '../services/autodj/settings.js';
 import { getSetting, SECRET_MASK } from '../services/settings.js';
 import { killSource, stationDir } from '../services/streaming/icecast.js';
 import { connectionInfo } from '../services/streaming/info.js';
+import { cachedRelays } from '../services/nodes/routing.js';
 import { allocatePort, applyStreams, loadStation, newInternalPassword, stationStats, type Mount, type Output, type Station } from '../services/streaming/state.js';
 
 const stationParams = z.object({ id: z.uuid() });
@@ -136,6 +137,7 @@ const accountOut = z.object({
 });
 const connectionOut = z.object({
   ingestHost: z.string(),
+  node: z.object({ id: z.uuid(), name: z.string() }).nullable(),
   tls: z.object({ port: z.number(), available: z.boolean() }),
   plain: z.object({ port: z.number() }).nullable(),
   legacy: z.object({ port: z.number(), sourcePort: z.number(), mount: z.string().nullable() }).nullable(),
@@ -263,7 +265,7 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
       connection: {
         ...conn,
         upload: {
-          host: conn.ingestHost,
+          host: conn.uploadHost,
           sftpPort: streaming.sftp.enabled ? streaming.sftp.port : null,
           ftpPort: streaming.ftp.enabled ? streaming.ftp.port : null,
           ftpRequireTls: streaming.ftp.requireTls,
@@ -498,6 +500,16 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
         stationStats(ctx, station),
       ]);
       const byPath = new Map((stats ?? []).map((s) => [s.mount, s]));
+      // Listeners on relay nodes count with the mount they listen to.
+      const viaNodes = new Map<string, number>();
+      for (const n of (await cachedRelays(ctx)).get(station.id) ?? []) {
+        if (!n.status.online) continue;
+        for (const r of n.status.relays ?? []) {
+          const path = r.key.slice(station.slug.length);
+          if (r.key.startsWith(`${station.slug}/`) && r.listeners) viaNodes.set(path, (viaNodes.get(path) ?? 0) + r.listeners);
+        }
+      }
+      const listenersOf = (path: string) => (byPath.get(path)?.listeners ?? 0) + (viaNodes.get(path) ?? 0);
       // Mounts Icecast knows but that are not configured (e.g. an old relay) are listed too.
       const known = new Set(mounts.map((m) => m.path));
       const rows = [
@@ -510,13 +522,13 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
           id: r.id,
           path: r.path,
           live: !!r.s,
-          listeners: r.s?.listeners ?? 0,
+          listeners: listenersOf(r.path),
           title: r.s?.title ?? null,
           bitrateKbps: r.s?.bitrateKbps ?? null,
           contentType: r.s?.contentType ?? null,
           streamStart: r.s?.streamStart ?? null,
         })),
-        listeners: (stats ?? []).reduce((n, s) => n + s.listeners, 0),
+        listeners: (stats ?? []).reduce((n, s) => n + s.listeners, 0) + [...viaNodes.values()].reduce((n, v) => n + v, 0),
         live,
         outputs: outputs.map((o) => ({ id: o.id, name: o.name, type: o.type, enabled: o.enabled, status: o.status ?? null })),
       };

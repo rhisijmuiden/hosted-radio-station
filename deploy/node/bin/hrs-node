@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Admin command of a Hosted Radio Station node.
+set -Eeuo pipefail
+INSTALL_DIR=/opt/hrs-node
+CLI="$INSTALL_DIR/apps/node/dist/cli.js"
+
+usage() {
+  cat <<USAGE
+Usage: hrs-node <command>
+
+  status                 Pairing, roles, version and the state of the services
+  logs                   Follow the log of the agent
+  pair --server <url> --code <code> [--web caddy|direct]
+                         Pair (again) with a main server, using a code from the panel
+  update                 Update to the latest version of the current branch
+  restart                Restart the agent
+USAGE
+}
+
+[[ $EUID -eq 0 ]] || { echo "Run as root." >&2; exit 1; }
+cmd=${1:-}; shift || true
+case "$cmd" in
+  status)
+    runuser -u hrs-node -- /usr/bin/node "$CLI" status || true
+    echo
+    for u in hrs-node hrs-node-icecast caddy; do
+      printf '%-18s %s\n' "$u" "$(systemctl is-active "$u" 2>/dev/null || true)"
+    done
+    ;;
+  logs) journalctl -u hrs-node -u hrs-node-icecast -f ;;
+  pair)
+    runuser -u hrs-node -- /usr/bin/node "$CLI" pair "$@"
+    systemctl enable --quiet hrs-node
+    systemctl restart hrs-node
+    ;;
+  update)
+    jq -n --arg id "cli-$(date +%s)" '{id:$id}' > /var/lib/hrs-node/run/update-request.json
+    echo "Update started; follow it with: tail -f /var/lib/hrs-node/run/update.log"
+    ;;
+  restart) systemctl restart hrs-node ;;
+  ""|-h|--help|help) usage ;;
+  *) echo "Unknown command: $cmd" >&2; usage; exit 1 ;;
+esac

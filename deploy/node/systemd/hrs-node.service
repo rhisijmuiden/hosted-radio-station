@@ -1,0 +1,20 @@
+[Unit]
+Description=Hosted Radio Station node agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hrs-node
+Group=hrs-node
+EnvironmentFile=-/etc/hrs-node/node.env
+WorkingDirectory=/opt/hrs-node/apps/node
+ExecStart=/usr/bin/node dist/cli.js run
+Restart=always
+RestartSec=10
+TimeoutStopSec=15
+NoNewPrivileges=true
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

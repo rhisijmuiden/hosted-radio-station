@@ -565,7 +565,7 @@ function ListenersTab({ scope, period, periodKey, mount, country, onCountry, sho
  * Listener statistics for a scope (one station, a customer, or everything you may see): live view and reports for a
  * period. Tab, period and filters live in the address, so a report can be shared as a link.
  */
-export function StatisticsView({ scope, mounts = [], outputs = [], showStation = true, toolbar }: { scope: StatsScope; mounts?: string[]; outputs?: { id: string; name: string }[]; showStation?: boolean; toolbar?: ReactNode }) {
+export function StatisticsView({ scope, mounts = [], outputs = [], nodes = [], showStation = true, toolbar }: { scope: StatsScope; mounts?: string[]; outputs?: { id: string; name: string }[]; nodes?: { id: string; name: string }[]; showStation?: boolean; toolbar?: ReactNode }) {
   const { t } = useTranslation();
   const [params, setParams] = useSearchParams();
   const tab = (params.get('stats') as StatsTab | null) ?? 'live';
@@ -595,7 +595,12 @@ export function StatisticsView({ scope, mounts = [], outputs = [], showStation =
     return () => clearInterval(id);
   }, []);
   const report = useReport(scope, period, periodKey, mount, ['overview', 'audience', 'technology'].includes(tab));
-  const mountLabel = (k: string) => (k.startsWith('output:') ? (outputs.find((o) => `output:${o.id}` === k)?.name ?? t('stats.external')) : k);
+  const mountLabel = (k: string) =>
+    k.startsWith('output:')
+      ? (outputs.find((o) => `output:${o.id}` === k)?.name ?? t('stats.external'))
+      : k.startsWith('node:')
+        ? t('stats.viaNode', { name: nodes.find((n) => `node:${n.id}` === k)?.name ?? t('stats.relayNode') })
+        : k;
 
   const tabs: { value: StatsTab; label: string }[] = [
     { value: 'live', label: t('stats.tabs.live') },
@@ -631,7 +636,7 @@ export function StatisticsView({ scope, mounts = [], outputs = [], showStation =
               <Input type="date" className="h-9 w-40" value={customTo} onChange={(e) => set({ to: e.target.value })} aria-label={t('stats.to')} />
             </div>
           )}
-          {(mounts.length > 1 || outputs.length > 0) && (
+          {(mounts.length > 1 || outputs.length > 0 || nodes.length > 0) && (
             <div className="w-full sm:w-56">
             <Select className="h-9" value={mount ?? ''} onChange={(e) => set({ mount: e.target.value || undefined })} aria-label={t('stats.mountFilter')}>
               <option value="">{t('stats.allMounts')}</option>
@@ -643,6 +648,11 @@ export function StatisticsView({ scope, mounts = [], outputs = [], showStation =
               {outputs.map((o) => (
                 <option key={o.id} value={`output:${o.id}`}>
                   {o.name}
+                </option>
+              ))}
+              {nodes.map((n) => (
+                <option key={n.id} value={`node:${n.id}`}>
+                  {t('stats.viaNode', { name: n.name })}
                 </option>
               ))}
             </Select>

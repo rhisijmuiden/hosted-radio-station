@@ -132,3 +132,7 @@ pnpm --filter @hrs/api build && node apps/api/dist/cli.js create-admin --email y
 pnpm dev                                                # API on :8000, admin panel on :5173
 pnpm test                                               # needs a hosted_radio_test database (TEST_DATABASE_URL)
 ```
+
+## Nodes
+
+To spread listeners over relays or take encoders on other servers, add nodes: see [nodes.md](nodes.md).

@@ -138,6 +138,21 @@ export const statisticsSchema = z.object({
 });
 export type StatisticsSettings = z.infer<typeof statisticsSchema>;
 
+/** The distribution network: how nodes are updated, checked and used for listeners (phase 8). */
+export const nodesSchema = z.object({
+  /** Nodes follow the version of this server by themselves; off = update them from the panel. */
+  autoUpdate: z.boolean().default(true),
+  /** Players and public pages send listeners to a healthy relay node (nearest first) instead of this server. */
+  routeListeners: z.boolean().default(true),
+  /** How often nodes check the streams of the stations (remote probes). */
+  probeIntervalSeconds: z.number().int().min(30).max(3600).default(60),
+  /** Round trip to this server above which a node is shown as degraded. */
+  latencyWarnMs: z.number().int().min(5).max(5000).default(150),
+  /** How long node health per minute is kept. */
+  metricsRetentionDays: z.number().int().min(1).max(365).default(30),
+});
+export type NodesSettings = z.infer<typeof nodesSchema>;
+
 const registry = {
   smtp: { schema: smtpSchema, secrets: ['password', 'dkim.privateKey'] },
   proxy: { schema: proxySchema, secrets: [] },
@@ -146,6 +161,7 @@ const registry = {
   audit: { schema: auditSettingsSchema, secrets: [] },
   streaming: { schema: streamingSchema, secrets: [] },
   statistics: { schema: statisticsSchema, secrets: ['geoip.maxmindLicenseKey'] },
+  nodes: { schema: nodesSchema, secrets: [] },
 } as const;
 type Registry = typeof registry;
 export type SettingKey = keyof Registry;

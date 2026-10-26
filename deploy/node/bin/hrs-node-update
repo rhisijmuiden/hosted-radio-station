@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# Updates a node to the version of its main server. Started as root by hrs-node-update.path when the agent drops
+# run/update-request.json. Builds first and only then restarts the agent; on any failure it rolls back.
+#
+# Everything lives in main(), which bash parses completely before running: the checkout (and so this file) changes.
+set -Eeuo pipefail
+
+main() {
+  local INSTALL_DIR=/opt/hrs-node RUN=/var/lib/hrs-node/run
+  local REQ="$RUN/update-request.json" STATUS="$RUN/update-status.json" LOG="$RUN/update.log"
+  [[ -f "$REQ" ]] || exit 0
+  local id branch commit
+  id=$(jq -r '.id // empty' "$REQ" 2>/dev/null | tr -cd 'A-Za-z0-9-' | cut -c1-64 || true)
+  branch=$(jq -r '.branch // empty' "$REQ" 2>/dev/null || true)
+  commit=$(jq -r '.commit // empty' "$REQ" 2>/dev/null || true)
+  rm -f "$REQ"
+
+  : > "$LOG"; chown hrs-node: "$LOG"
+  log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*" >> "$LOG"; }
+  status() {
+    jq -n --arg id "$id" --arg state "$1" --arg message "$2" --arg t "$(date -Is)" '{id:$id, state:$state, message:$message, at:$t}' > "$STATUS.tmp"
+    chown hrs-node: "$STATUS.tmp"; mv "$STATUS.tmp" "$STATUS"
+  }
+  trap 'status failed "Unexpected error (line $LINENO), see the log."; log "Failed at line $LINENO"' ERR
+  [[ -z "$branch" || "$branch" =~ ^[A-Za-z0-9._/-]{1,100}$ ]] || { status failed "Invalid branch"; exit 1; }
+  [[ -z "$commit" || "$commit" =~ ^[0-9a-f]{7,40}$ ]] || { status failed "Invalid commit"; exit 1; }
+
+  cd "$INSTALL_DIR"
+  local from prev_branch
+  from=$(git rev-parse HEAD)
+  prev_branch=$(git rev-parse --abbrev-ref HEAD)
+  [[ -n "$branch" ]] || branch=$prev_branch
+  status running "Downloading"
+  log "Update to ${commit:-the latest} on '$branch'. Current version: $(git log -1 --format='%h %s')"
+
+  rollback() {
+    log "Rolling back to $from…"
+    git checkout -q -f -B "$prev_branch" "$from" >> "$LOG" 2>&1 || true
+    "$INSTALL_DIR/deploy/node/bin/hrs-node-build" >> "$LOG" 2>&1 || log "Rebuilding the previous version failed too."
+    systemctl restart hrs-node || true
+    status failed "$1 The previous version was restored."
+    exit 1
+  }
+
+  git fetch --prune origin "+refs/heads/$branch:refs/remotes/origin/$branch" >> "$LOG" 2>&1 || { status failed "Could not download from the repository."; exit 1; }
+  local target="origin/$branch"
+  if [[ -n "$commit" ]]; then
+    git cat-file -e "$commit^{commit}" 2>/dev/null || git fetch origin "$commit" >> "$LOG" 2>&1 || { status failed "The version of the main server ($commit) was not found."; exit 1; }
+    target=$commit
+  fi
+  if [[ "$(git rev-parse "$target")" == "$from" ]]; then status succeeded "Already up to date."; exit 0; fi
+  git checkout -q -f -B "$branch" "$target" >> "$LOG" 2>&1 || rollback "Checking out the new version failed."
+
+  status running "Building"
+  "$INSTALL_DIR/deploy/node/bin/hrs-node-build" >> "$LOG" 2>&1 || rollback "The build failed."
+  "$INSTALL_DIR/deploy/node/bin/hrs-node-install-units" >> "$LOG" 2>&1 || rollback "Installing the system units failed."
+
+  status running "Restarting"
+  systemctl restart hrs-node
+  sleep 3
+  systemctl is-active --quiet hrs-node || rollback "The new version did not start."
+  status succeeded "Updated to $(git log -1 --format='%h' HEAD)."
+  log "Done."
+}
+
+main "$@"; exit $?

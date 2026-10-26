@@ -61,7 +61,7 @@ export function StatisticsPage() {
           <EmptyState icon={<BarChart3 className="size-6" />} title={t('stats.noStations')} description={t('stats.noStationsText')} />
         </Card>
       ) : (
-        <StatisticsView key={raw} scope={scope} mounts={station?.mounts ?? []} outputs={station?.outputs ?? []} showStation={!station} toolbar={selector} />
+        <StatisticsView key={raw} scope={scope} mounts={station?.mounts ?? []} outputs={station?.outputs ?? []} nodes={station?.nodes ?? []} showStation={!station} toolbar={selector} />
       )}
     </>
   );

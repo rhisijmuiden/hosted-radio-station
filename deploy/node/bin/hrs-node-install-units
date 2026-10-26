@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Installs the systemd units and the hrs-node command of a node. Run as root; safe to repeat.
+set -Eeuo pipefail
+INSTALL_DIR="${INSTALL_DIR:-/opt/hrs-node}"
+for f in "$INSTALL_DIR"/deploy/node/systemd/*; do
+  install -m 0644 "$f" "/etc/systemd/system/$(basename "$f")"
+done
+chmod 0755 "$INSTALL_DIR"/deploy/node/bin/*
+ln -sf "$INSTALL_DIR/deploy/node/bin/hrs-node" /usr/local/bin/hrs-node
+# Also in /usr/bin: "pct exec" and some other shells have no /usr/local/bin in their PATH.
+ln -sf /usr/local/bin/hrs-node /usr/bin/hrs-node
+systemctl daemon-reload
+systemctl enable --quiet hrs-node-apply.path hrs-node-update.path hrs-node-apply.timer hrs-node-icecast.service
+systemctl start hrs-node-apply.path hrs-node-update.path hrs-node-apply.timer

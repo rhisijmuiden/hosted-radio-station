@@ -39,11 +39,14 @@ import { systemRoutes } from './routes/system.js';
 import { tenantRoutes } from './routes/tenants.js';
 import { userRoutes } from './routes/users.js';
 import { NowPlayingHub } from './services/public/hub.js';
+import { NodeHub } from './services/nodes/hub.js';
+import { listenRedirectRoutes, nodeAgentRoutes, nodeRoutes } from './routes/nodes.js';
 import { getVersionInfo } from './services/system.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
     nowPlaying: NowPlayingHub;
+    nodes: NodeHub;
   }
 }
 
@@ -63,6 +66,10 @@ export async function buildApp(ctx: AppContext) {
   app.decorate('nowPlaying', hub);
   hub.start();
   app.addHook('onClose', async () => hub.stop());
+  const nodeHub = new NodeHub(ctx, app.log);
+  app.decorate('nodes', nodeHub);
+  await nodeHub.start();
+  app.addHook('onClose', async () => nodeHub.stop());
 
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof HttpError) {
@@ -132,6 +139,9 @@ export async function buildApp(ctx: AppContext) {
   await app.register(tenantStreamingRoutes, { prefix: '/api/tenants' });
   await app.register(statsRoutes, { prefix: '/api/stats' });
   await app.register(publicRoutes, { prefix: '/api/public' });
+  await app.register(listenRedirectRoutes, { prefix: '/api/public' });
+  await app.register(nodeAgentRoutes, { prefix: '/api/nodes' });
+  await app.register(nodeRoutes, { prefix: '/api/nodes' });
   await app.register(internalRoutes, { prefix: '/api/internal' });
 
   // In production the API also serves the built admin panel (single-page app).
