@@ -59,6 +59,15 @@ Phase 5: public station page with live now playing, embeddable widgets, song req
 | ![Embeddable player, history and request widgets](docs/screenshots/phase-5-embeds.png) | ![On demand with recordings and uploads](docs/screenshots/phase-5-admin-ondemand.png) |
 | ![Public station page on a phone](docs/screenshots/phase-5-page-mobile.png) | |
 
+Phase 6: Radio station with AutoDJ, music library, playlists and two queues.
+
+| Light | Light |
+| --- | --- |
+| ![AutoDJ with now playing and queues Q1 and Q2](docs/screenshots/phase-6-autodj.png) | ![Music library with folders and shares](docs/screenshots/phase-6-library.png) |
+| ![Playlists per queue](docs/screenshots/phase-6-playlists.png) | ![Playlist with weight, order and folders](docs/screenshots/phase-6-playlist-dialog.png) |
+| ![Bulk upload](docs/screenshots/phase-6-upload.png) | ![Listeners request songs from the library](docs/screenshots/phase-6-request-library.png) |
+| ![AutoDJ in Dutch, dark](docs/screenshots/phase-6-autodj-dark-nl.png) | ![Library in Dutch, dark](docs/screenshots/phase-6-library-dark-nl.png) |
+
 ## Status
 
 | Phase | Name | Status |
