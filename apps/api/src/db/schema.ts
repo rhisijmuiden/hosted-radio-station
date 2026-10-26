@@ -854,6 +854,11 @@ export const autodjState = pgTable('autodj_state', {
   clockId: uuid('clock_id'),
   clockStep: integer('clock_step').notNull().default(0),
   clockDone: integer('clock_done').notNull().default(0),
+  /**
+   * Manual playout (RHIS Studio): after each track the player waits for Play. Holds while this lies in the future; the
+   * client renews it every few seconds, so a client that drops away puts the station back on Auto by itself.
+   */
+  manualUntil: timestamp('manual_until', { withTimezone: true }),
 });
 
 // Phase 7: scheduler

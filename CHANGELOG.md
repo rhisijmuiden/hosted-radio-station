@@ -3,6 +3,14 @@
 All notable changes to Hosted Radio Station. Versions follow [semantic versioning](https://semver.org). The
 [roadmap](ROADMAP.md) has the full description of each phase, with screenshots.
 
+## Unreleased (server 1.1, RHIS Studio 1.0)
+
+- Live assist in RHIS Studio: the format of the coming hours in the left menu, Auto and Manual playout, how Q1 and Q2
+  take turns, and the level meter at the right edge. In Manual the AutoDJ waits for Play after each track and goes
+  back to Auto by itself when the studio stops checking in for 30 seconds.
+- `/api/studio/hello` tells the client the server version and its features, so an older server is reported instead
+  of failing.
+
 ## 1.0.1 (October 2026)
 
 Fixes found while testing 1.0.0.

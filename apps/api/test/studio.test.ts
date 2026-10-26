@@ -76,7 +76,10 @@ describe('linking a studio PC', () => {
     await t.app.inject({ method: 'POST', url: `/api/studio/link/${second.code}/deny`, headers: dj });
     expect((await t.app.inject({ method: 'POST', url: '/api/studio/link/poll', payload: { deviceSecret: second.deviceSecret } })).json().state).toBe('denied');
 
-    await t.app.inject({ method: 'POST', url: '/api/studio/hello', headers: { authorization: `Bearer ${key}` }, payload: { clientVersion: '0.9.1' } });
+    const hello = await t.app.inject({ method: 'POST', url: '/api/studio/hello', headers: { authorization: `Bearer ${key}` }, payload: { clientVersion: '0.9.1' } });
+    // The client switches features off when an older server does not list them.
+    expect(hello.json()).toMatchObject({ ok: true, features: expect.arrayContaining(['playout', 'rundown', 'queue-rule']) });
+    expect(hello.json().serverVersion).toMatch(/^\d+\.\d+\.\d+/);
     const devices = await t.app.inject({ url: '/api/studio/devices', headers: dj });
     expect(devices.json()).toHaveLength(1);
     expect(devices.json()[0]).toMatchObject({ deviceName: 'STUDIO-1', clientVersion: '0.9.1' });

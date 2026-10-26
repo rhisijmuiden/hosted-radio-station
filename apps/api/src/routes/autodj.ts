@@ -23,7 +23,9 @@ import {
   type MediaSource,
 } from '../services/autodj/library.js';
 import { clearQueue, dropDisabled, enqueue, fillQueues, inPlaylist, mediaPath, moveItem, queueRows } from '../services/autodj/planner.js';
-import { autodjSchema, autodjSettings } from '../services/autodj/settings.js';
+import { autodjSchema, autodjSettings, queueRuleSchema } from '../services/autodj/settings.js';
+import { anchorOf, isFill } from '../services/scheduler/clock.js';
+import { hourStart } from '../services/scheduler/time.js';
 import { loadSchedule } from '../services/scheduler/runtime.js';
 import { AUDIO_TYPES } from '../services/public/ondemand.js';
 import { SECRET_MASK } from '../services/settings.js';
@@ -165,6 +167,8 @@ const autodjOut = z.object({
     seenAt: z.string().nullable(),
     paused: z.boolean(),
   }),
+  /** Manual playout (RHIS Studio): every track waits for Play. Falls back to Auto when the client stops renewing it. */
+  playout: z.object({ manual: z.boolean(), holding: z.boolean(), until: z.date().nullable() }),
   nowPlaying: queueRowOut.nullable(),
   queues: z.object({ q1: z.array(queueRowOut), q2: z.array(queueRowOut) }),
   library: z.object({ tracks: z.number().int(), enabled: z.number().int(), playlists: z.number().int() }),
@@ -175,6 +179,30 @@ const autodjOut = z.object({
     entry: z.object({ id: z.uuid(), name: z.string(), live: z.boolean() }).nullable(),
   }),
 });
+
+/** Manual playout stays on this long after the client's last renewal; RHIS Studio renews it every 10 seconds. */
+export const MANUAL_GRACE_MS = 30_000;
+
+const rundownRowOut = z.object({
+  /** Start of the hour (clock) the row belongs to. */
+  hour: z.date(),
+  /** Planned start: the item's minute, or the start of the timed item before it. */
+  startsAt: z.date(),
+  /** The item has its own minute (timed); otherwise it follows the item before it. */
+  timed: z.boolean(),
+  hard: z.boolean(),
+  /** music = from the queues or a playlist until the next timed item; item = tracks the format puts in. */
+  kind: z.enum(['music', 'item']),
+  source: z.enum(['queues', 'playlist', 'track']),
+  label: z.string(),
+  count: z.number().int(),
+  clock: z.object({ id: z.uuid(), name: z.string(), color: z.string() }).nullable(),
+  show: z.object({ id: z.uuid(), name: z.string(), live: z.boolean() }).nullable(),
+  /** The item the player is at now. */
+  current: z.boolean(),
+  past: z.boolean(),
+});
+const rundownOut = z.object({ timezone: z.string(), enabled: z.boolean(), rows: z.array(rundownRowOut) });
 
 const contentType = (path: string) => AUDIO_TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream';
 
@@ -300,6 +328,11 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
         seenAt,
         paused: !!p?.paused,
       },
+      playout: {
+        manual: !!db?.manualUntil && db.manualUntil.getTime() > now,
+        holding: !!(db?.manualUntil && db.manualUntil.getTime() > now && p?.holding),
+        until: db?.manualUntil && db.manualUntil.getTime() > now ? db.manualUntil : null,
+      },
       nowPlaying: playing,
       queues: { q1: rows.filter((r) => r.queue === 'q1' && r.state !== 'playing'), q2: rows.filter((r) => r.queue === 'q2' && r.state !== 'playing') },
       library: { tracks: lib?.tracks ?? 0, enabled: lib?.enabled ?? 0, playlists: pl?.n ?? 0 },
@@ -356,6 +389,137 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
       return { ok: true as const };
     },
   );
+
+  app.post(
+    '/:id/autodj/mode',
+    {
+      schema: {
+        tags: ['AutoDJ'],
+        summary:
+          'Manual or automatic playout (DJs too). Manual: after each track the player waits for Play. The client sends `manual: true` again every 10 seconds; without it the station goes back to Auto after 30 seconds, so it never stays silent.',
+        params: stationParams,
+        body: z.object({ manual: z.boolean() }),
+        response: { 200: autodjOut },
+      },
+    },
+    async (req) => {
+      const { station, access } = await radio(req, req.params.id, 'dj');
+      const [before] = await ctx.db.select().from(schema.autodjState).where(eq(schema.autodjState.stationId, station.id));
+      const was = !!before?.manualUntil && before.manualUntil.getTime() > Date.now();
+      const manualUntil = req.body.manual ? new Date(Date.now() + MANUAL_GRACE_MS) : null;
+      await ctx.db.insert(schema.autodjState).values({ stationId: station.id, manualUntil }).onConflictDoUpdate({ target: schema.autodjState.stationId, set: { manualUntil } });
+      if (was !== req.body.manual) {
+        req.log.info({ station: station.slug, manual: req.body.manual, by: access.user.email }, 'playout mode changed');
+        await ctx.db.execute(sql`select pg_notify(${AUTODJ_CHANNEL}, ${JSON.stringify({ stationId: station.id, command: 'mode' })})`);
+      }
+      return describe(station);
+    },
+  );
+
+  for (const [command, summary] of [
+    ['play', 'Manual playout: start the next track (DJs too). While a track plays, the next one starts when it ends.'],
+    ['stop', 'Manual playout: stop the track on air; the player waits for Play (DJs too).'],
+  ] as const) {
+    app.post(
+      `/:id/autodj/${command}`,
+      { schema: { tags: ['AutoDJ'], summary, params: stationParams, response: { 200: okOut } } },
+      async (req) => {
+        const { station } = await radio(req, req.params.id, 'dj');
+        await ctx.db.execute(sql`select pg_notify(${AUTODJ_CHANNEL}, ${JSON.stringify({ stationId: station.id, command })})`);
+        return { ok: true as const };
+      },
+    );
+  }
+
+  app.put(
+    '/:id/queue-rule',
+    {
+      config: { audit: 'autodj.rule' },
+      schema: {
+        tags: ['AutoDJ'],
+        summary: 'How the AutoDJ takes turns between Q1 and Q2 (DJs too, from RHIS Studio). Takes effect at the next track.',
+        params: stationParams,
+        body: queueRuleSchema,
+        response: { 200: autodjOut },
+      },
+    },
+    async (req) => {
+      const { station } = await radio(req, req.params.id, 'dj');
+      const settings = { ...autodjSettings(station), rule: req.body };
+      const [row] = await ctx.db.update(schema.stations).set({ autodj: settings, updatedAt: new Date() }).where(eq(schema.stations.id, station.id)).returning();
+      req.auditInfo.details = { rule: req.body };
+      await apply(req, station.id);
+      return describe(row!);
+    },
+  );
+
+  app.get(
+    '/:id/autodj/rundown',
+    {
+      schema: {
+        tags: ['AutoDJ'],
+        summary: 'The format of the coming hours: the items of each hour clock with their planned start, and where the player is now',
+        params: stationParams,
+        querystring: z.object({ hours: z.coerce.number().int().min(1).max(12).default(3) }),
+        response: { 200: rundownOut },
+      },
+    },
+    async (req) => {
+      const { station } = await stationAccess(ctx, req, req.params.id, 'dj');
+      return rundown(station, req.query.hours);
+    },
+  );
+
+  async function rundown(station: Station, hours: number): Promise<z.infer<typeof rundownOut>> {
+    const plan = await loadSchedule(ctx.db, station);
+    const tz = plan.settings.timezone;
+    const now = Date.now();
+    const HOUR = 3_600_000;
+    const [st] = await ctx.db.select().from(schema.autodjState).where(eq(schema.autodjState.stationId, station.id));
+    const clocks = [...plan.clocks.values()];
+    const playlistIds = new Set(clocks.flatMap((c) => c.items.map((i) => i.playlistId).filter((x): x is string => !!x)));
+    const mediaIds = new Set(clocks.flatMap((c) => c.items.map((i) => i.mediaId).filter((x): x is string => !!x)));
+    const [lists, tracks] = await Promise.all([
+      playlistIds.size ? ctx.db.select({ id: schema.playlists.id, name: schema.playlists.name }).from(schema.playlists).where(inArray(schema.playlists.id, [...playlistIds])) : [],
+      mediaIds.size
+        ? ctx.db.select({ id: schema.mediaFiles.id, title: schema.mediaFiles.title, artist: schema.mediaFiles.artist, path: schema.mediaFiles.path }).from(schema.mediaFiles).where(inArray(schema.mediaFiles.id, [...mediaIds]))
+        : [],
+    ]);
+    const listName = new Map(lists.map((l) => [l.id, l.name]));
+    const trackName = new Map(tracks.map((t) => [t.id, t.title ? (t.artist ? `${t.artist} – ${t.title}` : t.title) : t.path]));
+    const rows: z.infer<typeof rundownRowOut>[] = [];
+    const first = hourStart(now, tz);
+    for (let h = 0; h < hours; h++) {
+      const hour = first + h * HOUR;
+      const clock = plan.settings.enabled ? plan.clockAt(hour) : null;
+      const entry = plan.settings.enabled ? plan.entryAt(hour) : null;
+      const base = {
+        hour: new Date(hour),
+        clock: clock && { id: clock.id, name: clock.name, color: clock.color },
+        show: entry && { id: entry.id, name: entry.name, live: entry.live },
+        past: false,
+      };
+      if (!clock?.items.length) {
+        rows.push({ ...base, startsAt: new Date(hour), timed: true, hard: false, kind: 'music', source: 'queues', label: '', count: 0, current: false });
+        continue;
+      }
+      let start = hour;
+      clock.items.forEach((item, i) => {
+        const a = anchorOf(clock.items, i);
+        if (a !== null) start = hour + a * 60_000;
+        const source = item.kind === 'rotation' ? 'queues' : item.kind;
+        const label = item.label || (item.kind === 'playlist' ? (listName.get(item.playlistId ?? '') ?? '') : item.kind === 'track' ? (trackName.get(item.mediaId ?? '') ?? '') : '');
+        const current = !!st?.clockHour && st.clockHour.getTime() === hour && st.clockId === clock.id && st.clockStep === i;
+        rows.push({ ...base, startsAt: new Date(start), timed: a !== null, hard: item.hard, kind: isFill(item) ? 'music' : 'item', source, label, count: item.kind === 'track' ? 1 : item.count, current });
+      });
+    }
+    // Rows before the one the player is at are past; without that, the ones a later row has started after.
+    const at = rows.findIndex((r) => r.current);
+    rows.forEach((r, i) => {
+      r.past = at >= 0 ? i < at : rows.slice(i + 1).some((n) => n.timed && n.startsAt.getTime() <= now);
+    });
+    return { timezone: tz, enabled: plan.settings.enabled, rows };
+  }
 
   app.post(
     '/:id/autodj/queue',

@@ -12,7 +12,7 @@ const TICKS = [-48, -36, -24, -18, -12, -6, -3, 0];
 type Source = 'input' | 'output';
 
 /** Stereo peak meter with falling bars and a peak hold, fed straight from the audio engine. */
-export function StereoMeter({ source, label, vertical, className }: { source: Source; label?: string; vertical?: boolean; className?: string }) {
+export function StereoMeter({ source, label, vertical, scale: showScale, className }: { source: Source; label?: string; vertical?: boolean; scale?: boolean; className?: string }) {
   const bars = [useRef<HTMLDivElement>(null), useRef<HTMLDivElement>(null)];
   const peaks = [useRef<HTMLDivElement>(null), useRef<HTMLDivElement>(null)];
   const target = useRef([0, 0]);
@@ -60,6 +60,15 @@ export function StereoMeter({ source, label, vertical, className }: { source: So
     return (
       <div className={clsx('flex h-full flex-col items-center gap-1.5', className)}>
         <div className="relative flex min-h-0 flex-1 gap-1">
+          {showScale && (
+            <div className="relative mr-0.5 w-5 text-right text-[9px] text-muted">
+              {TICKS.map((d) => (
+                <span key={d} className="absolute right-0 translate-y-1/2 tabular" style={{ bottom: `${((d - FLOOR) / -FLOOR) * 100}%` }}>
+                  {d}
+                </span>
+              ))}
+            </div>
+          )}
           {[0, 1].map((i) => (
             <div key={i} className="relative h-full w-3 overflow-hidden rounded-sm bg-meter">
               <div ref={bars[i]} className="meter-fill-v absolute inset-0" style={{ clipPath: 'inset(100% 0 0 0)' }} />

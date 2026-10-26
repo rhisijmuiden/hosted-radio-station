@@ -168,6 +168,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 14 | Orchestrator redundancy | Planned (1.x) |
 | 15 | Cloudflare DNS integration | Planned (1.x) |
 | 16 | Installer menu and node enrollment | Planned (1.x) |
+| 17 | RHIS Studio 1.0 (Windows client) | In progress: step 1 of 7 |
 
 ## Phases
 
@@ -359,6 +360,38 @@ One installer with a menu, for the standalone Debian 13 install and the Proxmox 
 - A node installs only the bare agent; services such as Icecast are rolled out once a role is assigned in the panel.
 - Enrollment: the installer asks for the orchestrator address, the node registers and shows a short code on screen. It appears under "Pending nodes" in the panel with hostname, IP and the same code, and only gets its keys after you accept it. A preferred role can be picked in the menu and is applied after acceptance.
 - Pairing codes from the panel keep working for scripted installs; pending registrations expire after 24 hours and open registration can be switched off.
+
+### Phase 17: RHIS Studio 1.0 (Windows client)
+
+A calmer, more complete studio client, built in seven steps. Each step is its own pull request and is tested on the
+test server before the next one starts. The client keeps its own version and releases (`studio-v…`, updated from its
+Info dialog); this phase makes it RHIS Studio 1.0. The server side ships in server 1.1. The client asks the server
+which features it has and says so when the server needs an update, instead of failing.
+
+1. **New Live assist layout**: the format of the coming hours in the left menu (items of the format and your own
+   queues in their own colour), **Auto** and **Manual** playout, how the queues take turns between Q1 and Q2, and a
+   vertical level meter at the right edge. In Manual the player waits for **Play** after each track; when the client
+   stops checking in for 30 seconds the server goes back to Auto by itself, so the station never goes silent.
+2. **Library panel and preview**: browse the server library, a network share (SMB) or this PC / a USB stick, and
+   pre-listen to a track on a separate sound card output, off air.
+3. **Jingle buttons**: six buttons above the queues, more if the DJ adds them, on pages. Jingles are kept in the DJ's
+   profile on the server, so they are the same on every studio PC; load them by drag and drop, also from a USB stick.
+4. **Fader start**: open a fader on the mixing desk and the player or a jingle starts, close it and it stops. Over
+   MIDI or a USB GPIO interface, set up on its own settings page with a Learn button.
+5. **Cue point editor**: a waveform of the track with cue in, intro, the point where the next track starts, the fade
+   out and cue out. Saved on the server, so the AutoDJ and every studio use them.
+6. **Locked format blocks**: parts of an hour clock (for example station ID, news, station ID) can be locked in the
+   panel. The client shows them and DJs cannot skip them or put music inside them.
+7. **Direct connection to the station**: the client signs in at the main server, which tells it where the station
+   runs; on a station node it then talks to the node directly (its LAN address in the studio, its public address from
+   outside), so the studio keeps working when the internet connection drops. Settings › Connection shows the link and
+   takes a manual address.
+
+Step 1, light theme in English (Auto) and dark theme in Dutch (Manual, waiting for Play):
+
+| Auto | Manual |
+| --- | --- |
+| ![Live assist, Auto, light, English](docs/screenshots/phase-17-assist-light-en.png) | ![Live assist, Manual, dark, Dutch](docs/screenshots/phase-17-assist-manual-dark-nl.png) |
 
 ## Future ideas
 

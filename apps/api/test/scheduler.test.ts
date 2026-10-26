@@ -255,6 +255,29 @@ describe('scheduler API and AutoDJ', () => {
     await api('DELETE', `/schedule/${show.json().id}`);
   });
 
+  it('lists the format of the coming hours for RHIS Studio', async () => {
+    const res = await api('GET', '/autodj/rundown?hours=2');
+    expect(res.statusCode).toBe(200);
+    const { rows, timezone } = res.json() as { timezone: string; rows: { hour: string; startsAt: string; timed: boolean; hard: boolean; kind: string; source: string; label: string; count: number; clock: { name: string } | null; past: boolean }[] };
+    expect(timezone).toBe(TZ);
+    // Two hours of the default clock: news on the hour, music, two commercials at half past, music.
+    expect(rows).toHaveLength(8);
+    const hour = rows.slice(0, 4);
+    expect(hour.map((r) => [r.kind, r.source, r.label])).toEqual([
+      ['item', 'playlist', 'News'],
+      ['music', 'queues', ''],
+      ['item', 'playlist', 'Commercials'],
+      ['music', 'queues', ''],
+    ]);
+    expect(hour[0]).toMatchObject({ timed: true, hard: true, clock: { name: 'Hit hour' } });
+    expect(hour[2]).toMatchObject({ timed: true, count: 2 });
+    expect(new Date(hour[2]!.startsAt).getTime() - new Date(hour[0]!.startsAt).getTime()).toBe(30 * MIN);
+    // An item without a minute starts with the timed item before it.
+    expect(hour[1]!.startsAt).toBe(hour[0]!.startsAt);
+    expect(new Date(rows[4]!.hour).getTime() - new Date(rows[0]!.hour).getTime()).toBe(60 * MIN);
+    expect(rows.slice(4).every((r) => !r.past)).toBe(true);
+  });
+
   it('keeps DJs of live shows to their shows when the station asks for it', async () => {
     const [account] = await t.db
       .insert(schema.stationAccounts)

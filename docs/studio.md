@@ -25,6 +25,34 @@ appear on hover (to the top, to the other queue, remove). The eraser empties the
 tracks added by hand stay. Search the library on the right and drag a track onto a queue, or use the Q1/Q2 buttons
 (Shift = at the top).
 
+### Auto and Manual
+
+- **Auto**: the AutoDJ plays on from track to track.
+- **Manual**: after each track the player waits, silent, until you press **Play**. The next track is already cued, so
+  it starts at once. **Play** while a track plays starts the next one when it ends; **Next** starts it right away;
+  **Stop** ends the track on air (with the crossfade of the station) and waits.
+
+Manual stays on only while a studio PC is connected: the client checks in every 10 seconds. When it closes or loses
+its connection, the server goes back to Auto by itself after 30 seconds and plays on with what is in the queues.
+Hard timed items of the hour clock (news on the hour) still start on their minute in Manual.
+
+### Taking turns
+
+Between the queues you choose how the AutoDJ takes turns: a ratio (**3 : 1**, change it with − and +), **Alternate**
+or one queue **first** (the other one only plays when it is empty). The arrow button swaps which queue leads
+(**Q1 → Q2** or **Q2 → Q1**). Below it the client shows from which queue the next track comes. It is the same setting
+as *Pick rule* on the station's AutoDJ page in the panel.
+
+### Schedule
+
+The left menu shows the format of the coming hours, from the hour clocks and schedule set in the panel. Items of the
+format (station ID, news, commercials) have a lock and their own colour; the stretches where your queues play are
+blue. The item the player is at has a frame, and what already played is dimmed.
+
+The level meter at the right edge shows the stream this PC sends while you are live.
+
+These features need server version 1.1 or newer; on an older server the client says the server needs an update.
+
 ## Going live
 
 1. In **Settings** choose the driver (**WASAPI**, or **ASIO** for professional sound cards), the sound card, and the
