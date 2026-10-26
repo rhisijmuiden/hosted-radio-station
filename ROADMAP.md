@@ -134,7 +134,7 @@ Phase 11: FM/MPX and RDS: a node that puts a station on FM, with a live radio di
 | 10 | Hosted service | Done |
 | 11 | FM/MPX and RDS module | Done |
 | 12 | Station nodes | In progress |
-| 13 | Open source edition | Postponed |
+| 13 | Orchestrator as control plane | Planned |
 | 14 | Orchestrator redundancy | Planned |
 
 ## Phases
@@ -235,6 +235,7 @@ Scale out with remote nodes; the main server becomes the orchestrator.
 - Topology view: an interactive, modern 3D-style map (WebGL) of how studios, source servers, stations, relays and listeners connect, with animated stream flows and live health, latency, ping timeouts and packet loss between each node and the main server.
 - Bring your own node: customers can register their own node. It shows up in their customer panel with the same topology view, limited to their own setup: node health, distribution status and connection quality to the main server.
 - Updates come from the main server: nodes follow the main server's version and channel, and update from the panel.
+- Controlled node updates: a new version is never rolled out to all nodes at once. Choose per node or group: automatically in a maintenance window, rolling (one node at a time, listeners moved to another relay first, next node only after a health check), or manually. Nodes can stay on their current version, and a failed update rolls back.
 - Remote probes that monitor stream availability from other locations.
 
 How to add and run nodes: [docs/nodes.md](docs/nodes.md).
@@ -281,11 +282,15 @@ A node role that runs complete stations at the customer's site or in the datacen
 - The station's music library, AutoDJ, hour clocks and live assist run locally on the node; the main server stays the orchestrator.
 - Configuration is edited centrally and pushed to the node; the node pushes its audio outbound to the assigned relays.
 
-### Phase 13: Open source edition
+### Phase 13: Orchestrator as control plane
 
-A community edition on its own branch.
+The orchestrator manages, the nodes carry the audio.
 
-- "Powered by RHIS" built in by default, with the house style (logo, colours, fonts) customisable per installation.
+- The orchestrator handles no audio at all: it only manages nodes, remote probes, configuration, statistics and the panel.
+- Per station you choose which ingest node receives the stream and which relays it feeds; the ingest node sends the audio directly to those relays.
+- Routing rules with fallbacks: a backup ingest per station and automatic rerouting when a relay or ingest drops out.
+- Single-server installs keep working: there the same machine runs the ingest and relay roles next to the orchestrator, shown as separate roles.
+- The topology view shows the difference: audio paths run from studio to ingest to relays to listeners, and the orchestrator is connected to every node only by control lines.
 
 ### Phase 14: Orchestrator redundancy
 
@@ -293,5 +298,15 @@ Optional high availability for the main server, switched on in the panel when yo
 
 - A standby orchestrator on a second Debian 13 LXC, paired like a node, with continuous database replication and synchronised configuration and files.
 - Automatic failover through a floating IP (VRRP) or DNS failover, with a witness (a node or probe) to prevent split-brain.
-- Nodes know both orchestrators and switch over by themselves; relays and station nodes keep streaming on their last configuration while the orchestrator is unreachable.
+- Nodes know both orchestrators and switch over by themselves. Because the orchestrator carries no audio (phase 13), streams keep running while it is unreachable.
 - Status, replication lag and a failover test in the panel and in the topology view; updates and backups coordinated across both servers.
+
+## Future ideas
+
+Not scheduled in a phase yet.
+
+### Open source edition
+
+A community edition on its own branch.
+
+- "Powered by RHIS" built in by default, with the house style (logo, colours, fonts) customisable per installation.
