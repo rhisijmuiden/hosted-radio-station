@@ -133,6 +133,8 @@ describe('hour clock', () => {
     expect(entryStep(items, hour, hour + 12 * MIN)).toBe(2); // music after the news
     expect(entryStep(items, hour, hour + 31 * MIN)).toBe(3); // the commercials, a minute late
     expect(entryStep(items, hour, hour + 45 * MIN)).toBe(4);
+    // Judged by the time now, not by when the playing track ends.
+    expect(entryStep(items, hour, hour + 37 * MIN, hour + 29 * MIN)).toBe(3);
     expect(run(local('2026-10-26', '10:12'), 1)).toEqual(['10:12 music']);
   });
 
@@ -263,13 +265,13 @@ describe('scheduler API and AutoDJ', () => {
     await api('PUT', '/scheduler', { ...view.settings, liveOnlyInShows: true, liveEarlyMinutes: 10 });
     const at = local('2026-10-26', '19:55');
     // Not a DJ of any show yet: not limited.
-    expect(await outsideShow(t.ctx, stationId, account!.id, at)).toBe(false);
+    expect(await outsideShow(t.ctx, stationId, account!.id, at)).toBeNull();
     const show = await api('POST', '/schedule', { name: 'Evening', live: true, accountIds: [account!.id], days: [1], startMinute: 20 * 60, durationMinutes: 60 });
     expect(show.statusCode).toBe(201);
-    expect(await outsideShow(t.ctx, stationId, account!.id, at)).toBe(false); // 5 minutes early
-    expect(await outsideShow(t.ctx, stationId, account!.id, local('2026-10-26', '19:45'))).toBe(true);
-    expect(await outsideShow(t.ctx, stationId, account!.id, local('2026-10-26', '20:59'))).toBe(false);
-    expect(await outsideShow(t.ctx, stationId, account!.id, local('2026-10-26', '21:00'))).toBe(true);
+    expect(await outsideShow(t.ctx, stationId, account!.id, at)).toBeNull(); // 5 minutes early
+    expect(await outsideShow(t.ctx, stationId, account!.id, local('2026-10-26', '19:45'))).toEqual({ opensAt: local('2026-10-26', '19:50'), timezone: TZ });
+    expect(await outsideShow(t.ctx, stationId, account!.id, local('2026-10-26', '20:59'))).toBeNull();
+    expect(await outsideShow(t.ctx, stationId, account!.id, local('2026-10-26', '21:00'))).toEqual({ opensAt: local('2026-11-02', '19:50'), timezone: TZ });
     await api('DELETE', `/schedule/${show.json().id}`);
     await api('PUT', '/scheduler', { ...view.settings, liveOnlyInShows: false });
   });
@@ -324,6 +326,26 @@ describe('scheduler API and AutoDJ', () => {
       expect((await play()).origin).toBe('rotation');
       const [state] = await t.db.select().from(schema.autodjState).where(eq(schema.autodjState.stationId, stationId));
       expect(state!.clockStep).toBe(3);
+    });
+
+    it('takes a clock track out of the queue when its playlist overlaps the rotation', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      const songs = (await api('POST', '/playlists', { name: 'Songs again', rotation: false, folders: [{ location: 'storage', path: 'music/songs' }] })).json();
+      const view = (await api('GET', '/scheduler')).json();
+      const clock = (
+        await api('POST', '/clocks', { name: 'Overlap', items: [item({ kind: 'playlist', playlistId: songs.id, at: 0, label: 'Power play' }), item({ kind: 'rotation' })] })
+      ).json();
+      await api('PUT', '/scheduler', { ...view.settings, defaultClockId: clock.id });
+      // Every song is waiting in Q1 already.
+      const settings = (await api('GET', '/autodj')).json().settings;
+      await api('PUT', '/autodj', { ...settings, queueDepth: 5 });
+      vi.setSystemTime(local('2026-10-26', '12:00') + 1000);
+      const next = await nextTrack(t.ctx, stationId);
+      expect(next!.skipped).toEqual([]);
+      const [row] = await t.db.select().from(schema.queueItems).where(eq(schema.queueItems.id, next!.itemId));
+      expect(row).toMatchObject({ origin: 'clock', label: 'Power play' });
+      const same = await t.db.select().from(schema.queueItems).where(eq(schema.queueItems.mediaId, row!.mediaId));
+      expect(same).toHaveLength(1);
     });
   });
 });

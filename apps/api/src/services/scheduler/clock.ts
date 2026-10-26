@@ -50,16 +50,17 @@ export const isFill = (item: ClockItem) => item.kind === 'rotation' || (item.kin
 
 /**
  * The item to start with when a clock is picked up in the middle of an hour (start, after a pause, or when the schedule
- * changes): the last timed item that is due, unless it is more than a few minutes late; then the music after it.
+ * changes): the last timed item that is due when the next track starts (`at`), unless it is more than `late` ms overdue
+ * by now; then the music after it.
  */
-export function entryStep(items: ClockItem[], hour: number, at: number) {
+export function entryStep(items: ClockItem[], hour: number, at: number, now = at, late = LATE) {
   let k = -1;
   for (let i = 0; i < items.length; i++) {
     const a = anchorOf(items, i);
     if (a !== null && hour + a * MINUTE <= at) k = i;
   }
   if (k === -1) return 0;
-  if (hour + anchorOf(items, k)! * MINUTE + LATE >= at) return k;
+  if (hour + anchorOf(items, k)! * MINUTE + late >= now) return k;
   for (let i = k + 1; i < items.length; i++) if (anchorOf(items, i) !== null || isFill(items[i]!)) return i;
   return items.length;
 }
@@ -88,7 +89,7 @@ export function decide(input: DecideInput): Decision {
   } else {
     hour = h;
     clock = current;
-    st = { hour: h, clockId: current?.id ?? null, step: current ? entryStep(current.items, h, at) : 0, done: 0 };
+    st = { hour: h, clockId: current?.id ?? null, step: current ? entryStep(current.items, h, at, now) : 0, done: 0 };
   }
 
   const due = (time: number, hard: boolean) => (hard ? at >= time - HARD_EARLY : at >= time || at + (musicSeconds * 1000) / 2 >= time);

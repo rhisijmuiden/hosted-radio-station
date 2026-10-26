@@ -86,6 +86,7 @@ export class AutodjController {
           ? nextTrack(this.ctx, stationId).then((next) => {
               seen();
               if (next?.cutAt) this.scheduleCut(stationId, next.itemId, next.cutAt);
+              for (const item of next?.skipped ?? []) this.log.warn({ stationId, item }, 'Clock item skipped: its playlist has no track to play');
               reply(next?.uri ?? '');
             })
           : trackStarted(this.ctx, stationId, m[3]!).then(() => {

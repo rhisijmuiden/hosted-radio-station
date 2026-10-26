@@ -5,10 +5,10 @@ import { schema } from '../db/index.js';
 import type { ClockItem } from '../db/schema.js';
 import { badRequest, notFound } from '../lib/errors.js';
 import { okOut } from '../lib/schemas.js';
-import { anchorOf } from '../services/scheduler/clock.js';
+import { anchorOf, entryStep } from '../services/scheduler/clock.js';
 import { loadSchedule } from '../services/scheduler/runtime.js';
 import { schedulerSchema, schedulerSettings } from '../services/scheduler/settings.js';
-import { wallTime } from '../services/scheduler/time.js';
+import { hourStart, wallTime } from '../services/scheduler/time.js';
 import { stationAccess } from './stations.js';
 
 const stationParams = z.object({ id: z.uuid() });
@@ -122,6 +122,22 @@ export const schedulerRoutes: FastifyPluginAsyncZod = async (app) => {
     };
   }
 
+  /**
+   * The clock's items changed while it runs: its place in the hour is found again from the time, so items that were
+   * moved or added are not taken as done, and items whose minute has passed are not played again.
+   */
+  async function realignClock(station: typeof schema.stations.$inferSelect, clock: typeof schema.clocks.$inferSelect) {
+    const [state] = await ctx.db.select().from(schema.autodjState).where(eq(schema.autodjState.stationId, station.id));
+    if (!state || state.clockId !== clock.id || !state.clockHour) return;
+    const now = Date.now();
+    const hour = hourStart(now, schedulerSettings(station).timezone);
+    if (state.clockHour.getTime() !== hour) return;
+    await ctx.db
+      .update(schema.autodjState)
+      .set({ clockStep: entryStep(clock.items, hour, now, now, 0), clockDone: 0 })
+      .where(eq(schema.autodjState.stationId, station.id));
+  }
+
   /** Checks a clock: playlists and tracks of this station, timed items in order of their minute. */
   async function checkItems(stationId: string, items: ClockItem[]) {
     const ids = new Set<string>();
@@ -230,6 +246,7 @@ export const schedulerRoutes: FastifyPluginAsyncZod = async (app) => {
         .returning();
       if (!c) throw notFound('Clock');
       Object.assign(req.auditInfo, { targetType: 'clock', targetId: c.id, details: { name: c.name } });
+      await realignClock(station, c);
       return c;
     },
   );
