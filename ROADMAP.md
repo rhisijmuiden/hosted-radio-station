@@ -172,6 +172,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 18 | Server names and topology views | Done (1.1.0) |
 | 19 | Clearer control panels and node assignment | Planned (before 17) |
 | 20 | Monitoring node | Planned (1.x) |
+| 21 | Recorder node | Future |
 
 ## Phases
 
@@ -451,6 +452,16 @@ A node role that watches the whole platform from the outside, as a listener and 
 - Alerts: problems go to the orchestrator, which shows them in the panel and sends e-mail or webhooks, with a quiet period so one outage gives one alert.
 - Several monitoring nodes in different places can run together, so a problem is only raised when more than one sees it.
 - As soon as a monitoring node is online, the orchestrator switches off the remote probe on all other nodes (station, ingest, relay); the monitoring node takes over all stream checks. Without a monitoring node, the probes keep running as now. Nodes still report their own health (CPU, listeners, whether their feed is connected), because relays need that to switch to the backup feed by themselves.
+
+### Phase 21: Recorder node
+
+A node role that only records: radio logging and recordings of live shows, dedicated to the stations that subscribe to it.
+
+- Placement: at a customer's site, or central in a datacenter recording many stations. Linked to customers and stations in the panel, like other dedicated nodes.
+- Logging: a continuous recording of each subscribed stream at a lower bitrate (for example 64 kbps), kept for a set number of days, with a play log of every song (start, end, title, artist, live or AutoDJ).
+- Live shows: when a DJ goes live, the recorder records the show in full quality and offers it as an on-demand item (listen again) on the station's public page, after the customer approves it or automatically.
+- Reports: a CSV export per period for auditing and rights reporting (Buma/Stemra, SENA): how often each song played, when, and for how long. Also in the API.
+- The customer listens back, downloads and cuts recordings in their own panel; storage and retention are set per package.
 
 ## Queued fixes
 
