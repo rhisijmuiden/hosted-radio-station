@@ -3,7 +3,10 @@
 All notable changes to Hosted Radio Station. Versions follow [semantic versioning](https://semver.org). The
 [roadmap](ROADMAP.md) has the full description of each phase, with screenshots.
 
-## Unreleased (on test)
+## 1.2.0 (27 October 2026)
+
+Phase 16 (installer menu and node enrollment), phase 19 (clearer control panels) and the firewall and public
+address fixes for nodes outside the own network.
 
 Phase 16: installer menu and node enrollment.
 
