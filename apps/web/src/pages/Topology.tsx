@@ -336,7 +336,10 @@ export function TopologyPage() {
                       : t('topology.fmOff')
                     : n.location || t('nodes.noRoles');
         const load = n.cpu ?? Math.min(1, n.encoders / 8);
-        return { id: n.id, kind, label: nodeName(t, n, customer), meta, health: healthOf(n), listeners: n.online ? n.listeners : 0, load: n.online ? load : 0, dim: !matches(n), own: customer && n.own };
+        // An FM/MPX node of a station on a station node stands beside that node, in the studio.
+        const homeId = kind === 'fm' ? data.stations.find((s) => s.cells[n.id] && s.stationNode)?.stationNode : undefined;
+        const home = homeId && data.nodes.some((x) => x.id === homeId && x.roles.includes('station')) ? homeId : undefined;
+        return { id: n.id, kind, label: nodeName(t, n, customer), meta, health: healthOf(n), listeners: n.online ? n.listeners : 0, load: n.online ? load : 0, dim: !matches(n), own: customer && n.own, home };
       }),
       ...data.studios.map((s) => ({
         id: s.id,

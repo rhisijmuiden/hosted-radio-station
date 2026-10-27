@@ -5,6 +5,13 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 
 ## Unreleased
 
+Topology fixes (found after 1.1.0):
+
+- Station nodes stand in the Studios & encoders layer, not under Ingest: a station node is the studio itself. In 3D
+  they are in the Studios lane too.
+- An FM/MPX node of a station on a station node stands right beside that node, framed together with it and its live
+  studios as one group (2D and 3D). Its audio line still comes from the relay it actually listens to.
+
 Phase 15, step 1: Cloudflare DNS of the platform domain.
 
 - *Administration › DNS (Cloudflare)*: connect the zone with a scoped API token (tested in the panel), then Dry run
