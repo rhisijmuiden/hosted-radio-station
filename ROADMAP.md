@@ -174,6 +174,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 20 | Monitoring node | Planned (1.x) |
 | 21 | Recorder node | Future |
 | 22 | Packaged installers and moving the orchestrator | Future |
+| 23 | Deployment wizard | Future |
 
 ## Phases
 
@@ -473,6 +474,15 @@ Building on phase 16, make deploying and growing a network a matter of downloads
 - **Clear choice at install: standalone or orchestrator only**: standalone runs orchestrator, ingest, relay and studio on one server for a small station; orchestrator only manages. The choice is shown clearly and can be changed later (see "Orchestrator only" in phase 18).
 - **Grow without reinstalling**: when a standalone station grows, its ingest, relay and studio roles move to new nodes with a guided step, and the server becomes orchestrator only.
 - **Move the orchestrator**: transfer the orchestrator role to another server (database, settings, certificates), with the nodes following the new address automatically.
+
+### Phase 23: Deployment wizard
+
+A step-by-step wizard for a new customer or a new station, so every station lands in the topology the right way and the nodes know what to do at once.
+
+- A decision tree, one question per step, with the price of each choice from the customer's package: studio on the shared platform, or a studio node at the customer's site; our shared relays or the customer's own; a backup ingest or backup relay; FM/MPX; recording.
+- Included by default where the customer uses the platform's services: shared ingest and relays, and monitoring by the monitoring node.
+- At the end the wizard creates the customer, the station, its routing and the dedicated nodes it needs, and puts a ready-made node installer (phase 22) in the delivery e-mail together with the connection details and the firewall checklist.
+- Every choice can be changed later in the station's settings; the wizard only sets a correct start.
 
 ## Queued fixes
 
