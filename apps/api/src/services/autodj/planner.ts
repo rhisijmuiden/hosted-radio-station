@@ -272,8 +272,6 @@ async function clockPick(tx: Tx, station: Station, s: AutodjSettings, musicSecon
 export async function nextTrack(
   ctx: AppContext,
   stationId: string,
-  /** A waiting track to play now, before the queue rule and the hour clock (dragged onto the player in RHIS Studio). */
-  force?: string,
 ): Promise<{ uri: string; itemId: string; cutAt: number | null; skipped: string[] } | null> {
   const skipped: string[] = [];
   return ctx.db.transaction(async (tx) => {
@@ -293,11 +291,9 @@ export async function nextTrack(
         .orderBy(asc(schema.queueItems.position))
         .limit(200);
       const first = (q: Queue) => heads.find((h) => h.item.queue === q);
-      const forced = force ? heads.find((h) => h.item.id === force) : undefined;
-      force = undefined;
-      let queue = forced ? null : chooseQueue(s.rule, state?.lastQueue ?? null, state?.streak ?? 0, { q1: !!first('q1'), q2: !!first('q2') });
-      let pick = forced ?? (queue ? first(queue) : undefined);
-      const scheduled = forced ? null : await clockPick(tx, station, s, pick?.media.durationSeconds ?? 210, skipped);
+      let queue = chooseQueue(s.rule, state?.lastQueue ?? null, state?.streak ?? 0, { q1: !!first('q1'), q2: !!first('q2') });
+      let pick = queue ? first(queue) : undefined;
+      const scheduled = await clockPick(tx, station, s, pick?.media.durationSeconds ?? 210, skipped);
       if (scheduled) pick = scheduled;
       if (!pick) {
         // Both queues are empty (no playlists, or nothing left in them): any track from the library.
@@ -313,8 +309,8 @@ export async function nextTrack(
         continue;
       }
       await tx.update(schema.queueItems).set({ state: 'cued', cuedAt: new Date() }).where(eq(schema.queueItems.id, pick.item.id));
-      // Clock items and tracks played now do not count for the queue rule.
-      if (!scheduled && !forced) {
+      // Clock items do not count for the queue rule.
+      if (!scheduled) {
         const streak = state?.lastQueue === queue ? state.streak + 1 : 1;
         await tx
           .insert(schema.autodjState)
@@ -377,7 +373,7 @@ export async function flushForClock(ctx: AppContext, stationId: string, now = Da
 
 /**
  * A DJ plays a track now (RHIS Studio: dragged onto the player): a waiting track, or a library track that goes on top of
- * Q1 first. Checks the track and returns its item id; the streams service then has the player switch to it.
+ * Q1 first. Checks the track and returns its item id; the streams service then hands it to the player (cueNow).
  */
 export async function playNow(ctx: AppContext, stationId: string, what: { itemId: string } | { mediaId: string }, addedBy: string | null) {
   const itemId = 'itemId' in what ? what.itemId : (await enqueue(ctx, stationId, what.mediaId, 'q1', { at: 'top', origin: 'manual', addedBy })).id;
@@ -390,11 +386,25 @@ export async function playNow(ctx: AppContext, stationId: string, what: { itemId
   return itemId;
 }
 
-/** Tracks the player loaded ahead go back to waiting (it is told to drop them). */
-export async function uncue(ctx: AppContext, stationId: string) {
-  await ctx.db.transaction(async (tx) => {
+/**
+ * Loads a waiting track for play now: marked cued and handed to the player on its own, outside the queue rule and the
+ * hour clock. 'loaded' when the player has it loaded ahead already; null when it is gone or its file is missing.
+ */
+export async function cueNow(ctx: AppContext, stationId: string, itemId: string): Promise<{ uri: string; itemId: string } | 'loaded' | null> {
+  return ctx.db.transaction(async (tx) => {
     await lock(tx, stationId);
-    await tx.update(schema.queueItems).set({ state: 'queued', cuedAt: null }).where(and(eq(schema.queueItems.stationId, stationId), eq(schema.queueItems.state, 'cued')));
+    const [station] = await tx.select().from(schema.stations).where(eq(schema.stations.id, stationId));
+    const [row] = await tx
+      .select({ item: schema.queueItems, media: schema.mediaFiles })
+      .from(schema.queueItems)
+      .innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.queueItems.mediaId))
+      .where(and(eq(schema.queueItems.id, itemId), eq(schema.queueItems.stationId, stationId)));
+    if (!station || !row || row.item.state === 'playing') return null;
+    if (row.item.state === 'cued') return 'loaded';
+    const full = mediaPath(ctx, row.media, await loadSources(tx, stationId));
+    if (!full || !(await stat(full).then((st) => st.isFile()).catch(() => false))) return null;
+    await tx.update(schema.queueItems).set({ state: 'cued', cuedAt: new Date() }).where(eq(schema.queueItems.id, itemId));
+    return { uri: requestUri({ id: itemId, queue: row.item.queue }, row.media, full, autodjSettings(station)), itemId };
   });
 }
 
