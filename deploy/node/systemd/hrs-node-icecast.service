@@ -2,6 +2,8 @@
 Description=Hosted Radio Station node: Icecast server for relayed streams
 After=network-online.target
 ConditionPathExists=/var/lib/hrs-node/icecast/icecast.xml
+# A bare node (phase 16) gets Icecast with its first role that carries audio.
+ConditionPathExists=/usr/bin/icecast2
 
 [Service]
 Type=simple

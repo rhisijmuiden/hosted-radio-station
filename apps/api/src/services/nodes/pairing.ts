@@ -30,3 +30,19 @@ export async function installCommand(ctx: AppContext, code: string, fm = false) 
   const server = ctx.config.PUBLIC_URL.replace(/\/$/, '');
   return `curl -fsSL ${raw} | bash -s -- --server ${server} --code ${code}${branch !== 'main' ? ` --ref ${branch}` : ''}`;
 }
+
+/** A short code like K7QM-3XRA, shown on a registering node's screen and next to it under "Pending nodes". */
+export function newRegistrationCode() {
+  let s = '';
+  for (let i = 0; i < 8; i++) s += ALPHABET[randomInt(ALPHABET.length)];
+  return `${s.slice(0, 4)}-${s.slice(4)}`;
+}
+
+/** At most this many registrations wait at the same time, so open registration cannot flood the panel. */
+export const MAX_PENDING = 50;
+
+/** A node name from a host name: what the server name rules allow, at most 40 characters. */
+export function nameFromHostname(hostname: string) {
+  const name = hostname.replace(/[^\p{L}\p{N} ._·-]/gu, '-').replace(/^[^\p{L}\p{N}]+/u, '').slice(0, 40).trim();
+  return name || 'node';
+}

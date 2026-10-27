@@ -1082,6 +1082,37 @@ export const nodes = pgTable(
   (t) => [index('nodes_tenant_idx').on(t.tenantId), uniqueIndex('nodes_pairing_idx').on(t.pairingCodeHash)],
 );
 
+/**
+ * A machine that asked to become a node (phase 16): the bare node installer registers it with the orchestrator, shows
+ * the short code on its screen, and waits. It appears under "Pending nodes" and gets its keys only after an
+ * administrator accepts it. Pending registrations expire after 24 hours.
+ */
+export const nodeRegistrations = pgTable(
+  'node_registrations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** Shown on the node's screen and in the panel, e.g. K7QM-3XRA, so the administrator accepts the right machine. */
+    code: text('code').notNull(),
+    /** sha256 of the token the node asks for its answer with. */
+    tokenHash: text('token_hash').notNull(),
+    hostname: text('hostname').notNull().default(''),
+    /** The address the registration came from, and the addresses the machine reports itself. */
+    ip: text('ip'),
+    addresses: text('addresses').array().notNull().default([]),
+    version: text('version').notNull().default(''),
+    /** The role picked in the installer menu, preselected when the node is accepted. */
+    preferredRole: text('preferred_role').$type<NodeRole>(),
+    /** pending | accepted | rejected */
+    state: text('state').$type<'pending' | 'accepted' | 'rejected'>().notNull().default('pending'),
+    /** The node made on acceptance; its secret waits here (encrypted) until the node fetched it and connected. */
+    nodeId: uuid('node_id').references(() => nodes.id, { onDelete: 'cascade' }),
+    secret: text('secret'),
+    createdAt: createdAt(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [uniqueIndex('node_registrations_token_idx').on(t.tokenHash)],
+);
+
 /** Health of a node per minute: control channel latency and lost pings, load, traffic and listeners. */
 export const nodeMetrics = pgTable(
   'node_metrics',

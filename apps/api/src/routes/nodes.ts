@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import type { FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
@@ -7,12 +7,12 @@ import { schema } from '../db/index.js';
 import { NODE_ROLES, type NodeRole, type NodeStatus } from '../db/schema.js';
 import { requireSuperadmin, requireTenantRole, requireUser } from '../lib/auth.js';
 import type { AppContext } from '../lib/context.js';
-import { randomToken } from '../lib/crypto.js';
+import { randomToken, sha256 } from '../lib/crypto.js';
 import { badRequest, conflict, forbidden, HttpError, notFound } from '../lib/errors.js';
 import { okOut } from '../lib/schemas.js';
 import { clientIp } from '../lib/cloudflare-ips.js';
 import { nodeEvent } from '../services/nodes/hub.js';
-import { hashCode, installCommand, newPairingCode, PAIRING_HOURS } from '../services/nodes/pairing.js';
+import { hashCode, installCommand, MAX_PENDING, nameFromHostname, newPairingCode, newRegistrationCode, PAIRING_HOURS } from '../services/nodes/pairing.js';
 import { carried, nodeConfigPatch, nodeConfigSchema, type NodeConfigPatch, nodeSettings, relayBaseUrl, relaysByStation, relaysOf, storedConfig, type Node } from '../services/nodes/plan.js';
 import { scopeOf, serves } from '../services/nodes/dedication.js';
 import { ingestNodes, ingestsOf, localIngest, pushedRouting, stationRouting } from '../services/nodes/routing-rules.js';
@@ -129,7 +129,41 @@ const nodeOut = z.object({
 });
 type NodeOut = z.infer<typeof nodeOut>;
 
-const pairingOut = z.object({ code: z.string(), expiresAt: z.date(), command: z.string() });
+/** `server` is this server's address, for the node's setup page (port 8080) and `hrs-node pair` (phase 16). */
+const pairingOut = z.object({ code: z.string(), expiresAt: z.date(), command: z.string(), server: z.string() });
+
+/** A machine waiting under "Pending nodes" (phase 16). */
+const registrationOut = z.object({
+  id: z.uuid(),
+  code: z.string(),
+  hostname: z.string(),
+  ip: z.string().nullable(),
+  addresses: z.array(z.string()),
+  version: z.string(),
+  preferredRole: roleSchema.nullable(),
+  suggestedName: z.string(),
+  createdAt: z.date(),
+  expiresAt: z.date(),
+});
+const acceptBody = z.object({
+  name: serverNameSchema,
+  location: z.string().trim().max(80).default(''),
+  tenantId: z.uuid().nullish(),
+  roles: z.array(roleSchema).max(NODE_ROLES.length).default([]),
+});
+const registrationParams = z.object({ id: z.uuid() });
+
+/** Registrations that ran out, were refused a day ago, or whose node has connected since are cleaned up. */
+async function cleanRegistrations(ctx: AppContext) {
+  const r = schema.nodeRegistrations;
+  await ctx.db.delete(r).where(lt(r.expiresAt, new Date()));
+  const done = await ctx.db
+    .select({ id: r.id })
+    .from(r)
+    .innerJoin(schema.nodes, eq(schema.nodes.id, r.nodeId))
+    .where(isNotNull(schema.nodes.lastSeenAt));
+  if (done.length) await ctx.db.delete(r).where(inArray(r.id, done.map((d) => d.id)));
+}
 
 const createBody = z.object({
   name: serverNameSchema,
@@ -288,7 +322,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
     const code = newPairingCode();
     const expiresAt = new Date(Date.now() + PAIRING_HOURS * 3600_000);
     await ctx.db.update(schema.nodes).set({ pairingCodeHash: hashCode(code), pairingExpiresAt: expiresAt, updatedAt: new Date() }).where(eq(schema.nodes.id, node.id));
-    return { code, expiresAt, command: await installCommand(ctx, code, node.roles.includes('fm')) };
+    return { code, expiresAt, command: await installCommand(ctx, code, node.roles.includes('fm')), server: ctx.config.PUBLIC_URL.replace(/\/$/, '') };
   }
 
   /** After a change of roles or carried stations: listen routes here, routing, and the plans of all nodes. */
@@ -318,6 +352,73 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       void hub.refreshAll();
       req.auditInfo.details = req.body;
       return getSetting(ctx, 'nodes');
+    },
+  );
+
+  // Pending nodes (phase 16): machines that registered themselves with the bare node installer.
+
+  app.get('/pending', { schema: { tags: ['Nodes'], summary: 'Machines waiting to be accepted as a node, with the code they show on screen', response: { 200: z.array(registrationOut) } } }, async (req) => {
+    requireSuperadmin(req);
+    await cleanRegistrations(ctx);
+    const r = schema.nodeRegistrations;
+    const rows = await ctx.db.select().from(r).where(eq(r.state, 'pending')).orderBy(asc(r.createdAt));
+    return rows.map((x) => ({ id: x.id, code: x.code, hostname: x.hostname, ip: x.ip, addresses: x.addresses, version: x.version, preferredRole: x.preferredRole ?? null, suggestedName: nameFromHostname(x.hostname), createdAt: x.createdAt, expiresAt: x.expiresAt }));
+  });
+
+  app.post(
+    '/pending/:id/accept',
+    {
+      config: { audit: 'node.accept' },
+      schema: {
+        tags: ['Nodes'],
+        summary: 'Accept a pending machine as a node: it gets its keys and connects; roles are rolled out by the agent',
+        params: registrationParams,
+        body: acceptBody,
+        response: { 201: nodeOut },
+      },
+    },
+    async (req, reply) => {
+      requireSuperadmin(req);
+      const r = schema.nodeRegistrations;
+      const [reg] = await ctx.db.select().from(r).where(and(eq(r.id, req.params.id), eq(r.state, 'pending'), gt(r.expiresAt, new Date())));
+      if (!reg) throw notFound('Pending node');
+      const { tenantId } = req.body;
+      if (tenantId) {
+        const [tenant] = await ctx.db.select({ id: schema.tenants.id }).from(schema.tenants).where(eq(schema.tenants.id, tenantId));
+        if (!tenant) throw badRequest('Unknown customer');
+      }
+      const roles = [...new Set(req.body.roles)] as NodeRole[];
+      if (roles.includes('station') && roles.length > 1) throw badRequest('A station node has no other roles; its streams go to relay nodes');
+      await assertFreeName(ctx, req.body.name);
+      const secret = randomToken(32);
+      const now = new Date();
+      const hostname = reg.hostname.slice(0, 100);
+      const [node] = await ctx.db
+        .insert(schema.nodes)
+        .values({ name: req.body.name, location: req.body.location, tenantId: tenantId ?? null, roles, config: storedConfig({}), secret: ctx.box.encrypt(secret), pairedAt: now, status: { online: false, hostname } })
+        .returning();
+      // The node fetches its secret with its own token; it stays here until the node has connected.
+      await ctx.db.update(r).set({ state: 'accepted', nodeId: node!.id, secret: ctx.box.encrypt(secret), expiresAt: new Date(now.getTime() + PAIRING_HOURS * 3600_000) }).where(eq(r.id, reg.id));
+      await nodeEvent(ctx, node!.id, 'created', 'info', { by: req.auth?.user.email ?? null });
+      await nodeEvent(ctx, node!.id, 'paired', 'info', { hostname: hostname || null, ip: reg.ip, via: 'registration' });
+      Object.assign(req.auditInfo, { tenantId: tenantId ?? null, targetId: node!.id, details: { name: node!.name, hostname, code: reg.code, roles } });
+      reply.status(201);
+      return (await toOut([node!]))[0]!;
+    },
+  );
+
+  app.post(
+    '/pending/:id/reject',
+    { config: { audit: 'node.reject' }, schema: { tags: ['Nodes'], summary: 'Refuse a pending machine; it is told so and stops asking', params: registrationParams, response: { 200: okOut } } },
+    async (req) => {
+      requireSuperadmin(req);
+      const r = schema.nodeRegistrations;
+      const [reg] = await ctx.db.select().from(r).where(and(eq(r.id, req.params.id), eq(r.state, 'pending')));
+      if (!reg) throw notFound('Pending node');
+      // Kept for a day so the machine hears the answer, then cleaned up.
+      await ctx.db.update(r).set({ state: 'rejected', expiresAt: new Date(Date.now() + 24 * 3600_000) }).where(eq(r.id, reg.id));
+      Object.assign(req.auditInfo, { details: { hostname: reg.hostname, ip: reg.ip, code: reg.code } });
+      return { ok: true as const };
     },
   );
 
@@ -1152,6 +1253,66 @@ export const nodeAgentRoutes: FastifyPluginAsyncZod = async (app) => {
       await nodeEvent(ctx, node.id, 'paired', 'info', { hostname: req.body.hostname.slice(0, 100) || null, ip: req.ip });
       req.log.info({ node: node.name, ip: req.ip }, 'node paired');
       return { nodeId: node.id, name: node.name, secret };
+    },
+  );
+
+  app.post(
+    '/register',
+    {
+      config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+      schema: {
+        tags: ['Node agent'],
+        summary: 'Register a fresh machine as a node (phase 16). It shows the code on screen and waits until an administrator accepts it under "Pending nodes".',
+        security: [],
+        body: z.object({
+          hostname: z.string().max(200).default(''),
+          version: z.string().max(40).default(''),
+          addresses: z.array(z.string().max(64)).max(16).default([]),
+          role: roleSchema.nullish(),
+        }),
+        response: { 201: z.object({ id: z.uuid(), code: z.string(), token: z.string(), expiresAt: z.date(), pollSeconds: z.number() }) },
+      },
+    },
+    async (req, reply) => {
+      if (!(await getSetting(ctx, 'nodes')).openRegistration) throw new HttpError(403, 'registration_closed', 'This server does not take registrations; ask its administrator for a pairing code');
+      await cleanRegistrations(ctx);
+      const r = schema.nodeRegistrations;
+      const [{ n } = { n: 0 }] = await ctx.db.select({ n: sql<number>`count(*)::int` }).from(r).where(eq(r.state, 'pending'));
+      if (n >= MAX_PENDING) throw new HttpError(429, 'too_many_pending', 'Too many machines are waiting already; ask the administrator to accept or refuse them first');
+      const token = randomToken(32);
+      const code = newRegistrationCode();
+      const expiresAt = new Date(Date.now() + PAIRING_HOURS * 3600_000);
+      const [reg] = await ctx.db
+        .insert(r)
+        .values({ code, tokenHash: sha256(`hrs-node-registration:${token}`), hostname: req.body.hostname.slice(0, 100), ip: clientIp(req), addresses: req.body.addresses, version: req.body.version, preferredRole: req.body.role ?? null, expiresAt })
+        .returning();
+      req.log.info({ hostname: reg!.hostname, ip: reg!.ip, code }, 'node registered, waiting for acceptance');
+      reply.status(201);
+      return { id: reg!.id, code, token, expiresAt, pollSeconds: 5 };
+    },
+  );
+
+  app.post(
+    '/register/status',
+    {
+      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+      schema: {
+        tags: ['Node agent'],
+        summary: 'The answer to a registration: pending, accepted (with the node id and secret), rejected or expired',
+        security: [],
+        body: z.object({ token: z.string().min(20).max(200) }),
+        response: { 200: z.object({ state: z.enum(['pending', 'accepted', 'rejected', 'expired']), nodeId: z.uuid().optional(), name: z.string().optional(), secret: z.string().optional() }) },
+      },
+    },
+    async (req) => {
+      const r = schema.nodeRegistrations;
+      const [reg] = await ctx.db.select().from(r).where(and(eq(r.tokenHash, sha256(`hrs-node-registration:${req.body.token}`)), or(gt(r.expiresAt, new Date()), eq(r.state, 'accepted'))));
+      if (!reg) return { state: 'expired' as const };
+      if (reg.state !== 'accepted') return { state: reg.state };
+      const [node] = reg.nodeId ? await ctx.db.select().from(schema.nodes).where(eq(schema.nodes.id, reg.nodeId)) : [];
+      // Removed in the panel meanwhile, or paired again with a code: this secret is no longer the node's.
+      if (!node || !reg.secret || !node.secret || ctx.box.decrypt(node.secret) !== ctx.box.decrypt(reg.secret)) return { state: 'expired' as const };
+      return { state: 'accepted' as const, nodeId: node.id, name: node.name, secret: ctx.box.decrypt(reg.secret) };
     },
   );
 

@@ -87,6 +87,12 @@ export function PairingPanel({ pairing }: { pairing: NodePairing }) {
         <p className="mb-2 text-xs text-muted">{t('nodes.pairing.commandHint')}</p>
         <CommandBox value={pairing.command} />
       </div>
+      {/* Phase 16: a node installed bare pairs on its setup page (port 8080) or from its shell. */}
+      <div>
+        <div className="mb-1.5 text-[13px] font-semibold">{t('nodes.pairing.installedTitle')}</div>
+        <p className="mb-2 text-xs text-muted">{t('nodes.pairing.installedHint', { server: pairing.server })}</p>
+        <CommandBox value={`hrs-node pair --server ${pairing.server} --code ${pairing.code}`} />
+      </div>
       <p className="text-xs text-muted">{t('nodes.pairing.once')}</p>
     </div>
   );

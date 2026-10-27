@@ -280,6 +280,7 @@ export class Agent {
       dnsCerts: plan.web.dnsCerts ?? null,
       station: !!plan.station,
       ffmpeg: !!plan.ingest?.stations.some((st) => st.mounts.some((m) => m.kind === 'transcode')),
+      roles: [...plan.roles].sort(),
     });
     // Give Icecast a moment to read the new mounts before the streams come in.
     setTimeout(
