@@ -3,7 +3,10 @@
 All notable changes to Hosted Radio Station. Versions follow [semantic versioning](https://semver.org). The
 [roadmap](ROADMAP.md) has the full description of each phase, with screenshots.
 
-## Unreleased (server 1.1, RHIS Studio 1.0)
+## 1.1.0 (27 October 2026)
+
+Phase 18 (server names, topology views, orchestrator only, connection details and firewall checklist) and the
+first three steps of RHIS Studio 1.0 on the server side.
 
 - Server names (phase 18): *Nodes › Names* gives the orchestrator, its own ingest and relay, and every node one name,
   used everywhere instead of "This server". Customers see node names; host names and IPs only of their own nodes.
@@ -38,7 +41,7 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   behind a proxy such as Cloudflare, which does not pass the encoder ports.
 - Fixed: the reconnect countdown on Go live in RHIS Studio showed no number.
 
-## 1.0.1 (October 2026)
+## 1.0.1 (26 October 2026)
 
 Fixes found while testing 1.0.0.
 
