@@ -22,6 +22,21 @@ Phase 16: installer menu and node enrollment.
   URL and a pairing code. It closes for good once the node is paired. The panel shows the matching
   `hrs-node pair --server … --code …` command next to every pairing code.
 
+Phase 19: clearer control panels.
+
+- The left menu is grouped and folds: **Radio**, **Network**, **Customers & billing**, **Settings** and **System** for
+  administrators; **My radio**, **My network** and **Account** for customers. The group of the open page always stays
+  open. Server names moved into the menu, and Topology is now called **Network map**.
+- Counters in the menu: nodes waiting for approval, an update that is ready, and open song requests of a station.
+- Quick search (**Ctrl+K**, or the search box at the top of the menu): jump to any page, station, customer or node.
+- A station has its own menu in the sidebar instead of 17 tabs: Overview, Broadcast, Programme, Audience and Settings,
+  with **All stations** to go back. On a phone the sections are a picker above the page.
+- **Delivery path** per station (Broadcast → Delivery path, and in short on the station overview): the source (DJ,
+  encoder or AutoDJ), the studio node or the main and backup ingest, every relay with its state, mounts and listeners,
+  and the listeners per country. Customers see it too, with the real relay names.
+- The dashboard starts with **Needs attention**: pending nodes, nodes offline or with problems, relays that do not
+  deliver a station, AutoDJ stations off air, failed backups and a waiting update, each one click away.
+
 ## 1.1.1 (27 October 2026)
 
 Phase 15 (Cloudflare DNS) and the fixes found after 1.1.0.
