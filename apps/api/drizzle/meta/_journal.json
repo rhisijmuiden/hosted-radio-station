@@ -120,6 +120,13 @@
       "when": 1793140100000,
       "tag": "0017_one_queue",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1793142000000,
+      "tag": "0018_cue_points",
+      "breakpoints": true
     }
   ]
 }

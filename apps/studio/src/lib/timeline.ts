@@ -1,4 +1,5 @@
 import type { QueueRow, RundownRow } from './api';
+import { playLength } from './cues';
 
 /** A fixed block of the format: a timed item of the hour clock and the items that follow it (news intro, news, ID). */
 export interface Block {
@@ -55,7 +56,7 @@ export function timeline(queue: QueueRow[], blocks: Block[], from: number, fade:
   };
   for (const row of queue) {
     putBlocks(at);
-    const length = Math.max(0, (row.media.durationSeconds ?? 0) - fade) * 1000;
+    const length = (playLength(row.media, fade) ?? 0) * 1000;
     lines.push({ kind: 'track', row, start: at });
     // A hard block within this track cuts it: the next line starts on the block's minute.
     const next = blocks[b];
@@ -76,7 +77,7 @@ export function backtime(queue: QueueRow[], block: Block | undefined, from: numb
   let at = from;
   for (const row of queue) {
     if (at >= block.at) return 0;
-    const end = at + Math.max(0, (row.media.durationSeconds ?? 0) - fade) * 1000;
+    const end = at + (playLength(row.media, fade) ?? 0) * 1000;
     if (end > block.at) return (end - block.at) / 1000;
     at = end;
   }

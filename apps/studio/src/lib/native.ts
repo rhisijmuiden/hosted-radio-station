@@ -90,6 +90,16 @@ export interface PreviewState {
   duration: number;
   device: string | null;
 }
+export interface Waveform {
+  perSecond: number;
+  duration: number;
+  /** 0–255 per 1/perSecond of a second. */
+  peaks: number[];
+}
+export interface CueTrack {
+  waveform: Waveform;
+  preview: PreviewState;
+}
 export interface FolderEntry {
   name: string;
   path: string;
@@ -283,6 +293,19 @@ async function simInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Pr
       const name = (args.name as string | undefined) ?? (args.path as string).split('\\').pop()!.replace(/\.[^.]+$/, '');
       Object.assign(sim.preview, { loaded: true, playing: true, ended: false, name, position: 0, duration: 30 + (name.length % 7) * 31, device: sim.previewOutput ?? 'Speakers (Realtek Audio)', at: Date.now() });
       return simPreview() as T;
+    }
+    case 'cue_open': {
+      // A made-up track: a quiet intro, a loud body with beats, a fade at the end.
+      const length = 30 + ((args.name as string).length % 7) * 31;
+      const perSecond = 50;
+      const peaks = Array.from({ length: length * perSecond }, (_, i) => {
+        const t = i / perSecond;
+        const level = t < 1.2 ? 0 : t < 12 ? 0.35 : t > length - 8 ? 0.85 * ((length - t) / 8) : 0.85;
+        const beat = 0.75 + 0.25 * Math.abs(Math.sin(t * Math.PI * 2.4));
+        return Math.round(255 * Math.min(1, level * beat * (0.85 + 0.15 * Math.random())));
+      });
+      Object.assign(sim.preview, { loaded: true, playing: false, ended: false, name: args.name, position: 0, duration: length, device: sim.previewOutput ?? 'Speakers (Realtek Audio)', at: Date.now() });
+      return { waveform: { perSecond, duration: length, peaks }, preview: simPreview() } as T;
     }
     case 'preview_toggle': {
       const p = simPreview();

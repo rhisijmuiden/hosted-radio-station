@@ -756,6 +756,13 @@ export const mediaFiles = pgTable(
     bitrateKbps: integer('bitrate_kbps'),
     /** ReplayGain of the track in dB, from the file's tags; evens out loudness between tracks. */
     gainDb: doublePrecision('gain_db'),
+    // Cue points, in seconds from the start of the file (null = not set): where the track starts and stops playing,
+    // where the intro ends (the DJ talks up to it), where the next track starts and where the fade-out begins.
+    cueIn: doublePrecision('cue_in'),
+    cueIntro: doublePrecision('cue_intro'),
+    cueSegue: doublePrecision('cue_segue'),
+    cueFadeOut: doublePrecision('cue_fade_out'),
+    cueOut: doublePrecision('cue_out'),
     /** Tags changed in the panel are kept when the file is scanned again. */
     edited: boolean('edited').notNull().default(false),
     /** false = the AutoDJ never picks it. */

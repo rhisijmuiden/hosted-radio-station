@@ -75,6 +75,30 @@ A file from the network or this PC goes on air through the station library: + or
 it to the library, waits until the server has read its tags and then puts it in the playlist. This needs the manager or
 owner role (it counts towards the storage of the station); DJs can preview local files.
 
+### Cue points
+
+The waveform button on a track (in the playlist and in the server library) opens the **cue editor**. It shows the
+whole track and, below it, a zoomed view around the point you work on. Five cue points, stored on the server per
+track so the AutoDJ and every studio use them:
+
+| Point | Key | What it does |
+| --- | --- | --- |
+| Cue in | 1 | The AutoDJ starts the track here (silence or a long count-in is skipped). |
+| Intro | 2 | Where the vocals start. The player counts down to it, so the DJ can talk up the intro. |
+| Next track | 3 | The segue: the next track starts here, mixed over the end of this one (with crossfade). Without crossfade the track stops here. At most 30 seconds before cue out. |
+| Fade out | 4 | With crossfade: the track fades from here to cue out. |
+| Cue out | 5 | The track stops here. |
+
+Click the waveform to move the playhead, Space plays and pauses (on the preview output, off air), keys 1 to 5 put a
+point on the playhead, and a line can be dragged. **Listen from here** plays from a point (a few seconds before the
+segue, fade and cue out); **Hear the transition** plays the last seconds before the segue. Save stores the points; the
+AutoDJ uses them from the next time the track plays. Lengths and start times in the playlist count from cue in to the
+segue (or cue out), and the player shows the seconds left of the intro next to the remaining time.
+
+Cue points need server 1.3 and the manager or owner role, like adding tracks to the library.
+
+![The cue editor](screenshots/phase-17-cue-editor-en.png)
+
 ### Jingle buttons
 
 Above the queues are your own jingle buttons: six on a page, more pages with **+** (up to 48 buttons). Click a button

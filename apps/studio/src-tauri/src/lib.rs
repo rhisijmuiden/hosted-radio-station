@@ -8,6 +8,7 @@ mod resample;
 mod secrets;
 mod streamer;
 mod updater;
+mod waveform;
 
 use std::{path::PathBuf, sync::Arc};
 
@@ -154,8 +155,29 @@ async fn preview_url(preview: State<'_, Arc<Preview>>, url: String, token: Strin
     let p = preview.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         p.stop();
-        let path = preview::download(&url, &token, &ext).map_err(|e| format!("{e:#}"))?;
+        let path = preview::download(&url, &token, &ext, "rhis-studio-preview").map_err(|e| format!("{e:#}"))?;
         p.open(&path, &name, 0.0, true)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[derive(Serialize)]
+struct CueTrack {
+    waveform: waveform::Waveform,
+    preview: PreviewState,
+}
+
+/// The cue editor: a library track downloaded, its waveform read, and loaded paused in the preview player.
+#[tauri::command]
+async fn cue_open(preview: State<'_, Arc<Preview>>, url: String, token: String, name: String, ext: String) -> Result<CueTrack, String> {
+    let p = preview.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        p.stop();
+        let path = preview::download(&url, &token, &ext, "rhis-studio-cue").map_err(|e| format!("{e:#}"))?;
+        let waveform = waveform::read(&path).map_err(|e| format!("{e:#}"))?;
+        let preview = p.open(&path, &name, 0.0, false)?;
+        Ok(CueTrack { waveform, preview })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -248,6 +270,7 @@ pub fn run() {
             preview_seek,
             preview_stop,
             preview_state,
+            cue_open,
             list_folder,
             upload_file,
             cache_file
