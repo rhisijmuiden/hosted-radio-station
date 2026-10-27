@@ -438,7 +438,7 @@ Make the admin and customer panels more logical and easier to scan, before the W
 
 - Review the overviews of the admin and customer panels: what sits where in the menu, what each overview page shows first, and fewer clicks to the common tasks.
 - Delivery path per station: on the station page, a customer sees how their stream reaches the listener, from their own studio node (or ingest node) through the relays to the listeners, with the state of each hop.
-- Shared or dedicated nodes: every node is marked **Shared** (carries stations of several customers) or **Dedicated** to one customer or one station. A dedicated node only receives, shows and serves the streams of its own customer or station, and routing refuses to put other stations on it. A customer's own node is dedicated by default.
+- Shared or dedicated nodes (done in 1.1.1): every node is marked **Shared** (carries stations of several customers) or **Dedicated** to one customer or one station. A dedicated node only receives, shows and serves the streams of its own customer or station, and routing refuses to put other stations on it. A customer's own node is dedicated by default.
 
 ## Queued fixes
 
@@ -448,6 +448,7 @@ Small fixes planned for a patch release, one at a time after the current phase.
 
 - Station nodes are drawn in the Ingest layer, but they are studios: they move to the "Studios & encoders" layer, in all views (layers, per station, matrix, 3D skyline).
 - An FM/MPX node is linked directly to the station node (studio) it takes its audio from, and is drawn right next to it as one group, instead of on its own in the distribution layer.
+- Shared or dedicated nodes (pulled forward from phase 19): every node is **Shared** or **Dedicated** to one customer or station. A dedicated node only carries and shows its own streams, and automatic and spare relay routing never put other stations on it. A customer's own node is dedicated by default.
 
 ## Future ideas
 
