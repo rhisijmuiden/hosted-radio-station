@@ -98,6 +98,11 @@ It needs server 1.1 (`/api/studio/stations/:id/jingles`, at most 25 MB per file)
    hours), so you never type it. It connects over TLS when the server has a certificate, and reconnects by itself when
    the connection drops. A refusal (outside your show, wrong mount) is shown and not retried.
 
+When Windows does not trust the certificate of the encoder address (for example a name without a public
+certificate yet), the client shows the error with **Connect without encryption**, if the server has a plain port.
+The temporary password then goes over the network readable. The choice is kept for that address; *Try encrypted
+again* under *Connection* undoes it.
+
 DJs can only broadcast with the DJ account linked to their own user; managers and owners can use any account of the
 station. The server's normal rules apply: show times, mount limits and bitrate limits.
 
