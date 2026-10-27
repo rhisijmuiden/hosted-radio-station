@@ -21,17 +21,42 @@ Station nodes follow in a later phase.
 curl -fsSL https://raw.githubusercontent.com/rhisijmuiden/hosted-radio-station/main/install-node.sh | bash -s -- --server https://radio.example.com --code XXXX-XXXX-XXXX
 ```
 
-The installer installs Node.js 22, Icecast and Caddy, checks out the code in `/opt/hrs-node`, builds the agent, installs the systemd units and pairs the node. Within a minute the node shows up online.
+The installer installs Node.js 22, checks out the code in `/opt/hrs-node`, builds the agent, installs the systemd units and pairs the node. Within a minute the node shows up online. The node starts bare: Icecast and the web server (Caddy) are installed by the node itself once it has a relay, ingest or station role, and ffmpeg with the sound card tools for FM/MPX.
+
+The node can also join without a code from the panel; see [Enrollment](#enrollment).
 
 Installer options:
 
 | Option | Meaning |
 | --- | --- |
 | `--server <url>` | The main server. |
-| `--code <code>` | The one-time pairing code. Not needed when the node is already paired (running the installer again updates it). |
+| `--code <code>` | The one-time pairing code. Not needed when the node is already paired (running the installer again updates it). Without it, a node with `--server` registers and waits under Pending nodes. |
+| `--role <role>` | Preferred role when registering (`relay`, `source`, `station` or `fm`); it is preselected when you accept the node. |
+| `--no-setup-page` | No setup page on port 8080 while the node is not paired. |
+| `--no-wait` | Register, but do not wait in the terminal for the acceptance (the node keeps waiting by itself). |
 | `--ref <branch>` | Branch to install; later the node follows the main server's version by itself. |
 | `--no-caddy` | No web server on the node: Icecast serves listeners directly on its own port, without HTTPS. Chosen automatically when the main server runs on the same machine. |
 | `--fm` | Also install ffmpeg and the ALSA tools for the FM/MPX role (`install-fm.sh` adds it for you). |
+
+## Enrollment
+
+A node joins its orchestrator in one of three ways. All of them end with the same keys in `/etc/hrs-node/node.json`.
+
+1. **Pairing code from the panel** (above): **Add node** makes the node in the panel first, with its name and roles,
+   and gives a one-time code (valid 24 hours). Best for scripted installs.
+2. **Register and accept**: run the installer on the new machine, choose **Node**, enter the orchestrator address and
+   pick *Show a code here and wait*. The node registers and shows a short code, such as `K7QM-3XRA`. In the panel it
+   appears under **Nodes → Pending nodes** with its host name, address and the same code. Check that the codes match
+   and click **Accept**: you give it a name, an owner and its roles (the role picked in the installer is preselected).
+   Only then does the node get its keys; it connects within seconds. **Refuse** tells the node it was not accepted.
+   From the shell: `hrs-node register --server https://radio.example.com --role relay`.
+3. **Later, on the setup page**: a node installed without an orchestrator address serves a small page on
+   `http://<node>:8080` with two fields, the orchestrator URL and a pairing code from the panel. Once the node is
+   paired the page closes for good and port 8080 is free again. The same from the shell:
+   `hrs-node pair --server https://radio.example.com --code XXXX-XXXX-XXXX`.
+
+Pending registrations expire after 24 hours, and at most 50 wait at the same time. Registration is open by default;
+switch **Open registration** off under **Nodes → Network settings** to allow pairing codes only.
 
 ## Relay settings
 
@@ -139,12 +164,13 @@ One update goes like this:
 ```bash
 hrs-node status     # pairing, version, connection and roles
 hrs-node logs       # follow the agent log
-hrs-node pair --server https://radio.example.com --code XXXX-XXXX-XXXX   # pair again
+hrs-node pair --server https://radio.example.com --code XXXX-XXXX-XXXX   # pair (again) with a code from the panel
+hrs-node register --server https://radio.example.com [--role relay]      # register and wait under Pending nodes
 hrs-node update     # update to the main server's version now
 hrs-node restart
 ```
 
-Files: configuration in `/etc/hrs-node/node.json` (with the secret), state in `/var/lib/hrs-node`, code in `/opt/hrs-node`. Services: `hrs-node` (agent), `hrs-node-icecast`, and the helpers `hrs-node-apply` and `hrs-node-update`.
+Files: configuration in `/etc/hrs-node/node.json` (with the secret) and `/etc/hrs-node/install.json` (choices of the installer), state in `/var/lib/hrs-node` (a pending registration in `registration.json`), code in `/opt/hrs-node`. Services: `hrs-node` (agent), `hrs-node-icecast`, and the helpers `hrs-node-apply` and `hrs-node-update`.
 
 ## Shared or dedicated
 

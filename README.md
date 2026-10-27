@@ -155,11 +155,13 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/Proxmo
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/rhisijmuiden/hosted-radio-station/main/install.sh)"
 ```
 
-The installer asks for the web server mode (built-in Caddy with Let's Encrypt, or behind your own reverse proxy), the
-domain, the update channel and the first administrator. See [installation.md](docs/installation.md) for every option.
+A menu asks what to install: **Orchestrator** (panel and control plane, audio on nodes), **Node** (the bare node
+agent) or **All-in-one** (orchestrator with its own ingest and relay). For an orchestrator it asks for the web server
+mode (built-in Caddy with Let's Encrypt, or behind your own reverse proxy), the domain, the update channel and the first
+administrator. See [installation.md](docs/installation.md) for every option.
 
-To add a node, click **Add node** under **Infrastructure → Nodes** and run the command the panel shows on a fresh
-Debian 13 LXC:
+To add a node, run the same installer on a fresh Debian 13 LXC and choose **Node**: it shows a code, and you accept the
+node under **Nodes → Pending nodes**. Or click **Add node** in the panel and run the command it shows:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/rhisijmuiden/hosted-radio-station/main/install-node.sh \

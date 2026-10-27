@@ -20,7 +20,19 @@ Inside the container, as root:
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/rhisijmuiden/hosted-radio-station/main/install.sh)"
 ```
 
-The installer asks a few questions (web server mode, domain, update channel, first administrator) and then:
+On a fresh machine a menu asks what to install:
+
+| Choice | What you get |
+| --- | --- |
+| **Orchestrator** | The panel and control plane only. "Orchestrator only" is switched on: this server carries no audio, its stations go to ingest and relay nodes. |
+| **Node** | Only the bare node agent. It pairs with an orchestrator and gets its roles from the panel (see [nodes.md](nodes.md#enrollment)). |
+| **All-in-one** | The orchestrator with its own ingest and relay on this machine, for a small station. |
+
+`--orchestrator`, `--all-in-one` and `--node` choose without the menu; without a terminal the installer picks
+All-in-one, as before. On a machine that is already an orchestrator or a node the installer updates it without asking.
+
+For an orchestrator or all-in-one install the installer asks a few questions (web server mode, domain, update channel,
+first administrator) and then:
 
 - installs Node.js 22 (NodeSource), PostgreSQL, Valkey and Caddy from their Debian packages or official repositories;
 - checks out the code in `/opt/hosted-radio` on the chosen channel (`main` = production, `test` = test) and builds it;
@@ -39,6 +51,12 @@ Behind your own reverse proxy (Nginx Proxy Manager, Zoraxy, Traefik, HAProxy):
 
 ```bash
 ./install.sh --yes --proxy external --trusted-proxies 10.10.4.1 --domain radio.example.com
+```
+
+A node without the menu (see [nodes.md](nodes.md#enrollment) for its options):
+
+```bash
+./install.sh --node --server https://radio.example.com --role relay
 ```
 
 Running the installer again is safe: it upgrades packages and units and keeps secrets and data.

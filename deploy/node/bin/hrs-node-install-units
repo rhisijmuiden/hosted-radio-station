@@ -10,5 +10,6 @@ ln -sf "$INSTALL_DIR/deploy/node/bin/hrs-node" /usr/local/bin/hrs-node
 # Also in /usr/bin: "pct exec" and some other shells have no /usr/local/bin in their PATH.
 ln -sf /usr/local/bin/hrs-node /usr/bin/hrs-node
 systemctl daemon-reload
-systemctl enable --quiet hrs-node-apply.path hrs-node-update.path hrs-node-apply.timer hrs-node-icecast.service
+# Icecast is enabled by the root helper once a role needs it (phase 16).
+systemctl enable --quiet hrs-node-apply.path hrs-node-update.path hrs-node-apply.timer
 systemctl start hrs-node-apply.path hrs-node-update.path hrs-node-apply.timer

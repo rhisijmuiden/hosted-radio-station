@@ -3,6 +3,25 @@
 All notable changes to Hosted Radio Station. Versions follow [semantic versioning](https://semver.org). The
 [roadmap](ROADMAP.md) has the full description of each phase, with screenshots.
 
+## Unreleased (on test)
+
+Phase 16: installer menu and node enrollment.
+
+- One installer with a menu (whiptail): **Orchestrator** (panel and control plane, "Orchestrator only" switched on),
+  **Node** (the bare node agent) or **All-in-one** (orchestrator with its own ingest and relay, the default without a
+  terminal). `--orchestrator`, `--all-in-one` and `--node` choose without the menu; an installed orchestrator or node
+  is updated without asking.
+- A node installs only the bare agent. Icecast and the web server are installed by the node itself once it gets a
+  relay, ingest or station role, and ffmpeg with the sound card tools for FM/MPX. A node without such a role stops
+  its Icecast.
+- Self-registration: a node with only the orchestrator address registers, shows a short code and waits. It appears
+  under **Nodes → Pending nodes** with its host name, address, the same code and the role picked in the installer;
+  it gets its keys only after it is accepted there (or is told it was refused). Pending registrations expire after
+  24 hours; **Open registration** can be switched off under Network settings. `hrs-node register` does the same.
+- Setup page: a node installed without an orchestrator address serves a page on port 8080 with only the orchestrator
+  URL and a pairing code. It closes for good once the node is paired. The panel shows the matching
+  `hrs-node pair --server … --code …` command next to every pairing code.
+
 ## 1.1.1 (27 October 2026)
 
 Phase 15 (Cloudflare DNS) and the fixes found after 1.1.0.

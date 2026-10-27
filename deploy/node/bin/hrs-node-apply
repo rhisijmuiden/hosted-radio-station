@@ -7,6 +7,8 @@
 #     Cloudflare DNS (DNS-01 with lego, phase 15) for names the main server lists for that
 #   - installs and links the station node runtime when the node has the station node role (phase 12)
 #   - installs ffmpeg when the node makes converted mounts as an ingest (phase 13)
+#   - rolls out what a role needs on a bare node (phase 16): Icecast and the web server for relay, ingest and station
+#     nodes, ffmpeg and the sound card tools for FM/MPX; a node without such a role runs only the agent
 # Everything in the state file ends up in root-run configuration, so it is validated strictly. Safe to run repeatedly.
 set -Eeuo pipefail
 
@@ -45,11 +47,57 @@ main() {
   [[ "$ice_bind" =~ ^(127\.0\.0\.1|0\.0\.0\.0)$ ]] || { problems+=("Invalid bind address"); status failed "Invalid state"; exit 1; }
   [[ "$web" == direct && "$ice_port" -lt 1024 ]] && problems+=("Icecast cannot listen on port $ice_port without a web server; choose a port of 1024 or higher")
 
+  # 0. What the roles need (phase 16). A bare node starts with the agent only; Icecast and Caddy follow with a role that
+  # carries audio. State files of older agents have no roles: they keep everything, as before.
+  local roles needs_audio=0 needs_fm=0
+  roles=",$(jq -r '(.roles // ["relay","source"]) | map(tostring) | join(",")' "$STATE"),"
+  [[ "$roles" == *,relay,* || "$roles" == *,source,* || "$roles" == *,station,* ]] && needs_audio=1
+  [[ "$roles" == *,fm,* ]] && needs_fm=1
+  apt_install() { # apt_install <message> <packages...>: refreshes the package lists once when a package is unknown
+    status running "$1"; log "$1"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${@:2}" >> "$LOG" 2>&1 \
+      || { apt-get update -qq >> "$LOG" 2>&1 && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${@:2}" >> "$LOG" 2>&1; }
+  }
+  if [[ $needs_audio -eq 1 && ! -x /usr/bin/icecast2 ]]; then
+    # The package would start its own Icecast on port 8000; the node runs hrs-node-icecast instead.
+    systemctl mask --quiet icecast2.service 2>/dev/null || true
+    apt_install "Installing Icecast for the node's role" icecast2 || problems+=("Installing Icecast failed (see $LOG)")
+  fi
+  if [[ $needs_audio -eq 1 && "$web" == caddy && ! -x /usr/bin/caddy ]]; then
+    status running "Installing the web server (Caddy) for the node's role"
+    log "Installing Caddy"
+    if [[ ! -f /etc/apt/sources.list.d/caddy-stable.list ]]; then
+      { curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/gpg.key | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg \
+        && curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt > /etc/apt/sources.list.d/caddy-stable.list \
+        && apt-get update -qq; } >> "$LOG" 2>&1 || log "Adding the Caddy repository failed"
+    fi
+    if apt_install "Installing the web server (Caddy) for the node's role" caddy; then
+      systemctl enable --now caddy >> "$LOG" 2>&1 || true
+    else
+      problems+=("Installing the web server failed (see $LOG)")
+    fi
+  fi
+  if [[ $needs_fm -eq 1 ]] && { ! command -v ffmpeg >/dev/null || ! command -v aplay >/dev/null; }; then
+    # FM/MPX: ffmpeg makes the MPX signal, aplay plays it on the sound card; the agent needs the sound cards and serial
+    # ports (RDS over UECP), and is restarted to pick up the new groups.
+    if apt_install "Installing ffmpeg and the sound card tools for FM/MPX" ffmpeg alsa-utils; then
+      usermod -aG audio,dialout hrs-node
+      systemctl restart --no-block hrs-node || true
+    else
+      problems+=("Installing the FM/MPX tools failed (see $LOG)")
+    fi
+  fi
+
   # 1. Icecast.
   local prev_layout new_layout
   prev_layout=$(jq -r '"\(.icecastBind):\(.icecastPort)"' "$APPLIED" 2>/dev/null || true)
   new_layout="$ice_bind:$ice_port"
-  if [[ -f "$DATA/icecast/icecast.xml" ]]; then
+  if [[ $needs_audio -eq 0 ]]; then
+    if systemctl is-active --quiet hrs-node-icecast; then
+      log "No role that carries audio: stopping Icecast"
+      systemctl disable --now --quiet hrs-node-icecast >> "$LOG" 2>&1 || true
+    fi
+  elif [[ -f "$DATA/icecast/icecast.xml" && -x /usr/bin/icecast2 ]]; then
     install -d -m 0750 -o hrs-node -g hrs-node "$DATA/icecast/logs"
     if [[ "$prev_layout" != "$new_layout" ]] || ! systemctl is-active --quiet hrs-node-icecast; then
       log "Starting Icecast on $new_layout"
@@ -118,7 +166,7 @@ main() {
       fi
     done
   fi
-  if [[ "$web" == caddy ]]; then
+  if [[ "$web" == caddy && $needs_audio -eq 1 ]]; then
     if [[ ! -x /usr/bin/caddy ]]; then
       problems+=("Caddy is not installed")
     elif [[ -f "$CADDYFILE" ]] && grep -q 'Managed by Hosted Radio Station (Settings' "$CADDYFILE"; then

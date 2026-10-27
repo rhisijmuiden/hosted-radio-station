@@ -5,6 +5,18 @@
 #
 # Or from a checkout:  sudo ./install.sh [options]
 #
+# On a fresh machine with a terminal, a menu asks what to install (phase 16):
+#   Orchestrator   the panel and control plane only; ingest and relays run on nodes ("Orchestrator only")
+#   Node           only the bare node agent; it pairs with an orchestrator and gets its roles from the panel
+#   All-in-one     orchestrator plus its own ingest and relay on this machine (the default without a terminal)
+# Running it again on an installed orchestrator or node updates it without asking.
+#
+# What to install (skips the menu):
+#   --orchestrator             Orchestrator only
+#   --all-in-one               Orchestrator with ingest and relay on this machine
+#   --node                     Node agent only; takes the options of install-node.sh: --server <url>, --code <code>,
+#                              --role relay|source|station|fm, --no-caddy, --no-setup-page, --fm
+#
 # Options (all optional; you are asked interactively when they are missing and a terminal is attached):
 #   --domain <name>            Public host name, e.g. radio.example.com (empty = plain HTTP on the IP address)
 #   --email <address>          E-mail for Let's Encrypt (built-in HTTPS with a domain)
@@ -32,7 +44,8 @@ SERVICE_USER="hosted-radio"
 NODE_MAJOR=22
 PNPM_VERSION="10.28.0"
 
-DOMAIN="" EMAIL="" PROXY="" TRUSTED="" CHANNEL="" REPO="" REF="" ADMIN_EMAIL="" ADMIN_NAME="" ASSUME_YES=0 STATION_NODE=0
+DOMAIN="" EMAIL="" PROXY="" TRUSTED="" CHANNEL="" REPO="" REF="" ADMIN_EMAIL="" ADMIN_NAME="" ASSUME_YES=0 STATION_NODE=0 MODE=""
+NODE_ARGS=()
 STATION_NODE_FILE="$CONF_DIR/station-node.json"
 
 C_RESET=$'\e[0m' C_CORAL=$'\e[38;2;255;107;87m' C_DIM=$'\e[2m' C_BOLD=$'\e[1m' C_RED=$'\e[31m' C_GREEN=$'\e[32m'
@@ -54,6 +67,11 @@ while [[ $# -gt 0 ]]; do
     --admin-name) ADMIN_NAME="${2:-}"; shift 2 ;;
     --yes|-y) ASSUME_YES=1; shift ;;
     --station-node) STATION_NODE=1; ASSUME_YES=1; shift ;;
+    --orchestrator) MODE=orchestrator; shift ;;
+    --all-in-one) MODE=allinone; shift ;;
+    --node) MODE=node; shift ;;
+    --server|--code|--role) NODE_ARGS+=("$1" "${2:-}"); shift 2 ;;
+    --no-caddy|--no-setup-page|--fm|--repair|--no-wait) NODE_ARGS+=("$1"); shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print } /^set -E/ { exit }' "$0"; exit 0 ;;
     *) fail "Unknown option: $1 (see --help)" ;;
   esac
@@ -67,6 +85,101 @@ done
 [[ $STATION_NODE -eq 0 || -f "$STATION_NODE_FILE" ]] || fail "--station-node needs $STATION_NODE_FILE; give the node the station node role in the panel instead."
 
 interactive() { [[ $ASSUME_YES -eq 0 && -t 0 ]]; }
+
+# What to install (phase 16). An installed orchestrator or node is updated as it is; a fresh machine gets the menu.
+NODE_CONF=/etc/hrs-node/node.json
+if [[ $STATION_NODE -eq 1 ]]; then
+  MODE=allinone
+elif [[ -z "$MODE" ]]; then
+  if [[ -f "$ENV_FILE" ]]; then MODE=existing
+  elif [[ -f "$NODE_CONF" ]]; then MODE=node
+  elif interactive; then MODE=menu
+  else MODE=allinone; fi
+fi
+[[ ${#NODE_ARGS[@]} -eq 0 || "$MODE" == node || "$MODE" == menu ]] || fail "--server, --code and --role are options of --node"
+
+# RHIS colours for the menu (whiptail knows eight colours: red is the closest to coral).
+export NEWT_COLORS='root=white,black window=white,black border=red,black title=red,black textbox=white,black
+button=black,red actbutton=white,red compactbutton=white,black listbox=white,black actlistbox=black,red
+actsellistbox=black,red sellistbox=red,black entry=white,black label=white,black checkbox=white,black actcheckbox=black,red'
+HAVE_WT=0
+menu_tool() {
+  command -v whiptail >/dev/null || { apt-get install -y -qq whiptail >/dev/null 2>&1 || { apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq whiptail >/dev/null 2>&1; } || true; }
+  command -v whiptail >/dev/null && HAVE_WT=1
+}
+# choose <var> <title> <text> <tag> <label> ...: a menu; without whiptail a numbered list.
+choose() {
+  local __var=$1 __title=$2 __text=$3 __ans; shift 3
+  if [[ $HAVE_WT -eq 1 ]]; then
+    __ans=$(whiptail --title "$__title" --menu "$__text" 20 76 $(( $# / 2 )) "$@" 3>&1 1>&2 2>&3) || { printf '\n    Cancelled.\n'; exit 0; }
+  else
+    local i=1 tags=() a
+    printf '\n    %s%s%s\n    %s\n' "$C_BOLD" "$__title" "$C_RESET" "$__text"
+    while [[ $# -gt 0 ]]; do printf '      %d) %s\n' "$i" "$2"; tags+=("$1"); shift 2; i=$((i + 1)); done
+    read -r -p "    Choice [1]: " a || true
+    a=${a:-1}
+    [[ "$a" =~ ^[0-9]+$ && $a -ge 1 && $a -le ${#tags[@]} ]] || a=1
+    __ans=${tags[$((a - 1))]}
+  fi
+  printf -v "$__var" '%s' "$__ans"
+}
+# input <var> <title> <text> <default>
+input() {
+  local __var=$1 __title=$2 __text=$3 __def=${4:-} __ans
+  if [[ $HAVE_WT -eq 1 ]]; then
+    __ans=$(whiptail --title "$__title" --inputbox "$__text" 12 76 "$__def" 3>&1 1>&2 2>&3) || { printf '\n    Cancelled.\n'; exit 0; }
+  else
+    read -r -p "    $__text${__def:+ [$__def]}: " __ans || true
+    __ans=${__ans:-$__def}
+  fi
+  printf -v "$__var" '%s' "$__ans"
+}
+
+if [[ "$MODE" == menu ]]; then
+  menu_tool
+  choose MODE "Hosted Radio Station" "What do you want to install on this machine?" \
+    orchestrator "Orchestrator      panel and control plane; audio runs on nodes" \
+    node         "Node              bare agent that pairs with an orchestrator" \
+    allinone     "All-in-one        orchestrator with its own ingest and relay"
+  if [[ "$MODE" == node && ${#NODE_ARGS[@]} -eq 0 ]]; then
+    input N_SERVER "Node · orchestrator" "Address of the orchestrator, e.g. https://radio.example.com. Leave empty to pair later on the setup page (port 8080)." ""
+    if [[ -n "$N_SERVER" ]]; then
+      NODE_ARGS+=(--server "$N_SERVER")
+      choose N_HOW "Node · pairing" "How does this node join $N_SERVER?" \
+        register "Show a code here and wait until it is accepted in the panel" \
+        code     "I have a pairing code from the panel (Nodes → Add node)"
+      if [[ "$N_HOW" == code ]]; then
+        input N_CODE "Node · pairing code" "Pairing code from the panel, e.g. K7QM-3XRA-9TLP" ""
+        [[ -n "$N_CODE" ]] || fail "No pairing code given"
+        NODE_ARGS+=(--code "$N_CODE")
+      else
+        choose N_ROLE "Node · preferred role" "Which role should this node get? It is applied after the node is accepted, and can be changed in the panel." \
+          none    "Decide in the panel" \
+          relay   "Relay     serves listeners" \
+          source  "Ingest    takes encoders and DJs" \
+          station "Station   runs stations, AutoDJ and library" \
+          fm      "FM/MPX    stereo MPX with RDS for a transmitter"
+        [[ "$N_ROLE" == none ]] || NODE_ARGS+=(--role "$N_ROLE")
+      fi
+    fi
+  fi
+fi
+
+if [[ "$MODE" == node ]]; then
+  # The node installer: next to this file in a checkout, otherwise from the same branch.
+  if [[ -n "$REF" ]]; then NODE_ARGS+=(--ref "$REF"); elif [[ "$CHANNEL" == test ]]; then NODE_ARGS+=(--ref test); fi
+  [[ -n "$REPO" ]] && NODE_ARGS+=(--repo "$REPO")
+  here="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" 2>/dev/null && pwd || true)"
+  if [[ -n "$here" && -f "$here/install-node.sh" && "${BASH_SOURCE[0]:-}" == *install.sh ]]; then
+    exec bash "$here/install-node.sh" "${NODE_ARGS[@]}"
+  fi
+  node_ref=main
+  for ((i = 0; i < ${#NODE_ARGS[@]}; i++)); do [[ "${NODE_ARGS[$i]}" == --ref ]] && node_ref="${NODE_ARGS[$((i + 1))]}"; done
+  [[ "$node_ref" =~ ^[A-Za-z0-9._/-]+$ ]] || fail "Invalid --ref"
+  tmp=$(mktemp)
+  curl -fsSL "https://raw.githubusercontent.com/rhisijmuiden/hosted-radio-station/$node_ref/install-node.sh" -o "$tmp" || fail "Downloading the node installer failed"
+  exec bash "$tmp" "${NODE_ARGS[@]}"
+fi
 ask() { # ask <var> <question> <default>
   local __var=$1 __q=$2 __def=${3:-} __ans
   if interactive; then
@@ -233,6 +346,8 @@ if [[ $FIRST_INSTALL -eq 1 && $STATION_NODE -eq 0 ]]; then
     '{mode:$mode, domain:$domain, acmeEmail:$email, trustedProxies:($trusted|split(",")|map(gsub("^\\s+|\\s+$";""))|map(select(length>0))), httpPort:80}')
   hrs set-setting proxy "$PROXY_JSON" >/dev/null
   hrs set-setting update "{\"channel\":\"$CHANNEL\"}" >/dev/null
+  # Orchestrator (phase 16): no ingest or relay of its own; its stations go to nodes. Can be changed under Nodes.
+  [[ "$MODE" == orchestrator ]] && hrs set-setting orchestrator '{"only":true}' >/dev/null
   echo "$PROXY_JSON" | jq --arg id "install-$(date +%s)" '. + {id:$id, requestedBy:"install.sh"}' > "$DATA_DIR/run/proxy-request.json"
   "$INSTALL_DIR/deploy/bin/hrs-proxy-apply" || info "Web server configuration failed; fix it later under Settings → Web server."
 fi
@@ -276,5 +391,9 @@ printf '    API docs:      %s/api/docs\n' "$PUBLIC_URL"
 if [[ -n "$ADMIN_PASSWORD" ]]; then
   printf '    Sign in with:  %s\n' "$ADMIN_EMAIL"
   printf '    Password:      %s%s%s  %s(shown once, change it under Profile)%s\n' "$C_BOLD" "$ADMIN_PASSWORD" "$C_RESET" "$C_DIM" "$C_RESET"
+fi
+if [[ "$MODE" == orchestrator ]]; then
+  printf '\n    %sOrchestrator only:%s streams run on nodes. Add one by running this installer on a fresh Debian 13\n' "$C_BOLD" "$C_RESET"
+  printf '    machine and choosing Node; accept it in the panel under Nodes → Pending nodes.\n'
 fi
 printf '\n    Useful commands: %shrs --help%s, %shrs update%s, %sjournalctl -u hosted-radio-api -f%s\n\n' "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET"
