@@ -167,10 +167,10 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 13 | Orchestrator as control plane | Done |
 | 14 | Orchestrator redundancy | Planned (1.x) |
 | 15 | Cloudflare DNS integration | Done (1.1.1) |
-| 16 | Installer menu and node enrollment | Planned (1.x) |
+| 16 | Installer menu and node enrollment | Done (1.2.0) |
 | 17 | RHIS Studio 1.0 (Windows client) | Paused after step 3 (resumes after 16 and 14) |
 | 18 | Server names and topology views | Done (1.1.0) |
-| 19 | Clearer control panels and node assignment | Done (on test) |
+| 19 | Clearer control panels and node assignment | Done (1.2.0) |
 | 20 | Monitoring node | Planned (1.x) |
 | 21 | Recorder node | Future |
 | 22 | Packaged installers and moving the orchestrator | Future |
