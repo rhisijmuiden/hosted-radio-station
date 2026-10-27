@@ -260,6 +260,8 @@ export interface AgentStats {
   applyLog?: string[];
   update: { state: 'idle' | 'running' | 'succeeded' | 'failed'; message?: string; at?: string } | null;
   revision: string | null;
+  /** The node's public IPv4 address as the internet sees it, looked up by the node itself (phase 19). */
+  publicIp?: string | null;
   /** Ingest: mounts on air on this node. */
   ingest?: IngestMountStatus[];
   fm?: FmStatus | null;

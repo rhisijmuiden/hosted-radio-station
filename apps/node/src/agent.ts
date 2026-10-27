@@ -10,7 +10,7 @@ import { IngestManager } from './ingest.js';
 import { CLOSE, PROTOCOL_VERSION, type AgentLive, type AgentMessage, type AgentReport, type AuthResult, type NodePlan, type ServerMessage } from './protocol.js';
 import { RelayManager } from './relay.js';
 import { SourceForwarder } from './source.js';
-import { facts, icmpPing, Sampler } from './system.js';
+import { facts, icmpPing, publicIp, Sampler } from './system.js';
 
 const planPath = () => dataPath('plan.json');
 
@@ -342,6 +342,7 @@ export class Agent {
         problems: [...(apply?.problems ?? []), ...this.source.problems, ...(this.relay?.push.problems ?? []), ...(this.ingest?.problems() ?? []), ...this.fm.problemList].slice(0, 10),
         update: this.update ? { state: this.update.state, message: this.update.message, at: this.update.at } : null,
         revision: this.plan?.revision ?? null,
+        publicIp: publicIp(),
         ingest: this.ingest?.status() ?? [],
         fm: this.fm.status(),
       });

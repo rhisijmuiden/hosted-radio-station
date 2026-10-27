@@ -1,10 +1,13 @@
 import { timingSafeEqual } from 'node:crypto';
+import net from 'node:net';
 import { and, eq, gt, lt, sql } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import type { WebSocket } from 'ws';
 import { schema } from '../../db/index.js';
 import type { NodeStatus } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
+import { isCloudflareAddress } from '../../lib/cloudflare-ips.js';
+import { isPublicAddress } from '../dns/records.js';
 import { getSetting } from '../settings.js';
 import { GeoIp } from '../stats/geoip.js';
 import { fmContext } from './fm.js';
@@ -196,6 +199,12 @@ export class NodeHub {
       this.conns.delete(node.id);
       old.socket.close(CLOSE.replaced, 'replaced by a new connection');
     }
+    // Through a proxy that drops Cloudflare's CF-Connecting-IP header the node seems to come from a Cloudflare edge;
+    // then its own public interface address is the better guess (a server in a data centre has one).
+    if (ip && isCloudflareAddress(ip.replace(/^::ffff:/, ''))) {
+      const own = Array.isArray(msg.facts?.addresses) ? msg.facts.addresses.map(String).find((a) => net.isIP(a) === 4 && isPublicAddress(a)) : undefined;
+      if (own) ip = own;
+    }
     await this.geo.refresh().catch(() => undefined);
     const geo = this.geo.lookup(ip);
     const status: NodeStatus = {
@@ -304,6 +313,16 @@ export class NodeHub {
     s.txBps = num(m.txBps);
     s.listeners = num(m.listeners);
     s.encoders = num(m.encoders);
+    // The node's own view of its public address wins over the one it connects from (a proxy or CDN in between,
+    // phase 19): DNS, GeoIP and the panel then use the address the internet really reaches it on.
+    if (typeof m.publicIp === 'string' && net.isIP(m.publicIp) === 4 && isPublicAddress(m.publicIp) && m.publicIp !== s.ip) {
+      s.ip = m.publicIp;
+      const geo = this.geo.lookup(s.ip);
+      s.country = geo?.country ?? null;
+      s.city = geo?.city ?? null;
+      s.latitude = geo?.latitude ?? null;
+      s.longitude = geo?.longitude ?? null;
+    }
     s.icmp = m.icmp && typeof m.icmp === 'object' ? { rttMs: num(m.icmp.rttMs) ?? null, loss: num(m.icmp.loss, 1) ?? 0 } : null;
     if (Array.isArray(m.ingest)) {
       const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : null);
