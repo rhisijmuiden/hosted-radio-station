@@ -289,17 +289,22 @@ export class IngestGateway {
   private async handleHttp(socket: net.Socket, req: Head, via: Via, ip: string, host: string | null, fixed: StationView | null, node: SourceNode | null = null) {
     const snap = this.snap!;
     if (req.method === 'SOURCE' || req.method === 'PUT') {
+      // Every refused encoder is logged with its reason: the encoder may not show it (journalctl -u hosted-radio-streams).
+      const deny = (status: string, body: string, extra: string[] = []) => {
+        this.log.info({ ip, host, path: req.path, via, status, reason: body }, 'encoder refused');
+        return deny(status, body, extra);
+      };
       const target = fixed ? this.legacyTarget(fixed, req.path) : resolveMount(snap, host, req.path);
       if (!target) {
         // A station whose encoders go to an ingest node (phase 13).
         const elsewhere = snap.bySlug.get(req.path.split('/').filter(Boolean)[0] ?? '');
-        if (elsewhere?.active && !elsewhere.ingest.local) return reply(socket, '403 Forbidden', 'This station takes encoders on its ingest node. See the connection details in the panel.');
-        return reply(socket, '404 Not Found', `Unknown mount ${req.path}. Use /<station>/<mount>, for example /my-station/live.`);
+        if (elsewhere?.active && !elsewhere.ingest.local) return deny('403 Forbidden', 'This station takes encoders on its ingest node. See the connection details in the panel.');
+        return deny('404 Not Found', `Unknown mount ${req.path}. Use /<station>/<mount>, for example /my-station/live.`);
       }
       // A dedicated node (a customer's own, or one set to one customer or station) only delivers to those stations.
-      if (node && !serves(node, { id: target.view.station.id, tenantId: target.view.tenantId })) return reply(socket, '403 Forbidden', 'This node cannot deliver to this station.');
+      if (node && !serves(node, { id: target.view.station.id, tenantId: target.view.tenantId })) return deny('403 Forbidden', 'This node cannot deliver to this station.');
       const creds = basicAuth(req.headers.get('authorization'));
-      if (!creds) return reply(socket, '401 Unauthorized', 'Log-in required', ['WWW-Authenticate: Basic realm="Icecast2 Server"']);
+      if (!creds) return deny('401 Unauthorized', 'Log-in required', ['WWW-Authenticate: Basic realm="Icecast2 Server"']);
       let outside: OutsideShow | null = null;
       const account = await authenticateSource(this.ctx, target.view.station.id, target.mount.id, creds.user, creds.pass, (refusal, who) => {
         outside = refusal;
@@ -308,12 +313,15 @@ export class IngestGateway {
       if (!account && outside) {
         const { opensAt, timezone } = outside as OutsideShow;
         const when = opensAt && new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: timezone }).format(opensAt);
-        return reply(socket, '403 Forbidden', when ? `You can only broadcast during your show. You can connect from ${when} (${timezone}).` : 'You can only broadcast during your show.');
+        return deny('403 Forbidden', when ? `You can only broadcast during your show. You can connect from ${when} (${timezone}).` : 'You can only broadcast during your show.');
       }
-      if (!account) return this.refuse(socket, ip);
+      if (!account) {
+        this.log.info({ ip, host, path: req.path, via, station: target.view.station.slug, user: creds.user }, 'encoder refused: wrong user name or password');
+        return this.refuse(socket, ip);
+      }
       const bitrate = announcedBitrate(req.headers);
       const limit = Math.min(target.mount.bitrateKbps, target.view.maxBitrateKbps);
-      if (bitrate && bitrate > limit) return reply(socket, '403 Forbidden', `Bitrate ${bitrate} kbps is above the limit of ${limit} kbps for this mount.`);
+      if (bitrate && bitrate > limit) return deny('403 Forbidden', `Bitrate ${bitrate} kbps is above the limit of ${limit} kbps for this mount.`);
       const headers = req.rawHeaders.filter(([k]) => !['authorization', 'host', 'x-forwarded-for'].includes(k.toLowerCase()));
       return this.forwardSource(socket, { view: target.view, mountPath: target.mount.path, mountId: target.mount.id }, account, {
         method: req.method,
