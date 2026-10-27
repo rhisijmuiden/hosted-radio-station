@@ -40,6 +40,15 @@ Phase 19: clearer control panels.
   ingest). Chosen relays that can no longer carry the station (lost the relay role, gone, dedicated elsewhere) are
   named there and dropped on save; a station that no relay carries shows as not reaching listeners.
 
+Firewall check of nodes outside the own network:
+
+- When a node's name does not resolve on this server, the check asks public DNS and otherwise tests the node's own
+  public address, with a clear note instead of ENOTFOUND. A name that does not resolve now reads "Name not found in DNS".
+- A node that connects through Cloudflare without its real address in CF-Connecting-IP is shown (and placed in DNS and
+  GeoIP) with the public address of its own interface instead of a Cloudflare edge address.
+- A node with a public address on its own interface (a server in a data centre) is told that nothing has to be
+  forwarded, instead of "forward each port to" its public address.
+
 ## 1.1.1 (27 October 2026)
 
 Phase 15 (Cloudflare DNS) and the fixes found after 1.1.0.

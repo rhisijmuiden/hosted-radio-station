@@ -190,6 +190,23 @@ describe('firewall checklist (phase 18)', () => {
     server.close();
   });
 
+  it('checks on the node\'s own address when its name is not in DNS (phase 19)', async () => {
+    const node = await pair({ name: 'dc-relay', tenantId, roles: ['source'] }, owner);
+    const server = net.createServer((s) => s.end());
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const open = (server.address() as AddressInfo).port;
+    const patch = await t.app.inject({ method: 'PATCH', url: `/api/nodes/${node.id}`, headers: admin, payload: { config: { publicHost: 'dc-relay.invalid', publicAddress: '127.0.0.1', sourcePlainPort: open, sourceTlsPort: open === 65003 ? 65004 : 65003 } } });
+    expect(patch.json()).not.toHaveProperty('error');
+    const a = agent(node.id, node.secret);
+    await a.opened;
+    await wait(300);
+    const checked = (await t.app.inject({ method: 'POST', url: `/api/nodes/${node.id}/firewall/check`, headers: owner })).json();
+    expect(checked.dns).toEqual({ host: 'dc-relay.invalid', state: 'missing', checkedOn: '127.0.0.1' });
+    expect(checked.checks[String(open)]).toMatchObject({ ok: true });
+    a.close();
+    server.close();
+  }, 15_000);
+
   it('shows the push port of a relay as not in use while nothing pushes to it', async () => {
     // A customer without stations: nothing pushes to its relay.
     const other = await t.app.inject({

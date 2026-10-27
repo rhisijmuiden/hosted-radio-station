@@ -166,6 +166,10 @@ export function FirewallTab({ node }: { node: NodeItem }) {
         {!data.ports.length ? (
           <p className="p-5 text-[13px] text-muted">{t('firewall.nothing')}</p>
         ) : (
+          <>
+          {data.dns && data.dns.state !== 'ok' && (
+            <p className="mx-5 mt-4 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[13px]">{t(`firewall.dns.${data.dns.state}`, { host: data.dns.host, address: data.dns.checkedOn })}</p>
+          )}
           <Table head={[t('firewall.port'), t('firewall.for'), t('firewall.outside')]}>
             {data.ports.map((p) => {
               const res = data.checks[portKey(p)];
@@ -197,6 +201,7 @@ export function FirewallTab({ node }: { node: NodeItem }) {
               );
             })}
           </Table>
+          </>
         )}
       </Card>
       <div className="flex flex-col gap-4">
@@ -205,7 +210,7 @@ export function FirewallTab({ node }: { node: NodeItem }) {
           <div className="flex flex-col gap-2 p-5">
             <CopyField label={t('connection.external')} value={data.external ?? '—'} />
             {data.internal && <CopyField label={t('connection.internal')} value={data.internal} />}
-            <p className="text-xs text-muted">{t('firewall.forwardHint', { internal: data.internal ?? t('firewall.theNode') })}</p>
+            <p className="text-xs text-muted">{data.publicInterface ? t('firewall.publicHint') : t('firewall.forwardHint', { internal: data.internal ?? t('firewall.theNode') })}</p>
           </div>
         </Card>
         <Card className="p-5">

@@ -1130,6 +1130,10 @@ export interface NodeFirewall {
   selfHosted: boolean;
   external: string | null;
   internal: string | null;
+  /** The node has a public address on its own interface: nothing to forward. */
+  publicInterface: boolean;
+  /** How the node's name resolved at the last check. */
+  dns: { host: string; state: 'ok' | 'stale' | 'missing'; checkedOn: string } | null;
   ports: FirewallPort[];
   checks: Record<string, { ok: boolean; message: string | null; ms: number | null; at: string }>;
 }

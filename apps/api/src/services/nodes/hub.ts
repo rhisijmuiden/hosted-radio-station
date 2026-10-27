@@ -1,10 +1,13 @@
 import { timingSafeEqual } from 'node:crypto';
+import net from 'node:net';
 import { and, eq, gt, lt, sql } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import type { WebSocket } from 'ws';
 import { schema } from '../../db/index.js';
 import type { NodeStatus } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
+import { isCloudflareAddress } from '../../lib/cloudflare-ips.js';
+import { isPublicAddress } from '../dns/records.js';
 import { getSetting } from '../settings.js';
 import { GeoIp } from '../stats/geoip.js';
 import { fmContext } from './fm.js';
@@ -195,6 +198,12 @@ export class NodeHub {
       clearInterval(old.timer);
       this.conns.delete(node.id);
       old.socket.close(CLOSE.replaced, 'replaced by a new connection');
+    }
+    // Through a proxy that drops Cloudflare's CF-Connecting-IP header the node seems to come from a Cloudflare edge;
+    // then its own public interface address is the better guess (a server in a data centre has one).
+    if (ip && isCloudflareAddress(ip.replace(/^::ffff:/, ''))) {
+      const own = Array.isArray(msg.facts?.addresses) ? msg.facts.addresses.map(String).find((a) => net.isIP(a) === 4 && isPublicAddress(a)) : undefined;
+      if (own) ip = own;
     }
     await this.geo.refresh().catch(() => undefined);
     const geo = this.geo.lookup(ip);
