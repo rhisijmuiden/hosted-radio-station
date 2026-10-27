@@ -8,6 +8,7 @@ import { idParam, okOut } from '../lib/schemas.js';
 import { dnsConfig, targetsOf } from '../services/dns/config.js';
 import { dnsTarget, hostRe, verifyDomain } from '../services/streaming/domains.js';
 import { applyStreams, stationStats } from '../services/streaming/state.js';
+import { scopeOf } from '../services/nodes/dedication.js';
 
 const domainParams = z.object({ id: z.uuid(), domainId: z.uuid() });
 const hostSchema = z
@@ -164,6 +165,10 @@ export const tenantStreamingRoutes: FastifyPluginAsyncZod = async (app) => {
         if (!node || !node.roles.includes('source')) throw badRequest('Choose a node with the source role');
         // Customers use their own nodes; administrators may also use the platform's nodes.
         if (node.tenantId !== req.params.id && !(node.tenantId === null && access.role === 'superadmin')) throw badRequest('This node cannot take encoders of this customer');
+        // A dedicated node (1.1.1) only takes encoders of its own customer; one dedicated to a single station takes no
+        // encoder name of the whole customer.
+        const sc = scopeOf(node);
+        if (sc.kind === 'station' || (sc.kind === 'customer' && sc.tenantId !== req.params.id)) throw badRequest('This node is dedicated to another customer or station');
       }
       const [updated] = await ctx.db.update(schema.tenantDomains).set({ ingestNodeId: nodeId }).where(eq(schema.tenantDomains.id, row.id)).returning();
       await dnsFollow();

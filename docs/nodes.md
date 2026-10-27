@@ -146,6 +146,10 @@ hrs-node restart
 
 Files: configuration in `/etc/hrs-node/node.json` (with the secret), state in `/var/lib/hrs-node`, code in `/opt/hrs-node`. Services: `hrs-node` (agent), `hrs-node-icecast`, and the helpers `hrs-node-apply` and `hrs-node-update`.
 
+## Shared or dedicated
+
+Every node is **Shared** or **Dedicated** (*Node › Settings › Shared or dedicated*). A shared node carries the stations of every customer; a dedicated node only those of one customer or one station, and only receives, shows and serves their streams. **Automatic** (the default) makes relay and ingest nodes of the platform shared, so any customer's station or station node may push to those relays and use those ingests, while a customer's own node is dedicated to that customer and a station node to the customer whose stations run on it. Automatic relays, spare relays, ingests, encoder names and stream checks never put other stations on a dedicated node, and a change that would cut off stations still using the node is refused with their names. A customer never sees other customers' streams on a shared node.
+
 ## Customers with their own nodes
 
 A customer may add as many own nodes as **Own nodes** allows in its limits (0 by default). Owners of the customer add and manage them; managers can look. A customer node can only carry that customer's stations and take that customer's encoders.

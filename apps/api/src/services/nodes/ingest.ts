@@ -5,6 +5,7 @@ import { NOWPLAYING_CHANNEL } from '../public/hub.js';
 import { authenticateSource, type OutsideShow } from '../streaming/sources.js';
 import { autodjMount } from '../streaming/state.js';
 import type { AgentAuth, AgentLive, AuthResult } from './protocol.js';
+import { serves } from './dedication.js';
 import { ingestsOf, stationRouting } from './routing-rules.js';
 
 const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -18,7 +19,9 @@ async function routedStation(ctx: AppContext, node: { id: string; tenantId: stri
     .innerJoin(schema.tenants, eq(schema.tenants.id, schema.stations.tenantId))
     .where(eq(schema.stations.id, stationId));
   if (!row || !row.s.enabled || !row.active || row.s.nodeId) return null;
-  if (node.tenantId && node.tenantId !== row.s.tenantId) return null;
+  // A dedicated node (1.1.1) only takes encoders of its customer or station; its settings may have changed since it connected.
+  const [own] = await ctx.db.select({ id: schema.nodes.id, tenantId: schema.nodes.tenantId, roles: schema.nodes.roles, config: schema.nodes.config }).from(schema.nodes).where(eq(schema.nodes.id, node.id));
+  if (!own || !serves(own, row.s)) return null;
   if (!ingestsOf(stationRouting(row.s)).some((i) => i.ref === node.id)) return null;
   return row;
 }
