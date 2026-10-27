@@ -359,7 +359,8 @@ Built in two steps. Step 1 (everything above except the optional extras) is in *
 modes Off, Dry run and On; records for this server (`origin.<domain>`), every node, the `listen.<domain>` relay pool
 and per customer domain `<customer>.stream.<domain>` and `<customer>.src.<domain>`; a run every 30 seconds and right
 after a node connects, drops out or is drained; only records the platform made itself (comment `hrs:<install>:…`) are
-ever changed. Step 2 adds the cache rules and DNS-01 certificates. See [docs/dns.md](docs/dns.md).
+ever changed. Step 2 adds the cache rules (done: two rules for the panel host, the public API and panel files, cached
+for as long as the server's Cache-Control allows) and DNS-01 certificates. See [docs/dns.md](docs/dns.md).
 
 | Records and settings | Dark, Dutch |
 | --- | --- |

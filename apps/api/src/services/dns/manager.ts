@@ -11,6 +11,7 @@ import { drainingNodes } from '../nodes/updates.js';
 import { getSetting, putSetting, type CloudflareSettings, type DnsState } from '../settings.js';
 import { checkHost } from '../streaming/domains.js';
 import { applyStreams } from '../streaming/state.js';
+import { desiredCacheRules, planCacheRules } from './cache.js';
 import { Cloudflare, CloudflareError } from './cloudflare.js';
 import { dnsConfig, installId } from './config.js';
 import { desiredRecords, nodeAddresses, planChanges, toInput, type DesiredRecord, type DnsDomain, type DnsNode, type RecordPlan } from './records.js';
@@ -19,6 +20,8 @@ import { desiredRecords, nodeAddresses, planChanges, toInput, type DesiredRecord
 const INTERVAL_MS = 30_000;
 /** Own host names of nodes (not platform names) are checked this often. */
 const OWN_NAME_MS = 5 * 60_000;
+/** The cache rules are compared this often, and at once when their settings change or a run is asked for. */
+const CACHE_MS = 10 * 60_000;
 
 type Change = DnsState['lastChanges'][number];
 
@@ -37,6 +40,7 @@ export class DnsManager {
   private detected: { at: number; ip: string | null } | null = null;
   private zone: { token: string; domain: string; id: string; name: string } | null = null;
   private ownCheckedAt = 0;
+  private cacheChecked: { at: number; key: string } | null = null;
 
   constructor(
     private readonly ctx: AppContext,
@@ -209,6 +213,7 @@ export class DnsManager {
         for (const r of [...plan.keeps.map((k) => k.record), ...plan.updates.map((u) => u.record), ...plan.creates]) if (r.purpose === 'node' && r.ref) live.set(r.ref, r.name);
         await this.setNodeHosts(nodeRows, live);
       } else await this.setNodeHosts(nodeRows, new Map());
+      await this.cacheRules(cf, zone.id, install, s, base, state, write, opts);
       if (Date.now() - this.ownCheckedAt > OWN_NAME_MS) {
         this.ownCheckedAt = Date.now();
         await this.checkOwnNames().catch((err) => this.log.warn({ err }, 'checking node host names failed'));
@@ -219,6 +224,42 @@ export class DnsManager {
     }
     await putSetting(this.ctx, 'dnsState', state);
     return state;
+  }
+
+  /**
+   * Keeps the cache rules of the panel host in line with the settings (phase 15, step 2). A failure here (often a token
+   * without the Cache Rules permission) is shown with the rules and does not stop the records.
+   */
+  private async cacheRules(cf: Cloudflare, zoneId: string, install: string, s: CloudflareSettings, base: string, state: DnsState, write: boolean, opts: { by?: string | null; purge?: boolean }) {
+    const host = ((await getSetting(this.ctx, 'proxy')).domain || base).replace(/\.$/, '');
+    const want = s.cacheRules && !opts.purge;
+    const key = `${s.mode}|${want}|${host}|${zoneId}`;
+    const due = !this.cacheChecked || this.cacheChecked.key !== key || Date.now() - this.cacheChecked.at > CACHE_MS || opts.by !== undefined || opts.purge;
+    if (!due) return;
+    this.cacheChecked = { at: Date.now(), key };
+    const at = new Date().toISOString();
+    try {
+      const desired = want ? desiredCacheRules(install, host) : [];
+      const plan = planCacheRules(install, await cf.cacheRules(zoneId), desired);
+      if (plan.rules && write) {
+        await cf.putCacheRules(zoneId, plan.rules);
+        await writeAudit(this.ctx, {
+          action: 'dns.cacheRules',
+          via: opts.by ? 'panel' : 'system',
+          actorEmail: opts.by ?? null,
+          targetType: 'dns',
+          details: { host, rules: desired.length, before: plan.current },
+        }).catch(() => undefined);
+        this.log.info({ host, rules: desired.length }, 'Cloudflare cache rules updated');
+      }
+      const rules = plan.rules && write ? desired.length : plan.current;
+      state.cache = { state: plan.rules && !write ? 'pending' : rules ? 'ok' : 'off', host: want ? host : null, rules, foreign: plan.foreign, error: null, at };
+    } catch (err) {
+      this.cacheChecked = null;
+      const msg = (err as Error).message;
+      const denied = err instanceof CloudflareError && (err.status === 403 || err.status === 401);
+      state.cache = { ...state.cache, state: 'error', host, error: (denied ? `The token may not change cache rules (add Zone › Cache Rules › Edit): ${msg}` : msg).slice(0, 500), at };
+    }
   }
 
   /** Writes the plan: deletes first (a name may change type), then updates, then new records. */

@@ -11,6 +11,18 @@ export interface CfRecord {
 
 export type CfRecordInput = Omit<CfRecord, 'id'>;
 
+/** A rule of a zone ruleset (cache rules). Fields this platform does not use are passed back unchanged. */
+export interface CfRule {
+  id?: string;
+  ref?: string;
+  description?: string;
+  expression: string;
+  action: string;
+  action_parameters?: Record<string, unknown>;
+  enabled?: boolean;
+  [field: string]: unknown;
+}
+
 export class CloudflareError extends Error {
   constructor(
     message: string,
@@ -96,5 +108,23 @@ export class Cloudflare {
 
   async deleteRecord(zoneId: string, id: string) {
     await this.call<unknown>('DELETE', `/zones/${zoneId}/dns_records/${id}`);
+  }
+
+  /** The zone's cache rules (the entry point of phase http_request_cache_settings); an empty list when there are none. */
+  async cacheRules(zoneId: string): Promise<CfRule[]> {
+    try {
+      const { result } = await this.call<{ rules?: CfRule[] }>('GET', `/zones/${zoneId}/rulesets/phases/http_request_cache_settings/entrypoint`);
+      return result.rules ?? [];
+    } catch (err) {
+      if (err instanceof CloudflareError && err.status === 404) return [];
+      throw err;
+    }
+  }
+
+  /** Replaces the zone's cache rules with this list (rules with an id are kept as they are). */
+  async putCacheRules(zoneId: string, rules: CfRule[]) {
+    // Fields Cloudflare fills in itself cannot be sent back.
+    const body = rules.map(({ version: _v, last_updated: _u, ...r }) => r);
+    await this.call<unknown>('PUT', `/zones/${zoneId}/rulesets/phases/http_request_cache_settings/entrypoint`, { rules: body });
   }
 }

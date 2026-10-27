@@ -6,12 +6,15 @@ import { schema } from '../src/db/index.js';
 import { clientIp } from '../src/lib/cloudflare-ips.js';
 import { cloudflareSchema } from '../src/services/settings.js';
 import { desiredRecords, isPublicAddress, labelOf, nodeAddresses, planChanges, type DnsNode } from '../src/services/dns/records.js';
-import type { CfRecord } from '../src/services/dns/cloudflare.js';
+import { desiredCacheRules, planCacheRules } from '../src/services/dns/cache.js';
+import type { CfRecord, CfRule } from '../src/services/dns/cloudflare.js';
 import { login, setup } from './helpers.js';
 
 /** A Cloudflare API with one zone, example.com, kept in memory. */
 function fakeCloudflare() {
   const records: CfRecord[] = [];
+  /** The zone's cache rules; null = no entry point yet (Cloudflare answers 404). */
+  const ruleset: { rules: CfRule[] | null } = { rules: null };
   let seq = 0;
   const calls: string[] = [];
   const server = createServer((req, res) => {
@@ -29,6 +32,13 @@ function fakeCloudflare() {
       calls.push(`${req.method} ${path}`);
       if (path === '/user/tokens/verify') return ok({ status: 'active' });
       if (path === '/zones') return ok(url.searchParams.get('name') === 'example.com' ? [{ id: 'z1', name: 'example.com' }] : []);
+      if (path === '/zones/z1/rulesets/phases/http_request_cache_settings/entrypoint') {
+        if (req.method === 'GET') return ruleset.rules ? ok({ id: 'rs1', rules: ruleset.rules }) : send(404, { success: false, errors: [{ code: 10003, message: 'Not found' }] });
+        if (req.method === 'PUT') {
+          ruleset.rules = (JSON.parse(body) as { rules: CfRule[] }).rules.map((r) => ({ ...r, id: r.id ?? `rule${++seq}`, version: '1' }));
+          return ok({ id: 'rs1', rules: ruleset.rules });
+        }
+      }
       const m = path.match(/^\/zones\/z1\/dns_records(?:\/(.+))?$/);
       if (!m) return send(404, { success: false, errors: [{ code: 7003, message: 'Not found' }] });
       const id = m[1];
@@ -51,7 +61,7 @@ function fakeCloudflare() {
       send(405, { success: false, errors: [] });
     });
   });
-  return { server, records, calls };
+  return { server, records, ruleset, calls };
 }
 
 const settings = (over: Record<string, unknown> = {}) => cloudflareSchema.parse({ mode: 'on', apiToken: 'good-token', domain: 'radio.example.com', ...over });
@@ -136,6 +146,23 @@ describe('DNS record plan', () => {
     expect(plan.deletes.map((r) => r.id).sort()).toEqual(['a', 'c']);
     expect(plan.conflicts.map((c) => c.record.name)).toEqual(['relay-1.radio.example.com']);
     expect(plan.creates[0]!.comment).toBe('hrs:abcd1234:origin:198.51.100.1');
+  });
+});
+
+describe('Cache rule plan', () => {
+  it('puts its own rules first, keeps those of others, and writes nothing when all is in place', () => {
+    const desired = desiredCacheRules('abcd1234', 'radio.example.com');
+    expect(desired.map((r) => r.key)).toEqual(['public', 'assets']);
+    expect(desired[0]!.expression).toContain('http.host eq "radio.example.com"');
+    expect(desired[0]!.expression).toContain('not ends_with(http.request.uri.path, "/events")');
+    const foreign: CfRule = { id: 'x', description: 'my own rule', expression: 'true', action: 'set_cache_settings', action_parameters: { cache: false } };
+    const first = planCacheRules('abcd1234', [foreign], desired);
+    expect(first.rules?.map((r) => r.description?.slice(0, 15))).toEqual(['hrs:abcd1234:pu', 'hrs:abcd1234:as', 'my own rule']);
+    expect(planCacheRules('abcd1234', first.rules!, desired).rules).toBeNull();
+    // Switched off: only the rules of others stay.
+    expect(planCacheRules('abcd1234', first.rules!, []).rules).toEqual([foreign]);
+    // Another installation's rules count as someone else's.
+    expect(planCacheRules('ffff0000', first.rules!, []).rules).toBeNull();
   });
 });
 
@@ -235,6 +262,22 @@ describe('Cloudflare DNS', () => {
     expect(cf.records.find((r) => r.name === 'harderfm.src.radio.example.com')).toMatchObject({ type: 'CNAME', content: 'origin.radio.example.com' });
   });
 
+  it('keeps cache rules for the panel host next to the rules of others', async () => {
+    cf.ruleset.rules = [{ id: 'mine', description: 'bypass admin', expression: 'starts_with(http.request.uri.path, "/admin")', action: 'set_cache_settings', action_parameters: { cache: false }, version: '3' }];
+    await t.app.inject({ method: 'PUT', url: '/api/dns/settings', headers: admin, payload: { ...settings({ originAddresses: ['198.51.100.1'], cacheRules: true }), apiToken: '••••••••' } });
+    const state = (await t.app.inject({ method: 'POST', url: '/api/dns/sync', headers: admin })).json();
+    expect(state.cache).toMatchObject({ state: 'ok', host: 'radio.example.com', rules: 2, foreign: 1, error: null });
+    expect(cf.ruleset.rules!.map((r) => r.id)).toEqual([expect.stringMatching(/^rule/), expect.stringMatching(/^rule/), 'mine']);
+    const audit = await t.db.select().from(schema.auditLog).where(eq(schema.auditLog.action, 'dns.cacheRules'));
+    expect(audit.length).toBeGreaterThan(0);
+    const before = cf.calls.length;
+    await t.app.inject({ method: 'POST', url: '/api/dns/sync', headers: admin });
+    expect(cf.calls.slice(before).filter((c) => c.startsWith('PUT') && c.includes('rulesets'))).toEqual([]);
+    // What the rules let the edge cache is up to the server: public answers without their own Cache-Control are not.
+    const res = await t.app.inject({ method: 'GET', url: '/api/public/no-such-thing' });
+    expect(res.headers['cache-control']).toBe('no-store');
+  });
+
   it('removes only its own records', async () => {
     const refused = await t.app.inject({ method: 'POST', url: '/api/dns/purge', headers: admin, payload: { confirm: true } });
     expect(refused.statusCode).toBe(400);
@@ -242,6 +285,7 @@ describe('Cloudflare DNS', () => {
     const res = await t.app.inject({ method: 'POST', url: '/api/dns/purge', headers: admin, payload: { confirm: true } });
     expect(res.statusCode).toBe(200);
     expect(cf.records.map((r) => r.id)).toEqual(['foreign']);
+    expect(cf.ruleset.rules!.map((r) => r.id)).toEqual(['mine']);
     const [n] = await t.db.select().from(schema.nodes).where(eq(schema.nodes.id, relayId));
     expect(n!.config.dnsHost).toBe('');
   });

@@ -283,6 +283,11 @@ export const cloudflareSchema = z.object({
       proxied: z.boolean().default(true),
     })
     .default({ manage: false, proxied: true }),
+  /**
+   * Cache rules for the panel host (only of use while it goes through the Cloudflare proxy): the public API and panel
+   * files are cached at the edge for as long as the server allows. Needs Zone › Cache Rules › Edit on the token.
+   */
+  cacheRules: z.boolean().default(false),
 });
 export type CloudflareSettings = z.infer<typeof cloudflareSchema>;
 
@@ -325,6 +330,18 @@ export const dnsStateSchema = z.object({
   /** The changes of the last run that wrote something. */
   lastChanges: z.array(dnsChangeSchema).max(200).default([]),
   lastChangeAt: z.string().nullable().default(null),
+  /** The cache rules: ok = in the zone as wanted, pending = would be written (dry run), off = none of this install. */
+  cache: z
+    .object({
+      state: z.enum(['off', 'ok', 'pending', 'error']),
+      host: z.string().nullable(),
+      /** Rules of this installation in the zone, and of others (kept untouched). */
+      rules: z.number(),
+      foreign: z.number(),
+      error: z.string().max(500).nullable(),
+      at: z.string().nullable(),
+    })
+    .default({ state: 'off', host: null, rules: 0, foreign: 0, error: null, at: null }),
 });
 export type DnsState = z.infer<typeof dnsStateSchema>;
 

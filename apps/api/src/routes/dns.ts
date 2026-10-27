@@ -62,7 +62,7 @@ export const dnsRoutes: FastifyPluginAsyncZod = async (app) => {
       }
       await putSetting(ctx, 'cloudflare', next);
       manager().forgetZone();
-      req.auditInfo.details = { mode: next.mode, domain: next.domain || null, nodeRecords: next.nodeRecords, customerTargets: next.customerTargets, panelRecord: next.panelRecord };
+      req.auditInfo.details = { mode: next.mode, domain: next.domain || null, nodeRecords: next.nodeRecords, customerTargets: next.customerTargets, panelRecord: next.panelRecord, cacheRules: next.cacheRules };
       void manager().run({ by: req.auth?.user.email ?? null }).catch(() => undefined);
       return settingsView();
     },

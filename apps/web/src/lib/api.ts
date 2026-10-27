@@ -1471,6 +1471,7 @@ export interface CloudflareSettings {
   ttl: number;
   originAddresses: string[];
   panelRecord: { manage: boolean; proxied: boolean };
+  cacheRules: boolean;
   /** Read only: where records go, and this installation's id in record comments. */
   platformDomain?: string;
   install?: string;
@@ -1486,6 +1487,7 @@ export interface DnsState {
   problems: { kind: string; ref: string | null; name: string | null }[];
   lastChanges: { action: 'create' | 'update' | 'delete'; name: string; type: string; content: string; proxied: boolean; before: string | null }[];
   lastChangeAt: string | null;
+  cache: { state: 'off' | 'ok' | 'pending' | 'error'; host: string | null; rules: number; foreign: number; error: string | null; at: string | null };
 }
 export interface DnsTestResult {
   ok: boolean;
