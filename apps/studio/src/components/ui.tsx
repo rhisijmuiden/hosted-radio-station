@@ -70,7 +70,7 @@ export function PageHeader({ title, description, actions }: { title: ReactNode; 
   );
 }
 
-type Tone = 'online' | 'warning' | 'offline' | 'neutral' | 'accent';
+type Tone = 'online' | 'warning' | 'offline' | 'neutral' | 'accent' | 'onair';
 export function Badge({ tone = 'neutral', dot, children }: { tone?: Tone; dot?: boolean; children: ReactNode }) {
   return (
     <span
@@ -80,6 +80,7 @@ export function Badge({ tone = 'neutral', dot, children }: { tone?: Tone; dot?: 
         tone === 'warning' && 'bg-warning/15 text-warning',
         tone === 'offline' && 'bg-offline/15 text-offline',
         tone === 'accent' && 'bg-koraal/15 text-accent-text',
+        tone === 'onair' && 'bg-onair text-white',
         tone === 'neutral' && 'bg-chip text-ink',
       )}
     >

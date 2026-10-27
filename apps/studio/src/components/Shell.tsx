@@ -102,7 +102,7 @@ function Sidebar({ page, onPage }: { page: Page; onPage: (p: Page) => void }) {
           >
             <Icon className={clsx('size-[18px]', page === p ? 'text-koraal' : 'text-muted')} strokeWidth={1.8} />
             <span className="flex-1">{t(`nav.${p}`)}</span>
-            {p === 'live' && broadcast === 'live' && <Badge tone="accent" dot>{t('live.onAirShort')}</Badge>}
+            {p === 'live' && broadcast === 'live' && <Badge tone="onair" dot>{t('live.onAirShort')}</Badge>}
             {p === 'carts' && <kbd className="text-[10px] text-muted">F1–F12</kbd>}
           </button>
         ))}
@@ -174,10 +174,10 @@ function TopBar() {
         <div
           className={clsx(
             'flex h-9 items-center gap-2 rounded-md px-3.5 text-sm font-extrabold tracking-[0.12em] uppercase',
-            meLive ? 'onair-pulse bg-koraal text-nacht' : live ? 'bg-offline/15 text-offline' : 'bg-chip text-muted',
+            meLive ? 'onair-pulse bg-onair text-white' : live ? 'bg-offline/15 text-offline' : 'bg-chip text-muted',
           )}
         >
-          <i className={clsx('size-2.5 rounded-full', meLive ? 'bg-nacht' : live ? 'bg-offline' : 'bg-muted/50')} />
+          <i className={clsx('size-2.5 rounded-full', meLive ? 'bg-white' : live ? 'bg-offline' : 'bg-muted/50')} />
           {meLive ? t('live.onAir') : live ? t('live.someoneLive') : t('live.autodj')}
           {!meLive && !live && autodj.data?.playout && (
             <span className="font-semibold tracking-normal normal-case">· {autodj.data.playout.manual ? t('playout.manual') : t('playout.auto')}</span>
