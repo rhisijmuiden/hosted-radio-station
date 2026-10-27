@@ -1,4 +1,5 @@
 import net from 'node:net';
+import { isCloudflareAddress } from '../../lib/cloudflare-ips.js';
 import type { CloudflareSettings, DnsState } from '../settings.js';
 import type { CfRecord, CfRecordInput } from './cloudflare.js';
 
@@ -55,6 +56,8 @@ export interface DnsInputs {
 /** Private, loopback, link-local, CGNAT and documentation ranges: not reachable from the internet. */
 export function isPublicAddress(ip: string) {
   const v = net.isIP(ip);
+  // A Cloudflare edge address is where a node's connection came through, never the node itself.
+  if (v && isCloudflareAddress(ip)) return false;
   if (v === 4) {
     const [a, b] = ip.split('.').map(Number) as [number, number];
     if (a === 10 || a === 127 || a === 0 || a >= 224) return false;
