@@ -292,7 +292,7 @@ export class IngestGateway {
       // Every refused encoder is logged with its reason: the encoder may not show it (journalctl -u hosted-radio-streams).
       const deny = (status: string, body: string, extra: string[] = []) => {
         this.log.info({ ip, host, path: req.path, via, status, reason: body }, 'encoder refused');
-        return deny(status, body, extra);
+        return reply(socket, status, body, extra);
       };
       const target = fixed ? this.legacyTarget(fixed, req.path) : resolveMount(snap, host, req.path);
       if (!target) {

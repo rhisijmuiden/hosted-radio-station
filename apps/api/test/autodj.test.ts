@@ -150,6 +150,10 @@ describe('upgrade to Radio station', () => {
     const snap = await loadSnapshot(t.ctx);
     expect(resolveMount(snap, null, '/harderfm/live')?.mount.path).toBe('/live');
     expect(resolveMount(snap, null, '/harderfm/autodj')).toBeNull();
+    // Without the station in front (a station node): only when one station here has that mount.
+    const withLive = [...snap.stations.values()].filter((v) => v.active && !v.onNode && v.ingest.local && v.mounts.some((m) => m.path === '/live' && m.kind === 'source'));
+    expect(resolveMount(snap, null, '/live')?.view.station.id ?? null).toBe(withLive.length === 1 ? withLive[0]!.station.id : null);
+    expect(resolveMount(snap, null, '/autodj')).toBeNull();
     const view = snap.stations.get(stationId)!;
     const live = view.mounts.find((m) => m.path === '/live')!;
     expect(heard(view, live, new Map([['/autodj', {}]]))).toBe(true);
