@@ -168,7 +168,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 14 | Orchestrator redundancy | Planned (1.x) |
 | 15 | Cloudflare DNS integration | Planned (1.x) |
 | 16 | Installer menu and node enrollment | Planned (1.x) |
-| 17 | Server names and topology views | Planned (1.x) |
+| 18 | Server names and topology views | Planned (1.x) |
 
 ## Phases
 
@@ -362,7 +362,7 @@ One installer with a menu, for the standalone Debian 13 install and the Proxmox 
 - Setup page on the node: after a bare node install, the node serves a small web page on port 8080. It shows only two fields, the orchestrator URL and the pairing code from the orchestrator's dashboard, and nothing else. Once the node is paired, the page closes for good and port 8080 is freed. The same can be done from the shell with `hrs-node pair --server <url> --code <code>`.
 - Pairing codes from the panel keep working for scripted installs; pending registrations expire after 24 hours and open registration can be switched off.
 
-### Phase 17: Server names and topology views
+### Phase 18: Server names and topology views
 
 Clear names everywhere and topology views that stay readable as the network grows.
 
