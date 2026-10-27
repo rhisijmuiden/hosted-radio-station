@@ -170,6 +170,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 16 | Installer menu and node enrollment | Planned (1.x) |
 | 17 | RHIS Studio 1.0 (Windows client) | Paused after step 3 (resumes after 16 and 14) |
 | 18 | Server names and topology views | Done (1.1.0) |
+| 19 | Clearer control panels and node assignment | Planned (before 17) |
 
 ## Phases
 
@@ -430,6 +431,14 @@ Clear names everywhere and topology views that stay readable as the network grow
 | ![Server names](docs/screenshots/phase-18-names-saved.png) | ![Orchestrator only on the Nodes page](docs/screenshots/phase-18-nodes-orchestrator-only.png) |
 | ![Orchestrator only: stations that still use this server](docs/screenshots/phase-18-orchestrator-only-dialog.png) | ![Connection tab of a station](docs/screenshots/phase-18-station-connection.png) |
 | ![Firewall checklist of a node with the check from outside](docs/screenshots/phase-18-node-firewall.png) | |
+
+### Phase 19: Clearer control panels and node assignment
+
+Make the admin and customer panels more logical and easier to scan, before the Windows client continues.
+
+- Review the overviews of the admin and customer panels: what sits where in the menu, what each overview page shows first, and fewer clicks to the common tasks.
+- Delivery path per station: on the station page, a customer sees how their stream reaches the listener, from their own studio node (or ingest node) through the relays to the listeners, with the state of each hop.
+- Shared or dedicated nodes: every node is marked **Shared** (carries stations of several customers) or **Dedicated** to one customer or one station. A dedicated node only receives, shows and serves the streams of its own customer or station, and routing refuses to put other stations on it. A customer's own node is dedicated by default.
 
 ## Queued fixes
 
