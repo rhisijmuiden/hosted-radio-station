@@ -358,6 +358,7 @@ One installer with a menu, for the standalone Debian 13 install and the Proxmox 
 - Text-based menu (whiptail) to choose what to install: **Orchestrator**, **Node** or **All-in-one** (orchestrator plus ingest and relay on one machine). Non-interactive flags (`--orchestrator`, `--node`) stay available for automation.
 - A node installs only the bare agent; services such as Icecast are rolled out once a role is assigned in the panel.
 - Enrollment: the installer asks for the orchestrator address, the node registers and shows a short code on screen. It appears under "Pending nodes" in the panel with hostname, IP and the same code, and only gets its keys after you accept it. A preferred role can be picked in the menu and is applied after acceptance.
+- Setup page on the node: after a bare node install, the node serves a small web page on port 8080. It shows only two fields, the orchestrator URL and the pairing code from the orchestrator's dashboard, and nothing else. Once the node is paired, the page closes for good and port 8080 is freed. The same can be done from the shell with `hrs-node pair --server <url> --code <code>`.
 - Pairing codes from the panel keep working for scripted installs; pending registrations expire after 24 hours and open registration can be switched off.
 
 ## Future ideas
