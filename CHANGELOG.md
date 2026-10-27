@@ -13,6 +13,8 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 - `/api/studio/hello` tells the client the server version and its features, so an older server is reported instead
   of failing.
 - Fixed: the remaining time of the playing track in Live assist now counts down every second.
+- Fixed: dragging tracks in RHIS Studio on Windows (library to Q1/Q2, and between queues). The window caught every
+  drag as a file drop from Explorer.
 
 ## 1.0.1 (October 2026)
 
