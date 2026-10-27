@@ -168,7 +168,8 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 14 | Orchestrator redundancy | Planned (1.x) |
 | 15 | Cloudflare DNS integration | Planned (1.x) |
 | 16 | Installer menu and node enrollment | Planned (1.x) |
-| 17 | RHIS Studio 1.0 (Windows client) | In progress: step 2 of 7 (step 1 done) |
+| 17 | RHIS Studio 1.0 (Windows client) | Paused after step 3 (after 18 and 15) |
+| 18 | Server names and topology views | Done (1.1.0) |
 
 ## Phases
 
@@ -343,11 +344,13 @@ Optional high availability for the main server, switched on in the panel when yo
 
 ### Phase 15: Cloudflare DNS integration
 
-The orchestrator manages the DNS records of the platform and its customers through the Cloudflare API, so a new node or station is reachable by name right away.
+The orchestrator manages the DNS records of the platform's own domain through the Cloudflare API, so a new node or station is reachable by name right away. Customers never need Cloudflare: they only point CNAME records to the platform.
 
-- Connect one or more Cloudflare accounts with a scoped API token (Zone: DNS edit, Zone: read), per installation or per customer for their own domains.
+- Connect the platform domain's Cloudflare zone with a scoped API token (Zone: DNS edit, Zone: read).
 - Naming per node: give a node a host name such as `relay1` or `ingest1` and the orchestrator creates the A/AAAA record (`relay1.example.com`) with its public address, updates it when the address changes and removes it when the node is removed.
-- Station records: `stream.<domain>` and `src.<domain>` for customer domains, created when the domain is added, with a check that they point to the right place.
+- Customer domains: the platform creates a target per customer (for example `harderfm.stream.<platform domain>` and `harderfm.src.<platform domain>`) that always points to the right relays and ingest. The customer sets `stream.<their domain>` and `src.<their domain>` once as CNAMEs to those targets; the panel shows the exact records, and a **Verify** button checks each record and shows a green tick or what is wrong (missing, wrong target, still an A record). The domain becomes active, with its certificate, only once both records check out. Later changes happen on the platform side only.
+- Customer-hosted nodes: when a node connects, the orchestrator learns its public address from that connection, follows changes (dynamic IP) and gives it a platform name such as `harderfm-studio.node.<platform domain>`. The customer may also use their own name (for example `studio.harder.fm`, as a CNAME to the platform name or an A record). The orchestrator verifies that name with the same Verify button, and from then on hands it out in the connection details for RHIS Studio, encoders and uploads.
+- Health-driven DNS: a relay that goes offline or is put in maintenance is taken out of shared names (for example a `listen.<domain>` pool with a short TTL) and put back when it is healthy, and a changed public IP is updated within a minute. Together with the listener redirect this keeps listeners on a working relay without manual DNS work.
 - The right proxy setting per record: panel and public pages may go through the Cloudflare proxy (caching, WAF, HTTPS); stream, push and encoder names stay DNS only, because Cloudflare's proxy is not meant for long-running audio streams, hides the listener's real location from GeoIP and breaks non-HTTP ports.
 - Optional extras through the API: cache rules for the public pages, artwork and on-demand files, and DNS-01 certificates so nodes behind a firewall still get HTTPS.
 - Dry run and a record overview in the panel (what exists, what the platform would change), and an audit log entry for every change.
@@ -359,6 +362,7 @@ One installer with a menu, for the standalone Debian 13 install and the Proxmox 
 - Text-based menu (whiptail) to choose what to install: **Orchestrator**, **Node** or **All-in-one** (orchestrator plus ingest and relay on one machine). Non-interactive flags (`--orchestrator`, `--node`) stay available for automation.
 - A node installs only the bare agent; services such as Icecast are rolled out once a role is assigned in the panel.
 - Enrollment: the installer asks for the orchestrator address, the node registers and shows a short code on screen. It appears under "Pending nodes" in the panel with hostname, IP and the same code, and only gets its keys after you accept it. A preferred role can be picked in the menu and is applied after acceptance.
+- Setup page on the node: after a bare node install, the node serves a small web page on port 8080. It shows only two fields, the orchestrator URL and the pairing code from the orchestrator's dashboard, and nothing else. Once the node is paired, the page closes for good and port 8080 is freed. The same can be done from the shell with `hrs-node pair --server <url> --code <code>`.
 - Pairing codes from the panel keep working for scripted installs; pending registrations expire after 24 hours and open registration can be switched off.
 
 ### Phase 17: RHIS Studio 1.0 (Windows client)
@@ -405,6 +409,27 @@ network shares in the settings:
 | --- | --- |
 | ![Library panel on a network share with the preview bar](docs/screenshots/phase-17-library-network-en.png) | ![Library panel on a USB stick, dark, Dutch](docs/screenshots/phase-17-library-pc-dark-nl.png) |
 | ![Settings: preview output and network shares](docs/screenshots/phase-17-preview-settings-en.png) | |
+
+### Phase 18: Server names and topology views
+
+Clear names everywhere and topology views that stay readable as the network grows.
+
+- **Server names**: a Names page under Nodes. The orchestrator gets its own name, and its own ingest and relay are called after it (for example "onlineradio · ingest") instead of "This server". Every node gets a free name such as `relay1-ams`. The name is used everywhere: topology, node list, routing, statistics and e-mails. The role is a badge next to the name; host name and IP stay visible underneath.
+- **Layers view (default)**: fixed columns Studios → Ingest → Relays → Listeners, the orchestrator above with control lines only, nodes grouped per location, line thickness by bitrate and number of streams.
+- **Per station filter**: pick a station (customers see only their own) and see its path: main and backup ingest, the feed each relay plays, and listeners per relay and country. Everything else fades out.
+- **Matrix view**: servers × stations in one table with the state of each cell, for large networks.
+- **Orchestrator only**: a switch that turns off this server's own ingest and relay, so the orchestrator carries no audio at all. New stations then need an ingest node or a station node, and stations with the AutoDJ run on a station node. The panel shows which stations still use this server before you switch. Once on, everything audio is blocked on the orchestrator: the encoder ports (8443, 8010, Shoutcast v1) and its Icecast are closed, "This server" can no longer be chosen as ingest or relay, there is no fallback to it when nodes fail, and listeners are never sent to it. It only manages. Uploads (SFTP/SCP/FTP) then go to the station node that holds the library, so the orchestrator only needs port 443 (plus 80 for certificates); every node connects out to it on 443.
+- **Connection details from the orchestrator**: per station the orchestrator hands out the right addresses, based on its routing. With a station node, that is the node's external and internal address with ports for RHIS Studio, encoders and SFTP/SCP/FTP uploads. Without one, it is the ingest node(s) the customer may stream to, with the backup ingest. The details are shown on the station's Connection page for customers and DJs, are sent in the welcome e-mail, and are available in the API. They follow automatically when a station moves to another node.
+- **Firewall checklist for self-hosted nodes**: a node the customer runs in their own network gets a page (and e-mail) listing exactly which ports to open or forward for remote access: RHIS Studio, encoders, SFTP/SCP/FTP with the passive range, and nothing for the orchestrator or relays because those connections go outwards. The node checks from the outside whether each port is reachable and shows a green or red tick per port.
+- **3D skyline**: the 3D view becomes the layers view laid on a floor. Each server is a tower whose height shows listeners or load and whose top shows its health; the orchestrator hovers above as a ring with control lines only, and audio runs as light trails over the floor.
+
+| Layers | Per station |
+| --- | --- |
+| ![Topology, layers view](docs/screenshots/phase-18-topology-layers.png) | ![Topology, per station](docs/screenshots/phase-18-topology-per-station.png) |
+| ![Topology, matrix](docs/screenshots/phase-18-topology-matrix.png) | ![Topology, 3D skyline](docs/screenshots/phase-18-topology-3d.png) |
+| ![Server names](docs/screenshots/phase-18-names-saved.png) | ![Orchestrator only on the Nodes page](docs/screenshots/phase-18-nodes-orchestrator-only.png) |
+| ![Orchestrator only: stations that still use this server](docs/screenshots/phase-18-orchestrator-only-dialog.png) | ![Connection tab of a station](docs/screenshots/phase-18-station-connection.png) |
+| ![Firewall checklist of a node with the check from outside](docs/screenshots/phase-18-node-firewall.png) | |
 
 ## Future ideas
 
