@@ -36,6 +36,7 @@ import { scanStationStorage, tenantStorageUsage } from '../services/streaming/st
 import { AUTODJ_CHANNEL } from '../streams/autodj.js';
 import { sendFile } from './public.js';
 import { stationAccess } from './stations.js';
+import { assertAudioAllowedHere } from '../services/nodes/orchestrator.js';
 
 const stationParams = z.object({ id: z.uuid() });
 const queueSchema = z.enum(['q1', 'q2']);
@@ -245,6 +246,7 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (req) => {
       const { station, tenant, access } = await stationAccess(ctx, req, req.params.id, 'owner');
+      if (!station.nodeId) await assertAudioAllowedHere(ctx, 'a Radio station runs on a station node; move it there first');
       if (tenant.plan !== 'station') {
         if (!req.body.upgradeCustomer || access.role !== 'superadmin') throw badRequest('The customer has the Distribution plan; an administrator upgrades the customer first');
         await ctx.db.update(schema.tenants).set({ plan: 'station' }).where(eq(schema.tenants.id, tenant.id));

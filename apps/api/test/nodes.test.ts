@@ -239,10 +239,12 @@ describe('nodes', () => {
     const foreign = await t.app.inject({ method: 'PATCH', url: `/api/nodes/${own.json().node.id}`, headers: owner, payload: { config: { relayStations: ['00000000-0000-4000-8000-000000000000'] } } });
     expect(foreign.statusCode).toBe(400);
 
-    // My setup: own node by name, the platform relay that carries the station without its name.
+    // My setup: own node and the platform relays that carry the station, all by their one name (phase 18), but host
+    // name and address only of my own node.
     const topo = (await t.app.inject({ method: 'GET', url: '/api/nodes/topology', headers: owner })).json();
     expect(topo.view).toBe('customer');
-    expect(topo.nodes.filter((n: { local: boolean }) => !n.local).map((n: { name: string }) => n.name).sort()).toEqual(['Relay · Amsterdam', 'Relay · London', 'harder-01']);
+    expect(topo.nodes.filter((n: { local: boolean }) => !n.local).map((n: { name: string }) => n.name).sort()).toEqual(['ams-relay-01', 'harder-01', 'lon-relay-03']);
+    expect(topo.nodes.filter((n: { own: boolean; hostname: string | null }) => !n.own && n.hostname)).toEqual([]);
   });
 
   it('routes encoders of a customer domain through its source node', async () => {

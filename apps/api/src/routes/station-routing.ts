@@ -10,6 +10,7 @@ import { forgetRelays } from '../services/nodes/routing.js';
 import { applyStreams } from '../services/streaming/state.js';
 import { readStreamsStatus } from '../services/streaming/status.js';
 import { stationAccess } from './stations.js';
+import { getSetting } from '../services/settings.js';
 
 const params = z.object({ id: z.uuid() });
 const ref = z.union([z.literal('local'), z.uuid()]);
@@ -19,6 +20,8 @@ const routingOut = z.object({
   routing: z.object({ ingest: ref, backupIngest: ref.nullable(), relays: z.union([z.literal('auto'), z.array(z.uuid())]), spareRelays: z.boolean() }),
   /** Why the routing cannot be changed here: the station runs on a station node, or its AutoDJ runs on this server. */
   locked: z.enum(['station_node']).nullable(),
+  /** This server carries no audio (phase 18): it cannot be the ingest. */
+  orchestratorOnly: z.boolean(),
   /** The Radio station edition: the AutoDJ runs on this server, so this server stays its main ingest. */
   autodjHere: z.boolean(),
   canEdit: z.boolean(),
@@ -50,6 +53,7 @@ export const stationRoutingRoutes: FastifyPluginAsyncZod = async (app) => {
     const choice = (n: (typeof nodes)[number]) => ({ id: n.id, name: n.name, location: n.location, online: n.status.online, own: n.tenantId === tenantId });
     const relays = nodes.filter((n) => n.roles.includes('relay') && (!n.tenantId || n.tenantId === tenantId));
     const worker = await readStreamsStatus(ctx).then((s) => s.worker);
+    const only = (await getSetting(ctx, 'orchestrator')).only;
     const onAir = (x: string) => (x === 'local' ? !!worker?.onAir[station.id]?.length : !!nodes.find((n) => n.id === x)?.status.ingest?.some((m) => m.stationId === station.id));
     const name = (x: string) => (x === 'local' ? 'local' : (nodes.find((n) => n.id === x)?.name ?? '?'));
     const ingests = ingestsOf(r).map((i) => ({ ref: i.ref, priority: i.priority, name: name(i.ref), online: i.ref === 'local' ? !!worker?.alive : !!nodes.find((n) => n.id === i.ref)?.status.online, onAir: onAir(i.ref) }));
@@ -59,6 +63,7 @@ export const stationRoutingRoutes: FastifyPluginAsyncZod = async (app) => {
     return {
       routing: r,
       locked: station.nodeId ? 'station_node' : null,
+      orchestratorOnly: only,
       autodjHere: station.edition === 'station',
       canEdit: canEdit && !station.nodeId,
       options: {
@@ -100,6 +105,8 @@ export const stationRoutingRoutes: FastifyPluginAsyncZod = async (app) => {
       if (station.nodeId) throw badRequest('This station runs on a station node, which feeds its relays itself');
       const body: StationRouting = { ...req.body };
       if (body.backupIngest === body.ingest) body.backupIngest = null;
+      // Orchestrator only (phase 18): this server takes no encoders, also not as a backup.
+      if ((body.ingest === 'local' || body.backupIngest === 'local') && (await getSetting(ctx, 'orchestrator')).only) throw badRequest('This server is set to orchestrator only and takes no encoders; choose an ingest node');
       // The AutoDJ of a Radio station plays on this server, so encoders and AutoDJ meet here.
       if (station.edition === 'station' && body.ingest !== 'local') throw badRequest('The AutoDJ of a Radio station runs on this server, so this server stays its main ingest. Choose an ingest node as backup, or move the station to a station node.');
       const nodes = await ctx.db.select().from(schema.nodes).where(isNotNull(schema.nodes.pairedAt));

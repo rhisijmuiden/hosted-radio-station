@@ -1,5 +1,5 @@
 import { rm } from 'node:fs/promises';
-import { and, asc, count, desc, eq, inArray, isNull, lt, ne, sum } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, ne, sum } from 'drizzle-orm';
 import type { FastifyRequest } from 'fastify';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -17,6 +17,7 @@ import { connectionInfo } from '../services/streaming/info.js';
 import { cachedRelays, forgetStations } from '../services/nodes/routing.js';
 import { stationRouting } from '../services/nodes/routing-rules.js';
 import { allocatePort, applyStreams, loadStation, waitForApply, newInternalPassword, stationStats, type Mount, type Output, type Station } from '../services/streaming/state.js';
+import { assertAudioAllowedHere } from '../services/nodes/orchestrator.js';
 
 const stationParams = z.object({ id: z.uuid() });
 const mountParams = z.object({ id: z.uuid(), mountId: z.uuid() });
@@ -154,6 +155,17 @@ const accountOut = z.object({
   /** "<station>.<username>", the log-in for SFTP and FTP. */
   uploadLogin: z.string(),
 });
+const PORT_SERVICES = ['encoderTls', 'encoderPlain', 'legacy', 'sftp', 'ftp', 'ftpPassive', 'listeners', 'listenersTls', 'push'] as const;
+/** Where the station's studio, encoders and uploads connect, from its routing (phase 18). */
+export const endpointOut = z.object({
+  role: z.enum(['stationNode', 'ingest', 'backupIngest', 'uploads']),
+  name: z.string(),
+  node: z.object({ id: z.uuid(), name: z.string() }).nullable(),
+  online: z.boolean(),
+  external: z.string().nullable(),
+  internal: z.string().nullable(),
+  ports: z.array(z.object({ service: z.enum(PORT_SERVICES), port: z.number(), to: z.number().optional(), tls: z.boolean().optional() })),
+});
 const connectionOut = z.object({
   ingestHost: z.string(),
   node: z.object({ id: z.uuid(), name: z.string() }).nullable(),
@@ -171,6 +183,8 @@ const connectionOut = z.object({
     ftpPort: z.number().nullable(),
     ftpRequireTls: z.boolean(),
   }),
+  endpoints: z.array(endpointOut),
+  panelUrl: z.string(),
 });
 const stationDetailOut = stationOut.extend({
   tenantPlan: z.enum(['distribution', 'station']),
@@ -283,7 +297,6 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
   async function detail(stationId: string, role: z.infer<typeof stationDetailOut>['role']) {
     const loaded = (await loadStation(ctx, stationId))!;
     const [tenant] = await ctx.db.select().from(schema.tenants).where(eq(schema.tenants.id, loaded.station.tenantId));
-    const streaming = await getSetting(ctx, 'streaming');
     const local = loaded.outputs.some((o) => o.type === 'local' && o.enabled);
     const conn = await connectionInfo(ctx, loaded.station, loaded.mounts, local);
     return {
@@ -293,12 +306,7 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
       outputs: loaded.outputs.map(toOutputOut),
       connection: {
         ...conn,
-        upload: {
-          host: conn.uploadHost,
-          sftpPort: streaming.sftp.enabled ? streaming.sftp.port : null,
-          ftpPort: streaming.ftp.enabled ? streaming.ftp.port : null,
-          ftpRequireTls: streaming.ftp.requireTls,
-        },
+        upload: { host: conn.uploadHost, sftpPort: conn.upload?.sftpPort ?? null, ftpPort: conn.upload?.ftpPort ?? null, ftpRequireTls: conn.upload?.ftpRequireTls ?? false },
       },
       role,
     };
@@ -373,6 +381,8 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
           genre: z.string().trim().max(100).default(''),
           website: urlOrEmpty.default(''),
           bitrateKbps: z.number().int().min(16).max(512).optional(),
+          /** Orchestrator only (phase 18): the ingest node that takes the encoders. Default: the first one available. */
+          ingestNodeId: z.uuid().optional(),
         }),
         response: { 201: stationDetailOut },
       },
@@ -390,6 +400,20 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
       const bitrate = Math.min(req.body.bitrateKbps ?? 192, tenant.limits.maxBitrateKbps);
       checkBitrate(tenant, bitrate);
       const streaming = await getSetting(ctx, 'streaming');
+      const [stationNode] = tenant.stationNodeId ? await ctx.db.select().from(schema.nodes).where(eq(schema.nodes.id, tenant.stationNodeId)) : [];
+      const onStationNode = !!stationNode?.pairedAt && stationNode.roles.includes('station');
+      // Orchestrator only (phase 18): this server carries no audio, so a new station needs a station node or an
+      // ingest node from the start.
+      let routing: Record<string, unknown> = {};
+      if ((await getSetting(ctx, 'orchestrator')).only && !onStationNode) {
+        if (req.body.edition === 'station') throw conflict('This server is orchestrator only: a Radio station runs on a station node. Link the customer to a station node first.');
+        const ingests = (await ctx.db.select().from(schema.nodes).where(isNotNull(schema.nodes.pairedAt)).orderBy(asc(schema.nodes.name))).filter(
+          (n) => n.roles.includes('source') && (!n.tenantId || n.tenantId === tenant.id),
+        );
+        const pick = req.body.ingestNodeId ? ingests.find((n) => n.id === req.body.ingestNodeId) : (ingests.find((n) => n.tenantId === tenant.id) ?? ingests.find((n) => n.status.online) ?? ingests[0]);
+        if (!pick) throw conflict(req.body.ingestNodeId ? 'Choose a paired ingest node of this customer or of the platform' : 'This server is orchestrator only and there is no ingest node yet; add one under Infrastructure → Nodes first.');
+        routing = { ingest: pick.id };
+      }
       let station: Station;
       try {
         station = await ctx.db.transaction(async (tx) => {
@@ -408,6 +432,7 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
               icecastPort: port,
               icecastAdminPassword: ctx.box.encrypt(newInternalPassword()),
               icecastSourcePassword: ctx.box.encrypt(newInternalPassword()),
+              routing,
             })
             .returning();
           const [mount] = await tx
@@ -424,14 +449,11 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
       }
       if (station.edition === 'station') station = (await upgradeStation(ctx, station)).station;
       // A customer with a station node: new stations run there from the start (there is no library to copy yet).
-      if (tenant.stationNodeId) {
-        const [node] = await ctx.db.select().from(schema.nodes).where(eq(schema.nodes.id, tenant.stationNodeId));
-        if (node?.pairedAt && node.roles.includes('station')) {
-          await ctx.db
-            .update(schema.stations)
-            .set({ nodeId: node.id, nodeRuntime: { updatedAt: new Date().toISOString(), mounts: [], autodj: null, encoders: 0, relays: {}, revision: null, syncedAt: null } })
-            .where(eq(schema.stations.id, station.id));
-        }
+      if (onStationNode) {
+        await ctx.db
+          .update(schema.stations)
+          .set({ nodeId: stationNode!.id, nodeRuntime: { updatedAt: new Date().toISOString(), mounts: [], autodj: null, encoders: 0, relays: {}, revision: null, syncedAt: null } })
+          .where(eq(schema.stations.id, station.id));
       }
       Object.assign(req.auditInfo, { tenantId: tenant.id, targetId: station.id, details: { name: station.name, slug: station.slug } });
       await apply(req, station.id);
@@ -477,6 +499,8 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
       const { legacy, ...body } = req.body;
       const ownerOnly = body.slug !== undefined || body.edition !== undefined || legacy !== undefined;
       if (ownerOnly && access.role === 'manager') throw forbidden('Only the customer owner can change these fields');
+      // Orchestrator only (phase 18): the AutoDJ of a Radio station plays on a station node, and legacy ports are encoder ports here.
+      if (!station.nodeId && ((body.edition === 'station' && station.edition !== 'station') || legacy?.enabled)) await assertAudioAllowedHere(ctx, body.edition === 'station' ? 'a Radio station runs on a station node; move it there first' : 'it has no Shoutcast ports');
       if (body.edition === 'station' && station.edition !== 'station' && tenant.plan !== 'station') {
         throw badRequest('The Radio station edition needs the Radio station plan for this customer');
       }

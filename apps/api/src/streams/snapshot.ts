@@ -40,12 +40,15 @@ export interface Snapshot {
   hostTenant: Map<string, string>;
   /** Paired source nodes that may pass encoders on to this server, with their secret. */
   sourceNodes: Map<string, { id: string; tenantId: string | null; secret: string }>;
+  /** Orchestrator only (phase 18): no encoders, no audio on this server. */
+  orchestratorOnly: boolean;
 }
 
 export async function loadSnapshot(ctx: AppContext): Promise<Snapshot> {
-  const [streaming, proxy, rows, mounts, outputs, domains, nodes, relays] = await Promise.all([
+  const [streaming, proxy, orchestrator, rows, mounts, outputs, domains, nodes, relays] = await Promise.all([
     getSetting(ctx, 'streaming'),
     getSetting(ctx, 'proxy'),
+    getSetting(ctx, 'orchestrator'),
     ctx.db
       .select({ s: schema.stations, active: schema.tenants.active, limits: schema.tenants.limits })
       .from(schema.stations)
@@ -87,7 +90,7 @@ export async function loadSnapshot(ctx: AppContext): Promise<Snapshot> {
   for (const v of stations.values()) {
     v.autodjMount = v.onNode ? null : autodjMount(v.station, v.mounts);
     const r = stationRouting(v.station);
-    v.ingest = { local: !v.onNode && localIngest(r), priority: localPriority(r) ?? 0, nodes: ingestNodes(r).map((i) => ({ id: i.ref, priority: i.priority })), pushes: [] };
+    v.ingest = { local: !v.onNode && !orchestrator.only && localIngest(r), priority: localPriority(r) ?? 0, nodes: ingestNodes(r).map((i) => ({ id: i.ref, priority: i.priority })), pushes: [] };
     // Next to an ingest node this server pushes to the relays itself; alone it lets them pull.
     if (v.ingest.local && pushedRouting(r)) {
       for (const relay of relaysOf(v.station, relays)) {
@@ -123,6 +126,7 @@ export async function loadSnapshot(ctx: AppContext): Promise<Snapshot> {
     bySlug: new Map([...stations.values()].map((v) => [v.station.slug, v])),
     hostTenant,
     sourceNodes,
+    orchestratorOnly: orchestrator.only,
   };
 }
 
