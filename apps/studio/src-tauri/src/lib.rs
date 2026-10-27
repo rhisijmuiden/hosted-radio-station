@@ -2,6 +2,8 @@
 
 mod carts;
 mod engine;
+mod files;
+mod preview;
 mod resample;
 mod secrets;
 mod streamer;
@@ -9,7 +11,8 @@ mod updater;
 
 use std::{path::PathBuf, sync::Arc};
 
-use engine::{AudioConfig, Devices, Engine, EngineInfo, Event};
+use engine::{AudioConfig, Devices, Engine, EngineInfo, Event, OutputSel};
+use preview::{Preview, PreviewState};
 use serde::Serialize;
 use streamer::{Status, Target};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -129,6 +132,69 @@ async fn install_update(app: AppHandle, url: String, sha256: String, version: St
     Ok(())
 }
 
+#[tauri::command]
+fn preview_output(preview: State<'_, Arc<Preview>>, output: Option<OutputSel>) -> Result<(), String> {
+    preview.set_output(output)
+}
+
+#[tauri::command]
+async fn preview_file(preview: State<'_, Arc<Preview>>, path: String) -> Result<PreviewState, String> {
+    let p = preview.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let name = std::path::Path::new(&path).file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        p.open(std::path::Path::new(&path), &name, 0.0, true)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// A library track of the server: downloaded first (with the API key of this PC), then previewed.
+#[tauri::command]
+async fn preview_url(preview: State<'_, Arc<Preview>>, url: String, token: String, name: String, ext: String) -> Result<PreviewState, String> {
+    let p = preview.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        p.stop();
+        let path = preview::download(&url, &token, &ext).map_err(|e| format!("{e:#}"))?;
+        p.open(&path, &name, 0.0, true)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn preview_toggle(preview: State<'_, Arc<Preview>>) -> PreviewState {
+    preview.toggle()
+}
+
+#[tauri::command]
+fn preview_seek(preview: State<'_, Arc<Preview>>, seconds: f64) -> Result<PreviewState, String> {
+    preview.seek(seconds)
+}
+
+#[tauri::command]
+fn preview_stop(preview: State<'_, Arc<Preview>>) {
+    preview.stop()
+}
+
+#[tauri::command]
+fn preview_state(preview: State<'_, Arc<Preview>>) -> PreviewState {
+    preview.state()
+}
+
+#[tauri::command]
+async fn list_folder(path: Option<String>) -> Result<files::Folder, String> {
+    tauri::async_runtime::spawn_blocking(move || files::list(path.as_deref()).map_err(|e| format!("{e:#}")))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn upload_file(url: String, token: String, path: String) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || files::upload(&url, &token, &path).map_err(|e| format!("{e:#}")))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
@@ -146,6 +212,7 @@ pub fn run() {
                 let _ = handle.emit("engine", e);
             }));
             app.manage(Arc::new(engine));
+            app.manage(Arc::new(Preview::default()));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -165,7 +232,16 @@ pub fn run() {
             secret_get,
             secret_set,
             secret_delete,
-            install_update
+            install_update,
+            preview_output,
+            preview_file,
+            preview_url,
+            preview_toggle,
+            preview_seek,
+            preview_stop,
+            preview_state,
+            list_folder,
+            upload_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running RHIS Studio");

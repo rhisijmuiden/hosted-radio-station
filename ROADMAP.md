@@ -168,7 +168,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 14 | Orchestrator redundancy | Planned (1.x) |
 | 15 | Cloudflare DNS integration | Planned (1.x) |
 | 16 | Installer menu and node enrollment | Planned (1.x) |
-| 17 | RHIS Studio 1.0 (Windows client) | In progress: step 1 of 7 |
+| 17 | RHIS Studio 1.0 (Windows client) | In progress: step 2 of 7 (step 1 done) |
 
 ## Phases
 
@@ -392,6 +392,14 @@ Step 1, light theme in English (Auto) and dark theme in Dutch (Manual, waiting f
 | Auto | Manual |
 | --- | --- |
 | ![Live assist, Auto, light, English](docs/screenshots/phase-17-assist-light-en.png) | ![Live assist, Manual, dark, Dutch](docs/screenshots/phase-17-assist-manual-dark-nl.png) |
+
+Step 2, the library panel with a network share and this PC (a USB stick), the preview bar, and the preview output and
+network shares in the settings:
+
+| Network share, English | This PC, dark, Dutch |
+| --- | --- |
+| ![Library panel on a network share with the preview bar](docs/screenshots/phase-17-library-network-en.png) | ![Library panel on a USB stick, dark, Dutch](docs/screenshots/phase-17-library-pc-dark-nl.png) |
+| ![Settings: preview output and network shares](docs/screenshots/phase-17-preview-settings-en.png) | |
 
 ## Future ideas
 

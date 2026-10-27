@@ -8,6 +8,8 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 - Live assist in RHIS Studio: the format of the coming hours in the left menu, Auto and Manual playout, how Q1 and Q2
   take turns, and the level meter at the right edge. In Manual the AutoDJ waits for Play after each track and goes
   back to Auto by itself when the studio stops checking in for 30 seconds.
+- Library panel in RHIS Studio: the server library, network shares and this PC (USB sticks), with a preview player
+  on its own sound card output. Files from the network or this PC go into a queue through the station library.
 - `/api/studio/hello` tells the client the server version and its features, so an older server is reported instead
   of failing.
 

@@ -23,7 +23,7 @@ For stations with the Radio station edition. The top shows what is on air with t
 **Q1** and **Q2** side by side: drag tracks to reorder them or move them to the other queue, or use the buttons that
 appear on hover (to the top, to the other queue, remove). The eraser empties the rotation of a queue; requests and
 tracks added by hand stay. Search the library on the right and drag a track onto a queue, or use the Q1/Q2 buttons
-(Shift = at the top).
+(Shift = at the top); see *Library and preview* below.
 
 ### Auto and Manual
 
@@ -52,6 +52,23 @@ blue. The item the player is at has a frame, and what already played is dimmed.
 The level meter at the right edge shows the stream this PC sends while you are live.
 
 These features need server version 1.1 or newer; on an older server the client says the server needs an update.
+
+### Library and preview
+
+The panel on the right has three sources:
+
+- **Server**: the station library. Search, drag a track onto a queue or use Q1/Q2.
+- **Network**: the network shares you added under *Settings › Network shares* (for example `\\nas\music`). They
+  open with the Windows sign-in of the PC, like in Explorer.
+- **This PC**: the drives of the PC, including a USB stick and mapped network drives.
+
+The headphones button plays a track on the **preview output** (*Settings › Preview*), off air: never in the stream
+and not on the output of the cart wall unless you choose the same sound card. The bar at the bottom of the panel has
+pause, stop and a position slider.
+
+A file from the network or this PC goes on air through the station library: Q1/Q2 or dragging it onto a queue uploads
+it to the library, waits until the server has read its tags and then puts it in the queue. This needs the manager or
+owner role (it counts towards the storage of the station); DJs can preview local files.
 
 ## Going live
 

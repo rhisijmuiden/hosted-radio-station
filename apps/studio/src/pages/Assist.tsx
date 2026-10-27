@@ -1,18 +1,17 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowLeftRight, ArrowUpToLine, CalendarClock, Eraser, GripVertical, ListMusic, Minus, Music2, Play, Plus, Search, SkipForward, Square, Trash2, X } from 'lucide-react';
+import { ArrowLeftRight, ArrowUpToLine, CalendarClock, Eraser, GripVertical, ListMusic, Minus, Music2, Play, Plus, SkipForward, Square, Trash2 } from 'lucide-react';
 import { useState, type DragEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { Badge, Button, Card, EmptyState, Input, Spinner } from '../components/ui';
-import { api, type AutoDj, type Media, type QueueRow, type QueueRule } from '../lib/api';
+import { addLocalFile, DRAG_FILE, DRAG_MEDIA, LibraryPanel, useCanUpload, type QueueName } from '../components/Library';
+import { Badge, Button, Card, EmptyState, Spinner } from '../components/ui';
+import { api, type AutoDj, type QueueRow, type QueueRule } from '../lib/api';
 import { duration } from '../lib/format';
 import { useAutoDj } from '../lib/queries';
 import { useSession } from '../lib/session';
 
-type QueueName = 'q1' | 'q2';
 const DRAG = 'application/x-hrs-item';
-const DRAG_MEDIA = 'application/x-hrs-media';
 
 function useQueueActions(stationId: string) {
   const qc = useQueryClient();
@@ -200,6 +199,7 @@ function NowPlaying({ data, stationId }: { data: AutoDj; stationId: string }) {
 function QueueColumn({ name, rows, stationId, otherName }: { name: QueueName; rows: QueueRow[]; stationId: string; otherName: QueueName }) {
   const { t } = useTranslation();
   const a = useQueueActions(stationId);
+  const canUpload = useCanUpload();
   const [over, setOver] = useState<string | 'end' | null>(null);
   const total = rows.reduce((n, r) => n + (r.media.durationSeconds ?? 0), 0);
 
@@ -208,11 +208,14 @@ function QueueColumn({ name, rows, stationId, otherName }: { name: QueueName; ro
     setOver(null);
     const itemId = e.dataTransfer.getData(DRAG);
     const mediaId = e.dataTransfer.getData(DRAG_MEDIA);
+    const file = e.dataTransfer.getData(DRAG_FILE);
+    const at = beforeId && beforeId === rows[0]?.id ? 'top' : 'bottom';
     if (itemId) a.move.mutate({ itemId, queue: name, beforeId });
-    else if (mediaId) a.add.mutate({ mediaId, queue: name, at: beforeId === rows[0]?.id ? 'top' : 'bottom' });
+    else if (mediaId) a.add.mutate({ mediaId, queue: name, at });
+    else if (file && canUpload) void addLocalFile(stationId, file, name, at, (v) => a.add.mutate(v), t);
   };
   const allow = (e: DragEvent, id: string | 'end') => {
-    if (e.dataTransfer.types.includes(DRAG) || e.dataTransfer.types.includes(DRAG_MEDIA)) {
+    if ([DRAG, DRAG_MEDIA, DRAG_FILE].some((k) => e.dataTransfer.types.includes(k))) {
       e.preventDefault();
       setOver(id);
     }
@@ -365,77 +368,11 @@ function TakeTurns({ data, stationId }: { data: AutoDj; stationId: string }) {
   );
 }
 
-function LibraryPanel({ stationId }: { stationId: string }) {
-  const { t } = useTranslation();
-  const [q, setQ] = useState('');
-  const a = useQueueActions(stationId);
-  const search = useQuery({
-    queryKey: ['library', stationId, q],
-    queryFn: () => api<{ items: Media[]; total: number }>(`/stations/${stationId}/library?enabled=yes&limit=60&sort=artist&q=${encodeURIComponent(q)}`),
-    placeholderData: (prev) => prev,
-  });
-  return (
-    <Card className="flex min-h-0 flex-col">
-      <div className="border-b border-line p-3">
-        <div className="relative">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" />
-          <Input className="pl-9" placeholder={t('assist.search')} value={q} onChange={(e) => setQ(e.target.value)} />
-          {q && (
-            <button className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-muted hover:text-ink" onClick={() => setQ('')} aria-label={t('common.clear')}>
-              <X className="size-4" />
-            </button>
-          )}
-        </div>
-        <div className="mt-1.5 text-[11px] text-muted">{search.data ? t('assist.found', { count: search.data.total }) : ' '}</div>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {search.isPending ? (
-          <div className="grid place-items-center py-10">
-            <Spinner />
-          </div>
-        ) : !search.data?.items.length ? (
-          <EmptyState icon={<ListMusic className="size-6" />} title={t('assist.noTracks')} />
-        ) : (
-          search.data.items.map((m) => (
-            <div
-              key={m.id}
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.setData(DRAG_MEDIA, m.id);
-                e.dataTransfer.effectAllowed = 'copy';
-              }}
-              className="group flex cursor-grab items-center gap-2 border-b border-line px-3 py-2 hover:bg-hover"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[13px] font-semibold">{m.title || m.path}</div>
-                <div className="truncate text-[11px] text-muted">{m.artist}</div>
-              </div>
-              <span className="text-xs text-muted tabular">{duration(m.durationSeconds)}</span>
-              <div className="flex gap-1">
-                {(['q1', 'q2'] as const).map((qn) => (
-                  <button
-                    key={qn}
-                    onClick={(e) => a.add.mutate({ mediaId: m.id, queue: qn, at: e.shiftKey ? 'top' : 'bottom' })}
-                    title={t('assist.addTo', { queue: qn.toUpperCase() })}
-                    className="rounded border border-line px-1.5 py-0.5 text-[10px] font-bold text-muted hover:border-koraal hover:text-ink"
-                  >
-                    {qn.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-      <div className="border-t border-line px-3 py-2 text-[11px] text-muted">{t('assist.libraryHint')}</div>
-    </Card>
-  );
-}
-
 export function AssistPage() {
   const { t } = useTranslation();
   const { station } = useSession();
   const autodj = useAutoDj(station?.id);
+  const queueActions = useQueueActions(station?.id ?? '');
   if (!station) return <EmptyState icon={<ListMusic className="size-6" />} title={t('station.none')} description={t('station.noneText')} />;
   if (autodj.isPending) {
     return (
@@ -463,7 +400,7 @@ export function AssistPage() {
           <QueueColumn name="q2" otherName="q1" rows={data.queues.q2} stationId={station.id} />
         </div>
       </div>
-      <LibraryPanel stationId={station.id} />
+      <LibraryPanel stationId={station.id} add={(v) => queueActions.add.mutate(v)} />
     </div>
   );
 }
