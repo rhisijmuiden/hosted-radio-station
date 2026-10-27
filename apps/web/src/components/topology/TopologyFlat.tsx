@@ -139,7 +139,7 @@ export default function TopologyFlat({
     });
     // An FM/MPX node of a station on a station node stands in the studio, right beside that node.
     const homeOf = (fmId: string) => {
-      const id = data.stations.find((s) => s.cells[fmId] && s.stationNode)?.stationNode;
+      const id = data.nodes.find((x) => x.id === fmId)?.home ?? data.stations.find((s) => s.cells[fmId] && s.stationNode)?.stationNode;
       return id ? data.nodes.find((x) => x.id === id && x.roles.includes('station')) : undefined;
     };
     const studioGroup = (n: TopologyNode) => `studio:${nodeName(t, n, customer)}`;
@@ -424,8 +424,9 @@ export default function TopologyFlat({
                     <span className="topo-card-icon">{c.icon}</span>
                     <span className="min-w-0 flex-1 text-left">
                       <span className="flex items-center gap-1.5">
-                        <b className="block min-w-0 flex-1 truncate text-[12px] leading-tight">{c.title}</b>
-                        {c.tag && <i className="shrink-0 text-[8.5px] font-bold tracking-wide text-accent-text not-italic">{c.tag}</i>}
+                        {/* The name goes first: a long tag (STATION NODE) gives way, so two nodes stay apart. */}
+                        <b className="block max-w-full min-w-0 shrink-0 truncate text-[12px] leading-tight">{c.title}</b>
+                        {c.tag && <i className="ml-auto min-w-0 truncate text-[8.5px] font-bold tracking-wide text-accent-text not-italic">{c.tag}</i>}
                       </span>
                       <small className="flex items-center gap-1.5 truncate text-[10.5px]">
                         {c.health && <span className={clsx('topo-dot shrink-0', c.health !== 'online' && c.health)} />}

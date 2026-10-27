@@ -1119,6 +1119,8 @@ export interface NodeFirewall {
 export interface TopologyNode {
   id: string;
   name: string;
+  /** FM/MPX node: the station node of its studio, drawn beside it (null = none). */
+  home?: string | null;
   /** Host name and address, for who manages the node. */
   hostname: string | null;
   ip: string | null;

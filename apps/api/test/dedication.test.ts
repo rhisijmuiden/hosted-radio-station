@@ -125,6 +125,22 @@ describe('dedicated nodes in routing (1.1.1)', () => {
     expect(topo.nodes.some((n: { id: string }) => n.id === relayId)).toBe(false);
   });
 
+  it('draws an FM node of a customer beside its station node, also without a station chosen', async () => {
+    const schermer = tenants[1]!;
+    const make = async (name: string, roles: string[]) => {
+      const res = await t.app.inject({ method: 'POST', url: '/api/nodes', headers: admin, payload: { name, tenantId: schermer.id, roles } });
+      expect(res.statusCode).toBe(201);
+      await t.app.inject({ method: 'POST', url: '/api/nodes/pair', payload: { code: res.json().pairing.code, hostname: 'node-test' } });
+      return res.json().node.id as string;
+    };
+    await t.app.inject({ method: 'PATCH', url: `/api/tenants/${schermer.id}`, headers: admin, payload: { limits: { maxStations: 2, maxListeners: 100, maxBitrateKbps: 192, storageQuotaMb: 1, maxNodes: 3 } } });
+    const studio = await make('schermer-studio', ['station']);
+    const mpx = await make('schermer-mpx', ['fm']);
+    const topo = (await t.app.inject({ method: 'GET', url: '/api/nodes/topology', headers: admin })).json();
+    expect(topo.nodes.find((n: { id: string }) => n.id === mpx).home).toBe(studio);
+    expect(topo.nodes.find((n: { id: string }) => n.id === relayId).home).toBeNull();
+  });
+
   it('becomes shared again', async () => {
     expect((await patch({ dedication: 'shared' })).json().scope.kind).toBe('shared');
     forgetRelays();

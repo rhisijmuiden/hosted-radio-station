@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import type { FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
@@ -706,6 +706,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       serverNames(ctx),
       getSetting(ctx, 'orchestrator'),
     ]);
+    const tenantRows = await ctx.db.select({ id: schema.tenants.id, stationNodeId: schema.tenants.stationNodeId }).from(schema.tenants).where(isNotNull(schema.tenants.stationNodeId));
     const stationIds = stations.map((s) => s.id);
     const scopeSet = scope ? new Set(scope) : null;
     const pairedRelayNodes = allNodes.filter((n) => n.pairedAt && n.roles.includes('relay')).map((n) => ({ ...n, status: hub.liveStatus(n.id) ?? { ...n.status, online: false } }));
@@ -746,6 +747,19 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
     const mainListeners = Math.round(samples.filter((s) => s.target.startsWith('mount:') && s.at.getTime() === latest.get(s.stationId)).reduce((n, s) => n + s.avg, 0));
 
     const slugs = new Set(stations.map((s) => s.slug));
+    // The studio an FM/MPX node stands in: the station node of its station, else the station node of its customer
+    // (linked, or the only one it has), so it is drawn beside it even before a station is chosen.
+    const stationNodes = nodes.filter((x) => x.pairedAt && x.roles.includes('station'));
+    const tenantNode = new Map(tenantRows.map((x) => [x.id, x.stationNodeId]));
+    const fmHome = (n: Node): string | null => {
+      const id = stations.find((s) => s.id === nodeSettings(n).fm.stationId)?.nodeId;
+      if (id && stationNodes.some((x) => x.id === id)) return id;
+      if (!n.tenantId) return null;
+      const linked = tenantNode.get(n.tenantId);
+      if (linked && stationNodes.some((x) => x.id === linked)) return linked;
+      const own = stationNodes.filter((x) => x.tenantId === n.tenantId);
+      return own.length === 1 ? own[0]!.id : null;
+    };
     const statusOf = (id: string) => hub.liveStatus(id) ?? { ...(allNodes.find((n) => n.id === id)?.status ?? {}), online: false };
     const nodeOutList: z.infer<typeof topologyOut>['nodes'] = nodes.map((n) => {
       const status = statusOf(n.id);
@@ -786,6 +800,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         relaysUp: relaysSeen?.filter((r) => r.state === 'connected').length ?? 0,
         relaysTotal: relaysSeen?.length ?? 0,
         fmOnAir: !!status.online && !!status.fm && (status.fm.meters?.playing === true || (status.fm.output === 'off' && status.fm.uecp === 'connected')),
+        home: n.roles.includes('fm') ? fmHome(n) : null,
       };
     });
 
@@ -823,6 +838,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       relaysUp: 0,
       relaysTotal: 0,
       fmOnAir: false,
+      home: null,
       ...extra,
     });
     if (localStations.length)
@@ -1047,6 +1063,8 @@ const topologyOut = z.object({
       relaysUp: z.number(),
       relaysTotal: z.number(),
       fmOnAir: z.boolean(),
+      /** FM/MPX node: the station node of its studio, drawn beside it. */
+      home: z.string().nullable(),
     }),
   ),
   studios: z.array(z.object({ id: z.string(), station: z.string(), stationId: z.string(), account: z.string(), mount: z.string(), via: z.string(), nodeId: z.string().nullable(), since: z.date() })),
