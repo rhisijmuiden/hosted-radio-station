@@ -55,6 +55,14 @@ Firewall check of nodes outside the own network:
 - A node with a public address on its own interface (a server in a data centre) is told that nothing has to be
   forwarded, instead of "forward each port to" its public address.
 
+Listen addresses of stations that do not play on this server:
+
+- The listen URL of a station on a station node now goes through the relay redirect
+  (`/api/public/stations/<station>/listen/<mount>`), like stations on an ingest node.
+- `/listen/<station>/<mount>` on the orchestrator sends the listener to a relay when the station does not play there
+  (a station node, an ingest node or Orchestrator only), instead of opening the panel's "Page not found". Without a
+  relay that has the stream it answers "No relay has this stream right now".
+
 ## 1.1.1 (27 October 2026)
 
 Phase 15 (Cloudflare DNS) and the fixes found after 1.1.0.

@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import type { FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
 import { z } from 'zod';
 import { schema } from '../db/index.js';
@@ -1332,7 +1332,6 @@ export const nodeAgentRoutes: FastifyPluginAsyncZod = async (app) => {
 
 /** Sends a listener to the best relay node of a station, or to this server. Mounted under /api/public. */
 export const listenRedirectRoutes: FastifyPluginAsyncZod = async (app) => {
-  const { ctx } = app;
   app.get(
     '/stations/:slug/listen/*',
     {
@@ -1343,28 +1342,44 @@ export const listenRedirectRoutes: FastifyPluginAsyncZod = async (app) => {
         params: z.object({ slug: z.string().max(48), '*': z.string().max(64) }),
       },
     },
-    async (req, reply) => {
-      const slug = req.params.slug.toLowerCase();
-      const path = `/${req.params['*']}`;
-      const [row] = await ctx.db
-        .select({ id: schema.stations.id, tenantId: schema.stations.tenantId, enabled: schema.stations.enabled, routing: schema.stations.routing, nodeId: schema.stations.nodeId })
-        .from(schema.stations)
-        .where(eq(schema.stations.slug, slug));
-      const [mount] = row ? await ctx.db.select().from(schema.stationMounts).where(and(eq(schema.stationMounts.stationId, row.id), eq(schema.stationMounts.path, path), eq(schema.stationMounts.isPublic, true))) : [];
-      if (!row || !row.enabled || !mount) return reply.status(404).send({ error: { code: 'not_found', message: 'Stream not found' } });
-      const settings = await getSetting(ctx, 'nodes');
-      let target: string | null = null;
-      // Without audio here (ingest node or station node) a relay is the only place to listen.
-      const elsewhere = !!row.nodeId || pushedRouting(stationRouting(row)) || (await getSetting(ctx, 'orchestrator')).only;
-      if (settings.routeListeners || elsewhere) {
-        await app.nodes.geo.refresh().catch(() => undefined);
-        target = await pickRelay(ctx, row.id, slug, path, app.nodes.geo.lookup(req.ip));
-      }
-      if (!target && elsewhere) return reply.status(503).header('retry-after', '10').header('cache-control', 'no-store').send({ error: { code: 'no_relay', message: 'No relay has this stream right now' } });
-      const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
-      return reply
-        .header('cache-control', 'no-store')
-        .redirect(`${target ?? `/listen/${slug}${path}`}${qs}`, 302);
-    },
+    (req, reply) => sendListener(app, req, reply, req.params.slug, `/${req.params['*']}`, true),
   );
 };
+
+/**
+ * /listen/<slug>/<mount> on this server (phase 19). The web server only routes it to a station server that runs here;
+ * everything else (a station on a station node or an ingest node, or Orchestrator only) lands on the API, which sends
+ * the listener to a relay instead of showing the panel's "Page not found".
+ */
+export const listenFallbackRoutes: FastifyPluginAsyncZod = async (app) => {
+  app.get(
+    '/listen/:slug/*',
+    { schema: { hide: true, params: z.object({ slug: z.string().max(48), '*': z.string().max(64) }) } },
+    (req, reply) => sendListener(app, req, reply, req.params.slug, `/${req.params['*']}`, false),
+  );
+};
+
+async function sendListener(app: FastifyInstance, req: FastifyRequest, reply: FastifyReply, rawSlug: string, path: string, local: boolean) {
+  const { ctx } = app;
+  const slug = rawSlug.toLowerCase();
+  const [row] = await ctx.db
+    .select({ id: schema.stations.id, tenantId: schema.stations.tenantId, enabled: schema.stations.enabled, routing: schema.stations.routing, nodeId: schema.stations.nodeId })
+    .from(schema.stations)
+    .where(eq(schema.stations.slug, slug));
+  const [mount] = row ? await ctx.db.select().from(schema.stationMounts).where(and(eq(schema.stationMounts.stationId, row.id), eq(schema.stationMounts.path, path), eq(schema.stationMounts.isPublic, true))) : [];
+  if (!row || !row.enabled || !mount) return reply.status(404).send({ error: { code: 'not_found', message: 'Stream not found' } });
+  const settings = await getSetting(ctx, 'nodes');
+  let target: string | null = null;
+  // Without audio here (ingest node or station node) a relay is the only place to listen.
+  const elsewhere = !!row.nodeId || pushedRouting(stationRouting(row)) || (await getSetting(ctx, 'orchestrator')).only;
+  // Reached through /listen/ the stream is not served here, so this server is no fallback.
+  if (settings.routeListeners || elsewhere || !local) {
+    await app.nodes.geo.refresh().catch(() => undefined);
+    target = await pickRelay(ctx, row.id, slug, path, app.nodes.geo.lookup(req.ip));
+  }
+  if (!target && (elsewhere || !local)) return reply.status(503).header('retry-after', '10').header('cache-control', 'no-store').send({ error: { code: 'no_relay', message: 'No relay has this stream right now' } });
+  const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  return reply
+    .header('cache-control', 'no-store')
+    .redirect(`${target ?? `/listen/${slug}${path}`}${qs}`, 302);
+}

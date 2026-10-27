@@ -94,7 +94,8 @@ async function baseConnection(ctx: AppContext, station: Station, mounts: Mount[]
         plain: d.ingestPlainPort ? { port: d.ingestPlainPort } : null,
         legacy: station.legacyPort ? { port: station.legacyPort, sourcePort: station.legacyPort + 1, mount: legacyMount?.path ?? null } : null,
         listenBase,
-        mounts: mounts.map((m) => ({ id: m.id, path: m.path, encoderMount: m.path, listenUrl: m.isPublic ? `${listenBase}/listen/${station.slug}${m.path}` : null })),
+        // Listeners go through the relays the node feeds; this server has no audio of the station.
+        mounts: mounts.map((m) => ({ id: m.id, path: m.path, encoderMount: m.path, listenUrl: m.isPublic ? `${listenBase}/api/public/stations/${station.slug}/listen${m.path}` : null })),
       };
     }
   }

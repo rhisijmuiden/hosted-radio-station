@@ -215,6 +215,14 @@ describe('relays of a station on a station node (phase 19)', () => {
       await t.db.update(schema.nodes).set({ roles: ['source'] }).where(eq(schema.nodes.id, relay2.id));
       const stale = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/routing`, headers: admin })).json();
       expect(stale.stale).toEqual([{ id: relay2.id, name: 'relay-two' }]);
+      // Listeners are sent to the relays: the listen URL goes through the redirect, and /listen/ on this server (where
+      // the station does not play) redirects too instead of ending on the panel's "Page not found".
+      const detail = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}`, headers: admin })).json();
+      expect(detail.connection.mounts[0].listenUrl).toContain('/api/public/stations/schermer-fm/listen/live');
+      const direct = await t.app.inject({ method: 'GET', url: '/listen/schermer-fm/live' });
+      expect(direct.statusCode).toBe(503);
+      expect(direct.json().error.code).toBe('no_relay');
+      expect((await t.app.inject({ method: 'GET', url: '/listen/schermer-fm/nope' })).statusCode).toBe(404);
     } finally {
       await t.db.update(schema.stations).set({ nodeId: null, routing: before.routing }).where(eq(schema.stations.id, stationId));
       forgetRelays();
