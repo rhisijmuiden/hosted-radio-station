@@ -12,6 +12,7 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   on its own sound card output. Files from the network or this PC go into a queue through the station library.
 - `/api/studio/hello` tells the client the server version and its features, so an older server is reported instead
   of failing.
+- Fixed: the remaining time of the playing track in Live assist now counts down every second.
 
 ## 1.0.1 (October 2026)
 
