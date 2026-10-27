@@ -450,7 +450,7 @@ A node role that watches the whole platform from the outside, as a listener and 
 - Firewall checks on demand: when a customer (or an admin) presses **Check firewall**, the orchestrator asks the monitoring node to test every port of that customer's studio node from outside, and shows a green or red tick per port. This replaces the node checking itself.
 - Alerts: problems go to the orchestrator, which shows them in the panel and sends e-mail or webhooks, with a quiet period so one outage gives one alert.
 - Several monitoring nodes in different places can run together, so a problem is only raised when more than one sees it.
-- The existing remote probes on every node keep running; the monitoring node adds the independent outside view.
+- As soon as a monitoring node is online, the orchestrator switches off the remote probe on all other nodes (station, ingest, relay); the monitoring node takes over all stream checks. Without a monitoring node, the probes keep running as now. Nodes still report their own health (CPU, listeners, whether their feed is connected), because relays need that to switch to the backup feed by themselves.
 
 ## Queued fixes
 
