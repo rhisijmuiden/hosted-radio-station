@@ -137,7 +137,7 @@ describe('upgrade to Radio station', () => {
     expect(script).toContain('crossfade(');
     expect(script).toContain('%mp3.cbr(bitrate=128');
     // Manual playout: the queue only plays once armed; in between the player holds.
-    expect(script).toContain('[gated, hold, emergency]');
+    expect(script).toContain('[now, gated, hold, emergency]');
     expect(script).toContain('server.register("play"');
     expect(script).toContain('server.register("manual"');
     expect(script).toContain('server.register("playnow"');
@@ -430,7 +430,7 @@ describe.runIf(hasFfmpeg)('library and AutoDJ', () => {
     }
   });
 
-  it('plays a dropped track now: the track loaded ahead goes back, the player asks again and gets it', async () => {
+  it('plays a dropped track now: handed to the player on its own, the track loaded ahead stays next', async () => {
     const ctrl = new AutodjController(t.ctx, pino({ level: 'silent' }));
     const hook = http.createServer((req, res) => {
       if (!ctrl.handle(req, res)) res.writeHead(404).end();
@@ -438,33 +438,37 @@ describe.runIf(hasFfmpeg)('library and AutoDJ', () => {
     await new Promise<void>((r) => hook.listen(0, '127.0.0.1', () => r()));
     const base = `http://127.0.0.1:${(hook.address() as AddressInfo).port}/autodj/${stationId}`;
     const token = { 'x-hrs-token': autodjToken(t.ctx, stationId) };
-    const ask = async () => (await (await fetch(`${base}/next`, { method: 'POST', headers: token })).text()).match(/hrs_item="([^"]+)"/)![1]!;
-    // Stand-in for Liquidsoap: on playnow it drops what it loaded and asks for the next track.
+    const itemOf = (uri: string) => uri.match(/hrs_item="([^"]+)"/)![1]!;
+    const ask = async () => itemOf(await (await fetch(`${base}/next`, { method: 'POST', headers: token })).text());
     const path = autodjSocketPath(t.ctx, stationId);
-    const got: string[] = [];
+    const heard: string[] = [];
     const player = net.createServer((c) => {
-      c.on('data', async (d) => {
-        const cmd = d.toString().split('\n')[0]!;
-        if (cmd === 'playnow') got.push(await ask());
+      c.on('data', (d) => {
+        heard.push(d.toString().split('\n')[0]!);
         c.end('OK\nEND\n');
       });
     });
     rmSync(path, { force: true });
     await new Promise<void>((r) => player.listen(path, () => r()));
+    const state = async (id: string) => (await t.db.select().from(schema.queueItems).where(eq(schema.queueItems.id, id)))[0]?.state;
     try {
       const ahead = await ask();
-      const [five] = await t.db.select().from(schema.mediaFiles).where(eq(schema.mediaFiles.title, 'Four'));
-      const res = await api('POST', '/autodj/queue', { mediaId: five!.id, queue: 'q2', at: 'bottom' });
+      const [four] = await t.db.select().from(schema.mediaFiles).where(eq(schema.mediaFiles.title, 'Four'));
+      const res = await api('POST', '/autodj/queue', { mediaId: four!.id, queue: 'q2', at: 'bottom' });
       const dropped = (res.json().queues.q2 as { id: string }[]).at(-1)!.id;
       expect((await api('POST', '/autodj/play-now', { itemId: dropped })).statusCode).toBe(200);
       await ctrl.command(JSON.stringify({ stationId, command: 'playnow', itemId: dropped }));
-      expect(got).toEqual([dropped]);
-      const [back] = await t.db.select().from(schema.queueItems).where(eq(schema.queueItems.id, ahead));
-      expect(back!.state).toBe('queued');
-      // Only once: the request after it follows the queue rule again.
-      expect(await ask()).not.toBe(dropped);
-      // A library track goes on top of Q1 and is handed out the same way.
-      const lib = await api('POST', '/autodj/play-now', { mediaId: five!.id });
+      expect(heard).toHaveLength(1);
+      expect(heard[0]).toMatch(/^playnow annotate:/);
+      expect(itemOf(heard[0]!)).toBe(dropped);
+      expect(await state(dropped)).toBe('cued');
+      expect(await state(ahead)).toBe('cued');
+      // The track loaded ahead: skipping starts it.
+      heard.length = 0;
+      await ctrl.command(JSON.stringify({ stationId, command: 'playnow', itemId: ahead }));
+      expect(heard).toEqual(['skip']);
+      // A library track goes on top of Q1 first.
+      const lib = await api('POST', '/autodj/play-now', { mediaId: four!.id });
       expect(lib.statusCode).toBe(200);
       const waiting = (lib.json().queues.q1 as { state: string; media: { title: string } }[]).filter((r) => r.state === 'queued');
       expect(waiting[0]!.media.title).toBe('Four');
