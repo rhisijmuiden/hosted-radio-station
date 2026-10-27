@@ -27,6 +27,8 @@ const routingOut = z.object({
   autodjHere: z.boolean(),
   canEdit: z.boolean(),
   options: z.object({ ingests: z.array(choiceOut), relays: z.array(choiceOut) }),
+  /** Chosen relays that can no longer carry the station (gone, lost the relay role, or dedicated elsewhere); dropped on the next save. */
+  stale: z.array(z.object({ id: z.uuid(), name: z.string() })),
   status: z.object({
     /** The ingest the relays hear now: "local", a node id, or null when nothing is on air. */
     active: ref.nullable(),
@@ -67,11 +69,13 @@ export const stationRoutingRoutes: FastifyPluginAsyncZod = async (app) => {
       locked: station.nodeId ? 'station_node' : null,
       orchestratorOnly: only,
       autodjHere: station.edition === 'station',
-      canEdit: canEdit && !station.nodeId,
+      // On a station node the ingest is the node itself, but its relays are still chosen here (phase 19).
+      canEdit,
       options: {
         ingests: nodes.filter((n) => n.roles.includes('source') && (allowed(n) || ingestsOf(r).some((i) => i.ref === n.id))).map(choice),
         relays: relays.filter((n) => allowed(n) || chosen?.has(n.id)).map(choice),
       },
+      stale: [...(chosen ?? [])].filter((id) => !relays.some((n) => n.id === id && serves(n, station))).map((id) => ({ id, name: nodes.find((n) => n.id === id)?.name ?? '?' })),
       status: {
         active,
         ingests,
@@ -104,15 +108,15 @@ export const stationRoutingRoutes: FastifyPluginAsyncZod = async (app) => {
       const { station, tenant, access } = await stationAccess(ctx, req, req.params.id, 'owner');
       const auth = requireUser(req);
       const superadmin = auth.user.isSuperadmin && !auth.keyTenantId;
-      if (station.nodeId) throw badRequest('This station runs on a station node, which feeds its relays itself');
-      const body: StationRouting = { ...req.body };
+      const current = stationRouting(station);
+      // A station node is its own ingest: only the relays it feeds can be chosen.
+      const body: StationRouting = station.nodeId ? { ...current, relays: req.body.relays, spareRelays: req.body.spareRelays } : { ...req.body };
       if (body.backupIngest === body.ingest) body.backupIngest = null;
       // Orchestrator only (phase 18): this server takes no encoders, also not as a backup.
-      if ((body.ingest === 'local' || body.backupIngest === 'local') && (await getSetting(ctx, 'orchestrator')).only) throw badRequest('This server is set to orchestrator only and takes no encoders; choose an ingest node');
+      if (!station.nodeId && (body.ingest === 'local' || body.backupIngest === 'local') && (await getSetting(ctx, 'orchestrator')).only) throw badRequest('This server is set to orchestrator only and takes no encoders; choose an ingest node');
       // The AutoDJ of a Radio station plays on this server, so encoders and AutoDJ meet here.
-      if (station.edition === 'station' && body.ingest !== 'local') throw badRequest('The AutoDJ of a Radio station runs on this server, so this server stays its main ingest. Choose an ingest node as backup, or move the station to a station node.');
+      if (!station.nodeId && station.edition === 'station' && body.ingest !== 'local') throw badRequest('The AutoDJ of a Radio station runs on this server, so this server stays its main ingest. Choose an ingest node as backup, or move the station to a station node.');
       const nodes = await ctx.db.select().from(schema.nodes).where(isNotNull(schema.nodes.pairedAt));
-      const current = stationRouting(station);
       const kept = (id: string) => ingestsOf(current).some((i) => i.ref === id) || (current.relays !== 'auto' && current.relays.includes(id));
       const check = (id: string, role: 'source' | 'relay') => {
         const n = nodes.find((x) => x.id === id);
@@ -122,7 +126,7 @@ export const stationRoutingRoutes: FastifyPluginAsyncZod = async (app) => {
         if (!serves(n, station)) throw forbidden(`${n.name} is dedicated to another customer or station`);
         if (!n.tenantId && !superadmin && !kept(n.id)) throw forbidden('Only an administrator can assign the platform nodes');
       };
-      for (const i of [body.ingest, body.backupIngest]) if (i && i !== 'local') check(i, 'source');
+      if (!station.nodeId) for (const i of [body.ingest, body.backupIngest]) if (i && i !== 'local') check(i, 'source');
       if (body.relays !== 'auto') {
         body.relays = [...new Set(body.relays)];
         for (const id of body.relays) check(id, 'relay');

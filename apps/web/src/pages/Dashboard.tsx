@@ -4,6 +4,7 @@ import { ArrowRight, Building2, Check, DatabaseBackup, Globe, KeyRound, Mail, Ra
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
+import { AttentionCard } from '../components/Attention';
 import { useSystemInfo } from '../components/InfoDialog';
 import { Badge, Button, Card, CardHeader, PageHeader, Table } from '../components/ui';
 import { api, type ApiKey, type BackupTarget, type ProxySettings, type SmtpSettings, type StationListItem, type StatsLive, type Tenant, type UserDetail } from '../lib/api';
@@ -77,6 +78,7 @@ function AdminDashboard() {
           </Link>
         }
       />
+      <AttentionCard />
       <section className="mb-4 grid grid-cols-2 gap-4 xl:grid-cols-4">
         <Stat label={t('dashboard.customers')} value={tenants.data ? list.length : '…'} note={t('dashboard.activeCount', { count: list.filter((x) => x.active).length })} />
         <Stat
@@ -209,6 +211,7 @@ function MemberDashboard() {
         <Card className="p-8 text-center text-muted">{t('dashboard.noMemberships')}</Card>
       ) : (
         <>
+          <AttentionCard />
           {!!stations.data?.length && (
             <Card className="mb-4">
               <CardHeader title={t('nav.stations')} />

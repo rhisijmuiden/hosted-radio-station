@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDownCircle, ArrowLeft, ArrowUpCircle, ExternalLink, Headphones, Mic, PlugZap, Radio, Trash2, Upload } from 'lucide-react';
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
@@ -18,13 +18,15 @@ import { StatisticsView } from '../components/stats/StatisticsView';
 import { formatLabel, MountsCard } from '../components/station/Mounts';
 import { OutputsCard, OutputStateBadge } from '../components/station/Outputs';
 import { NodeOfflineBanner, PlacementCard } from '../components/station/Placement';
-import { Badge, Button, Card, CardHeader, CopyField, Fact, Field, Input, PageHeader, Select, Spinner, Switch, Table, Tabs, Textarea } from '../components/ui';
+import { Badge, Button, Card, CardHeader, CopyField, Fact, Field, Input, PageHeader, Select, Spinner, Switch, Table, Textarea } from '../components/ui';
 import { api, type LiveSession, type StationDetail, type StationStatus, type Tenant } from '../lib/api';
 import { formatBytes, formatDate, formatDuration } from '../lib/format';
 import { EditionBadge } from './Stations';
 import { ConnectionTab } from '../components/connection/Connection';
+import { DeliveryPathCard, DeliveryPathSummary } from '../components/station/DeliveryPath';
+import { stationMenu, stationTabHref, stationTabs, type StationTab } from '../components/station/menu';
 
-type Tab = 'overview' | 'connection' | 'autodj' | 'library' | 'playlists' | 'clocks' | 'schedule' | 'statistics' | 'mounts' | 'outputs' | 'routing' | 'accounts' | 'history' | 'public' | 'requests' | 'ondemand' | 'settings';
+type Tab = StationTab;
 const rank = { dj: 1, manager: 2, owner: 3, superadmin: 4 } as const;
 
 function useStationStatus(id: string) {
@@ -477,48 +479,18 @@ export function StationDetailPage() {
   if (!station.data) return <Card className="p-8 text-center text-muted">{(station.error as Error)?.message}</Card>;
   const s = station.data;
   const manager = rank[s.role] >= rank.manager;
-  const tabs: { value: Tab; label: ReactNode }[] = [
-    { value: 'overview', label: t('stations.tabs.overview') },
-    { value: 'connection', label: t('stations.tabs.connection') },
-    ...(s.edition === 'station'
-      ? [
-          { value: 'autodj' as const, label: t('stations.tabs.autodj') },
-          { value: 'library' as const, label: t('stations.tabs.library') },
-          { value: 'playlists' as const, label: t('stations.tabs.playlists') },
-          { value: 'clocks' as const, label: t('stations.tabs.clocks') },
-          { value: 'schedule' as const, label: t('stations.tabs.schedule') },
-        ]
-      : []),
-    ...(manager
-      ? [
-          { value: 'statistics' as const, label: t('stations.tabs.statistics') },
-          { value: 'mounts' as const, label: t('stations.tabs.mounts') },
-          { value: 'outputs' as const, label: t('stations.tabs.outputs') },
-          { value: 'routing' as const, label: t('stations.tabs.routing') },
-        ]
-      : []),
-    { value: 'accounts', label: manager ? t('stations.tabs.accounts') : t('stations.tabs.myAccount') },
-    { value: 'history', label: t('stations.tabs.history') },
-    ...(manager ? [{ value: 'public' as const, label: t('stations.tabs.public') }] : []),
-    {
-      value: 'requests',
-      label: (
-        <span className="inline-flex items-center gap-1.5">
-          {t('stations.tabs.requests')}
-          {!!requests.data?.pending && <span className="grid h-[18px] min-w-[18px] place-items-center rounded-full bg-koraal px-1 text-[10px] font-bold text-nacht">{requests.data.pending}</span>}
-        </span>
-      ),
-    },
-    { value: 'ondemand', label: t('stations.tabs.ondemand') },
-    ...(manager ? [{ value: 'settings' as const, label: t('stations.tabs.settings') }] : []),
-  ];
+  // Phase 19: the station's sections live in the sidebar menu; on a phone they are a picker above the page.
+  const groups = stationMenu(s, t, requests.data?.pending ?? 0);
+  const items = stationTabs(groups);
   const requested = params.get('tab') as Tab | null;
-  const tab = tabs.some((x) => x.value === requested) ? requested! : 'overview';
+  const tab: Tab = items.some((x) => x.value === requested) ? requested! : 'overview';
+  const group = groups.find((g) => g.items.some((i) => i.value === tab));
+  const current = items.find((i) => i.value === tab)!;
   const onAir = !!status.data?.mounts.some((m) => m.live);
 
   return (
     <>
-      <Link to="/stations" className="mb-3 inline-flex items-center gap-1 text-[13px] text-muted hover:text-ink">
+      <Link to="/stations" className="mb-3 inline-flex items-center gap-1 text-[13px] text-muted hover:text-ink lg:hidden">
         <ArrowLeft className="size-4" /> {t('nav.stations')}
       </Link>
       <PageHeader
@@ -554,9 +526,32 @@ export function StationDetailPage() {
         }
       />
       <NodeOfflineBanner station={s} />
-      <Tabs value={tab} onChange={(v) => setParams(v === 'overview' ? {} : { tab: v }, { replace: true })} tabs={tabs} />
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
+        <h2 className="display flex items-center gap-2 text-lg">
+          <current.icon className="size-5 text-koraal" />
+          {group?.title && <span className="font-sans text-sm font-medium text-muted">{group.title} ›</span>}
+          {current.label}
+        </h2>
+        <Select className="w-auto lg:hidden" aria-label={t('stations.menu.section')} value={tab} onChange={(e) => setParams(e.target.value === 'overview' ? {} : { tab: e.target.value }, { replace: true })}>
+          {groups.map((g) => (
+            <optgroup key={g.key} label={g.title ?? s.name}>
+              {g.items.map((i) => (
+                <option key={i.value} value={i.value}>
+                  {i.label}
+                  {i.badge ? ` (${i.badge})` : ''}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </Select>
+      </div>
       {tab === 'overview' && (
         <div className="grid items-start gap-4 xl:grid-cols-[1.3fr_1fr]">
+          {manager && (
+            <div className="xl:col-span-2">
+              <DeliveryPathSummary station={s} to={stationTabHref(s.id, 'routing')} />
+            </div>
+          )}
           <LiveCard station={s} />
           <div className="flex flex-col gap-4">
             <ConnectionCard station={s} />
@@ -575,7 +570,12 @@ export function StationDetailPage() {
       )}
       {tab === 'mounts' && <MountsCard station={s} canEdit={manager} maxBitrate={tenant.data?.limits.maxBitrateKbps ?? 320} />}
       {tab === 'outputs' && <OutputsCard station={s} canEdit={manager} />}
-      {tab === 'routing' && <RoutingCard station={s} />}
+      {tab === 'routing' && (
+        <div className="flex flex-col gap-4">
+          <DeliveryPathCard station={s} />
+          <RoutingCard station={s} />
+        </div>
+      )}
       {tab === 'accounts' && <AccountsCard station={s} />}
       {tab === 'history' && <HistoryCard station={s} />}
       {tab === 'public' && <PublicPageTab station={s} canEdit={manager} />}
