@@ -102,7 +102,15 @@ export interface Account {
   mountIds: string[];
   enabled: boolean;
 }
-export interface Media {
+/** Cue points in seconds from the start of the file; null = not set. Missing on servers before 1.3. */
+export interface Cues {
+  cueIn?: number | null;
+  cueIntro?: number | null;
+  cueSegue?: number | null;
+  cueFadeOut?: number | null;
+  cueOut?: number | null;
+}
+export interface Media extends Cues {
   id: string;
   title: string;
   artist: string;
@@ -122,7 +130,7 @@ export interface QueueRow {
   playlistName: string | null;
   label: string | null;
   startedAt: string | null;
-  media: Pick<Media, 'id' | 'title' | 'artist' | 'album' | 'durationSeconds' | 'location' | 'path'>;
+  media: Pick<Media, 'id' | 'title' | 'artist' | 'album' | 'durationSeconds' | 'location' | 'path'> & Cues;
 }
 export interface AutoDj {
   edition: 'distribution' | 'station';

@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { schema } from '../src/db/index.js';
 import { scanLibrary, tagsFromFileName } from '../src/services/autodj/library.js';
 import { autodjScriptPath, autodjSocketPath, autodjToken, encoder } from '../src/services/autodj/liquidsoap.js';
+import { cueAnnotations, cueProblem, playSeconds } from '../src/services/autodj/cues.js';
 import { nextTrack, playerStarted, requestUri, trackStarted, weightedPick } from '../src/services/autodj/planner.js';
 import { mediaDir } from '../src/services/streaming/icecast.js';
 import { buildStreamsState, runsHere, type Station } from '../src/services/streaming/state.js';
@@ -77,6 +78,24 @@ describe('planner helpers', () => {
   it('escapes metadata in request URIs', () => {
     const uri = requestUri({ id: 'i1', queue: 'q2' }, { title: 'Say "hi"', artist: 'A\\B', album: '', gainDb: -4.5 } as never, '/m/x.mp3', { normalize: true } as never);
     expect(uri).toBe('annotate:hrs_item="i1",hrs_queue="q2",title="Say \\"hi\\"",artist="A\\\\B",liq_amplify="-4.50 dB":/m/x.mp3');
+  });
+  it('turns cue points into player annotations and play lengths', () => {
+    const none = { cueIn: null, cueIntro: null, cueSegue: null, cueFadeOut: null, cueOut: null };
+    const m = { ...none, durationSeconds: 200, cueIn: 1.5, cueIntro: 12, cueSegue: 190, cueFadeOut: 192, cueOut: 196 };
+    expect(cueAnnotations(m, 3)).toEqual({ liq_cue_in: '1.500', liq_cue_out: '196.000', liq_cross_duration: '6.000', liq_fade_out: '4.000' });
+    // Without crossfade the track stops at its segue.
+    expect(cueAnnotations(m, 0)).toEqual({ liq_cue_in: '1.500', liq_cue_out: '190.000' });
+    expect(cueAnnotations({ ...none, durationSeconds: 200 }, 3)).toEqual({});
+    expect(playSeconds(m, 3)).toBe(188.5);
+    expect(playSeconds({ ...m, cueSegue: null }, 3)).toBe(191.5);
+    expect(playSeconds({ ...none, durationSeconds: null }, 3)).toBeNull();
+    expect(cueProblem(m, 200)).toBeNull();
+    expect(cueProblem({ ...m, cueIntro: 0.5 }, 200)).toMatch(/between cue in and cue out/);
+    expect(cueProblem({ ...m, cueOut: 2 }, 200)).toMatch(/at least a second/);
+    expect(cueProblem({ ...m, cueOut: 260 }, 200)).toMatch(/after the end/);
+    expect(cueProblem({ ...m, cueSegue: 100 }, 200)).toMatch(/at most 30 seconds/);
+    const uri = requestUri({ id: 'i1', queue: 'q1' }, { title: 'T', artist: '', album: '', gainDb: null, ...m } as never, '/m/x.mp3', { normalize: true, crossfadeSeconds: 0 } as never);
+    expect(uri).toBe('annotate:hrs_item="i1",hrs_queue="q1",title="T",liq_cue_in="1.500",liq_cue_out="190.000":/m/x.mp3');
   });
   it('makes encoders for every format', () => {
     expect(encoder('mp3', 128)).toContain('%mp3');
@@ -276,6 +295,20 @@ describe.runIf(hasFfmpeg)('library and AutoDJ', () => {
     rmSync(join(music, 'music', 'extra.mp3'));
     p = await scanLibrary(t.ctx, stationId);
     expect(p.removed).toBe(1);
+  });
+
+  it('stores cue points, kept on the next scan, and checks them', async () => {
+    const [two] = await t.db.select().from(schema.mediaFiles).where(eq(schema.mediaFiles.title, 'Two (Edit)'));
+    const cues = { cueIn: 0.2, cueIntro: 1, cueSegue: 2.2, cueFadeOut: 2.4, cueOut: 2.6 };
+    const res = await api('PATCH', `/library/${two!.id}`, { cues });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject(cues);
+    expect((await api('PATCH', `/library/${two!.id}`, { cues: { ...cues, cueIntro: 0.1 } })).statusCode).toBe(400);
+    await scanLibrary(t.ctx, stationId);
+    const [after] = await t.db.select().from(schema.mediaFiles).where(eq(schema.mediaFiles.id, two!.id));
+    expect(after).toMatchObject(cues);
+    const cleared = await api('PATCH', `/library/${two!.id}`, { cues: { cueIn: null, cueIntro: null, cueSegue: null, cueFadeOut: null, cueOut: null } });
+    expect(cleared.json()).toMatchObject({ cueIn: null, cueOut: null });
   });
 
   it('fills the one queue from all playlists, keeping artists apart', async () => {

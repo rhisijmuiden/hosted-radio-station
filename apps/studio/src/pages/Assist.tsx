@@ -7,7 +7,9 @@ import { toast } from 'sonner';
 import { addLocalFile, DRAG_FILE, DRAG_MEDIA, LibraryPanel, useCanUpload, type QueueName } from '../components/Library';
 import { JingleBar } from '../components/Jingles';
 import { Badge, Button, Card, EmptyState, Spinner } from '../components/ui';
-import { api, type AutoDj } from '../lib/api';
+import { CueButton, CueEditor, hasCues, useCanCue } from '../components/CueEditor';
+import { api, type AutoDj, type QueueRow } from '../lib/api';
+import { introLeft, playLength, trackLength } from '../lib/cues';
 import { duration } from '../lib/format';
 import { useNow } from '../lib/now';
 import { useAutoDj, useRundown } from '../lib/queries';
@@ -131,10 +133,13 @@ function NowPlaying({ data, stationId, lines, now }: { data: AutoDj; stationId: 
   const holding = manual && !!data.playout?.holding;
   const np = data.nowPlaying;
   const elapsed = np?.startedAt ? (now - new Date(np.startedAt).getTime()) / 1000 : 0;
-  const total = np?.media.durationSeconds ?? null;
+  // From cue in to cue out: the player starts the track at its cue in.
+  const total = np ? trackLength(np.media) : null;
   const pct = total && !holding ? Math.min(100, (elapsed / total) * 100) : 0;
   const remaining = total && !holding ? Math.max(0, total - elapsed) : null;
   const ends = np?.startedAt && total ? new Date(np.startedAt).getTime() + total * 1000 : null;
+  const intro = np && !holding ? introLeft(np.media, elapsed) : null;
+  const introPct = np && total && np.media.cueIntro != null ? Math.min(100, ((np.media.cueIntro - (np.media.cueIn ?? 0)) / total) * 100) : null;
   const next = queueOf(data).find((r) => r.state === 'cued') ?? queueOf(data)[0];
   // While holding, the first line is the waiting track itself.
   const after = holding ? lines.slice(1, 3) : lines.slice(0, 2);
@@ -188,10 +193,16 @@ function NowPlaying({ data, stationId, lines, now }: { data: AutoDj; stationId: 
                   : ''}
           </div>
         </div>
+        {intro != null && (
+          <div className="rounded-md bg-lucht/20 px-3 py-1.5 text-right" title={t('assist.introHint')}>
+            <div className={clsx('display text-[32px] leading-none tabular', intro < 5 && 'text-accent-text')}>{Math.ceil(intro)}</div>
+            <div className="mt-1 text-[10px] font-bold tracking-[0.08em] text-muted uppercase">{t('assist.intro')}</div>
+          </div>
+        )}
         <div className="text-right">
           {holding ? (
             <>
-              <div className="display text-[44px] leading-none tabular">{next ? duration(next.media.durationSeconds) : '–:––'}</div>
+              <div className="display text-[44px] leading-none tabular">{next ? duration(trackLength(next.media)) : '–:––'}</div>
               <div className="mt-1 text-[11px] text-muted">{t('playout.length')}</div>
             </>
           ) : (
@@ -202,8 +213,9 @@ function NowPlaying({ data, stationId, lines, now }: { data: AutoDj; stationId: 
           )}
         </div>
       </div>
-      <div className="h-1.5 bg-meter">
-        <div className="h-full bg-koraal transition-[width] duration-1000 ease-linear" style={{ width: `${pct}%` }} />
+      <div className="relative h-1.5 bg-meter">
+        {introPct != null && <div className="absolute inset-y-0 left-0 bg-lucht/40" style={{ width: `${introPct}%` }} />}
+        <div className="relative h-full bg-koraal transition-[width] duration-1000 ease-linear" style={{ width: `${pct}%` }} />
       </div>
       <div className="flex items-center gap-4 px-5 py-3">
         <ModeSwitch data={data} stationId={stationId} />
@@ -267,9 +279,11 @@ function PlaylistCard({ data, stationId, lines, until }: { data: AutoDj; station
   const a = useQueueActions(stationId);
   const canUpload = useCanUpload();
   const kind = useItemKind();
+  const canCue = useCanCue();
+  const [cue, setCue] = useState<QueueRow['media'] | null>(null);
   const [over, setOver] = useState<string | 'end' | null>(null);
   const rows = queueOf(data);
-  const total = rows.reduce((n, r) => n + (r.media.durationSeconds ?? 0), 0);
+  const total = rows.reduce((n, r) => n + (trackLength(r.media) ?? 0), 0);
   const nextBlock = lines.find((l): l is Extract<Line, { kind: 'block' }> => l.kind === 'block')?.block;
 
   const drop = (e: DragEvent, beforeId: string | null) => {
@@ -289,7 +303,7 @@ function PlaylistCard({ data, stationId, lines, until }: { data: AutoDj; station
       setOver(id);
     }
   };
-  const GRID = 'grid grid-cols-[20px_64px_minmax(0,1fr)_52px_72px] items-center gap-2';
+  const GRID = 'grid grid-cols-[20px_64px_minmax(0,1fr)_52px_80px] items-center gap-2';
 
   return (
     <Card className="flex min-h-0 flex-1 flex-col">
@@ -393,15 +407,20 @@ function PlaylistCard({ data, stationId, lines, until }: { data: AutoDj; station
                   {r.state === 'cued' && <Badge tone="online">{t('assist.cued')}</Badge>}
                 </div>
               </div>
-              <span className="text-right text-xs text-muted tabular">{duration(r.media.durationSeconds)}</span>
+              <span className="text-right text-xs text-muted tabular">{duration(trackLength(r.media))}</span>
               {r.state === 'queued' ? (
                 <div className="flex justify-end opacity-0 transition-opacity group-hover:opacity-100">
+                  {canCue && <CueButton onClick={() => setCue(r.media)} set={hasCues(r.media)} />}
                   <button className="rounded p-1 text-muted hover:bg-hover hover:text-ink" title={t('assist.toTop')} onClick={() => rows[0]!.id !== r.id && a.move.mutate({ itemId: r.id, queue: 'q1', beforeId: rows[0]!.id })}>
                     <ArrowUpToLine className="size-3.5" />
                   </button>
                   <button className="rounded p-1 text-muted hover:bg-hover hover:text-offline" title={t('assist.remove')} onClick={() => a.remove.mutate(r.id)}>
                     <Trash2 className="size-3.5" />
                   </button>
+                </div>
+              ) : canCue ? (
+                <div className="flex justify-end opacity-0 transition-opacity group-hover:opacity-100">
+                  <CueButton onClick={() => setCue(r.media)} set={hasCues(r.media)} />
                 </div>
               ) : (
                 <span />
@@ -411,6 +430,7 @@ function PlaylistCard({ data, stationId, lines, until }: { data: AutoDj; station
         })}
         <div className={clsx('h-8', over === 'end' && 'border-t-2 border-koraal')} />
       </div>
+      {cue && <CueEditor stationId={stationId} track={cue} onClose={() => setCue(null)} />}
     </Card>
   );
 }
@@ -443,7 +463,8 @@ export function AssistPage() {
   const np = data.nowPlaying;
   const fade = data.settings.crossfadeSeconds ?? 0;
   const holding = !!data.playout?.manual && !!data.playout?.holding;
-  const from = np?.startedAt && np.media.durationSeconds && !holding ? Math.max(now, new Date(np.startedAt).getTime() + (np.media.durationSeconds - fade) * 1000) : now;
+  const npLength = np ? playLength(np.media, fade) : null;
+  const from = np?.startedAt && npLength != null && !holding ? Math.max(now, new Date(np.startedAt).getTime() + npLength * 1000) : now;
   const queue = queueOf(data);
   const blocks = rundown.data?.enabled ? blocksOf(rundown.data.rows, now) : [];
   const lines = timeline(queue, blocks, from, fade);

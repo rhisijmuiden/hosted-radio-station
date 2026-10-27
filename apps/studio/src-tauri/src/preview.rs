@@ -332,13 +332,13 @@ fn push(prod: &mut HeapProd<f32>, mut samples: &[f32], shared: &Shared) -> bool 
     true
 }
 
-/// Downloads a library track from the server to a temporary file, so it can be previewed and seeked.
-pub fn download(url: &str, token: &str, ext: &str) -> anyhow::Result<PathBuf> {
+/// Downloads a library track from the server to a temporary file (`stem`.ext), so it can be previewed and seeked.
+pub fn download(url: &str, token: &str, ext: &str, stem: &str) -> anyhow::Result<PathBuf> {
     let client = reqwest::blocking::Client::builder().user_agent(concat!("RHIS Studio/", env!("CARGO_PKG_VERSION"))).build()?;
     let mut res = client.get(url).bearer_auth(token).send()?.error_for_status()?;
     // The extension tells the decoder the format.
     let ext = Some(ext).filter(|e| !e.is_empty() && e.len() <= 5 && e.chars().all(|c| c.is_ascii_alphanumeric())).unwrap_or("mp3");
-    let path = std::env::temp_dir().join(format!("rhis-studio-preview.{ext}"));
+    let path = std::env::temp_dir().join(format!("{stem}.{ext}"));
     let mut data = Vec::with_capacity(res.content_length().unwrap_or(0) as usize);
     res.read_to_end(&mut data)?;
     std::fs::write(&path, &data).with_context(|| format!("cannot write {}", path.display()))?;

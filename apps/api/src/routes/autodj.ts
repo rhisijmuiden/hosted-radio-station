@@ -36,6 +36,7 @@ import { scanStationStorage, tenantStorageUsage } from '../services/streaming/st
 import { AUTODJ_CHANNEL } from '../streams/autodj.js';
 import { sendFile } from './public.js';
 import { stationAccess } from './stations.js';
+import { cueProblem, playSeconds } from '../services/autodj/cues.js';
 import { assertAudioAllowedHere } from '../services/nodes/orchestrator.js';
 
 const stationParams = z.object({ id: z.uuid() });
@@ -43,6 +44,15 @@ const queueSchema = z.enum(['q1', 'q2']);
 /** Since 1.3 there is one queue, `q1`; `q2` from older clients means the same queue. */
 const queueIn = queueSchema.transform(() => 'q1' as const).default('q1');
 
+/** Cue points in seconds from the start of the file (RHIS Studio cue editor); null = not set. */
+const cuesOut = z.object({
+  cueIn: z.number().nullable(),
+  cueIntro: z.number().nullable(),
+  cueSegue: z.number().nullable(),
+  cueFadeOut: z.number().nullable(),
+  cueOut: z.number().nullable(),
+});
+const cueSecond = z.number().min(0).max(86_400).nullable();
 const mediaOut = z.object({
   id: z.uuid(),
   location: z.string(),
@@ -55,6 +65,7 @@ const mediaOut = z.object({
   durationSeconds: z.number().nullable(),
   bitrateKbps: z.number().int().nullable(),
   gainDb: z.number().nullable(),
+  ...cuesOut.shape,
   sizeBytes: z.number(),
   enabled: z.boolean(),
   edited: z.boolean(),
@@ -155,7 +166,7 @@ const queueRowOut = z.object({
   playlistName: z.string().nullable(),
   label: z.string().nullable(),
   startedAt: z.date().nullable(),
-  media: z.object({ id: z.uuid(), title: z.string(), artist: z.string(), album: z.string(), durationSeconds: z.number().nullable(), location: z.string(), path: z.string() }),
+  media: z.object({ id: z.uuid(), title: z.string(), artist: z.string(), album: z.string(), durationSeconds: z.number().nullable(), location: z.string(), path: z.string() }).extend(cuesOut.shape),
 });
 const autodjOut = z.object({
   edition: z.enum(['distribution', 'station']),
@@ -513,20 +524,32 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
         : [],
       mediaIds.size
         ? ctx.db
-            .select({ id: schema.mediaFiles.id, title: schema.mediaFiles.title, artist: schema.mediaFiles.artist, path: schema.mediaFiles.path, durationSeconds: schema.mediaFiles.durationSeconds })
+            .select({
+              id: schema.mediaFiles.id,
+              title: schema.mediaFiles.title,
+              artist: schema.mediaFiles.artist,
+              path: schema.mediaFiles.path,
+              durationSeconds: schema.mediaFiles.durationSeconds,
+              cueIn: schema.mediaFiles.cueIn,
+              cueSegue: schema.mediaFiles.cueSegue,
+              cueOut: schema.mediaFiles.cueOut,
+            })
             .from(schema.mediaFiles)
             .where(inArray(schema.mediaFiles.id, [...mediaIds]))
         : [],
     ]);
     const listName = new Map(lists.map((l) => [l.id, l.name]));
     const trackName = new Map(tracks.map((t) => [t.id, t.title ? (t.artist ? `${t.artist} – ${t.title}` : t.title) : t.path]));
-    const trackSeconds = new Map(tracks.map((t) => [t.id, t.durationSeconds]));
+    // Until the next item starts: from cue in to the segue or cue out.
+    const trackSeconds = new Map(tracks.map((t) => [t.id, playSeconds(t, 0)]));
     // The average track of each playlist the clocks use, for the expected length of its items (backtiming in RHIS Studio).
     const listSeconds = new Map(
       await Promise.all(
         lists.map(async (l) => {
           const [row] = await ctx.db
-            .select({ avg: sql<number | null>`avg(${schema.mediaFiles.durationSeconds})::float` })
+            .select({
+              avg: sql<number | null>`avg(coalesce(${schema.mediaFiles.cueSegue}, ${schema.mediaFiles.cueOut}, ${schema.mediaFiles.durationSeconds}) - coalesce(${schema.mediaFiles.cueIn}, 0))::float`,
+            })
             .from(schema.mediaFiles)
             .where(and(eq(schema.mediaFiles.stationId, station.id), eq(schema.mediaFiles.enabled, true), inPlaylist(l)));
           return [l.id, row?.avg ?? null] as const;
@@ -851,17 +874,28 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
           genre: z.string().trim().max(100).optional(),
           year: z.number().int().min(1000).max(2999).nullable().optional(),
           enabled: z.boolean().optional(),
+          /** All five cue points at once; null clears one. */
+          cues: z.object({ cueIn: cueSecond, cueIntro: cueSecond, cueSegue: cueSecond, cueFadeOut: cueSecond, cueOut: cueSecond }).optional(),
         }),
         response: { 200: mediaOut },
       },
     },
     async (req) => {
       const { station } = await radio(req, req.params.id, 'manager');
-      const { enabled, ...tags } = req.body;
+      const { enabled, cues, ...tags } = req.body;
       const tagged = Object.values(tags).some((v) => v !== undefined);
+      if (cues) {
+        const [m] = await ctx.db
+          .select({ durationSeconds: schema.mediaFiles.durationSeconds })
+          .from(schema.mediaFiles)
+          .where(and(eq(schema.mediaFiles.id, req.params.mediaId), eq(schema.mediaFiles.stationId, station.id)));
+        if (!m) throw notFound('Track');
+        const problem = cueProblem(cues, m.durationSeconds);
+        if (problem) throw badRequest(problem);
+      }
       const [row] = await ctx.db
         .update(schema.mediaFiles)
-        .set({ ...tags, ...(enabled !== undefined ? { enabled } : {}), ...(tagged ? { edited: true } : {}), updatedAt: new Date() })
+        .set({ ...tags, ...cues, ...(enabled !== undefined ? { enabled } : {}), ...(tagged ? { edited: true } : {}), updatedAt: new Date() })
         .where(and(eq(schema.mediaFiles.id, req.params.mediaId), eq(schema.mediaFiles.stationId, station.id)))
         .returning();
       if (!row) throw notFound('Track');

@@ -10,6 +10,15 @@ import { loadSchedule } from '../scheduler/runtime.js';
 import { hourStart } from '../scheduler/time.js';
 import { filePath, locationRoot, type MediaFile, type MediaSource } from './library.js';
 import { autodjSettings, type AutodjSettings } from './settings.js';
+import { cueAnnotations, playSeconds, type Cues } from './cues.js';
+
+/** What a queue entry needs to know when the next track starts. */
+const playTimes = {
+  durationSeconds: schema.mediaFiles.durationSeconds,
+  cueIn: schema.mediaFiles.cueIn,
+  cueSegue: schema.mediaFiles.cueSegue,
+  cueOut: schema.mediaFiles.cueOut,
+};
 
 /**
  * Since 1.3 a station has one queue. The database and the API still name it `q1` (old clients may send `q2`, which
@@ -143,6 +152,7 @@ export function requestUri(item: { id: string; queue: Queue }, media: MediaFile,
   if (media.artist) meta.artist = media.artist;
   if (media.album) meta.album = media.album;
   if (s.normalize && media.gainDb != null) meta.liq_amplify = `${media.gainDb.toFixed(2)} dB`;
+  Object.assign(meta, cueAnnotations(media, s.crossfadeSeconds));
   return `annotate:${Object.entries(meta).map(([k, v]) => `${k}=${q(v)}`).join(',')}:${full}`;
 }
 
@@ -179,14 +189,14 @@ async function clockPick(tx: Tx, station: Station, s: AutodjSettings, musicSecon
   const now = Date.now();
   // The track that starts now (loaded last) ends when the next one starts.
   const [loading] = await tx
-    .select({ item: schema.queueItems, duration: schema.mediaFiles.durationSeconds })
+    .select({ item: schema.queueItems, media: playTimes })
     .from(schema.queueItems)
     .innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.queueItems.mediaId))
     .where(and(eq(schema.queueItems.stationId, station.id), inArray(schema.queueItems.state, ['cued', 'playing'])))
     .orderBy(desc(schema.queueItems.cuedAt))
     .limit(1);
   const base = loading?.item.startedAt?.getTime() ?? now;
-  const at = Math.max(now, base + Math.max(0, (loading?.duration ?? 0) - s.crossfadeSeconds) * 1000);
+  const at = Math.max(now, base + (loading ? (playSeconds(loading.media, s.crossfadeSeconds) ?? 0) : 0) * 1000);
   const [row] = await tx.select().from(schema.autodjState).where(eq(schema.autodjState.stationId, station.id));
   let state: ClockState = { hour: row?.clockHour?.getTime() ?? null, clockId: row?.clockId ?? null, step: row?.clockStep ?? 0, done: row?.clockDone ?? 0 };
   const save = (st: ClockState) => {
@@ -305,13 +315,13 @@ export async function flushForClock(ctx: AppContext, stationId: string, now = Da
     const schedule = await loadSchedule(tx, station);
     if (!schedule.settings.enabled) return false;
     const rows = await tx
-      .select({ item: schema.queueItems, duration: schema.mediaFiles.durationSeconds })
+      .select({ item: schema.queueItems, media: playTimes })
       .from(schema.queueItems)
       .innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.queueItems.mediaId))
       .where(and(eq(schema.queueItems.stationId, stationId), inArray(schema.queueItems.state, ['cued', 'playing'])));
     const playing = rows.find((r) => r.item.state === 'playing');
     if (!playing?.item.startedAt || !rows.some((r) => r.item.state === 'cued')) return false;
-    const ends = playing.item.startedAt.getTime() + Math.max(0, (playing.duration ?? 0) - autodjSettings(station).crossfadeSeconds) * 1000;
+    const ends = playing.item.startedAt.getTime() + (playSeconds(playing.media, autodjSettings(station).crossfadeSeconds) ?? 0) * 1000;
     const [row] = await tx.select().from(schema.autodjState).where(eq(schema.autodjState.stationId, stationId));
     const h = hourStart(now, schedule.settings.timezone);
     const needed = [
@@ -489,7 +499,7 @@ export interface QueueRow {
   /** Clock item it came from. */
   label: string | null;
   startedAt: Date | null;
-  media: { id: string; title: string; artist: string; album: string; durationSeconds: number | null; location: string; path: string };
+  media: { id: string; title: string; artist: string; album: string; durationSeconds: number | null; location: string; path: string } & Cues;
 }
 
 /** Everything in the queues, first to last, with the track on air. */
@@ -512,7 +522,20 @@ export async function queueRows(ctx: AppContext, stationId: string): Promise<Que
     playlistName,
     label: item.label,
     startedAt: item.startedAt,
-    media: { id: media.id, title: media.title, artist: media.artist, album: media.album, durationSeconds: media.durationSeconds, location: media.location, path: media.path },
+    media: {
+      id: media.id,
+      title: media.title,
+      artist: media.artist,
+      album: media.album,
+      durationSeconds: media.durationSeconds,
+      location: media.location,
+      path: media.path,
+      cueIn: media.cueIn,
+      cueIntro: media.cueIntro,
+      cueSegue: media.cueSegue,
+      cueFadeOut: media.cueFadeOut,
+      cueOut: media.cueOut,
+    },
   }));
 }
 

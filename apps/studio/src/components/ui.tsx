@@ -215,6 +215,7 @@ export function Dialog({
   children,
   footer,
   wide,
+  width,
 }: {
   open: boolean;
   onClose: () => void;
@@ -223,6 +224,8 @@ export function Dialog({
   children: ReactNode;
   footer?: ReactNode;
   wide?: boolean;
+  /** A width class for the panel instead of the default one, e.g. `sm:max-w-5xl`. */
+  width?: string;
 }) {
   const { t } = useTranslation();
   useEffect(() => {
@@ -240,7 +243,7 @@ export function Dialog({
         onMouseDown={(e) => e.stopPropagation()}
         className={clsx(
           'flex max-h-[92vh] w-full flex-col rounded-t-lg border border-line bg-raised shadow-2xl sm:rounded-lg',
-          wide ? 'sm:max-w-2xl' : 'sm:max-w-lg',
+          width ?? (wide ? 'sm:max-w-2xl' : 'sm:max-w-lg'),
         )}
       >
         <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">

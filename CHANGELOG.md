@@ -17,6 +17,13 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   comes next and one big **Next** button. The fixed blocks of the format (news, commercials) sit in the playlist at
   their minute with a lock, and the playlist header backtimes to the next one ("Until News: 0:42 too long"). The
   schedule list in the old sidebar is gone; its blocks are in the playlist now.
+- Cue points per track (migration `0018_cue_points`): cue in, intro, next track (segue), fade out and cue out, set
+  with `PATCH /api/stations/:id/library/:mediaId` (`cues`). The AutoDJ starts and stops tracks there, starts the
+  next track at the segue and fades from the fade-out point; start times of fixed blocks and the backtiming count
+  with them.
+- RHIS Studio 0.14: the cue editor, with the waveform of the track, a zoomed view, keys 1 to 5 and listening on the
+  preview output. The player counts down the intro of the track on air. Lengths in the playlist go from cue in to
+  cue out.
 - A station node takes encoders on the bare mount (`/live`), as the panel and RHIS Studio give it, when one station
   there has that mount. Before, it answered "Unknown mount /live".
 - A station node waits up to 8 seconds for a Go Live password RHIS Studio just got from the main server. The

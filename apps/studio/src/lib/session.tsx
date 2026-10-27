@@ -21,6 +21,13 @@ interface Session {
 const SessionContext = createContext<Session>(null as unknown as Session);
 export const useSession = () => useContext(SessionContext);
 
+/** Managers and owners may add tracks to the station library and set cue points; DJs can only listen to local files. */
+export function useCanUpload() {
+  const { me, station } = useSession();
+  if (!me || !station) return false;
+  return me.user.isSuperadmin || me.memberships.some((m) => m.tenantName === station.tenantName && (m.role === 'owner' || m.role === 'manager'));
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const settings = useSettings();
   const qc = useQueryClient();
