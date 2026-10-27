@@ -404,6 +404,9 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         if (b.config.updateGroup && !(await getSetting(ctx, 'nodes')).updates.groups.some((g) => g.id === b.config!.updateGroup)) throw badRequest('Unknown update group');
       }
       const config = b.config ? storedConfig(b.config, node.config) : node.config;
+      // A customer or station is only kept while the node is dedicated to it (1.1.1).
+      if (config.dedication !== 'customer') config.dedicatedTenantId = null;
+      if (config.dedication !== 'station') config.dedicatedStationId = null;
       const roles = b.roles ? ([...new Set(b.roles)] as NodeRole[]) : node.roles;
       await checkDedication(node, roles, config, b.config ?? {});
       if (roles.includes('station') && roles.length > 1) throw badRequest('A station node has no other roles; its streams go to relay nodes');

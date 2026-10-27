@@ -142,7 +142,9 @@ describe('dedicated nodes in routing (1.1.1)', () => {
   });
 
   it('becomes shared again', async () => {
-    expect((await patch({ dedication: 'shared' })).json().scope.kind).toBe('shared');
+    const shared = (await patch({ dedication: 'shared' })).json();
+    expect(shared.scope.kind).toBe('shared');
+    expect(shared.config.dedicatedTenantId).toBeNull();
     forgetRelays();
     expect((await relaysByStation(t.ctx)).get(tenants[0]!.station)?.map((n) => n.id)).toEqual([relayId]);
   });

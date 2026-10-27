@@ -1,6 +1,6 @@
 {
   "name": "@hrs/node",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "description": "Node agent of Hosted Radio Station: relay, source and probe roles on a remote Debian 13 LXC",
   "type": "module",

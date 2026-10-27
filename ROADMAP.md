@@ -166,10 +166,15 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 12 | Station nodes | Done |
 | 13 | Orchestrator as control plane | Done |
 | 14 | Orchestrator redundancy | Planned (1.x) |
-| 15 | Cloudflare DNS integration | Planned (1.x) |
+| 15 | Cloudflare DNS integration | Done (1.1.1) |
 | 16 | Installer menu and node enrollment | Planned (1.x) |
-| 17 | RHIS Studio 1.0 (Windows client) | Paused after step 3 (after 18 and 15) |
+| 17 | RHIS Studio 1.0 (Windows client) | Paused after step 3 (resumes after 16 and 14) |
 | 18 | Server names and topology views | Done (1.1.0) |
+| 19 | Clearer control panels and node assignment | Planned (before 17) |
+| 20 | Monitoring node | Planned (1.x) |
+| 21 | Recorder node | Future |
+| 22 | Packaged installers and moving the orchestrator | Future |
+| 23 | Deployment wizard | Future |
 
 ## Phases
 
@@ -444,6 +449,64 @@ Clear names everywhere and topology views that stay readable as the network grow
 | ![Server names](docs/screenshots/phase-18-names-saved.png) | ![Orchestrator only on the Nodes page](docs/screenshots/phase-18-nodes-orchestrator-only.png) |
 | ![Orchestrator only: stations that still use this server](docs/screenshots/phase-18-orchestrator-only-dialog.png) | ![Connection tab of a station](docs/screenshots/phase-18-station-connection.png) |
 | ![Firewall checklist of a node with the check from outside](docs/screenshots/phase-18-node-firewall.png) | |
+
+### Phase 19: Clearer control panels and node assignment
+
+Make the admin and customer panels more logical and easier to scan, before the Windows client continues.
+
+- Review the overviews of the admin and customer panels: what sits where in the menu, what each overview page shows first, and fewer clicks to the common tasks.
+- Delivery path per station: on the station page, a customer sees how their stream reaches the listener, from their own studio node (or ingest node) through the relays to the listeners, with the state of each hop.
+- Shared or dedicated nodes (done in 1.1.1): every node is marked **Shared** (carries stations of several customers) or **Dedicated** to one customer or one station. A dedicated node only receives, shows and serves the streams of its own customer or station, and routing refuses to put other stations on it. A customer's own node is dedicated by default.
+
+### Phase 20: Monitoring node
+
+A node role that watches the whole platform from the outside, as a listener and as a customer would, and tells the orchestrator when something is wrong.
+
+- Stream checks for every station of every customer: is the stream up, silence detection, bitrate and codec as configured, titles updating, time to first audio, from every relay.
+- DNS checks: platform names, the relay pool and the customers' `stream.` and `src.` CNAMEs point where the orchestrator expects.
+- Firewall checks on demand: when a customer (or an admin) presses **Check firewall**, the orchestrator asks the monitoring node to test every port of that customer's studio node from outside, and shows a green or red tick per port. This replaces the node checking itself.
+- Alerts: problems go to the orchestrator, which shows them in the panel and sends e-mail or webhooks, with a quiet period so one outage gives one alert.
+- Several monitoring nodes in different places can run together, so a problem is only raised when more than one sees it.
+- As soon as a monitoring node is online, the orchestrator switches off the remote probe on all other nodes (station, ingest, relay); the monitoring node takes over all stream checks. Without a monitoring node, the probes keep running as now. Nodes still report their own health (CPU, listeners, whether their feed is connected), because relays need that to switch to the backup feed by themselves.
+
+### Phase 21: Recorder node
+
+A node role that only records: radio logging and recordings of live shows, dedicated to the stations that subscribe to it.
+
+- Placement: at a customer's site, or central in a datacenter recording many stations. Linked to customers and stations in the panel, like other dedicated nodes.
+- Logging: a continuous recording of each subscribed stream at a lower bitrate (for example 64 kbps), kept for a set number of days, with a play log of every song (start, end, title, artist, live or AutoDJ).
+- Live shows: when a DJ goes live, the recorder records the show in full quality and offers it as an on-demand item (listen again) on the station's public page, after the customer approves it or automatically.
+- Reports: a CSV export per period for auditing and rights reporting (Buma/Stemra, SENA): how often each song played, when, and for how long. Also in the API.
+- The customer listens back, downloads and cuts recordings in their own panel; storage and retention are set per package.
+
+### Phase 22: Packaged installers and moving the orchestrator
+
+Building on phase 16, make deploying and growing a network a matter of downloads and clicks.
+
+- **Orchestrator first**: the orchestrator is its own installation package, and the documentation starts with "Install the orchestrator", as the first server you deploy.
+- **Node installers generated by the orchestrator**: under Nodes → Add node, the orchestrator builds a ready-made installer (or one-line command) with its address, a one-time code and the chosen role already in it. The node comes up fully configured and connected, with nothing to type.
+- **Clear choice at install: standalone or orchestrator only**: standalone runs orchestrator, ingest, relay and studio on one server for a small station; orchestrator only manages. The choice is shown clearly and can be changed later (see "Orchestrator only" in phase 18).
+- **Grow without reinstalling**: when a standalone station grows, its ingest, relay and studio roles move to new nodes with a guided step, and the server becomes orchestrator only.
+- **Move the orchestrator**: transfer the orchestrator role to another server (database, settings, certificates), with the nodes following the new address automatically.
+
+### Phase 23: Deployment wizard
+
+A step-by-step wizard for a new customer or a new station, so every station lands in the topology the right way and the nodes know what to do at once.
+
+- A decision tree, one question per step, with the price of each choice from the customer's package: studio on the shared platform, or a studio node at the customer's site; our shared relays or the customer's own; a backup ingest or backup relay; FM/MPX; recording.
+- Included by default where the customer uses the platform's services: shared ingest and relays, and monitoring by the monitoring node.
+- At the end the wizard creates the customer, the station, its routing and the dedicated nodes it needs, and puts a ready-made node installer (phase 22) in the delivery e-mail together with the connection details and the firewall checklist.
+- Every choice can be changed later in the station's settings; the wizard only sets a correct start.
+
+## Queued fixes
+
+Small fixes planned for a patch release, one at a time after the current phase.
+
+### 1.1.1: topology layout (done, shipped together with phase 15)
+
+- Station nodes are drawn in the Ingest layer, but they are studios: they move to the "Studios & encoders" layer, in all views (layers, per station, matrix, 3D skyline).
+- An FM/MPX node is linked directly to the station node (studio) it takes its audio from, and is drawn right next to it as one group, instead of on its own in the distribution layer.
+- Shared or dedicated nodes (pulled forward from phase 19): every node is **Shared** or **Dedicated** to one customer or station. A dedicated node only carries and shows its own streams, and automatic and spare relay routing never put other stations on it. A customer's own node is dedicated by default.
 
 ## Future ideas
 

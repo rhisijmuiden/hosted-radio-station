@@ -3,7 +3,9 @@
 All notable changes to Hosted Radio Station. Versions follow [semantic versioning](https://semver.org). The
 [roadmap](ROADMAP.md) has the full description of each phase, with screenshots.
 
-## Unreleased
+## 1.1.1 (27 October 2026)
+
+Phase 15 (Cloudflare DNS) and the fixes found after 1.1.0.
 
 Topology fixes (found after 1.1.0):
 
