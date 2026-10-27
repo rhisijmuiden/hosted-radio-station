@@ -57,6 +57,9 @@ export function NodeDnsCard({ node, value: c, onChange: set }: { node: NodeItem;
           </Field>
         </div>
         <Switch checked={c.dnsRecord ?? true} onChange={(dnsRecord) => set({ dnsRecord })} label={t('nodes.dns.dnsRecord')} description={t('nodes.dns.dnsRecordHint')} />
+        {d?.active && d.domain && (
+          <Switch checked={c.certDns ?? false} onChange={(certDns) => set({ certDns })} label={t('nodes.dns.certDns')} description={t('nodes.dns.certDnsHint', { domain: d.domain })} />
+        )}
         <Field label={t('nodes.fields.publicHost')} hint={caddy === false ? t('nodes.fields.publicHostDirect') : d?.platformName ? t('nodes.dns.ownHostHint', { name: d.platformName }) : t('nodes.fields.publicHostHint')}>
           <Input value={c.publicHost} onChange={(e) => set({ publicHost: e.target.value.trim().toLowerCase() })} placeholder={d?.platformName ?? 'relay-ams.example.com'} />
         </Field>

@@ -278,6 +278,24 @@ describe('Cloudflare DNS', () => {
     expect(res.headers['cache-control']).toBe('no-store');
   });
 
+  it('sets the DNS-01 record for a node\'s own name only, and the record plan leaves it alone', async () => {
+    await t.db.update(schema.nodes).set({ secret: t.ctx.box.encrypt('node-secret') }).where(eq(schema.nodes.id, relayId));
+    const acme = (action: string, fqdn: string, secret = 'node-secret') =>
+      t.app.inject({ method: 'POST', url: `/api/nodes/agent/acme/${action}`, headers: { authorization: `Basic ${Buffer.from(`${relayId}:${secret}`).toString('base64')}` }, payload: { fqdn, value: 'abc_DEF-123' } });
+    // Not asked for yet: the node fetches its certificates over HTTP.
+    expect((await acme('present', '_acme-challenge.relay1.radio.example.com.')).statusCode).toBe(403);
+    await t.app.inject({ method: 'PATCH', url: `/api/nodes/${relayId}`, headers: admin, payload: { config: { certDns: true } } });
+    expect((await acme('present', '_acme-challenge.relay1.radio.example.com.', 'wrong')).statusCode).toBe(401);
+    expect((await acme('present', '_acme-challenge.radio.example.com.')).statusCode).toBe(403);
+    expect((await acme('present', '_acme-challenge.relay1.radio.example.com.')).statusCode).toBe(200);
+    const txt = () => cf.records.filter((r) => r.type === 'TXT');
+    expect(txt()).toEqual([expect.objectContaining({ name: '_acme-challenge.relay1.radio.example.com', content: '"abc_DEF-123"', comment: expect.stringMatching(new RegExp(`^hrs-acme:[0-9a-f]{8}:${relayId}$`)) })]);
+    await t.app.inject({ method: 'POST', url: '/api/dns/sync', headers: admin });
+    expect(txt()).toHaveLength(1);
+    expect((await acme('cleanup', '_acme-challenge.relay1.radio.example.com.')).statusCode).toBe(200);
+    expect(txt()).toHaveLength(0);
+  });
+
   it('removes only its own records', async () => {
     const refused = await t.app.inject({ method: 'POST', url: '/api/dns/purge', headers: admin, payload: { confirm: true } });
     expect(refused.statusCode).toBe(400);

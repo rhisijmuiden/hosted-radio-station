@@ -98,6 +98,14 @@ export class Cloudflare {
     return out;
   }
 
+  /** The records with this name and type. */
+  async findRecords(zoneId: string, name: string, type: string): Promise<CfRecord[]> {
+    const { result } = await this.call<CfRecord[]>('GET', `/zones/${zoneId}/dns_records?type=${encodeURIComponent(type)}&name=${encodeURIComponent(name)}&per_page=100`);
+    return result
+      .filter((r) => r.name.toLowerCase() === name.toLowerCase() && r.type === type)
+      .map((r) => ({ id: r.id, name: r.name, type: r.type, content: r.content, proxied: !!r.proxied, ttl: r.ttl, comment: r.comment ?? null }));
+  }
+
   async createRecord(zoneId: string, r: CfRecordInput) {
     return (await this.call<CfRecord>('POST', `/zones/${zoneId}/dns_records`, r)).result;
   }

@@ -1746,6 +1746,8 @@ export const nl: Translation = {
       publicAddressHint: 'Alleen als het adres waarvandaan de node verbindt ({{ip}}) niet het adres is dat de buitenwereld gebruikt, bijvoorbeeld achter NAT.',
       dnsRecord: 'Platformnaam voor deze node',
       dnsRecordHint: 'Maak en onderhoud het DNS-record van deze node, en haal hem uit gedeelde namen als hij uitvalt.',
+      certDns: 'Certificaten via Cloudflare DNS',
+      certDnsHint: 'Voor een node waarvan poort 80 niet bereikbaar is vanaf internet: zijn namen onder {{domain}} krijgen hun HTTPS-certificaat via een DNS-record (DNS-01) dat de hoofdserver zet. Het Cloudflare-token blijft op de hoofdserver.',
       ownHostHint: 'Optioneel: je eigen naam, bijvoorbeeld studio.harder.fm, als CNAME naar {{name}} (of een A-record naar de node). Wordt gebruikt zodra de controle groen is.',
       ownOk: '{{host}} klopt',
       ownUsed: 'klopt, gebruikt voor de studio, encoders en uploads',

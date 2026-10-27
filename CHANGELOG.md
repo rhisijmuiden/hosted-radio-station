@@ -29,6 +29,13 @@ Phase 15, step 2a: Cloudflare cache rules.
   others in the zone are kept as they are. Needs Zone › Cache Rules › Edit on the token.
 - Public API answers without a Cache-Control of their own are now sent with `no-store`.
 
+Phase 15, step 2b: certificates through DNS for nodes.
+
+- A node's *Names and address* card has **Certificates through Cloudflare DNS**: its names under the platform domain
+  get their certificate through DNS-01 (lego on the node, the TXT record set by the main server), so a node whose
+  port 80 cannot be reached still gets HTTPS. The Cloudflare token stays on the main server, and a node can only ask
+  for its own names.
+
 ## 1.1.0 (27 October 2026)
 
 Phase 18 (server names, topology views, orchestrator only, connection details and firewall checklist) and the

@@ -360,7 +360,8 @@ modes Off, Dry run and On; records for this server (`origin.<domain>`), every no
 and per customer domain `<customer>.stream.<domain>` and `<customer>.src.<domain>`; a run every 30 seconds and right
 after a node connects, drops out or is drained; only records the platform made itself (comment `hrs:<install>:…`) are
 ever changed. Step 2 adds the cache rules (done: two rules for the panel host, the public API and panel files, cached
-for as long as the server's Cache-Control allows) and DNS-01 certificates. See [docs/dns.md](docs/dns.md).
+for as long as the server's Cache-Control allows) and DNS-01 certificates (done: per node, lego on the node asks the
+main server to set the TXT record, so the token stays on the main server). See [docs/dns.md](docs/dns.md).
 
 | Records and settings | Dark, Dutch |
 | --- | --- |

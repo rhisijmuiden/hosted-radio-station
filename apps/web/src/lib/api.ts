@@ -900,6 +900,7 @@ export interface NodeConfig {
   /** Cloudflare DNS (phase 15). */
   dnsName: string;
   dnsRecord: boolean;
+  certDns?: boolean;
   publicAddress: string;
   /** Set by the platform: the node's platform name while its record exists. */
   dnsHost: string;
@@ -1498,6 +1499,7 @@ export interface DnsTestResult {
 }
 export interface NodeDns {
   active: boolean;
+  domain: string | null;
   platformName: string | null;
   live: boolean;
   addresses: string[];

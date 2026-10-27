@@ -3,12 +3,13 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { schema } from '../db/index.js';
 import { requireSuperadmin } from '../lib/auth.js';
-import { badRequest, notFound } from '../lib/errors.js';
+import { badRequest, forbidden, notFound, unauthorized } from '../lib/errors.js';
 import { idParam } from '../lib/schemas.js';
 import { Cloudflare, CloudflareError } from '../services/dns/cloudflare.js';
 import { dnsConfig, installId } from '../services/dns/config.js';
 import { nodeAddresses, nodeFqdn } from '../services/dns/records.js';
-import { nodeHost, nodeSettings } from '../services/nodes/plan.js';
+import { buildPlan, nodeHost, nodeSettings } from '../services/nodes/plan.js';
+import { authenticateNode } from '../services/nodes/report.js';
 import { cloudflareSchema, dnsStateSchema, getMaskedSetting, getSetting, putSetting, SECRET_MASK } from '../services/settings.js';
 import { nodeAccess } from './nodes.js';
 
@@ -144,6 +145,8 @@ export const dnsRoutes: FastifyPluginAsyncZod = async (app) => {
 const nodeDnsOut = z.object({
   /** Cloudflare DNS is on. */
   active: z.boolean(),
+  /** The platform domain (names under it can get certificates through DNS). */
+  domain: z.string().nullable(),
   /** The node's platform name, as it is or as it would be. */
   platformName: z.string().nullable(),
   /** The record exists: the name works. */
@@ -177,6 +180,7 @@ export const nodeDnsRoutes: FastifyPluginAsyncZod = async (app) => {
     const own = c.publicHost && c.publicHost !== c.dnsHost && !(base && c.publicHost.endsWith(`.${base}`)) ? c.publicHost : null;
     return {
       active,
+      domain: base || null,
       platformName: c.dnsHost || name,
       live: !!c.dnsHost,
       addresses,
@@ -185,6 +189,39 @@ export const nodeDnsRoutes: FastifyPluginAsyncZod = async (app) => {
       ownHost: own,
       check: own ? c.publicHostCheck : null,
     };
+  }
+
+  /**
+   * DNS-01 for a node's own certificates (phase 15, step 2), in the form of lego's "httpreq" provider: Basic auth with
+   * the node id and its secret, and { fqdn, value }. Only _acme-challenge names of the node's own certificate names
+   * under the platform domain are accepted, so a node can never get a certificate for anyone else's name.
+   */
+  for (const action of ['present', 'cleanup'] as const) {
+    app.post(
+      `/agent/acme/${action}`,
+      {
+        config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+        schema: { hide: true, body: z.object({ fqdn: z.string().trim().toLowerCase().max(253), value: z.string().trim().min(1).max(200).regex(/^[A-Za-z0-9_-]+$/) }) },
+      },
+      async (req) => {
+        const basic = req.headers.authorization?.match(/^Basic (.+)$/)?.[1];
+        const [id, secret] = basic ? Buffer.from(basic, 'base64').toString('utf8').split(/:(.*)/s) : [];
+        if (!id || !secret) throw unauthorized();
+        const node = await authenticateNode(ctx, `Node ${id}.${secret}`);
+        const name = req.body.fqdn.replace(/\.$/, '');
+        const host = name.startsWith('_acme-challenge.') ? name.slice('_acme-challenge.'.length) : '';
+        const allowed = (await buildPlan(ctx, node)).web.dnsCerts?.hosts ?? [];
+        if (!host || !allowed.includes(host)) throw forbidden('This node may not fetch a certificate for that name');
+        if (!app.dns) throw badRequest('Cloudflare DNS runs on the main server');
+        try {
+          await app.dns.acmeChallenge(action, node.id, name, req.body.value);
+        } catch (err) {
+          if (err instanceof CloudflareError) throw badRequest(err.message);
+          throw err;
+        }
+        return { ok: true };
+      },
+    );
   }
 
   app.get('/:id/dns', { schema: { tags: ['Nodes'], summary: "A node's platform name (Cloudflare DNS) and the check of its own host name", params: idParam, response: { 200: nodeDnsOut } } }, async (req) => {

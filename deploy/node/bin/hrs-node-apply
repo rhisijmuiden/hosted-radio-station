@@ -3,7 +3,8 @@
 # Reads run/apply-state.json (written by the agent) and:
 #   - starts Icecast for the relayed streams, and restarts it when its port changed
 #   - writes the web server configuration (Caddy) for listeners: HTTPS on the node's host name, plain HTTP on a port
-#   - fetches certificates for the node's host name and customer encoder names into /var/lib/hrs-node/certs
+#   - fetches certificates for the node's host name and customer encoder names into /var/lib/hrs-node/certs, through
+#     Cloudflare DNS (DNS-01 with lego, phase 15) for names the main server lists for that
 #   - installs and links the station node runtime when the node has the station node role (phase 12)
 #   - installs ffmpeg when the node makes converted mounts as an ingest (phase 13)
 # Everything in the state file ends up in root-run configuration, so it is validated strictly. Safe to run repeatedly.
@@ -63,6 +64,60 @@ main() {
     [[ -z "$h" ]] && continue
     [[ "$h" =~ $host_re ]] && cert_hosts+=("$h") || log "Skipping invalid host name"
   done < <(jq -r '.certHosts[]?' "$STATE")
+
+  # 2a. Certificates through Cloudflare DNS (DNS-01, phase 15): lego asks the main server to set the TXT record (the
+  # Cloudflare token stays there), so a node whose port 80 cannot be reached still gets HTTPS. Renewed 30 days before
+  # they run out; a name that failed waits an hour before it is tried again (Let's Encrypt limits failures).
+  local LEGO="$DATA/lego" CADDY_OWN=/etc/caddy/hrs-certs dns_hosts=() dns_ok=() caddy_certs_changed=0 email
+  while read -r h; do
+    [[ -z "$h" ]] && continue
+    [[ "$h" =~ $host_re ]] && dns_hosts+=("$h") || log "Skipping invalid host name"
+  done < <(jq -r '.dnsCerts.hosts[]?' "$STATE")
+  email=$(jq -r '.dnsCerts.email // empty' "$STATE")
+  [[ "$email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}$ ]] || email=""
+  in_dns() { local x; for x in "${dns_ok[@]}"; do [[ "$x" == "$1" ]] && return 0; done; return 1; }
+  if [[ ${#dns_hosts[@]} -gt 0 ]]; then
+    if ! command -v lego >/dev/null; then
+      status running "Installing lego for certificates through DNS"
+      log "Installing lego"
+      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq lego >> "$LOG" 2>&1 || problems+=("Installing lego failed (see $LOG)")
+    fi
+    if command -v lego >/dev/null; then
+      install -d -m 0700 "$LEGO"
+      local server node_id secret crt mark args
+      server=$(jq -r '.server // empty' /etc/hrs-node/node.json); node_id=$(jq -r '.nodeId // empty' /etc/hrs-node/node.json); secret=$(jq -r '.secret // empty' /etc/hrs-node/node.json)
+      for h in "${dns_hosts[@]}"; do
+        crt="$LEGO/certificates/$h.crt"; mark="$LEGO/failed-$h"
+        if [[ -f "$crt" ]] && openssl x509 -checkend 2592000 -noout -in "$crt" >/dev/null 2>&1; then dns_ok+=("$h"); continue; fi
+        if [[ -f "$mark" ]] && (( $(date +%s) - $(stat -c %Y "$mark") < 3600 )); then
+          problems+=("No certificate for $h through DNS yet; trying again within the hour (see the log)")
+        else
+          status running "Fetching a certificate for $h through DNS"
+          log "Fetching a certificate for $h through Cloudflare DNS"
+          args=(--accept-tos --path "$LEGO" --dns httpreq --domains "$h")
+          [[ -n "$email" ]] && args+=(--email "$email")
+          if HTTPREQ_ENDPOINT="${server%/}/api/nodes/agent/acme" HTTPREQ_USERNAME="$node_id" HTTPREQ_PASSWORD="$secret" lego "${args[@]}" run >> "$LOG" 2>&1; then
+            rm -f "$mark"; log "Certificate for $h fetched through DNS"
+          else
+            touch "$mark"; problems+=("Fetching a certificate for $h through DNS failed (see $LOG)")
+          fi
+        fi
+        # An older certificate that is still valid keeps being used.
+        if [[ -f "$crt" ]] && openssl x509 -checkend 0 -noout -in "$crt" >/dev/null 2>&1; then dns_ok+=("$h"); fi
+      done
+    fi
+  fi
+  # The web server reads its own copies (it runs as the caddy user).
+  if [[ "$web" == caddy && ${#dns_ok[@]} -gt 0 ]] && id caddy >/dev/null 2>&1; then
+    install -d -m 0750 -o caddy -g caddy "$CADDY_OWN"
+    for h in "${dns_ok[@]}"; do
+      if ! cmp -s "$LEGO/certificates/$h.crt" "$CADDY_OWN/$h.crt" || ! cmp -s "$LEGO/certificates/$h.key" "$CADDY_OWN/$h.key"; then
+        install -m 0640 -o caddy -g caddy "$LEGO/certificates/$h.crt" "$CADDY_OWN/$h.crt"
+        install -m 0600 -o caddy -g caddy "$LEGO/certificates/$h.key" "$CADDY_OWN/$h.key"
+        caddy_certs_changed=1
+      fi
+    done
+  fi
   if [[ "$web" == caddy ]]; then
     if [[ ! -x /usr/bin/caddy ]]; then
       problems+=("Caddy is not installed")
@@ -75,15 +130,24 @@ main() {
       {
         echo "# Managed by the Hosted Radio Station node agent. Manual changes are overwritten."
         printf '\n(listen) {\n\thandle /listen/* {\n\t\treverse_proxy 127.0.0.1:%s {\n\t\t\theader_up X-Hrs-Client {client_ip}\n\t\t\tflush_interval -1\n\t\t}\n\t}\n\thandle {\n\t\trespond "Hosted Radio Station node" 200\n\t}\n}\n' "$ice_port"
-        [[ -n "$public_host" ]] && printf '\n%s {\n\timport listen\n}\n' "$public_host"
+        if [[ -n "$public_host" ]] && in_dns "$public_host"; then
+          printf '\n%s {\n\ttls %s/%s.crt %s/%s.key\n\timport listen\n}\n' "$public_host" "$CADDY_OWN" "$public_host" "$CADDY_OWN" "$public_host"
+        elif [[ -n "$public_host" ]]; then
+          printf '\n%s {\n\timport listen\n}\n' "$public_host"
+        fi
         if [[ "$listen_port" == 80 ]]; then site='http://'; else site="http://:$listen_port"; fi
         printf '\n%s {\n\timport listen\n}\n' "$site"
         # Encoder names of customers only need a certificate; the agent takes the encoders on its own ports.
         for h in "${cert_hosts[@]}"; do
           [[ "$h" == "$public_host" ]] && continue
+          in_dns "$h" && continue
           printf '\n%s {\n\trespond 204\n}\n' "$h"
         done
       } > "$tmp"
+      if [[ $caddy_certs_changed -eq 1 ]] && cmp -s "$tmp" "$CADDYFILE"; then
+        log "Certificates through DNS changed, reloading the web server"
+        systemctl reload caddy >> "$LOG" 2>&1 || problems+=("Reloading the web server failed")
+      fi
       if ! cmp -s "$tmp" "$CADDYFILE"; then
         if caddy validate --adapter caddyfile --config "$tmp" >> "$LOG" 2>&1; then
           install -m 0644 "$tmp" "$CADDYFILE"
@@ -99,9 +163,13 @@ main() {
 
   # 3. Certificates for encoder TLS, from Caddy's store. A self-signed one until there is a real one.
   install -d -m 0750 -o hrs-node -g hrs-node "$CERTS"
-  copy_cert() { # copy_cert <host> <target name>
+  copy_cert() { # copy_cert <host> <target name>: lego's for names through DNS, else the web server's
     local src
-    src=$(find "$CADDY_CERTS" -type f -path "*/$1/$1.crt" -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2-)
+    if in_dns "$1"; then
+      src="$LEGO/certificates/$1.crt"
+    else
+      src=$(find "$CADDY_CERTS" -type f -path "*/$1/$1.crt" -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2-)
+    fi
     [[ -n "$src" && -f "${src%.crt}.key" ]] || return 1
     if ! cmp -s "$src" "$CERTS/$2.crt"; then
       install -m 0640 -o hrs-node -g hrs-node "$src" "$CERTS/$2.crt"

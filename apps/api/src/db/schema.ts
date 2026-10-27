@@ -967,6 +967,7 @@ export interface NodeConfig {
   /** Cloudflare DNS (phase 15): label of the platform name, whether the node gets one, and a manual public address. */
   dnsName?: string;
   dnsRecord?: boolean;
+  certDns?: boolean;
   publicAddress?: string;
   /** Written by the DNS manager: the platform name while its record exists, and the check of an own publicHost. */
   dnsHost?: string;

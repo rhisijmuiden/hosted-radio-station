@@ -1744,6 +1744,8 @@ export const en = {
       publicAddressHint: 'Only when the address the node connects from ({{ip}}) is not the one the outside world uses, e.g. behind NAT.',
       dnsRecord: 'Platform name for this node',
       dnsRecordHint: 'Make and maintain the DNS record of this node, and take it out of shared names when it goes down.',
+      certDns: 'Certificates through Cloudflare DNS',
+      certDnsHint: 'For a node whose port 80 cannot be reached from the internet: its names under {{domain}} get their HTTPS certificate through a DNS record (DNS-01) that the main server sets. The Cloudflare token stays on the main server.',
       ownHostHint: 'Optional: your own name, e.g. studio.harder.fm, as a CNAME to {{name}} (or an A record to the node). Used once the check is green.',
       ownOk: '{{host}} checks out',
       ownUsed: 'checks out, used for the studio, encoders and uploads',
