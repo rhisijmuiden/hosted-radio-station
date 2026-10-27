@@ -111,6 +111,9 @@ export const nl: Translation = {
     needsUpdate: 'De server is hiervoor te oud. Update de server naar versie 1.1 of nieuwer.',
   },
   live: {
+    certError: 'Windows vertrouwt het certificaat van {{host}} niet, dus de versleutelde verbinding mislukt. Je kunt onversleuteld verbinden; het tijdelijke wachtwoord gaat dan leesbaar over het netwerk.',
+    connectPlain: 'Onversleuteld verbinden',
+    tryTls: 'Weer versleuteld proberen',
     onAir: 'On air',
     onAirShort: 'Live',
     offAir: 'Niet live',

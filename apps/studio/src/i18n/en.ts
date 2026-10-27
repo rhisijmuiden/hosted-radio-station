@@ -109,6 +109,9 @@ export const en = {
     needsUpdate: 'The server is too old for this. Update the server to version 1.1 or newer.',
   },
   live: {
+    certError: 'Windows does not trust the certificate of {{host}}, so the encrypted connection fails. You can connect without encryption; the temporary password then goes over the network readable.',
+    connectPlain: 'Connect without encryption',
+    tryTls: 'Try encrypted again',
     onAir: 'On air',
     onAirShort: 'Live',
     offAir: 'Off air',

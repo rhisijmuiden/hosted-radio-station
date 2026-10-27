@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { AlertTriangle, Mic, MicOff, Radio, Send, Settings2 } from 'lucide-react';
+import { AlertTriangle, Mic, MicOff, Radio, Send, Settings2, ShieldOff } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -17,12 +17,15 @@ import type { Page } from '../components/Shell';
 
 const BITRATES = [64, 96, 128, 160, 192, 256, 320];
 
-/** Where and how this PC connects: the server's ingest, TLS when it has a certificate. */
-function ingestOf(detail: StationDetail, mountId: string) {
+/**
+ * Where and how this PC connects: the server's ingest, TLS when it has a certificate. `plain` skips TLS, for an address
+ * whose certificate Windows does not trust (the DJ chose so after the error).
+ */
+function ingestOf(detail: StationDetail, mountId: string, plain = false) {
   const c = detail.connection;
   const mount = c.mounts.find((m) => m.id === mountId);
   if (!mount) return null;
-  if (c.tls.available) return { host: c.ingestHost, port: c.tls.port, tls: true, mount: mount.encoderMount };
+  if (c.tls.available && !(plain && c.plain)) return { host: c.ingestHost, port: c.tls.port, tls: true, mount: mount.encoderMount };
   if (c.plain) return { host: c.ingestHost, port: c.plain.port, tls: false, mount: mount.encoderMount };
   return null;
 }
@@ -56,15 +59,25 @@ export function LivePage({ onPage }: { onPage: (p: Page) => void }) {
   const maxBitrate = mount?.bitrateKbps ?? 320;
   const bitrates = BITRATES.filter((b) => b <= maxBitrate);
   const bitrate = bitrates.includes(settings.live.bitrate) ? settings.live.bitrate : (bitrates.at(-1) ?? 128);
-  const ingest = detail.data && mount ? ingestOf(detail.data, mount.id) : null;
+  const plainHosts = settings.live.plainHosts ?? [];
+  const host = detail.data?.connection.ingestHost ?? '';
+  const ingest = detail.data && mount ? ingestOf(detail.data, mount.id, plainHosts.includes(host)) : null;
+  // A TLS connection that fails on the certificate (e.g. no public certificate for the encoder address yet): offer the
+  // plain port. Never on its own, because then the password goes over the network readable.
+  const certError =
+    !!ingest?.tls &&
+    !!detail.data?.connection.plain &&
+    (broadcast.state === 'reconnecting' || broadcast.state === 'failed') &&
+    /certificate|certificaat|tls/i.test(broadcast.error);
   const onAir = broadcast.state !== 'off';
   const otherLive = (status.data?.live ?? []).filter((l) => !(onAir && account && l.accountName === account.username));
 
   const goLive = useMutation({
-    mutationFn: async () => {
-      if (!station || !detail.data || !mount || !account || !ingest) throw new Error(t('live.notReady'));
+    mutationFn: async (opts: { plain?: boolean } = {}) => {
+      const to = opts.plain && detail.data && mount ? ingestOf(detail.data, mount.id, true) : ingest;
+      if (!station || !detail.data || !mount || !account || !to) throw new Error(t('live.notReady'));
       const token = await api<{ username: string; password: string }>(`/studio/stations/${station.id}/live-token`, { method: 'POST', body: { accountId: account.id } });
-      const target: Target = { ...ingest, username: token.username, password: token.password, bitrate, sampleRate: info?.sampleRate ?? 48000, name: station.name };
+      const target: Target = { ...to, username: token.username, password: token.password, bitrate, sampleRate: info?.sampleRate ?? 48000, name: station.name };
       await call('start_broadcast', { target });
       activeTarget = target;
     },
@@ -73,6 +86,13 @@ export function LivePage({ onPage }: { onPage: (p: Page) => void }) {
   const stop = () => {
     void call('stop_broadcast');
     activeTarget = null;
+  };
+  const setPlain = (on: boolean) => updateSettings((s) => ({ live: { ...s.live, plainHosts: on ? [...new Set([...(s.live.plainHosts ?? []), host])] : (s.live.plainHosts ?? []).filter((h) => h !== host) } }));
+  const goPlain = async () => {
+    setPlain(true);
+    await call('stop_broadcast');
+    activeTarget = null;
+    goLive.mutate({ plain: true });
   };
 
   // Send the show title as soon as the stream is up, and when it changes.
@@ -104,7 +124,7 @@ export function LivePage({ onPage }: { onPage: (p: Page) => void }) {
       <Card className="overflow-hidden">
         <div className={clsx('relative flex flex-col items-center gap-5 px-6 py-9 text-center', broadcast.state === 'live' ? 'bg-onair/10' : '')}>
           <button
-            onClick={() => (onAir ? stop() : goLive.mutate())}
+            onClick={() => (onAir ? stop() : goLive.mutate({}))}
             disabled={(!onAir && (!mount || !account || !ingest)) || goLive.isPending}
             className={clsx(
               'grid size-40 place-items-center rounded-full border-4 text-center transition-all disabled:cursor-not-allowed disabled:opacity-50',
@@ -140,6 +160,14 @@ export function LivePage({ onPage }: { onPage: (p: Page) => void }) {
               )}
               {broadcast.state === 'reconnecting' && t('live.retry', { error: broadcast.error, seconds: broadcast.retryIn })}
               {broadcast.state === 'failed' && <span className="text-offline">{broadcast.error}</span>}
+              {certError && (
+                <span className="mx-auto mt-3 flex max-w-md flex-col items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-warning">
+                  {t('live.certError', { host })}
+                  <Button size="sm" variant="secondary" onClick={() => void goPlain()}>
+                    <ShieldOff className="size-4" /> {t('live.connectPlain')}
+                  </Button>
+                </span>
+              )}
               {broadcast.state === 'off' && (mount && account ? t('live.ready', { mount: mount.path, account: account.displayName || account.username }) : '')}
             </div>
           </div>
@@ -208,7 +236,20 @@ export function LivePage({ onPage }: { onPage: (p: Page) => void }) {
         <Card className="p-5">
           <div className="grid grid-cols-2 gap-4">
             <Fact label={t('live.server')}>{ingest ? `${ingest.host}:${ingest.port}` : '–'}</Fact>
-            <Fact label={t('live.security')}>{ingest ? (ingest.tls ? <Badge tone="online">TLS</Badge> : <Badge tone="warning">{t('live.plain')}</Badge>) : '–'}</Fact>
+            <Fact label={t('live.security')}>
+              {ingest ? (
+                <span className="flex flex-wrap items-center gap-2">
+                  {ingest.tls ? <Badge tone="online">TLS</Badge> : <Badge tone="warning">{t('live.plain')}</Badge>}
+                  {plainHosts.includes(host) && detail.data?.connection.tls.available && (
+                    <button className="text-xs font-semibold text-accent-text hover:underline disabled:opacity-50" disabled={onAir} onClick={() => setPlain(false)}>
+                      {t('live.tryTls')}
+                    </button>
+                  )}
+                </span>
+              ) : (
+                '–'
+              )}
+            </Fact>
             <Fact label={t('live.input')}>{settings.audio.input?.device ?? t('live.none')}</Fact>
             <Fact label={t('live.sampleRate')}>{info ? `${info.sampleRate / 1000} kHz` : '–'}</Fact>
           </div>

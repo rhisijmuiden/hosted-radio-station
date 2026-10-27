@@ -14,7 +14,8 @@ export interface Settings {
   stationId: string | null;
   channel: 'production' | 'test';
   audio: AudioConfig;
-  live: { accountId: string | null; mountId: string | null; bitrate: number; title: string };
+  /** plainHosts: encoder addresses where the DJ chose to connect without TLS (their certificate is not trusted). */
+  live: { accountId: string | null; mountId: string | null; bitrate: number; title: string; plainHosts: string[] };
   carts: (CartSlot | null)[];
   cartPage: number;
   /** Pre-listen, off air: its own sound card output (null = the Windows default). */
@@ -30,7 +31,7 @@ const defaults: Settings = {
   stationId: null,
   channel: 'production',
   audio: { input: null, output: null, inputGainDb: 0, cartGainDb: 0, cartsToStream: true, cartsToOutput: true, monitorInput: false },
-  live: { accountId: null, mountId: null, bitrate: 192, title: '' },
+  live: { accountId: null, mountId: null, bitrate: 192, title: '', plainHosts: [] },
   carts: Array.from({ length: 48 }, () => null),
   cartPage: 0,
   preview: { output: null },
