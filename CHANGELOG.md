@@ -15,6 +15,8 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 - Fixed: the remaining time of the playing track in Live assist now counts down every second.
 - Fixed: dragging tracks in RHIS Studio on Windows (library to Q1/Q2, and between queues). The window caught every
   drag as a file drop from Explorer.
+- The status at the top of RHIS Studio is labelled "On air now" and shows Auto or Manual next to AutoDJ, with a
+  tooltip; it is a status, not a button.
 
 ## 1.0.1 (October 2026)
 
