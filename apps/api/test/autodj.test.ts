@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { schema } from '../src/db/index.js';
 import { scanLibrary, tagsFromFileName } from '../src/services/autodj/library.js';
 import { autodjScriptPath, autodjSocketPath, autodjToken, encoder } from '../src/services/autodj/liquidsoap.js';
-import { chooseQueue, nextTrack, playerStarted, requestUri, trackStarted, weightedPick } from '../src/services/autodj/planner.js';
+import { nextTrack, playerStarted, requestUri, trackStarted, weightedPick } from '../src/services/autodj/planner.js';
 import { mediaDir } from '../src/services/streaming/icecast.js';
 import { buildStreamsState, runsHere, type Station } from '../src/services/streaming/state.js';
 import { AutodjController } from '../src/streams/autodj.js';
@@ -63,28 +63,7 @@ afterAll(async () => {
   await t?.close();
 });
 
-describe('queue rules', () => {
-  const ratio = { mode: 'ratio' as const, q1: 3, q2: 1 };
-  const both = { q1: true, q2: true };
-  it('plays q1 tracks from Q1, then q2 from Q2', () => {
-    const seq: string[] = [];
-    let last: 'q1' | 'q2' | null = null;
-    let streak = 0;
-    for (let i = 0; i < 8; i++) {
-      const q: 'q1' | 'q2' = chooseQueue(ratio, last, streak, both)!;
-      streak = q === last ? streak + 1 : 1;
-      last = q;
-      seq.push(q);
-    }
-    expect(seq.join(' ')).toBe('q1 q1 q1 q2 q1 q1 q1 q2');
-  });
-  it('alternates, prefers a queue, and falls back to the other when one is empty', () => {
-    expect(chooseQueue({ mode: 'alternate', q1: 1, q2: 1 }, 'q1', 1, both)).toBe('q2');
-    expect(chooseQueue({ mode: 'alternate', q1: 1, q2: 1 }, null, 0, both)).toBe('q1');
-    expect(chooseQueue({ mode: 'q2_first', q1: 1, q2: 1 }, 'q2', 9, both)).toBe('q2');
-    expect(chooseQueue({ mode: 'q2_first', q1: 1, q2: 1 }, 'q2', 9, { q1: true, q2: false })).toBe('q1');
-    expect(chooseQueue(ratio, 'q1', 1, { q1: false, q2: false })).toBeNull();
-  });
+describe('planner helpers', () => {
   it('picks playlists by weight', () => {
     const lists = [{ id: 'a', weight: 1 }, { id: 'b', weight: 3 }];
     expect(weightedPick(lists, () => 0.1)!.id).toBe('a');
@@ -237,7 +216,7 @@ describe('manual playout and the queue rule (RHIS Studio)', () => {
     }
   });
 
-  it('lets DJs choose how the queues take turns', async () => {
+  it('still takes the queue rule of older clients (no effect since there is one queue)', async () => {
     const res = await api('PUT', '/queue-rule', { mode: 'ratio', q1: 1, q2: 3 });
     expect(res.statusCode).toBe(200);
     expect(res.json().settings.rule).toEqual({ mode: 'ratio', q1: 1, q2: 3 });
@@ -295,19 +274,19 @@ describe.runIf(hasFfmpeg)('library and AutoDJ', () => {
     expect(p.removed).toBe(1);
   });
 
-  it('fills Q1 and Q2 from their playlists and plays them by the rule, keeping artists apart', async () => {
+  it('fills the one queue from all playlists, keeping artists apart', async () => {
     const lists = (await api('GET', '/playlists')).json();
     const all = lists[0];
-    // Music in Q1, jingles in Q2: three songs, then one jingle.
-    expect((await api('PUT', `/playlists/${all.id}`, { ...all, folders: [{ location: 'storage', path: 'music/hardstyle' }] })).statusCode).toBe(200);
-    const jingles = await api('POST', '/playlists', { name: 'Jingles', queue: 'q2', weight: 5, order: 'sequential', folders: [{ location: 'storage', path: 'music/jingles' }] });
+    expect((await api('PUT', `/playlists/${all.id}`, { ...all, weight: 10, folders: [{ location: 'storage', path: 'music/hardstyle' }] })).statusCode).toBe(200);
+    // Older clients may still say Q2: it is the same queue.
+    const jingles = await api('POST', '/playlists', { name: 'Jingles', queue: 'q2', weight: 1, order: 'sequential', folders: [{ location: 'storage', path: 'music/jingles' }] });
     expect(jingles.statusCode).toBe(201);
-    expect(jingles.json().trackCount).toBe(2);
+    expect(jingles.json()).toMatchObject({ queue: 'q1', trackCount: 2 });
     const current = (await api('GET', '/autodj')).json().settings;
-    const saved = await api('PUT', '/autodj', { ...current, queueDepth: 2, crossfadeSeconds: 0, artistSeparationMinutes: 60, trackSeparationMinutes: 600, rule: { mode: 'ratio', q1: 3, q2: 1 } });
+    const saved = await api('PUT', '/autodj', { ...current, queueDepth: 2, crossfadeSeconds: 0, artistSeparationMinutes: 60, trackSeparationMinutes: 600 });
     expect(saved.statusCode).toBe(200);
     expect(saved.json().queues.q1).toHaveLength(2);
-    expect(saved.json().queues.q2).toHaveLength(2);
+    expect(saved.json().queues.q2).toHaveLength(0);
     expect(await readFile(autodjScriptPath(t.ctx, stationId), 'utf8')).not.toContain('crossfade(');
 
     await playerStarted(t.ctx, stationId);
@@ -320,11 +299,10 @@ describe.runIf(hasFfmpeg)('library and AutoDJ', () => {
       played.push({ queue: meta.hrs_queue!, artist: meta.artist ?? '', title: meta.title! });
       await trackStarted(t.ctx, stationId, next!.itemId);
     }
-    expect(played.map((p) => p.queue).join(' ')).toBe('q1 q1 q1 q2 q1 q1 q1 q2');
-    // Sequential jingles take turns.
-    expect(played.filter((p) => p.queue === 'q2').map((p) => p.title)).toEqual(['Jingle 1', 'Jingle 2']);
+    expect(new Set(played.map((p) => p.queue))).toEqual(new Set(['q1']));
     // The first three songs are three different artists (separation), even though Artist A has two tracks.
-    expect(new Set(played.slice(0, 3).map((p) => p.artist)).size).toBe(3);
+    const songs = played.filter((p) => !p.title.startsWith('Jingle'));
+    expect(new Set(songs.slice(0, 3).map((p) => p.artist)).size).toBe(Math.min(3, songs.length));
     const view = (await api('GET', '/autodj')).json();
     expect(view.nowPlaying.media.title).toBe(played.at(-1)!.title);
     const [one] = await t.db.select().from(schema.mediaFiles).where(eq(schema.mediaFiles.title, 'One'));
@@ -352,9 +330,10 @@ describe.runIf(hasFfmpeg)('library and AutoDJ', () => {
     const [four] = await t.db.select().from(schema.mediaFiles).where(eq(schema.mediaFiles.title, 'Four'));
     let res = await api('POST', '/autodj/queue', { mediaId: four!.id, queue: 'q2', at: 'top' });
     expect(res.statusCode).toBe(200);
-    let q2 = res.json().queues.q2 as { id: string; origin: string; state: string; media: { title: string } }[];
-    const added = q2.find((r) => r.media.title === 'Four' && r.origin === 'manual')!;
-    expect(q2.filter((r) => r.state === 'queued')[0]!.id).toBe(added.id);
+    expect(res.json().queues.q2).toEqual([]);
+    const q1 = res.json().queues.q1 as { id: string; origin: string; state: string; media: { title: string } }[];
+    const added = q1.find((r) => r.media.title === 'Four' && r.origin === 'manual')!;
+    expect(q1.filter((r) => r.state === 'queued')[0]!.id).toBe(added.id);
     res = await api('PATCH', `/autodj/queue/${added.id}`, { queue: 'q1', beforeId: null });
     expect(res.json().queues.q1.at(-1).id).toBe(added.id);
     res = await api('DELETE', `/autodj/queue/${added.id}`);
@@ -455,7 +434,7 @@ describe.runIf(hasFfmpeg)('library and AutoDJ', () => {
       const ahead = await ask();
       const [four] = await t.db.select().from(schema.mediaFiles).where(eq(schema.mediaFiles.title, 'Four'));
       const res = await api('POST', '/autodj/queue', { mediaId: four!.id, queue: 'q2', at: 'bottom' });
-      const dropped = (res.json().queues.q2 as { id: string }[]).at(-1)!.id;
+      const dropped = (res.json().queues.q1 as { id: string }[]).at(-1)!.id;
       expect((await api('POST', '/autodj/play-now', { itemId: dropped })).statusCode).toBe(200);
       await ctrl.command(JSON.stringify({ stationId, command: 'playnow', itemId: dropped }));
       expect(heard).toHaveLength(1);

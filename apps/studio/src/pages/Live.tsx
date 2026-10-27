@@ -29,6 +29,8 @@ function ingestOf(detail: StationDetail, mountId: string) {
 
 // The target of the running broadcast, for title updates; it lives as long as the app.
 let activeTarget: Target | null = null;
+/** Where this PC broadcasts to now, for the status bar. */
+export const liveTarget = () => activeTarget;
 
 export function LivePage({ onPage }: { onPage: (p: Page) => void }) {
   const { t } = useTranslation();

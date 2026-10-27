@@ -36,7 +36,7 @@ There are two editions per station. A station can move from Distribution to Radi
 | Edition | What you get |
 | --- | --- |
 | **Distribution** | Streaming only: live input from your encoders, transcoded mounts, a local Icecast or your own external Icecast/Shoutcast, statistics and public pages |
-| **Radio station** | Everything in Distribution, plus the AutoDJ (Liquidsoap), dual queues Q1/Q2, the music library and the hour-clock scheduler |
+| **Radio station** | Everything in Distribution, plus the AutoDJ (Liquidsoap) with its queue, the music library and the hour-clock scheduler |
 
 Highlights:
 
