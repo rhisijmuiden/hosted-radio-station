@@ -9,6 +9,7 @@ import { mailConfigured, sendMail } from '../services/mail.js';
 import { nameKey, namesFrom, serverNames } from '../services/nodes/names.js';
 import { stationsUsingThisServer } from '../services/nodes/orchestrator.js';
 import { externalAddress, inboundPorts, internalAddress, probePort, type InboundPort } from '../services/nodes/ports.js';
+import { buildPlan } from '../services/nodes/plan.js';
 import { forgetRelays } from '../services/nodes/routing.js';
 import { getSetting, putSetting, serverNameSchema } from '../services/settings.js';
 import { connectionInfo } from '../services/streaming/info.js';
@@ -218,7 +219,14 @@ export const orchestratorRoutes: FastifyPluginAsyncZod = async (app) => {
       if (!host) throw badRequest('The node has no known address yet; pair it or set its host name');
       const ports = await inboundPorts(ctx, node);
       const at = new Date().toISOString();
-      const results = await Promise.all(ports.map(async (p) => [portKey(p), { ...(await probePort(host, p.port)), at }] as const));
+      // A relay only listens on its push port while an ingest or station node pushes a stream to it.
+      const pushing = ports.some((p) => p.service === 'push') && !!(await buildPlan(ctx, node)).relay?.mounts.some((m) => m.push);
+      const results = await Promise.all(
+        ports.map(async (p) => {
+          const res = await probePort(host, p.port);
+          return [portKey(p), { ...res, message: p.service === 'push' && !res.ok && res.message === 'refused' && !pushing ? 'idle' : res.message, at }] as const;
+        }),
+      );
       lastChecks.set(node.id, Object.fromEntries(results));
       return firewallView(node);
     },

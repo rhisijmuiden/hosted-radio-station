@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Building2, CheckCircle2, Globe, Home, Mail, MonitorSmartphone, Server, ShieldCheck, Upload, XCircle } from 'lucide-react';
+import { Building2, CheckCircle2, Globe, Home, Mail, MinusCircle, MonitorSmartphone, Server, ShieldCheck, Upload, XCircle } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -128,7 +128,7 @@ export function FirewallTab({ node }: { node: NodeItem }) {
     mutationFn: () => api<NodeFirewall>(`/nodes/${node.id}/firewall/check`, { method: 'POST' }),
     onSuccess: (r) => {
       fw.refetch();
-      const bad = r.ports.filter((p) => r.checks[portKey(p)] && !r.checks[portKey(p)]!.ok).length;
+      const bad = r.ports.filter((p) => r.checks[portKey(p)] && !r.checks[portKey(p)]!.ok && r.checks[portKey(p)]!.message !== 'idle').length;
       if (bad) toast.warning(t('firewall.someClosed', { count: bad }));
       else toast.success(t('firewall.allOpen'));
     },
@@ -187,8 +187,8 @@ export function FirewallTab({ node }: { node: NodeItem }) {
                     {!res ? (
                       <span className="text-muted">{t('firewall.notChecked')}</span>
                     ) : (
-                      <span className={clsx('inline-flex items-center gap-1.5 font-semibold', res.ok ? 'text-online' : 'text-offline')} title={formatRelative(res.at)}>
-                        {res.ok ? <CheckCircle2 className="size-4" /> : <XCircle className="size-4" />}
+                      <span className={clsx('inline-flex items-center gap-1.5 font-semibold', res.ok ? 'text-online' : res.message === 'idle' ? 'text-muted' : 'text-offline')} title={formatRelative(res.at)}>
+                        {res.ok ? <CheckCircle2 className="size-4" /> : res.message === 'idle' ? <MinusCircle className="size-4" /> : <XCircle className="size-4" />}
                         {res.ok ? t('firewall.open', { ms: res.ms ?? 0 }) : t(`firewall.closed.${res.message ?? 'other'}`, { defaultValue: res.message ?? '' })}
                       </span>
                     )}

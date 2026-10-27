@@ -189,4 +189,22 @@ describe('firewall checklist (phase 18)', () => {
     a.close();
     server.close();
   });
+
+  it('shows the push port of a relay as not in use while nothing pushes to it', async () => {
+    // A customer without stations: nothing pushes to its relay.
+    const other = await t.app.inject({
+      method: 'POST',
+      url: '/api/tenants',
+      headers: admin,
+      payload: { name: 'Quiet', slug: 'quiet', plan: 'distribution', limits: { maxStations: 1, maxListeners: 10, maxBitrateKbps: 128, storageQuotaMb: 10, maxNodes: 1 } },
+    });
+    const node = await pair({ name: 'quiet-relay', tenantId: other.json().id, roles: ['relay'] });
+    await t.app.inject({ method: 'PATCH', url: `/api/nodes/${node.id}`, headers: admin, payload: { config: { pushPort: 65002 } } });
+    const a = agent(node.id, node.secret);
+    await a.opened;
+    await wait(300);
+    const checked = (await t.app.inject({ method: 'POST', url: `/api/nodes/${node.id}/firewall/check`, headers: admin })).json();
+    expect(checked.checks['65002']).toMatchObject({ ok: false, message: 'idle' });
+    a.close();
+  });
 });
