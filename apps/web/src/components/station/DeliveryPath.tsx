@@ -115,8 +115,9 @@ function useDeliveryPath(station: StationDetail) {
 
   // One verdict for the whole route: the worst hop that carries (or should carry) the stream.
   const carrying = [...first.filter((h) => h.live || h.id === ts.ingest || h.id === ts.stationNode), ...relays];
-  const overall: Health = carrying.some((h) => h.health === 'offline') ? (relays.some((r) => r.health === 'online') ? 'warning' : 'offline') : carrying.some((h) => h.health === 'warning') ? 'warning' : ts.active ? 'online' : 'neutral';
-  const problems = carrying.filter((h) => h.health === 'offline' || h.health === 'warning').length;
+  // Without a relay nothing reaches the listeners, whatever the rest says.
+  const overall: Health = !relays.length ? 'offline' : carrying.some((h) => h.health === 'offline') ? (relays.some((r) => r.health === 'online') ? 'warning' : 'offline') : carrying.some((h) => h.health === 'warning') ? 'warning' : ts.active ? 'online' : 'neutral';
+  const problems = carrying.filter((h) => h.health === 'offline' || h.health === 'warning').length || (relays.length ? 0 : 1);
   const links = d.links.filter((l) => l.kind === 'stream' && first.some((f) => f.id === l.from) && ts.relays.includes(l.to));
   const kbps = links.reduce((x, l) => x + (l.kbps ?? 0), 0);
   return { loading: false, error: null, path: { sources, first, relays, total, countries, overall, problems, kbps, onAir: !!ts.active } };
@@ -196,7 +197,7 @@ export function DeliveryPathCard({ station }: { station: StationDetail }) {
             </Column>
             <Arrow label={path.kbps ? `${path.kbps} kbps` : undefined} />
             <Column>
-              {path.relays.length ? path.relays.map((h) => <HopCard key={h.id} hop={h} />) : <p className="rounded-lg border border-dashed border-line px-3 py-4 text-center text-[13px] text-muted">{t('delivery.noRelays')}</p>}
+              {path.relays.length ? path.relays.map((h) => <HopCard key={h.id} hop={h} />) : <p className="rounded-lg border border-dashed border-offline/50 px-3 py-4 text-center text-[13px] text-offline">{t('delivery.noRelays')}</p>}
             </Column>
             <Arrow />
             <Column>

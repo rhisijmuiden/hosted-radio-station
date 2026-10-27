@@ -23,7 +23,9 @@ export function RoutingCard({ station }: { station: StationDetail }) {
   }, [v, form]);
 
   const save = useMutation({
-    mutationFn: (body: StationRouting) => api<StationRoutingView>(`/stations/${station.id}/routing`, { method: 'PUT', body }),
+    // Relays that can no longer carry the station are dropped, or the save would be refused for them.
+    mutationFn: (body: StationRouting) =>
+      api<StationRoutingView>(`/stations/${station.id}/routing`, { method: 'PUT', body: { ...body, relays: body.relays === 'auto' ? 'auto' : body.relays.filter((id) => !q.data?.stale.some((x) => x.id === id)) } }),
     onSuccess: (res) => {
       qc.setQueryData(['station-routing', station.id], res);
       setForm(res.routing);
@@ -44,9 +46,9 @@ export function RoutingCard({ station }: { station: StationDetail }) {
 
   const name = (ref: string | null) => (ref === 'local' ? here : (v.options.ingests.find((n) => n.id === ref)?.name ?? v.status.ingests.find((i) => i.ref === ref)?.name ?? '—'));
   const ingestStatus = (ref: string) => v.status.ingests.find((i) => i.ref === ref);
-  const edit = v.canEdit && !v.locked;
+  const edit = v.canEdit;
   const chosen = form.relays === 'auto' ? null : form.relays;
-  const dirty = JSON.stringify(form) !== JSON.stringify(v.routing);
+  const dirty = JSON.stringify(form) !== JSON.stringify(v.routing) || (!!chosen && v.stale.some((x) => chosen.includes(x.id)));
   const toggleRelay = (id: string) => chosen && setForm({ ...form, relays: chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id] });
   const ingestOptions = (
     <>
@@ -72,19 +74,25 @@ export function RoutingCard({ station }: { station: StationDetail }) {
       <Card>
         <CardHeader title={t('routing.settings')} description={v.locked ? t('routing.locked') : !v.canEdit ? t('routing.ownerOnly') : t('routing.orchestratorNote')} />
         <div className="flex flex-col gap-5 p-5">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label={t('routing.mainIngest')} hint={v.autodjHere ? t('routing.autodjHere') : t('routing.mainIngestHint')}>
-              <Select value={form.ingest} disabled={!edit || v.autodjHere} onChange={(e) => setForm({ ...form, ingest: e.target.value, backupIngest: form.backupIngest === e.target.value ? null : form.backupIngest })}>
-                {ingestOptions}
-              </Select>
-            </Field>
-            <Field label={t('routing.backupIngest')} hint={t('routing.backupIngestHint')}>
-              <Select value={form.backupIngest ?? ''} disabled={!edit} onChange={(e) => setForm({ ...form, backupIngest: e.target.value || null })}>
-                <option value="">{t('routing.noBackup')}</option>
-                {ingestOptions}
-              </Select>
-            </Field>
-          </div>
+          {/* On a station node the node is the ingest, so only the relays are chosen here (phase 19). */}
+          {!v.locked && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label={t('routing.mainIngest')} hint={v.autodjHere ? t('routing.autodjHere') : t('routing.mainIngestHint')}>
+                <Select value={form.ingest} disabled={!edit || v.autodjHere} onChange={(e) => setForm({ ...form, ingest: e.target.value, backupIngest: form.backupIngest === e.target.value ? null : form.backupIngest })}>
+                  {ingestOptions}
+                </Select>
+              </Field>
+              <Field label={t('routing.backupIngest')} hint={t('routing.backupIngestHint')}>
+                <Select value={form.backupIngest ?? ''} disabled={!edit} onChange={(e) => setForm({ ...form, backupIngest: e.target.value || null })}>
+                  <option value="">{t('routing.noBackup')}</option>
+                  {ingestOptions}
+                </Select>
+              </Field>
+            </div>
+          )}
+          {!!v.stale.length && (
+            <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[13px]">{t('routing.stale', { names: v.stale.map((x) => x.name).join(', '), count: v.stale.length })}</p>
+          )}
           <div className="flex flex-col gap-3">
             <div className="text-sm font-semibold">{t('routing.relays')}</div>
             <Segmented
@@ -129,7 +137,7 @@ export function RoutingCard({ station }: { station: StationDetail }) {
       <Card>
         <CardHeader title={t('routing.live')} description={t('routing.liveHint')} />
         <Table head={[t('routing.col.part'), t('routing.col.name'), t('routing.col.state')]}>
-          {v.status.ingests.map((i) => (
+          {(v.locked ? [] : v.status.ingests).map((i) => (
             <tr key={i.ref}>
               <td className="text-[13px] text-muted">{i.priority === 0 ? t('routing.main') : t('routing.backup')}</td>
               <td className="text-[13px] font-semibold">{name(i.ref)}</td>

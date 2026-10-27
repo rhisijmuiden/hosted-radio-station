@@ -196,3 +196,28 @@ describe('orchestrator as control plane (phase 13)', () => {
     expect((await routing({ ingest: ingest.id })).statusCode).toBe(400);
   });
 });
+
+describe('relays of a station on a station node (phase 19)', () => {
+  it('lets the relays be chosen while the ingest stays the station node, and lists chosen relays that can no longer carry it', async () => {
+    const node = await pair({ name: 'studio-node', roles: ['station'] });
+    const relay2 = await pair({ name: 'relay-two', roles: ['relay'] });
+    const before = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/routing`, headers: admin })).json();
+    await t.db.update(schema.stations).set({ nodeId: node.id }).where(eq(schema.stations.id, stationId));
+    try {
+      const got = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/routing`, headers: admin })).json();
+      expect(got.locked).toBe('station_node');
+      expect(got.canEdit).toBe(true);
+      // The ingest fields are ignored on a station node; only the relays change.
+      const r = await routing({ ingest: randomUUID(), relays: [relay2.id], spareRelays: false });
+      expect(r.statusCode).toBe(200);
+      expect(r.json().routing).toEqual({ ...before.routing, relays: [relay2.id], spareRelays: false });
+      // A chosen relay that lost its relay role is listed as stale, so the panel can say why it carries nothing.
+      await t.db.update(schema.nodes).set({ roles: ['source'] }).where(eq(schema.nodes.id, relay2.id));
+      const stale = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/routing`, headers: admin })).json();
+      expect(stale.stale).toEqual([{ id: relay2.id, name: 'relay-two' }]);
+    } finally {
+      await t.db.update(schema.stations).set({ nodeId: null, routing: before.routing }).where(eq(schema.stations.id, stationId));
+      forgetRelays();
+    }
+  });
+});

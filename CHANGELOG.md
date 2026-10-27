@@ -36,6 +36,9 @@ Phase 19: clearer control panels.
   and the listeners per country. Customers see it too, with the real relay names.
 - The dashboard starts with **Needs attention**: pending nodes, nodes offline or with problems, relays that do not
   deliver a station, AutoDJ stations off air, failed backups and a waiting update, each one click away.
+- The relays of a station on a station node can be chosen again under Delivery path → Route (the node stays its own
+  ingest). Chosen relays that can no longer carry the station (lost the relay role, gone, dedicated elsewhere) are
+  named there and dropped on save; a station that no relay carries shows as not reaching listeners.
 
 ## 1.1.1 (27 October 2026)
 

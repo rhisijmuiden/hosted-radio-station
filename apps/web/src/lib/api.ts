@@ -1192,6 +1192,8 @@ export interface StationRoutingView {
   autodjHere: boolean;
   canEdit: boolean;
   options: { ingests: RoutingChoice[]; relays: RoutingChoice[] };
+  /** Chosen relays that can no longer carry the station; dropped on the next save. */
+  stale: { id: string; name: string }[];
   status: {
     active: IngestRef | null;
     ingests: { ref: IngestRef; priority: number; name: string; online: boolean; onAir: boolean }[];

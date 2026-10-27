@@ -42,6 +42,10 @@ export function AttentionCard() {
     else if (n.degraded) items.push({ key: `node:${n.id}`, tone: 'warning', text: t('attention.nodeDegraded', { name: n.name }), to: `/nodes/${n.id}`, action: t('attention.open') });
   }
   for (const s of topo.data?.stations ?? []) {
+    if (!s.relays.length) {
+      items.push({ key: `route:${s.id}`, tone: 'offline', text: t('attention.noRelays', { station: s.name }), to: stationTabHref(s.id, 'routing'), action: t('delivery.title') });
+      continue;
+    }
     const bad = s.relays.filter((id) => s.cells[id] === 'down' || s.cells[id] === 'degraded');
     if (!bad.length) continue;
     const names = bad.map((id) => topo.data!.nodes.find((n) => n.id === id)?.name ?? id).join(', ');
