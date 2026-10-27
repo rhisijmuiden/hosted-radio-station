@@ -2221,7 +2221,7 @@ export const nl: Translation = {
     forWho: { studio: 'RHIS Studio', encoders: 'Encoders', uploads: 'Uploads', listeners: 'Luisteraars', ingests: 'Ingests' },
     notChecked: 'Nog niet gecontroleerd',
     open: 'Open · {{ms}} ms',
-    closed: { timeout: 'Geen antwoord (gefilterd)', refused: 'Dicht (geweigerd)', unreachable: 'Niet bereikbaar', other: 'Niet bereikbaar' },
+    closed: { idle: 'Nog niet in gebruik: gaat open zodra een ingest hierheen stuurt', timeout: 'Geen antwoord (gefilterd)', refused: 'Dicht (geweigerd)', unreachable: 'Niet bereikbaar', other: 'Niet bereikbaar' },
     someClosed_one: '{{count}} poort is van buitenaf niet bereikbaar',
     someClosed_other: '{{count}} poorten zijn van buitenaf niet bereikbaar',
     allOpen: 'Alle poorten zijn van buitenaf bereikbaar',

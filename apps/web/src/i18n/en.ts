@@ -2219,7 +2219,7 @@ export const en = {
     forWho: { studio: 'RHIS Studio', encoders: 'Encoders', uploads: 'Uploads', listeners: 'Listeners', ingests: 'Ingests' },
     notChecked: 'Not checked yet',
     open: 'Open · {{ms}} ms',
-    closed: { timeout: 'No answer (filtered)', refused: 'Closed (refused)', unreachable: 'Not reachable', other: 'Not reachable' },
+    closed: { idle: 'Not in use yet: opens once an ingest pushes here', timeout: 'No answer (filtered)', refused: 'Closed (refused)', unreachable: 'Not reachable', other: 'Not reachable' },
     someClosed_one: '{{count}} port is not reachable from outside',
     someClosed_other: '{{count}} ports are not reachable from outside',
     allOpen: 'All ports are reachable from outside',
