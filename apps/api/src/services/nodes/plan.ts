@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { schema } from '../../db/index.js';
 import { NODE_ROLES, type NodeConfig, type NodeRole } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
+import { dnsConfig } from '../dns/config.js';
 import { getSetting, UPDATE_POLICIES, updateWindowSchema } from '../settings.js';
 import { platformHost } from '../streaming/state.js';
 import { runningVersion } from '../system.js';
@@ -61,6 +62,11 @@ export const nodeConfigSchema = z.object({
     .max(45)
     .refine((v) => v === '' || net.isIP(v) !== 0, 'Use an IPv4 or IPv6 address')
     .default(''),
+  /**
+   * Certificates for the node's names under the platform domain through Cloudflare DNS (DNS-01) instead of HTTP, so a
+   * node whose port 80 cannot be reached still gets HTTPS. The main server sets the TXT records; the token stays there.
+   */
+  certDns: z.boolean().default(false),
   /** Set by the DNS manager, not by hand: the node's platform name while its record exists. */
   dnsHost: z.string().default(''),
   /** Set by the DNS manager: the check of the node's own host name (publicHost) when it is not a platform name. */
@@ -301,7 +307,7 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
     nodeId: node.id,
     name: node.name,
     roles,
-    web: { publicHost: nodeHost(node) || null, listenPort: c.listenPort },
+    web: { publicHost: nodeHost(node) || null, listenPort: c.listenPort, dnsCerts: await dnsCertsOf(ctx, node, source?.hosts ?? []) },
     relay,
     source,
     ingest,
@@ -313,6 +319,20 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
     update: { branch: v.branch, commit: v.commit, auto: false },
   };
   return { ...plan, revision: createHash('sha256').update(JSON.stringify(plan)).digest('hex').slice(0, 16) };
+}
+
+/**
+ * The names a node fetches its certificates for through Cloudflare DNS (DNS-01): those of its certificate names that
+ * lie under the platform domain, while Cloudflare DNS is on and the node asks for it. Null = HTTP as usual.
+ */
+export async function dnsCertsOf(ctx: AppContext, node: Node, sourceHosts: string[]): Promise<NodePlan['web']['dnsCerts']> {
+  if (!nodeSettings(node).certDns) return null;
+  const { base, active } = await dnsConfig(ctx);
+  if (!active) return null;
+  const hosts = [...new Set([nodeHost(node), ...sourceHosts])].filter((h) => !!h && (h === base || h.endsWith(`.${base}`))).sort();
+  if (!hosts.length) return null;
+  const proxy = await getSetting(ctx, 'proxy');
+  return { hosts, email: proxy.acmeEmail || `hostmaster@${base}` };
 }
 
 type MountRow = typeof schema.stationMounts.$inferSelect;

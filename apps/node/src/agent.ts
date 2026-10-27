@@ -277,6 +277,7 @@ export class Agent {
       icecastPort: layout.port,
       icecastBind: layout.bind,
       certHosts: [...new Set([plan.web.publicHost, ...(plan.source?.hosts ?? [])].filter((h): h is string => !!h))].sort(),
+      dnsCerts: plan.web.dnsCerts ?? null,
       station: !!plan.station,
       ffmpeg: !!plan.ingest?.stations.some((st) => st.mounts.some((m) => m.kind === 'transcode')),
     });

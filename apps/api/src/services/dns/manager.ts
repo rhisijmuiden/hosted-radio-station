@@ -126,6 +126,29 @@ export class DnsManager {
     return this.zone;
   }
 
+  /**
+   * DNS-01 for a node (phase 15, step 2): sets or removes the TXT record _acme-challenge.<name> for a certificate the
+   * node fetches itself. The caller has checked that the name is one of the node's. These records carry
+   * hrs-acme:<install>:<node> (not hrs:<install>:), so a run of the record plan never takes them for its own.
+   */
+  async acmeChallenge(action: 'present' | 'cleanup', nodeId: string, name: string, value: string) {
+    const { s, base, active } = await dnsConfig(this.ctx);
+    if (!active) throw new CloudflareError('Cloudflare DNS is not on', 409);
+    const cf = new Cloudflare(s.apiToken, this.ctx.config.CLOUDFLARE_API_URL);
+    const zone = await this.zoneOf(cf, s, base);
+    const comment = `hrs-acme:${installId(this.ctx)}:${nodeId}`;
+    const existing = (await cf.findRecords(zone.id, name, 'TXT')).filter((r) => r.comment === comment);
+    // Cloudflare keeps TXT content in quotes.
+    const same = (r: { content: string }) => r.content.replace(/^"|"$/g, '') === value;
+    if (action === 'present') {
+      if (existing.some(same)) return;
+      await cf.createRecord(zone.id, { name, type: 'TXT', content: `"${value}"`, proxied: false, ttl: 60, comment });
+    } else {
+      for (const r of existing.filter(same)) await cf.deleteRecord(zone.id, r.id);
+    }
+    this.log.info({ nodeId, name, action }, 'DNS-01 challenge record');
+  }
+
   /** Gives customer domains without one a target label: the customer's slug, then slug-2, slug-3 … */
   private async labelDomains() {
     const rows = await this.ctx.db

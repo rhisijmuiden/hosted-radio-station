@@ -95,10 +95,30 @@ The rules carry `hrs:<install>:` in their description and are put first; cache r
 removes them, and so does **Remove records**. A token without the Cache Rules permission shows an error
 next to the option and does not stop the DNS records.
 
+## Certificates through DNS (DNS-01)
+
+A node normally gets its HTTPS certificates over HTTP (Let's Encrypt calls port 80 of the node). When that port cannot
+be reached, for example a studio node behind a customer's firewall that only forwards the encoder ports, switch on
+**Certificates through Cloudflare DNS** in the node's *Names and address* card. The switch is there while Cloudflare
+DNS is on.
+
+The node then fetches the certificates for its names under the platform domain (its platform name, and encoder names
+under the platform domain) with [lego](https://go-acme.github.io/lego/), installed on the node when first needed.
+lego asks the main server to set the `_acme-challenge` TXT record (`POST /api/nodes/agent/acme/present` and
+`/cleanup`, signed in with the node's id and secret); the main server only accepts names that are the node's own, and
+the Cloudflare token never leaves it. The TXT records carry `hrs-acme:<install>:<node>` and are removed right after
+the check.
+
+Certificates are renewed 30 days before they expire (the node checks every six hours and after every plan change). A
+name that failed waits an hour before it is tried again, and the error shows in the node's status. Own names outside
+the platform domain (such as `studio.harder.fm`) still use HTTP.
+
 ## API
 
 - `GET/PUT /api/dns/settings`, `POST /api/dns/test`: settings (token masked) and the connection test.
 - `GET /api/dns/state`: the last run: wanted records with their state, problems and the last changes.
 - `POST /api/dns/sync`: run now. `POST /api/dns/purge` with `{ "confirm": true }`: remove the platform's records.
 - `GET /api/nodes/:id/dns`, `POST /api/nodes/:id/dns/verify`: a node's platform name and the check of its own name.
+- `POST /api/nodes/agent/acme/present` and `/cleanup`: DNS-01 for nodes (lego's httpreq format, Basic auth with the
+  node id and secret).
 - `GET /api/tenants/:id/domains` now includes `targets` per domain, and each check has `expected` and `warning`.
