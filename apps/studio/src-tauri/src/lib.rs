@@ -195,6 +195,14 @@ async fn upload_file(url: String, token: String, path: String) -> Result<serde_j
         .map_err(|e| e.to_string())?
 }
 
+/// A file of the server kept on this PC (the jingle buttons); returns its local path.
+#[tauri::command]
+async fn cache_file(url: String, token: String, name: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || files::cached(&url, &token, &name).map(|p| p.to_string_lossy().to_string()).map_err(|e| format!("{e:#}")))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
@@ -241,7 +249,8 @@ pub fn run() {
             preview_stop,
             preview_state,
             list_folder,
-            upload_file
+            upload_file,
+            cache_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running RHIS Studio");

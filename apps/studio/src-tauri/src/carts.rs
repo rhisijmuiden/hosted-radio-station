@@ -16,7 +16,8 @@ use symphonia::core::{
 
 use crate::resample::resample_all;
 
-pub const SLOTS: usize = 48;
+/// 48 for the cart wall (F1–F12 on four pages), then 48 for the jingle buttons of Live assist.
+pub const SLOTS: usize = 96;
 /// Carts longer than this are refused, so the wall stays light on memory (10 minutes ≈ 230 MB at 48 kHz).
 const MAX_SECONDS: u64 = 10 * 60;
 

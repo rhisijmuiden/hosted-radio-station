@@ -21,6 +21,13 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 - Play now: drag a track onto the player in RHIS Studio and it starts at once (`POST /api/stations/:id/autodj/play-now`).
   In Manual while the player waits for Play, the chosen track now starts (Liquidsoap 2.3 let the old track through first).
 
+- Jingle buttons in RHIS Studio: six of the DJ's own jingles above the queues, more on extra pages. Kept in the DJ's
+  profile on the server (`/api/studio/stations/:id/jingles`), so they are the same on every studio PC, and played by
+  the client into the broadcast. Fill a button by clicking it or by dragging a file or a library track onto it.
+- Encoder address (*Settings › Streaming*): the address the server gives encoders and RHIS Studio, for a panel domain
+  behind a proxy such as Cloudflare, which does not pass the encoder ports.
+- Fixed: the reconnect countdown on Go live in RHIS Studio showed no number.
+
 ## 1.0.1 (October 2026)
 
 Fixes found while testing 1.0.0.

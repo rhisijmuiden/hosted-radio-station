@@ -163,3 +163,49 @@ describe('studio client releases', () => {
     clearStudioReleaseCache();
   });
 });
+
+describe('jingle buttons', () => {
+  const boundary = '----hrs';
+  const upload = (position: number, name: string, data: Buffer, who = dj) =>
+    t.app.inject({
+      method: 'POST',
+      url: `/api/studio/stations/${stationId}/jingles?position=${position}`,
+      headers: { ...who, 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: Buffer.concat([
+        Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="files"; filename="${name}"\r\nContent-Type: audio/mpeg\r\n\r\n`),
+        data,
+        Buffer.from(`\r\n--${boundary}--\r\n`),
+      ]),
+    });
+
+  it('keeps every DJ their own jingles, with the audio to download', async () => {
+    const a = await upload(0, 'Station ID.mp3', Buffer.from('ID3 first'));
+    expect(a.statusCode).toBe(200);
+    expect(a.json()).toMatchObject({ position: 0, label: 'Station ID', ext: 'mp3', looped: false });
+    expect((await upload(1, 'evil.sh', Buffer.from('echo'))).statusCode).toBe(400);
+    expect((await upload(48, 'x.mp3', Buffer.from('x'))).statusCode).toBe(400);
+    const b = await upload(1, 'Sweeper.wav', Buffer.from('RIFF second'));
+    const audio = await t.app.inject({ url: `/api/studio/stations/${stationId}/jingles/${a.json().id}/audio`, headers: dj });
+    expect(audio.body).toBe('ID3 first');
+    // The owner of the station has buttons of their own, and cannot reach the DJ's.
+    expect((await t.app.inject({ url: `/api/studio/stations/${stationId}/jingles`, headers: owner })).json()).toEqual([]);
+    expect((await t.app.inject({ url: `/api/studio/stations/${stationId}/jingles/${a.json().id}/audio`, headers: owner })).statusCode).toBe(404);
+
+    // Moving onto a taken button swaps the two.
+    const moved = await t.app.inject({ method: 'PATCH', url: `/api/studio/stations/${stationId}/jingles/${a.json().id}`, headers: dj, payload: { position: 1, label: 'ID', looped: true } });
+    expect(moved.json().map((j: { id: string; position: number }) => [j.id, j.position])).toEqual([
+      [b.json().id, 0],
+      [a.json().id, 1],
+    ]);
+    expect(moved.json()[1]).toMatchObject({ label: 'ID', looped: true });
+
+    // A new file on a taken button replaces the jingle there.
+    const c = await upload(0, 'Bed.mp3', Buffer.from('ID3 third'));
+    const list = (await t.app.inject({ url: `/api/studio/stations/${stationId}/jingles`, headers: dj })).json();
+    expect(list.map((j: { label: string }) => j.label)).toEqual(['Bed', 'ID']);
+    expect((await t.app.inject({ url: `/api/studio/stations/${stationId}/jingles/${b.json().id}/audio`, headers: dj })).statusCode).toBe(404);
+
+    expect((await t.app.inject({ method: 'DELETE', url: `/api/studio/stations/${stationId}/jingles/${c.json().id}`, headers: dj })).statusCode).toBe(200);
+    expect((await t.app.inject({ url: `/api/studio/stations/${stationId}/jingles`, headers: dj })).json()).toHaveLength(1);
+  });
+});

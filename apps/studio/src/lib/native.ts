@@ -138,7 +138,7 @@ const simParent = (p: string) => {
 type Listener = (e: EngineEvent) => void;
 const sim = {
   listeners: new Set<Listener>(),
-  carts: Array.from({ length: 48 }, (_, slot): CartState & { started: number } => ({ slot, loaded: false, playing: false, position: 0, duration: 0, started: 0 })),
+  carts: Array.from({ length: 96 }, (_, slot): CartState & { started: number } => ({ slot, loaded: false, playing: false, position: 0, duration: 0, started: 0 })),
   broadcast: { state: 'off' } as BroadcastStatus,
   config: null as AudioConfig | null,
   previewOutput: null as string | null,
@@ -213,7 +213,7 @@ async function simInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Pr
   });
   switch (cmd) {
     case 'app_info':
-      return { version: '0.11.2', os: 'windows', arch: 'x86_64', hostname: 'STUDIO-1', asio: true } as T;
+      return { version: '0.12.0', os: 'windows', arch: 'x86_64', hostname: 'STUDIO-1', asio: true } as T;
     case 'list_devices':
       return simDevices as T;
     case 'configure_audio':
@@ -239,6 +239,8 @@ async function simInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Pr
     case 'stop_cart':
       Object.assign(sim.carts[args.slot as number]!, { playing: false, position: 0 });
       return undefined as T;
+    case 'cache_file':
+      return `C:\\Cache\\${args.name as string}` as T;
     case 'stop_all_carts':
       sim.carts.forEach((c) => Object.assign(c, { playing: false, position: 0 }));
       return undefined as T;

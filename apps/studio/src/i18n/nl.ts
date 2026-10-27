@@ -152,6 +152,13 @@ export const nl: Translation = {
     othersLive: 'Nu ook live: {{names}}',
     openSettings: 'Kies een geluidskaart',
   },
+  jingles: {
+    drop: 'Sleep of kies een jingle',
+    saving: 'Opslaan…',
+    addPage: 'Pagina met knoppen toevoegen',
+    editTitle: 'Jingleknop',
+    replace: 'Ander bestand kiezen',
+  },
   carts: {
     subtitle: 'Jingles en effecten onder F1–F12. Klik of druk op de toets om af te spelen, nog eens om te stoppen.',
     page: 'Pagina {{n}}',

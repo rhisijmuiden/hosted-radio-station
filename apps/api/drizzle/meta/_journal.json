@@ -92,6 +92,13 @@
       "when": 1793050839321,
       "tag": "0013_studio",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793100000000,
+      "tag": "0014_studio_jingles",
+      "breakpoints": true
     }
   ]
 }
