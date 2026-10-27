@@ -1,35 +1,5 @@
 import clsx from 'clsx';
-import {
-  BookOpen,
-  Building2,
-  ChevronUp,
-  DatabaseBackup,
-  KeyRound,
-  LayoutDashboard,
-  LogOut,
-  Mail,
-  Menu,
-  Moon,
-  RefreshCw,
-  ScrollText,
-  Sun,
-  UserRound,
-  Users,
-  Globe,
-  BarChart3,
-  Radio,
-  RadioTower,
-  Server,
-  Network,
-  MonitorSmartphone,
-  CreditCard,
-  FileText,
-  Package,
-  Receipt,
-  Webhook,
-  Landmark,
-  type LucideIcon,
-} from 'lucide-react';
+import { BarChart3, BookOpen, Building2, ChevronUp, Cloud, CreditCard, DatabaseBackup, FileText, Globe, KeyRound, Landmark, LayoutDashboard, LogOut, Mail, Menu, MonitorSmartphone, Moon, Network, Package, Radio, RadioTower, Receipt, RefreshCw, ScrollText, Server, Sun, UserRound, Users, Webhook, type LucideIcon } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -195,6 +165,7 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
         { to: '/api-keys', label: t('nav.apiKeys'), icon: KeyRound },
         { to: '/settings/mail', label: t('nav.mail'), icon: Mail },
         { to: '/settings/web-server', label: t('nav.webServer'), icon: Globe },
+        { to: '/settings/dns', label: t('nav.dns'), icon: Cloud },
         { to: '/settings/streaming', label: t('nav.streaming'), icon: RadioTower },
         { to: '/settings/statistics', label: t('nav.statisticsSettings'), icon: BarChart3 },
         { to: '/settings/backups', label: t('nav.backups'), icon: DatabaseBackup },

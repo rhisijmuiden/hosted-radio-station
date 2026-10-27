@@ -28,6 +28,7 @@ import { StationDetailPage } from './pages/StationDetail';
 import { StationsPage } from './pages/Stations';
 import { StatisticsPage } from './pages/Statistics';
 import { StatisticsSettingsPage } from './pages/StatisticsSettings';
+import { DnsPage } from './pages/Dns';
 import { StreamingPage } from './pages/Streaming';
 import { StudioLinkPage, StudioPage } from './pages/Studio';
 import { TopologyPage } from './pages/Topology';
@@ -88,6 +89,7 @@ export function App() {
           <Route path="api-keys" element={<ApiKeysPage />} />
           <Route path="settings/mail" element={<RequireAuth admin><MailServerPage /></RequireAuth>} />
           <Route path="settings/web-server" element={<RequireAuth admin><WebServerPage /></RequireAuth>} />
+          <Route path="settings/dns" element={<RequireAuth admin><DnsPage /></RequireAuth>} />
           <Route path="settings/streaming" element={<RequireAuth admin><StreamingPage /></RequireAuth>} />
           <Route path="settings/backups" element={<RequireAuth admin><BackupsPage /></RequireAuth>} />
           <Route path="audit" element={<RequireAuth admin><AuditLogPage /></RequireAuth>} />

@@ -1,4 +1,5 @@
 import { createHash, createHmac } from 'node:crypto';
+import net from 'node:net';
 import { and, asc, count, eq, inArray, isNotNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '../../db/index.js';
@@ -43,6 +44,30 @@ export const nodeConfigSchema = z.object({
   updateGroup: z.string().regex(/^[a-z0-9-]{1,40}$/).nullable().default(null),
   /** Own maintenance window for policy "window"; null = the group's or the network's. */
   updateWindow: updateWindowSchema.nullable().default(null),
+  /** Cloudflare DNS (phase 15): the first part of the node's platform name, e.g. relay1. Empty = from the node's name. */
+  dnsName: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .max(63)
+    .regex(/^$|^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/, 'Use a-z, 0-9 and dashes')
+    .default(''),
+  /** Give this node a platform name (record) when Cloudflare DNS is on. */
+  dnsRecord: z.boolean().default(true),
+  /** Public address for the node's record, when the address it connects from is not the one the outside world uses. */
+  publicAddress: z
+    .string()
+    .trim()
+    .max(45)
+    .refine((v) => v === '' || net.isIP(v) !== 0, 'Use an IPv4 or IPv6 address')
+    .default(''),
+  /** Set by the DNS manager, not by hand: the node's platform name while its record exists. */
+  dnsHost: z.string().default(''),
+  /** Set by the DNS manager: the check of the node's own host name (publicHost) when it is not a platform name. */
+  publicHostCheck: z
+    .object({ ok: z.boolean(), found: z.array(z.string()), error: z.string().optional(), at: z.string() })
+    .nullable()
+    .default(null),
 });
 export type NodeSettings = z.infer<typeof nodeConfigSchema>;
 
@@ -52,10 +77,25 @@ function patchOf<T extends z.ZodRawShape>(shape: T) {
 }
 
 /** Body of a settings change from the panel or the API. */
-export const nodeConfigPatch = patchOf(nodeConfigSchema.shape).extend({ fm: patchOf(fmConfigSchema.shape).optional() });
+export const nodeConfigPatch = patchOf(nodeConfigSchema.shape)
+  .omit({ dnsHost: true, publicHostCheck: true })
+  .extend({ fm: patchOf(fmConfigSchema.shape).optional() });
 export type NodeConfigPatch = z.infer<typeof nodeConfigPatch>;
 
 export const nodeSettings = (node: Pick<Node, 'config'>): NodeSettings => nodeConfigSchema.parse(node.config ?? {});
+
+/**
+ * The host name the outside world uses for a node: its own name (publicHost), else its platform name from Cloudflare
+ * DNS (phase 15). An own name that does not check out (no CNAME to the platform name, no A record to the node) gives
+ * way to the platform name while there is one, so studios and encoders keep a name that works.
+ */
+export function nodeHost(node: Pick<Node, 'config'>): string {
+  const c = node.config ?? {};
+  const own = (c.publicHost ?? '').trim();
+  const platform = c.dnsHost ?? '';
+  if (own && platform && own !== platform && c.publicHostCheck && !c.publicHostCheck.ok) return platform;
+  return own || platform;
+}
 
 /** Default port listeners use: 80 behind the node's own web server, else Icecast's 8000. */
 export const defaultListenPort = (node: Pick<Node, 'status'>) => (node.status.caddy ? 80 : 8000);
@@ -67,9 +107,10 @@ export const defaultListenPort = (node: Pick<Node, 'status'>) => (node.status.ca
 export function relayBaseUrl(node: Pick<Node, 'config' | 'status'>): string | null {
   const c = nodeSettings(node);
   const port = c.listenPort ?? defaultListenPort(node);
-  const host = c.publicHost || node.status.ip;
+  const name = nodeHost(node);
+  const host = name || node.status.ip;
   if (!host) return null;
-  if (c.publicHost && node.status.caddy) return `https://${c.publicHost}`;
+  if (name && node.status.caddy) return `https://${name}`;
   const h = host.includes(':') ? `[${host}]` : host;
   return port === 80 ? `http://${h}` : `http://${h}:${port}`;
 }
@@ -260,7 +301,7 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
     nodeId: node.id,
     name: node.name,
     roles,
-    web: { publicHost: c.publicHost || null, listenPort: c.listenPort },
+    web: { publicHost: nodeHost(node) || null, listenPort: c.listenPort },
     relay,
     source,
     ingest,

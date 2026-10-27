@@ -176,13 +176,15 @@ export function Segmented<T extends string>({
   value,
   onChange,
   options,
+  cols = 2,
 }: {
   value: T;
   onChange: (v: T) => void;
   options: { value: T; label: ReactNode; description?: ReactNode }[];
+  cols?: 2 | 3;
 }) {
   return (
-    <div className="grid gap-2 sm:grid-cols-2">
+    <div className={clsx('grid gap-2', cols === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2')}>
       {options.map((o) => (
         <button
           key={o.value}
@@ -309,7 +311,7 @@ export function CopyField({ label, value, mono = true }: { label: ReactNode; val
   return (
     <div className="flex min-w-0 items-center gap-2 rounded-md border border-line px-3 py-2">
       <div className="min-w-0 flex-1">
-        <div className="text-[11px] text-muted">{label}</div>
+        {label != null && <div className="text-[11px] text-muted">{label}</div>}
         <div className={clsx('truncate text-[13px]', mono && 'font-mono')} title={value}>
           {value}
         </div>

@@ -172,7 +172,7 @@ const probeOut = z.object({
 });
 
 /** Who may see or change a node: administrators all of them, customers their own (owners change, managers look). */
-async function nodeAccess(ctx: AppContext, req: FastifyRequest, id: string, minRole: 'manager' | 'owner') {
+export async function nodeAccess(ctx: AppContext, req: FastifyRequest, id: string, minRole: 'manager' | 'owner') {
   const [node] = await ctx.db.select().from(schema.nodes).where(eq(schema.nodes.id, id));
   if (!node) throw notFound('Node');
   if (node.tenantId) await requireTenantRole(ctx, req, node.tenantId, minRole);
@@ -382,6 +382,12 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       Object.assign(req.auditInfo, { tenantId: node.tenantId, targetId: node.id, details: { name: updated!.name, roles, config: b.config ?? null } });
       const carriageChanged = b.roles !== undefined || b.config?.relayStations !== undefined || b.config?.publicHost !== undefined || b.config?.listenPort !== undefined;
       await replan(node.id, req.auth?.user.email, carriageChanged);
+      // Cloudflare DNS (phase 15): the node's record follows its name and address; an own host name is checked again.
+      const c0 = b.config ?? {};
+      if (b.name !== undefined || c0.dnsName !== undefined || c0.dnsRecord !== undefined || c0.publicAddress !== undefined || c0.publicHost !== undefined) {
+        app.dns?.nudge();
+        if (c0.publicHost !== undefined) void app.dns?.checkOwnNames(node.id).catch(() => undefined);
+      }
       return (await toOut([updated!]))[0]!;
     },
   );

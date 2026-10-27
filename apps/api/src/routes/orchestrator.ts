@@ -136,7 +136,10 @@ export const orchestratorRoutes: FastifyPluginAsyncZod = async (app) => {
       });
       await putSetting(ctx, 'orchestrator', { ...current, name: b.orchestrator, ingestName: b.ingest, relayName: b.relay });
       Object.assign(req.auditInfo, { details: { orchestrator: names.orchestrator, ingest: names.ingest, relay: names.relay, nodes: changed.map((n) => n.name) } });
-      if (changed.length) void hub.refreshAll();
+      if (changed.length) {
+        void hub.refreshAll();
+        app.dns?.nudge();
+      }
       return namesView();
     },
   );

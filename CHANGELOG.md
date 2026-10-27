@@ -3,6 +3,24 @@
 All notable changes to Hosted Radio Station. Versions follow [semantic versioning](https://semver.org). The
 [roadmap](ROADMAP.md) has the full description of each phase, with screenshots.
 
+## Unreleased
+
+Phase 15, step 1: Cloudflare DNS of the platform domain.
+
+- *Administration › DNS (Cloudflare)*: connect the zone with a scoped API token (tested in the panel), then Dry run
+  (shows what would change, writes nothing) or On. Every change goes into the audit log; a button removes every record
+  the platform made. Records of someone else are never touched and show as a conflict.
+- Records the platform keeps up to date: `origin.<domain>` (this server, its address set by hand, from Streaming or
+  found out every minute), one name per node such as `relay1.<domain>` with its public address, the `listen.<domain>`
+  pool of relays that are online and not being updated (TTL 60 s), and per customer domain
+  `<customer>.stream.<domain>` and `<customer>.src.<domain>`. Streams, pushes and encoders always stay DNS only; only
+  the optional panel record may go through the Cloudflare proxy.
+- Customer domains with Cloudflare DNS on show their two CNAME records with a **Check** button and a tick, a warning
+  (an A record or the old shared target still works) or what is wrong (missing, wrong target, orange cloud on).
+- Nodes get a *Names and address* card: the platform name, a manual public address for nodes behind NAT, and an own
+  host name (e.g. `studio.harder.fm`) that is checked and only used once it points to the node; until then the
+  platform name is handed out for RHIS Studio, encoders and uploads.
+
 ## 1.1.0 (27 October 2026)
 
 Phase 18 (server names, topology views, orchestrator only, connection details and firewall checklist) and the

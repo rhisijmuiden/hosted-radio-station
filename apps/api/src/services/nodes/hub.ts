@@ -97,6 +97,8 @@ export class NodeHub {
   private refreshing: Promise<void> | null = null;
   private refreshAgain = false;
   readonly geo: GeoIp;
+  /** Called when nodes come, go or are drained: Cloudflare DNS follows (phase 15). */
+  onChange: (() => void) | null = null;
 
   constructor(
     private readonly ctx: AppContext,
@@ -471,6 +473,7 @@ export class NodeHub {
 
   /** Re-plans all nodes shortly, once for a burst of changes (several nodes connecting after a restart). */
   replanSoon() {
+    this.onChange?.();
     if (this.replanTimer) return;
     this.replanTimer = setTimeout(() => {
       this.replanTimer = null;
@@ -493,6 +496,7 @@ export class NodeHub {
     const c = this.conns.get(nodeId);
     if (!c) return false;
     this.send(c, { t: 'drain', seconds });
+    this.onChange?.();
     return true;
   }
 

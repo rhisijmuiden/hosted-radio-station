@@ -36,6 +36,10 @@ const schema = z.object({
    * runs the stations the main server gives it and reports back; it has no panel of its own.
    */
   STATION_NODE: z.string().default(''),
+  /** Cloudflare API base, changed in tests only. */
+  CLOUDFLARE_API_URL: z.string().url().default('https://api.cloudflare.com/client/v4'),
+  /** Where this server finds its own public address (Cloudflare's trace page); empty = never look it up. */
+  PUBLIC_IP_URL: z.string().default('https://1.1.1.1/cdn-cgi/trace'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 

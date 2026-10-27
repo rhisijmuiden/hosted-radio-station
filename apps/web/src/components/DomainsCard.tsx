@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Globe, Plus, RefreshCw, Trash2, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Globe, Plus, RefreshCw, Trash2, XCircle } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { api, ApiError, type NodeItem, type TenantDomain, type TenantUsage } from '../lib/api';
+import { api, ApiError, type DomainCheck, type NodeItem, type TenantDomain, type TenantUsage } from '../lib/api';
 import { formatBytes, formatRelative } from '../lib/format';
 import { Badge, Button, Card, CardHeader, CopyField, Dialog, Field, Input, Select, Spinner, Switch } from './ui';
 import { useServerNames } from '../lib/server';
@@ -57,6 +57,48 @@ function AddDomainDialog({ tenantId, open, onClose }: { tenantId: string; open: 
 }
 
 const statusTone = { verified: 'online', pending: 'warning', failed: 'offline' } as const;
+
+/** What is wrong with a record, or what could be better, in words. */
+function checkText(t: (k: string, o?: Record<string, unknown>) => string, c: DomainCheck | undefined, expected: string) {
+  if (!c) return t('domains.notChecked');
+  if (c.ok) return c.warning ? t(`domains.warnings.${c.warning}`, { target: expected }) : t('domains.recordOk');
+  if (c.error === 'not_found') return t('domains.errors.not_found');
+  if (c.error === 'proxied') return t('domains.errors.proxied');
+  return t('domains.errors.wrong_target', { found: c.found.join(', '), target: expected });
+}
+
+/**
+ * Cloudflare DNS (phase 15): the two CNAME records of a domain, each with its own target on the platform domain and a
+ * tick, a warning or what is wrong.
+ */
+function TargetRecords({ domain: d }: { domain: TenantDomain }) {
+  const { t } = useTranslation();
+  const rows = [
+    { host: d.panelHost, target: d.targets!.panel, label: t('domains.panelHost') },
+    { host: d.ingestHost, target: d.targets!.ingest, label: t('domains.ingestHost') },
+  ];
+  return (
+    <div className="overflow-hidden rounded-md border border-line">
+      {rows.map(({ host, target, label }) => {
+        const c = d.checks.find((x) => x.host === host);
+        const tone = !c ? 'text-muted' : !c.ok ? 'text-offline' : c.warning ? 'text-warning' : 'text-online';
+        const Icon = c?.ok ? (c.warning ? AlertTriangle : CheckCircle2) : XCircle;
+        return (
+          <div key={host} className="flex flex-col gap-1.5 border-t border-line px-3 py-2.5 first:border-t-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+              <Icon className={`size-4 shrink-0 ${tone}`} />
+              <span className="truncate font-mono text-[13px] font-semibold">{host}</span>
+              <span className="rounded bg-chip px-1.5 py-px font-mono text-[11px] text-muted">CNAME</span>
+              <span className="text-[11px] text-muted">{label}</span>
+            </div>
+            <CopyField label={t('domains.recordValue')} value={target} />
+            <div className={`text-[11px] ${c?.ok && !c.warning ? 'text-muted' : tone}`}>{checkText(t, c, target)}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 /** A customer's own domains: stream.<domain> for the panel, pages and streams, src.<domain> for encoders. */
 export function DomainsCard({ tenantId, canEdit, admin }: { tenantId: string; canEdit: boolean; admin: boolean }) {
@@ -133,8 +175,8 @@ export function DomainsCard({ tenantId, canEdit, admin }: { tenantId: string; ca
                   {d.verifiedManually && <Badge>{t('domains.manual')}</Badge>}
                 </div>
                 <div className="flex gap-1">
-                  <Button size="sm" variant="ghost" title={t('domains.check')} loading={verify.isPending && verify.variables?.id === d.id} onClick={() => verify.mutate(d)}>
-                    <RefreshCw className="size-4 text-muted" />
+                  <Button size="sm" variant="secondary" title={t('domains.check')} loading={verify.isPending && verify.variables?.id === d.id} onClick={() => verify.mutate(d)}>
+                    <RefreshCw className="size-4" /> {t('domains.verify')}
                   </Button>
                   {canEdit && (
                     <Button size="sm" variant="ghost" title={t('common.delete')} onClick={() => confirm(t('domains.deleteConfirm', { domain: d.domain })) && remove.mutate(d)}>
@@ -143,29 +185,33 @@ export function DomainsCard({ tenantId, canEdit, admin }: { tenantId: string; ca
                   )}
                 </div>
               </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {[
-                  { host: d.panelHost, label: t('domains.panelHost') },
-                  { host: d.ingestHost, label: t('domains.ingestHost') },
-                ].map(({ host, label }) => {
-                  const check = d.checks.find((c) => c.host === host);
-                  return (
-                    <div key={host} className="rounded-md border border-line px-3 py-2">
-                      <div className="flex items-center gap-1.5 text-[11px] text-muted">
-                        {check?.ok ? <CheckCircle2 className="size-3.5 text-online" /> : <XCircle className="size-3.5 text-offline" />}
-                        {label}
-                      </div>
-                      <div className="truncate font-mono text-[13px]">{host}</div>
-                      {check && !check.ok && (
-                        <div className="mt-0.5 text-[11px] text-muted">
-                          {check.found.length ? t('domains.pointsTo', { found: check.found.join(', ') }) : t('domains.noRecord')}
-                          {check.error === 'no_target' && ` · ${t('domains.noTarget')}`}
+              {d.targets ? (
+                <TargetRecords domain={d} />
+              ) : (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {[
+                    { host: d.panelHost, label: t('domains.panelHost') },
+                    { host: d.ingestHost, label: t('domains.ingestHost') },
+                  ].map(({ host, label }) => {
+                    const check = d.checks.find((c) => c.host === host);
+                    return (
+                      <div key={host} className="rounded-md border border-line px-3 py-2">
+                        <div className="flex items-center gap-1.5 text-[11px] text-muted">
+                          {check?.ok ? <CheckCircle2 className="size-3.5 text-online" /> : <XCircle className="size-3.5 text-offline" />}
+                          {label}
                         </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+                        <div className="truncate font-mono text-[13px]">{host}</div>
+                        {check && !check.ok && (
+                          <div className="mt-0.5 text-[11px] text-muted">
+                            {check.found.length ? t('domains.pointsTo', { found: check.found.join(', ') }) : t('domains.noRecord')}
+                            {check.error === 'no_target' && ` · ${t('domains.noTarget')}`}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               {(!!sourceNodes.length || d.ingestNodeId) && (
                 <div className="flex flex-wrap items-center gap-2 text-[13px]">
                   <span className="text-muted">{t('domains.ingestVia')}</span>
@@ -187,7 +233,7 @@ export function DomainsCard({ tenantId, canEdit, admin }: { tenantId: string; ca
                   </div>
                   {d.ingestNodeId && (() => {
                     const n = sourceNodes.find((x) => x.id === d.ingestNodeId);
-                    const to = n?.config.publicHost || n?.status.ip;
+                    const to = n?.config.publicHost || n?.config.dnsHost || n?.status.ip;
                     return to ? <span className="text-xs text-muted">{t('domains.ingestPointTo', { host: d.ingestHost, target: to })}</span> : null;
                   })()}
                 </div>
@@ -207,7 +253,7 @@ export function DomainsCard({ tenantId, canEdit, admin }: { tenantId: string; ca
               </div>
             </div>
           ))}
-          {target && (
+          {target && !domains.data?.items.some((d) => d.targets) && (
             <div className="flex flex-col gap-2 bg-chip/40 px-5 py-4">
               <div className="text-[13px] font-semibold">{t('domains.dnsTitle')}</div>
               <p className="text-xs text-muted">{t('domains.dnsHint')}</p>
