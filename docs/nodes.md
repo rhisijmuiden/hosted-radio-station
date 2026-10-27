@@ -81,13 +81,37 @@ Rules:
 
 Every node is pinged over its control channel every 5 seconds. The panel shows the round trip, lost pings over the last 5 minutes, ping timeouts over the last 24 hours, CPU, memory, traffic and listeners, per minute and over time, and the events of the node. A node that is slower than **Slow above (ms)**, loses more than 5% of its pings or reports a problem is shown as degraded.
 
-The **Topology** page (customers: **My setup**) shows all of this live as a 3D map: the main server, nodes, live studios and the streams between them. Customers see their own nodes and, without names, the platform relays that carry their stations.
+The **Topology** page (customers: **My setup**) shows all of this live. Customers see their own nodes and the platform relays that carry their stations by name, but host names and addresses only of their own nodes. Four views, switched above the map and remembered per user:
 
-Next to the 3D map there are two flat views (the switch **3D / 2D → / 2D ↓** above the map, remembered per user): the signal flow in lanes, Studios & encoders → Ingest → Core → Distribution → Audience, from left to right or from top to bottom. Every line to a node carries its latency and packet loss (for example `6.0 ms · 0.02%`); live streams are animated, a degraded node's line is orange and an offline node's line is red. Click a block for its details.
+- **Layers** (the default): fixed columns Studios & encoders → Ingest → Distribution → Audience, from left to right or from top to bottom (**2D → / 2D ↓**). The orchestrator stands above on a control bus of its own. Relays of the same location are grouped, lines grow with bitrate and the number of streams, a backup ingest on standby is dashed, and listeners are shown per country. Every control line carries its latency and packet loss (for example `6.0 ms · 0.02%`).
+- **Per station**: pick a station (customers only see their own) and follow its path: main and backup ingest, the feed each relay plays (main or backup) and its listeners per relay and country. Everything else fades out.
+- **Matrix**: servers × stations in one table, for large networks. A cell is on air, standby, degraded, down or assigned but idle.
+- **3D**: the skyline. The layers on a floor, each server a tower whose height shows its listeners (relays, FM, countries) or load (ingest and station nodes) and whose top shows its health. The orchestrator hovers above as a ring with faint control lines; audio runs as light trails over the floor.
 
-| 2D, left to right | 2D, top to bottom |
-| --- | --- |
-| ![Topology, flat left to right](screenshots/phase-8-topology-flat-lr-dark.png) | ![Topology, flat top to bottom](screenshots/phase-8-topology-flat-tb-light.png) |
+Click a block for its details.
+
+## Names
+
+**Nodes › Names** gives every server one name, used everywhere: topology, node list, routing, statistics and e-mails. The orchestrator gets its own name (by default the first part of its host name), and its own ingest and relay are called after it, for example `onlineradio · ingest`, unless you name them yourself. Every node gets a free name such as `relay1-ams`. Names are up to 40 characters (letters, digits, spaces and `. _ - ·`) and each is used once. The role is a badge next to the name; host name and IP stay visible underneath.
+
+## Orchestrator only
+
+The card on the **Nodes** page switches this server to **orchestrator only**: it then carries no audio at all and only manages. Before it goes on, the panel lists the stations that still use this server (as ingest, backup ingest, for listeners, with the AutoDJ or while moving); move those to a node first. Once on:
+
+- the encoder ports (8443, 8010 and Shoutcast v1) and its Icecast are closed;
+- this server can no longer be chosen as ingest or relay, there is no fallback to it when nodes fail, and listeners are never sent to it;
+- new stations need an ingest node, and stations with the AutoDJ run on a station node;
+- uploads (SFTP/SCP/FTP) go to the station node that holds the library.
+
+The orchestrator then only needs port 443 (plus 80 for certificates); every node connects out to it. API: `GET/PUT /api/nodes/orchestrator`, `GET/PUT /api/nodes/names`.
+
+## Connection details
+
+Every station has a **Connection** tab with the addresses the orchestrator hands out from its routing: with a station node, the node's external and internal address with the ports for RHIS Studio, encoders and SFTP/SCP/FTP uploads; without one, the ingest node(s) the customer may stream to, with the backup ingest. The same details are in the welcome e-mail, can be e-mailed from the tab and are in the API (`GET /api/stations/:id/connection`). They follow automatically when a station moves.
+
+## Firewall checklist
+
+Every node has a **Firewall** tab listing exactly which ports to open or forward to it: RHIS Studio, encoders, SFTP/SCP/FTP with the passive range, listeners for a relay. Nothing is needed for the orchestrator or the relays, because those connections go outwards. **Check from outside** connects from the orchestrator to each port and shows a green or red tick; the list can also be e-mailed (`GET /api/nodes/:id/firewall`, `POST /api/nodes/:id/firewall/check`).
 
 ## Updates
 

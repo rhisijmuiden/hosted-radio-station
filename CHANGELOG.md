@@ -5,6 +5,16 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 
 ## Unreleased (server 1.1, RHIS Studio 1.0)
 
+- Server names (phase 18): *Nodes › Names* gives the orchestrator, its own ingest and relay, and every node one name,
+  used everywhere instead of "This server". Customers see node names; host names and IPs only of their own nodes.
+- Topology views (phase 18): Layers (default, grouped per location, lines by bitrate), Per station, Matrix and the 3D
+  skyline with towers by listeners or load and the orchestrator as a hovering ring.
+- Orchestrator only (phase 18): a switch on the Nodes page that turns off this server's own ingest and relay, closes its
+  encoder ports and Icecast, and lists the stations that still use it before it goes on.
+- Connection tab per station (phase 18): external and internal addresses with ports for RHIS Studio, encoders and
+  uploads, from the routing; also in the welcome e-mail and `GET /api/stations/:id/connection`.
+- Firewall tab per node (phase 18): the ports to open or forward, with a reachability check from outside per port.
+
 - Live assist in RHIS Studio: the format of the coming hours in the left menu, Auto and Manual playout, how Q1 and Q2
   take turns, and the level meter at the right edge. In Manual the AutoDJ waits for Play after each track and goes
   back to Auto by itself when the studio stops checking in for 30 seconds.

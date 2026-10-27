@@ -32,6 +32,10 @@ control traffic. The same role also works in a datacenter, for a customer that w
    relay's push port (default 8001/TCP, TLS) to the station node.
 5. Optionally fill in **Address on the studio network** so encoders and RHIS Studio in the studio see the node's own
    address.
+6. When the node runs in the customer's own network, open the ports from its **Firewall** tab in the router or
+   firewall and press **Check from outside** for a green tick per port. The station's **Connection** tab then shows the
+   node's external and internal address with the ports for RHIS Studio, encoders and uploads (see
+   [nodes.md](nodes.md#connection-details)).
 
 ## Moving a station there (and back)
 
