@@ -168,6 +168,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 14 | Orchestrator redundancy | Planned (1.x) |
 | 15 | Cloudflare DNS integration | Planned (1.x) |
 | 16 | Installer menu and node enrollment | Planned (1.x) |
+| 17 | Server names and topology views | Planned (1.x) |
 
 ## Phases
 
@@ -360,6 +361,16 @@ One installer with a menu, for the standalone Debian 13 install and the Proxmox 
 - Enrollment: the installer asks for the orchestrator address, the node registers and shows a short code on screen. It appears under "Pending nodes" in the panel with hostname, IP and the same code, and only gets its keys after you accept it. A preferred role can be picked in the menu and is applied after acceptance.
 - Setup page on the node: after a bare node install, the node serves a small web page on port 8080. It shows only two fields, the orchestrator URL and the pairing code from the orchestrator's dashboard, and nothing else. Once the node is paired, the page closes for good and port 8080 is freed. The same can be done from the shell with `hrs-node pair --server <url> --code <code>`.
 - Pairing codes from the panel keep working for scripted installs; pending registrations expire after 24 hours and open registration can be switched off.
+
+### Phase 17: Server names and topology views
+
+Clear names everywhere and topology views that stay readable as the network grows.
+
+- **Server names**: a Names page under Nodes. The orchestrator gets its own name, and its own ingest and relay are called after it (for example "onlineradio · ingest") instead of "This server". Every node gets a free name such as `relay1-ams`. The name is used everywhere: topology, node list, routing, statistics and e-mails. The role is a badge next to the name; host name and IP stay visible underneath.
+- **Layers view (default)**: fixed columns Studios → Ingest → Relays → Listeners, the orchestrator above with control lines only, nodes grouped per location, line thickness by bitrate and number of streams.
+- **Per station filter**: pick a station (customers see only their own) and see its path: main and backup ingest, the feed each relay plays, and listeners per relay and country. Everything else fades out.
+- **Matrix view**: servers × stations in one table with the state of each cell, for large networks.
+- The 3D view gets the same names and layout ideas (design to be chosen).
 
 ## Future ideas
 
