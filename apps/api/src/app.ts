@@ -50,7 +50,7 @@ import { NowPlayingHub } from './services/public/hub.js';
 import { NodeHub } from './services/nodes/hub.js';
 import { NodeUpdater } from './services/nodes/updates.js';
 import { forgetMissingStations } from './services/nodes/routing.js';
-import { listenRedirectRoutes, nodeAgentRoutes, nodeRoutes } from './routes/nodes.js';
+import { listenFallbackRoutes, listenRedirectRoutes, nodeAgentRoutes, nodeRoutes } from './routes/nodes.js';
 import { orchestratorRoutes, stationConnectionRoutes } from './routes/orchestrator.js';
 import { stationNodeAgentRoutes, stationPlacementRoutes, tenantStationNodeRoutes } from './routes/station-nodes.js';
 import { stationNodeInternalRoutes } from './routes/station-node-internal.js';
@@ -213,6 +213,7 @@ export async function buildApp(ctx: AppContext) {
   await app.register(jingleRoutes, { prefix: '/api/studio' });
   await app.register(publicRoutes, { prefix: '/api/public' });
   await app.register(listenRedirectRoutes, { prefix: '/api/public' });
+  await app.register(listenFallbackRoutes);
   await app.register(billingPublicRoutes, { prefix: '/api/public' });
   await app.register(billingRoutes, { prefix: '/api/billing' });
   await app.register(tenantBillingRoutes, { prefix: '/api/tenants' });

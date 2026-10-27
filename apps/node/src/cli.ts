@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-import { hostname } from 'node:os';
 import { readdir, readFile } from 'node:fs/promises';
 import { Agent } from './agent.js';
-import { dataPath, paths, readNodeFile, readVersion, writeAtomic } from './config.js';
+import { dataPath, readInstallFile, readNodeFile, readVersion } from './config.js';
+import { pairWithCode, register, registrationSummary, ROLES, waitForPairing, type Role } from './enroll.js';
 import { log } from './log.js';
+import { facts } from './system.js';
 
 function arg(args: string[], name: string) {
   const i = args.indexOf(`--${name}`);
@@ -11,30 +12,38 @@ function arg(args: string[], name: string) {
 }
 
 async function pair(args: string[]) {
-  const server = arg(args, 'server')?.replace(/\/$/, '');
+  const server = arg(args, 'server');
   const code = arg(args, 'code');
-  const web = arg(args, 'web') === 'direct' ? 'direct' : 'caddy';
+  const webArg = arg(args, 'web');
   if (!server || !code) throw new Error('Usage: hrs-node pair --server https://radio.example.com --code XXXX-XXXX-XXXX [--web caddy|direct]');
-  if (!/^https?:\/\//.test(server)) throw new Error('--server must start with http:// or https://');
-  const res = await fetch(`${server}/api/nodes/pair`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'user-agent': 'Hosted Radio Station node' },
-    body: JSON.stringify({ code, hostname: hostname(), version: readVersion().version }),
-    signal: AbortSignal.timeout(20_000),
-  }).catch((err: Error) => {
-    throw new Error(`The main server cannot be reached at ${server}: ${err.message}`);
-  });
-  const data = (await res.json().catch(() => null)) as { nodeId?: string; name?: string; secret?: string; error?: { message?: string } } | null;
-  if (!res.ok || !data?.nodeId || !data.secret) throw new Error(data?.error?.message ?? `The main server answered ${res.status}`);
-  await writeAtomic(paths.config, JSON.stringify({ server, nodeId: data.nodeId, secret: data.secret, name: data.name, web }, null, 2), 0o600);
-  if (server.startsWith('http://')) console.log('Note: the main server is reached over plain HTTP. Use HTTPS in production, so the control channel is encrypted.');
-  console.log(`Paired as "${data.name}" (${data.nodeId}).`);
+  const file = await pairWithCode(server, code, webArg ? (webArg === 'direct' ? 'direct' : 'caddy') : undefined);
+  if (file.server.startsWith('http://')) console.log('Note: the main server is reached over plain HTTP. Use HTTPS in production, so the control channel is encrypted.');
+  console.log(`Paired as "${file.name}" (${file.nodeId}).`);
+}
+
+/** Phase 16: register with an orchestrator and print the code to compare under "Pending nodes". */
+async function registerCmd(args: string[]) {
+  const server = arg(args, 'server');
+  const role = arg(args, 'role') ?? null;
+  if (!server) throw new Error('Usage: hrs-node register --server https://radio.example.com [--role relay|source|station|fm]');
+  if (role && !(ROLES as readonly string[]).includes(role)) throw new Error(`--role must be one of ${ROLES.join(', ')}`);
+  if (readNodeFile()) throw new Error('This node is already paired; unpair it in the panel first, or pair it again with "hrs-node pair"');
+  const reg = await register(server, role as Role | null);
+  if (!args.includes('--quiet')) {
+    console.log(`Registered with ${reg.server}.`);
+    console.log(`Code: ${reg.code}`);
+    console.log('Accept this node in the panel under Nodes → Pending nodes, after checking that it shows the same code.');
+  } else console.log(reg.code);
 }
 
 async function status() {
   const file = readNodeFile();
   if (!file) {
-    console.log('Not paired. Pair with: hrs-node pair --server <url> --code <code>');
+    const pending = await registrationSummary();
+    console.log(pending ? `Not paired yet: ${pending}.` : 'Not paired. Pair with: hrs-node pair --server <url> --code <code>, or register with: hrs-node register --server <url>');
+    const port = process.env.HRS_NODE_SETUP_PORT ?? '8080';
+    const ip = facts('direct').facts.addresses.find((a) => !a.includes(':')) ?? 'this-node';
+    if (port !== '0' && readInstallFile().setupPage) console.log(`Setup page: http://${ip}:${port} (until the node is paired)`);
     return;
   }
   const v = readVersion();
@@ -56,10 +65,16 @@ async function status() {
 }
 
 async function run() {
-  const file = readNodeFile();
+  // A bare node (phase 16): wait for pairing, with the setup page on port 8080 and any pending registration.
+  let file = readNodeFile();
   if (!file) {
-    log.error(`not paired: ${paths.config} is missing; pair with "hrs-node pair --server <url> --code <code>"`);
-    process.exit(78);
+    log.info('not paired yet; pair with "hrs-node pair --server <url> --code <code>", the setup page, or wait for acceptance of a registration');
+    const early = () => process.exit(0);
+    process.once('SIGTERM', early);
+    process.once('SIGINT', early);
+    file = await waitForPairing();
+    process.off('SIGTERM', early);
+    process.off('SIGINT', early);
   }
   const agent = new Agent(file);
   await agent.start();
@@ -74,9 +89,10 @@ async function run() {
 const [cmd, ...rest] = process.argv.slice(2);
 try {
   if (cmd === 'pair') await pair(rest);
+  else if (cmd === 'register') await registerCmd(rest);
   else if (cmd === 'status') await status();
   else if (cmd === 'run' || !cmd) await run();
-  else throw new Error(`Unknown command: ${cmd} (pair, run, status)`);
+  else throw new Error(`Unknown command: ${cmd} (pair, register, run, status)`);
 } catch (err) {
   console.error(`Error: ${(err as Error).message}`);
   process.exit(1);

@@ -214,6 +214,11 @@ export const nodesSchema = z.object({
     .max(253)
     .regex(/^$|^[A-Za-z0-9.:-]+$/, 'Use an IP address or host name')
     .default(''),
+  /**
+   * Machines may register themselves with the bare node installer (phase 16) and wait under "Pending nodes" until an
+   * administrator accepts them. Off = only pairing codes from the panel work.
+   */
+  openRegistration: z.boolean().default(true),
 });
 export type NodesSettings = z.infer<typeof nodesSchema>;
 

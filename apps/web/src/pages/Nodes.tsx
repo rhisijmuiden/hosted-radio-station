@@ -13,6 +13,7 @@ import { Badge, Button, Card, Dialog, EmptyState, Field, Input, PageHeader, Sele
 import { api, ApiError, type NodeItem, type NodePairing, type NodeRole, type NodesSettings, type StationListItem, type Tenant } from '../lib/api';
 import { isAdmin, useMe } from '../lib/auth';
 import { OrchestratorOnlyCard } from '../components/nodes/OrchestratorOnly';
+import { PendingNodesCard } from '../components/nodes/PendingNodes';
 
 export const ROLES: NodeRole[] = ['relay', 'source', 'station', 'fm'];
 
@@ -190,6 +191,7 @@ function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void 
       ) : (
         <div className="flex flex-col gap-4">
           <Switch checked={draft.routeListeners} onChange={(routeListeners) => set({ routeListeners })} label={t('nodes.settings.routeListeners')} description={t('nodes.settings.routeListenersHint')} />
+          <Switch checked={draft.openRegistration} onChange={(openRegistration) => set({ openRegistration })} label={t('nodes.settings.openRegistration')} description={t('nodes.settings.openRegistrationHint')} />
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label={t('nodes.settings.probeInterval')} hint={t('nodes.settings.probeIntervalHint')}>
               <Input type="number" min={30} max={3600} value={draft.probeIntervalSeconds} onChange={(e) => set({ probeIntervalSeconds: Number(e.target.value) })} />
@@ -251,6 +253,7 @@ export function NodesPage() {
         }
       />
 
+      {admin && <PendingNodesCard />}
       {admin && <OrchestratorOnlyCard />}
       {admin && <RolloutCard />}
 

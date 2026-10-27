@@ -8,8 +8,9 @@ import { endpointLines, fill, portLines, renderTemplate, emailWords, emailLocale
 import { mailConfigured, sendMail } from '../services/mail.js';
 import { nameKey, namesFrom, serverNames } from '../services/nodes/names.js';
 import { stationsUsingThisServer } from '../services/nodes/orchestrator.js';
-import { externalAddress, inboundPorts, internalAddress, probePort, type InboundPort } from '../services/nodes/ports.js';
-import { buildPlan } from '../services/nodes/plan.js';
+import { checkTarget, externalAddress, inboundPorts, internalAddress, probePort, type InboundPort } from '../services/nodes/ports.js';
+import { buildPlan, nodeSettings } from '../services/nodes/plan.js';
+import { isPublicAddress, nodeAddresses } from '../services/dns/records.js';
 import { forgetRelays } from '../services/nodes/routing.js';
 import { getSetting, putSetting, serverNameSchema } from '../services/settings.js';
 import { connectionInfo } from '../services/streaming/info.js';
@@ -59,6 +60,10 @@ const firewallOut = z.object({
   selfHosted: z.boolean(),
   external: z.string().nullable(),
   internal: z.string().nullable(),
+  /** The node has a public address on its own interface (a server in a data centre): nothing to forward. */
+  publicInterface: z.boolean(),
+  /** How the node's name resolved at the last check: ok, only in public DNS (this server still remembers it missing), or not at all. */
+  dns: z.object({ host: z.string(), state: z.enum(['ok', 'stale', 'missing']), checkedOn: z.string() }).nullable(),
   ports: z.array(portOut),
   /** The last check from outside, per port ("port" or "port-to"). */
   checks: z.record(z.string(), z.object({ ok: z.boolean(), message: z.string().nullable(), ms: z.number().nullable(), at: z.string() })),
@@ -66,6 +71,7 @@ const firewallOut = z.object({
 
 /** The last outside check per node, kept in memory (it is quick to run again). */
 const lastChecks = new Map<string, z.infer<typeof firewallOut>['checks']>();
+const lastDns = new Map<string, z.infer<typeof firewallOut>['dns']>();
 const portKey = (p: Pick<InboundPort, 'port' | 'to'>) => (p.to ? `${p.port}-${p.to}` : String(p.port));
 
 /**
@@ -202,7 +208,17 @@ export const orchestratorRoutes: FastifyPluginAsyncZod = async (app) => {
   }
 
   async function firewallView(node: Awaited<ReturnType<typeof nodeFor>>): Promise<z.infer<typeof firewallOut>> {
-    return { selfHosted: !!node.tenantId, external: externalAddress(node), internal: internalAddress(node), ports: await inboundPorts(ctx, node), checks: lastChecks.get(node.id) ?? {} };
+    const internal = internalAddress(node);
+    const publicInterface = !!internal && isPublicAddress(internal);
+    return {
+      selfHosted: !!node.tenantId,
+      external: externalAddress(node),
+      internal: publicInterface ? null : internal,
+      publicInterface,
+      dns: lastDns.get(node.id) ?? null,
+      ports: await inboundPorts(ctx, node),
+      checks: lastChecks.get(node.id) ?? {},
+    };
   }
 
   const nodeParams = z.object({ id: z.uuid() });
@@ -222,11 +238,13 @@ export const orchestratorRoutes: FastifyPluginAsyncZod = async (app) => {
       if (!host) throw badRequest('The node has no known address yet; pair it or set its host name');
       const ports = await inboundPorts(ctx, node);
       const at = new Date().toISOString();
+      const target = await checkTarget(host, nodeAddresses({ publicAddress: nodeSettings(node).publicAddress, ip: node.status.ip ?? null, addresses: node.status.addresses ?? [] }));
+      lastDns.set(node.id, target.dns ? { host, state: target.dns, checkedOn: target.address } : null);
       // A relay only listens on its push port while an ingest or station node pushes a stream to it.
       const pushing = ports.some((p) => p.service === 'push') && !!(await buildPlan(ctx, node)).relay?.mounts.some((m) => m.push);
       const results = await Promise.all(
         ports.map(async (p) => {
-          const res = await probePort(host, p.port);
+          const res = await probePort(target.address, p.port);
           return [portKey(p), { ...res, message: p.service === 'push' && !res.ok && res.message === 'refused' && !pushing ? 'idle' : res.message, at }] as const;
         }),
       );

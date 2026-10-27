@@ -1025,6 +1025,21 @@ export interface NodePairing {
   code: string;
   expiresAt: string;
   command: string;
+  /** This server's address, for the node's setup page and `hrs-node pair`. */
+  server: string;
+}
+/** A machine that registered itself and waits under "Pending nodes" (phase 16). */
+export interface NodeRegistration {
+  id: string;
+  code: string;
+  hostname: string;
+  ip: string | null;
+  addresses: string[];
+  version: string;
+  preferredRole: NodeRole | null;
+  suggestedName: string;
+  createdAt: string;
+  expiresAt: string;
 }
 export interface NodeEvent {
   id: number;
@@ -1069,6 +1084,8 @@ export interface NodesSettings {
   metricsRetentionDays: number;
   /** Where source nodes pass encoders on to this server; empty = its public name. */
   ingestAddress: string;
+  /** Machines may register themselves and wait under "Pending nodes" (phase 16). */
+  openRegistration: boolean;
 }
 export type PortService = 'encoderTls' | 'encoderPlain' | 'legacy' | 'sftp' | 'ftp' | 'ftpPassive' | 'listeners' | 'listenersTls' | 'push';
 /** Where a station's studio, encoders and uploads connect, as the orchestrator hands it out (phase 18). */
@@ -1113,6 +1130,10 @@ export interface NodeFirewall {
   selfHosted: boolean;
   external: string | null;
   internal: string | null;
+  /** The node has a public address on its own interface: nothing to forward. */
+  publicInterface: boolean;
+  /** How the node's name resolved at the last check. */
+  dns: { host: string; state: 'ok' | 'stale' | 'missing'; checkedOn: string } | null;
   ports: FirewallPort[];
   checks: Record<string, { ok: boolean; message: string | null; ms: number | null; at: string }>;
 }
@@ -1175,6 +1196,8 @@ export interface StationRoutingView {
   autodjHere: boolean;
   canEdit: boolean;
   options: { ingests: RoutingChoice[]; relays: RoutingChoice[] };
+  /** Chosen relays that can no longer carry the station; dropped on the next save. */
+  stale: { id: string; name: string }[];
   status: {
     active: IngestRef | null;
     ingests: { ref: IngestRef; priority: number; name: string; online: boolean; onAir: boolean }[];

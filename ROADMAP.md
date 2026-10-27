@@ -167,10 +167,10 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 13 | Orchestrator as control plane | Done |
 | 14 | Orchestrator redundancy | Planned (1.x) |
 | 15 | Cloudflare DNS integration | Done (1.1.1) |
-| 16 | Installer menu and node enrollment | Planned (1.x) |
+| 16 | Installer menu and node enrollment | Done (1.2.0) |
 | 17 | RHIS Studio 1.0 (Windows client) | Paused after step 3 (resumes after 16 and 14) |
 | 18 | Server names and topology views | Done (1.1.0) |
-| 19 | Clearer control panels and node assignment | Planned (before 17) |
+| 19 | Clearer control panels and node assignment | Done (1.2.0) |
 | 20 | Monitoring node | Planned (1.x) |
 | 21 | Recorder node | Future |
 | 22 | Packaged installers and moving the orchestrator | Future |
@@ -454,9 +454,21 @@ Clear names everywhere and topology views that stay readable as the network grow
 
 Make the admin and customer panels more logical and easier to scan, before the Windows client continues.
 
-- Review the overviews of the admin and customer panels: what sits where in the menu, what each overview page shows first, and fewer clicks to the common tasks.
-- Delivery path per station: on the station page, a customer sees how their stream reaches the listener, from their own studio node (or ingest node) through the relays to the listeners, with the state of each hop.
+- **Grouped left menu**: administrators get folding groups Radio, Network, Customers & billing, Settings and System; customers get My radio, My network and Account. The group of the open page always stays open, and folded groups are remembered. Server names have their own menu item, and Topology is called Network map.
+- **Counters in the menu**: nodes waiting for approval, an update that is ready, and open song requests of a station.
+- **Quick search** (Ctrl+K): jump to any page, station, customer or node by typing part of its name.
+- **Station menu in the sidebar**: inside a station the left menu becomes that station's menu (Overview, Broadcast, Programme, Audience, Settings) instead of a row of 17 tabs, with "All stations" to go back. On a phone the sections are a picker above the page.
+- **Delivery path per station**: the source (DJ, encoder or AutoDJ), the studio node or the main and backup ingest, every relay with its state, mounts, ping and listeners, and the listeners per country. Customers see it too, with the real relay names. The station overview shows it in one line, and a station that no relay carries is flagged as not reaching listeners.
+- **Relays of a station node**: the relays a studio node sends to can be chosen under Delivery path → Route; relays that can no longer carry the station are named there and dropped on save.
+- **Needs attention** at the top of the dashboard: pending nodes, nodes offline or with problems, stations that no relay (or a failing relay) carries, AutoDJ stations off air, failed backups and a waiting update, each one click away.
 - Shared or dedicated nodes (done in 1.1.1): every node is marked **Shared** (carries stations of several customers) or **Dedicated** to one customer or one station. A dedicated node only receives, shows and serves the streams of its own customer or station, and routing refuses to put other stations on it. A customer's own node is dedicated by default.
+
+| Dashboard | Dashboard, dark, Dutch |
+| --- | --- |
+| ![Dashboard with Needs attention and the grouped menu](docs/screenshots/phase-19-dashboard.png) | ![Dashboard, dark, Dutch](docs/screenshots/phase-19-dashboard-dark-nl.png) |
+| ![Station menu in the sidebar and the delivery path](docs/screenshots/phase-19-station-delivery-path.png) | ![Delivery path, dark, Dutch](docs/screenshots/phase-19-station-delivery-path-dark-nl.png) |
+| ![Station overview with the delivery path in one line](docs/screenshots/phase-19-station-overview.png) | ![Quick search](docs/screenshots/phase-19-quick-search.png) |
+| ![Network map, per station](docs/screenshots/phase-19-topology-per-station.png) | |
 
 ### Phase 20: Monitoring node
 

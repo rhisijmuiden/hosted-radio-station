@@ -3,6 +3,66 @@
 All notable changes to Hosted Radio Station. Versions follow [semantic versioning](https://semver.org). The
 [roadmap](ROADMAP.md) has the full description of each phase, with screenshots.
 
+## 1.2.0 (27 October 2026)
+
+Phase 16 (installer menu and node enrollment), phase 19 (clearer control panels) and the firewall and public
+address fixes for nodes outside the own network.
+
+Phase 16: installer menu and node enrollment.
+
+- One installer with a menu (whiptail): **Orchestrator** (panel and control plane, "Orchestrator only" switched on),
+  **Node** (the bare node agent) or **All-in-one** (orchestrator with its own ingest and relay, the default without a
+  terminal). `--orchestrator`, `--all-in-one` and `--node` choose without the menu; an installed orchestrator or node
+  is updated without asking.
+- A node installs only the bare agent. Icecast and the web server are installed by the node itself once it gets a
+  relay, ingest or station role, and ffmpeg with the sound card tools for FM/MPX. A node without such a role stops
+  its Icecast.
+- Self-registration: a node with only the orchestrator address registers, shows a short code and waits. It appears
+  under **Nodes → Pending nodes** with its host name, address, the same code and the role picked in the installer;
+  it gets its keys only after it is accepted there (or is told it was refused). Pending registrations expire after
+  24 hours; **Open registration** can be switched off under Network settings. `hrs-node register` does the same.
+- Setup page: a node installed without an orchestrator address serves a page on port 8080 with only the orchestrator
+  URL and a pairing code. It closes for good once the node is paired. The panel shows the matching
+  `hrs-node pair --server … --code …` command next to every pairing code.
+
+Phase 19: clearer control panels.
+
+- The left menu is grouped and folds: **Radio**, **Network**, **Customers & billing**, **Settings** and **System** for
+  administrators; **My radio**, **My network** and **Account** for customers. The group of the open page always stays
+  open. Server names moved into the menu, and Topology is now called **Network map**.
+- Counters in the menu: nodes waiting for approval, an update that is ready, and open song requests of a station.
+- Quick search (**Ctrl+K**, or the search box at the top of the menu): jump to any page, station, customer or node.
+- A station has its own menu in the sidebar instead of 17 tabs: Overview, Broadcast, Programme, Audience and Settings,
+  with **All stations** to go back. On a phone the sections are a picker above the page.
+- **Delivery path** per station (Broadcast → Delivery path, and in short on the station overview): the source (DJ,
+  encoder or AutoDJ), the studio node or the main and backup ingest, every relay with its state, mounts and listeners,
+  and the listeners per country. Customers see it too, with the real relay names.
+- The dashboard starts with **Needs attention**: pending nodes, nodes offline or with problems, relays that do not
+  deliver a station, AutoDJ stations off air, failed backups and a waiting update, each one click away.
+- The relays of a station on a station node can be chosen again under Delivery path → Route (the node stays its own
+  ingest). Chosen relays that can no longer carry the station (lost the relay role, gone, dedicated elsewhere) are
+  named there and dropped on save; a station that no relay carries shows as not reaching listeners.
+
+Firewall check of nodes outside the own network:
+
+- When a node's name does not resolve on this server, the check asks public DNS and otherwise tests the node's own
+  public address, with a clear note instead of ENOTFOUND. A name that does not resolve now reads "Name not found in DNS".
+- Every node looks up its own public IPv4 address (as the internet sees it, also behind a router or NAT) and reports
+  it to the orchestrator every 15 minutes. That address is used for its platform name in DNS, GeoIP and the panel, so
+  nobody has to look it up or set it by hand; the **Public address** setting of a node still overrides it.
+- A node that connects through Cloudflare without its real address in CF-Connecting-IP is shown (and placed in DNS and
+  GeoIP) with the public address of its own interface instead of a Cloudflare edge address.
+- A node with a public address on its own interface (a server in a data centre) is told that nothing has to be
+  forwarded, instead of "forward each port to" its public address.
+
+Listen addresses of stations that do not play on this server:
+
+- The listen URL of a station on a station node now goes through the relay redirect
+  (`/api/public/stations/<station>/listen/<mount>`), like stations on an ingest node.
+- `/listen/<station>/<mount>` on the orchestrator sends the listener to a relay when the station does not play there
+  (a station node, an ingest node or Orchestrator only), instead of opening the panel's "Page not found". Without a
+  relay that has the stream it answers "No relay has this stream right now".
+
 ## 1.1.1 (27 October 2026)
 
 Phase 15 (Cloudflare DNS) and the fixes found after 1.1.0.

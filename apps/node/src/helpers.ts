@@ -21,6 +21,11 @@ export interface WebState {
   station: boolean;
   /** The node makes converted mounts as an ingest: the root helper installs ffmpeg when it is missing (phase 13). */
   ffmpeg: boolean;
+  /**
+   * The roles of the node (phase 16). A bare node has only the agent: the root helper installs and starts Icecast and
+   * the web server once the node has a role that carries audio, and the FM/MPX tools for the FM role.
+   */
+  roles: string[];
 }
 
 export interface JobStatus {

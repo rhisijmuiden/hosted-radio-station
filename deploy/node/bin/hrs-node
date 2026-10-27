@@ -12,6 +12,8 @@ Usage: hrs-node <command>
   logs                   Follow the log of the agent
   pair --server <url> --code <code> [--web caddy|direct]
                          Pair (again) with a main server, using a code from the panel
+  register --server <url> [--role relay|source|station|fm]
+                         Register with a main server and show the code to accept under Nodes → Pending nodes
   update                 Update to the latest version of the current branch
   restart                Restart the agent
 USAGE
@@ -30,6 +32,11 @@ case "$cmd" in
   logs) journalctl -u hrs-node -u hrs-node-icecast -f ;;
   pair)
     runuser -u hrs-node -- /usr/bin/node "$CLI" pair "$@"
+    systemctl enable --quiet hrs-node
+    systemctl restart hrs-node
+    ;;
+  register)
+    runuser -u hrs-node -- /usr/bin/node "$CLI" register "$@"
     systemctl enable --quiet hrs-node
     systemctl restart hrs-node
     ;;

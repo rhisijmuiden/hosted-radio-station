@@ -1,3 +1,4 @@
+import { promises as dns } from 'node:dns';
 import net from 'node:net';
 import { eq } from 'drizzle-orm';
 import { schema } from '../../db/index.js';
@@ -71,6 +72,31 @@ export async function inboundPorts(ctx: AppContext, node: Node): Promise<Inbound
   });
 }
 
+/**
+ * Where the outside check connects to (phase 19). The node's name is looked up as usual; a name this server cannot
+ * resolve (its resolver may still remember that the name did not exist a few minutes ago) is asked of public
+ * resolvers, and failing that the node's own public address is used, so a missing DNS record does not hide which ports
+ * are open.
+ */
+export async function checkTarget(host: string, fallback: string[]): Promise<{ address: string; dns: 'ok' | 'stale' | 'missing' | null }> {
+  if (net.isIP(host)) return { address: host, dns: null };
+  try {
+    await dns.lookup(host);
+    return { address: host, dns: 'ok' };
+  } catch {
+    /* not known here: try public resolvers next */
+  }
+  try {
+    const r = new dns.Resolver({ timeout: 3000, tries: 1 });
+    r.setServers(['1.1.1.1', '8.8.8.8']);
+    const [a] = await r.resolve4(host);
+    if (a) return { address: a, dns: 'stale' };
+  } catch {
+    /* not in public DNS either */
+  }
+  return { address: fallback[0] ?? host, dns: 'missing' };
+}
+
 /** Opens a TCP connection to host:port and closes it again: reachable or not, with the reason. */
 export function probePort(host: string, port: number, timeoutMs = 4000): Promise<{ ok: boolean; message: string | null; ms: number | null }> {
   const started = Date.now();
@@ -82,6 +108,6 @@ export function probePort(host: string, port: number, timeoutMs = 4000): Promise
     };
     socket.setTimeout(timeoutMs, () => done(false, 'timeout'));
     socket.once('connect', () => done(true, null));
-    socket.once('error', (err: NodeJS.ErrnoException) => done(false, err.code === 'ECONNREFUSED' ? 'refused' : err.code === 'EHOSTUNREACH' || err.code === 'ENETUNREACH' ? 'unreachable' : (err.code ?? err.message)));
+    socket.once('error', (err: NodeJS.ErrnoException) => done(false, err.code === 'ECONNREFUSED' ? 'refused' : err.code === 'EHOSTUNREACH' || err.code === 'ENETUNREACH' ? 'unreachable' : err.code === 'ENOTFOUND' || err.code === 'EAI_AGAIN' ? 'dns' : (err.code ?? err.message)));
   });
 }
