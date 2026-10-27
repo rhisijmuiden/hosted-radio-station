@@ -1028,6 +1028,9 @@ export const en = {
     tlsPortHint: 'Encrypted. Uses the certificate of the customer domain or of this server.',
     plainPort: 'Port without TLS',
     plainPortHint: 'For encoders without TLS. 0 = off.',
+    encoderHost: 'Encoder address',
+    encoderHostHint:
+      'Where encoders and RHIS Studio connect when your domain runs behind a proxy that does not pass these ports, such as Cloudflare. Use a DNS-only name or an IP address. Empty = the domain under Web server.',
     legacyRange: 'Ports for Shoutcast v1',
     legacyRangeHint: 'Each station that switches it on gets two ports from this range.',
     icecastRange: 'Internal ports',
