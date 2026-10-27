@@ -6,7 +6,8 @@ Cloudflare API. Customers never need Cloudflare: they point two CNAME records at
 ## Setting it up
 
 1. In Cloudflare, create an API token (My Profile › API Tokens › Create Token › Custom token) with
-   **Zone › DNS › Edit** and **Zone › Zone › Read**, limited to the zone of the platform domain.
+   **Zone › DNS › Edit** and **Zone › Zone › Read**, limited to the zone of the platform domain. For cache rules
+   (below) add **Zone › Cache Rules › Edit**.
 2. In the panel open *Administration › DNS (Cloudflare)*, paste the token and click **Test connection**. The zone is
    found from the platform domain (the domain under Web server, or the one set on this page): for
    `onlineradio.rhis.nl` that is `rhis.nl`.
@@ -74,6 +75,25 @@ A studio node of a customer gets a platform name such as `harderfm-studio.node.o
 (dynamic) public address. The customer may set an own host name, for example `studio.harder.fm`, as a CNAME to the
 platform name or an A record to the node. That name is checked every five minutes (and with the **Check** button) and
 is only handed out for RHIS Studio, encoders and uploads once it checks out; until then the platform name is used.
+
+## Cache rules
+
+When the panel host (for example `onlineradio.rhis.nl`) goes through the Cloudflare proxy, switch on **Cache rules for
+public pages** under *Proxy*. The platform then keeps two cache rules in the zone, for that host only:
+
+- `/api/public/…`: station info, now playing, history, schedules, on-demand lists and audio, artwork and logos may be
+  cached at the edge. Live updates (`…/events`, `/api/public/ws`) and listen links (`…/listen/…`) are excluded.
+- `/assets/…`: the built panel files (names change with every release).
+
+The rules respect the server's own `Cache-Control`, so Cloudflare never keeps anything longer than the server allows:
+now playing a few seconds, schedules a minute, on-demand audio an hour, artwork a month. Public answers without a
+`Cache-Control` of their own are sent with `no-store`, so errors and redirects are never cached. Streams are never
+proxied and never cached.
+
+The rules carry `hrs:<install>:` in their description and are put first; cache rules you add yourself come after them
+(and so win) and are never changed. In Dry run the panel says the rules would be written; switching the option off
+removes them, and so does **Remove records**. A token without the Cache Rules permission shows an error
+next to the option and does not stop the DNS records.
 
 ## API
 

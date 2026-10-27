@@ -21,6 +21,14 @@ Phase 15, step 1: Cloudflare DNS of the platform domain.
   host name (e.g. `studio.harder.fm`) that is checked and only used once it points to the node; until then the
   platform name is handed out for RHIS Studio, encoders and uploads.
 
+Phase 15, step 2a: Cloudflare cache rules.
+
+- *Administration › DNS (Cloudflare) › Proxy*: **Cache rules for public pages** keeps two cache rules for the panel
+  host: the public API (now playing, schedules, artwork, logos, on-demand audio) and the panel files may be cached at
+  the edge, for as long as the server's Cache-Control allows. Live updates and listen links are excluded; rules of
+  others in the zone are kept as they are. Needs Zone › Cache Rules › Edit on the token.
+- Public API answers without a Cache-Control of their own are now sent with `no-store`.
+
 ## 1.1.0 (27 October 2026)
 
 Phase 18 (server names, topology views, orchestrator only, connection details and firewall checklist) and the

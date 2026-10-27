@@ -122,6 +122,21 @@ function RecordsCard({ state, nodes, canRun }: { state: DnsState | undefined; no
   );
 }
 
+/** Whether the cache rules are in the zone. */
+function CacheStatus({ cache }: { cache: DnsState['cache'] }) {
+  const { t } = useTranslation();
+  const tone = cache.state === 'ok' ? 'text-online' : cache.state === 'error' ? 'text-offline' : 'text-warning';
+  return (
+    <div className={`flex items-start gap-1.5 text-xs ${tone}`}>
+      {cache.state === 'ok' ? <CheckCircle2 className="mt-px size-3.5 shrink-0" /> : <AlertTriangle className="mt-px size-3.5 shrink-0" />}
+      <span>
+        {t(`dns.cacheState.${cache.state}`, { count: cache.rules, host: cache.host ?? '', error: cache.error ?? '' })}
+        {cache.foreign > 0 && cache.state !== 'error' && <span className="text-muted"> {t('dns.cacheForeign', { count: cache.foreign })}</span>}
+      </span>
+    </div>
+  );
+}
+
 /** The last changes written to the zone (each one is also in the audit log). */
 function ChangesCard({ state }: { state: DnsState | undefined }) {
   const { t } = useTranslation();
@@ -296,6 +311,8 @@ export function DnsPage() {
               {draft.panelRecord.manage && (
                 <Switch checked={draft.panelRecord.proxied} onChange={(proxied) => set({ panelRecord: { ...draft.panelRecord, proxied } })} label={t('dns.panelProxied')} description={t('dns.panelProxiedHint')} />
               )}
+              <Switch checked={draft.cacheRules} onChange={(cacheRules) => set({ cacheRules })} label={t('dns.cacheRules')} description={t('dns.cacheRulesHint', { host: base })} />
+              {state.data?.cache && state.data.mode !== 'off' && (draft.cacheRules || state.data.cache.rules > 0) && <CacheStatus cache={state.data.cache} />}
               <p className="rounded-md bg-chip/60 px-3 py-2 text-xs text-muted">{t('dns.streamsDnsOnly')}</p>
             </div>
           </Card>

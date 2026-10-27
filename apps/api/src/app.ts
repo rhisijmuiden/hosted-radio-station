@@ -186,6 +186,10 @@ export async function buildApp(ctx: AppContext) {
 
   registerAuth(app);
   registerAudit(app);
+  // The public API may be cached by a CDN (Cloudflare cache rules, phase 15): only what a route marks as cacheable is.
+  app.addHook('onSend', async (req, reply) => {
+    if (req.url.startsWith('/api/public/') && !reply.hasHeader('cache-control')) reply.header('cache-control', 'no-store');
+  });
   // Requests for stations that run on a station node go to that node (phase 12).
   if (!config.STATION_NODE) registerStationProxy(app, tunnels);
   await app.register(healthRoutes, { prefix: '/api' });
