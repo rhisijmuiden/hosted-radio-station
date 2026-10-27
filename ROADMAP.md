@@ -168,6 +168,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 14 | Orchestrator redundancy | Planned (1.x) |
 | 15 | Cloudflare DNS integration | Planned (1.x) |
 | 16 | Installer menu and node enrollment | Planned (1.x) |
+| 17 | RHIS Studio 2 (Windows client) | In progress |
 | 18 | Server names and topology views | Planned (1.x) |
 
 ## Phases
@@ -363,6 +364,18 @@ One installer with a menu, for the standalone Debian 13 install and the Proxmox 
 - Enrollment: the installer asks for the orchestrator address, the node registers and shows a short code on screen. It appears under "Pending nodes" in the panel with hostname, IP and the same code, and only gets its keys after you accept it. A preferred role can be picked in the menu and is applied after acceptance.
 - Setup page on the node: after a bare node install, the node serves a small web page on port 8080. It shows only two fields, the orchestrator URL and the pairing code from the orchestrator's dashboard, and nothing else. Once the node is paired, the page closes for good and port 8080 is freed. The same can be done from the shell with `hrs-node pair --server <url> --code <code>`.
 - Pairing codes from the panel keep working for scripted installs; pending registrations expire after 24 hours and open registration can be switched off.
+
+### Phase 17: RHIS Studio 2 (Windows client)
+
+A new live-assist layout for RHIS Studio, built in seven steps, each tested before the next.
+
+1. Calm layout with Auto and Manual mode, take turns between Q1 and Q2, and the meter on the right.
+2. Library (server, network share, this PC) with pre-listen on a separate output.
+3. Jingle buttons stored in the DJ's profile on the server.
+4. Fader start from the mixing desk over MIDI or USB-GPIO.
+5. Cue point editor with waveform, stored per track on the server.
+6. Locked format blocks from the hour clocks.
+7. Direct connection: after signing in, the orchestrator gives the client the internal and external address of its station node (or ingest node). The client tries the internal one first, and Go Live goes straight to that node, which feeds the relays.
 
 ### Phase 18: Server names and topology views
 
