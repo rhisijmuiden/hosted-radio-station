@@ -17,6 +17,9 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   comes next and one big **Next** button. The fixed blocks of the format (news, commercials) sit in the playlist at
   their minute with a lock, and the playlist header backtimes to the next one ("Until News: 0:42 too long"). The
   schedule list in the old sidebar is gone; its blocks are in the playlist now.
+- Encoders get TLS only on a public name: a station node or ingest node whose name is internal (for example
+  `.loc`, `.lan`) or an IP address, or a station node reached on its LAN address, only has a self-signed
+  certificate. RHIS Studio and encoders now connect plain there instead of failing on the certificate.
 - RHIS Studio: when the encrypted connection fails because Windows does not trust the certificate of the encoder
   address, Go live offers **Connect without encryption** (when the server has a plain port). The choice is kept per
   address and can be undone under *Connection*; the client never drops TLS on its own.
