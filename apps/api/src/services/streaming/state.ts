@@ -233,6 +233,8 @@ export interface MediaMountState {
 export async function buildStreamsState(ctx: AppContext): Promise<StreamsState> {
   const streaming = await getSetting(ctx, 'streaming');
   const proxy = await getSetting(ctx, 'proxy');
+  // Orchestrator only (phase 18): no Icecast, AutoDJ, listen routes, shares or uploads here at all.
+  const only = (await getSetting(ctx, 'orchestrator')).only;
   const stations = await ctx.db
     .select({ s: schema.stations, tenantActive: schema.tenants.active })
     .from(schema.stations)
@@ -255,7 +257,7 @@ export async function buildStreamsState(ctx: AppContext): Promise<StreamsState> 
     .where(and(eq(schema.tenantDomains.status, 'verified'), eq(schema.tenants.active, true)));
 
   // A station on a station node runs there; its server here stays off.
-  const enabled = (r: (typeof stations)[number]) => r.s.enabled && r.tenantActive && runsHere(r.s);
+  const enabled = (r: (typeof stations)[number]) => !only && r.s.enabled && r.tenantActive && runsHere(r.s);
   const sftpgoEnv = await renderSftpgoEnv(ctx, streaming);
   const autodj: StreamsState['autodj'] = [];
   for (const r of stations) {
@@ -277,7 +279,7 @@ export async function buildStreamsState(ctx: AppContext): Promise<StreamsState> 
     // Encoder names routed to a source node get their certificate on that node.
     certHosts: proxy.mode === 'builtin' ? [...new Set([proxy.domain, ...domains.filter((d) => !d.ingestNodeId).map((d) => d.ingestHost)].filter(Boolean))].sort() : [],
     defaultCertHost: proxy.mode === 'builtin' && proxy.domain ? proxy.domain : null,
-    sftpgo: { enabled: streaming.sftp.enabled || streaming.ftp.enabled, hash: createHash('sha256').update(sftpgoEnv).digest('hex').slice(0, 16) },
+    sftpgo: { enabled: !only && (streaming.sftp.enabled || streaming.ftp.enabled), hash: createHash('sha256').update(sftpgoEnv).digest('hex').slice(0, 16) },
     autodj,
     mediaMounts: await writeMediaMounts(ctx, stations.filter(enabled).map((r) => r.s)),
   };

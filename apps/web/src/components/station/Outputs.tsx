@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { api, ApiError, type Output, type OutputStatus, type OutputType, type StationDetail } from '../../lib/api';
 import { formatRelative } from '../../lib/format';
 import { Badge, Button, Card, CardHeader, Dialog, Field, Input, Select, Switch, Table } from '../ui';
+import { useServerNames } from '../../lib/server';
 
 const DEFAULT_PORTS: Record<Exclude<OutputType, 'local'>, number> = { icecast: 8000, shoutcast1: 8000, shoutcast2: 8000 };
 
@@ -176,6 +177,7 @@ function OutputDialog({ station, output, open, onClose }: { station: StationDeta
 
 export function OutputsCard({ station, canEdit }: { station: StationDetail; canEdit: boolean }) {
   const { t } = useTranslation();
+  const server = useServerNames();
   const qc = useQueryClient();
   const [editing, setEditing] = useState<Output | null | 'new'>(null);
   const mounts = new Map(station.mounts.map((m) => [m.id, m]));
@@ -205,7 +207,7 @@ export function OutputsCard({ station, canEdit }: { station: StationDetail; canE
             <td className="text-[13px]">{t(`outputs.types.${o.type}`)}</td>
             <td className="font-mono text-[13px]">
               {o.type === 'local' ? (
-                <span className="font-sans text-muted">{t('outputs.thisServer')}</span>
+                <span className="font-sans text-muted">{server?.relay ?? t('outputs.thisServer')}</span>
               ) : (
                 <>
                   {o.config.push !== false && o.mountId && <span className="text-muted">{mounts.get(o.mountId)?.path} → </span>}

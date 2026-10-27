@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { requireSuperadmin, requireUser } from '../lib/auth.js';
 import { getSetting, putSetting } from '../services/settings.js';
 import { CHANNELS, checkForUpdates, getUpdateStatus, getVersionInfo, requestUpdate, type UpdateCheck } from '../services/system.js';
+import { serverNames } from '../services/nodes/names.js';
 
 export const jobOut = z.object({
   id: z.string().nullable(),
@@ -29,6 +30,8 @@ const infoOut = z.object({
   helpers: z.boolean(),
   /** LAN addresses of this server, for reverse proxy examples. */
   addresses: z.array(z.string()),
+  /** Names of this server and its own roles (phase 18), and whether it carries audio. */
+  server: z.object({ name: z.string(), ingest: z.string(), relay: z.string(), orchestratorOnly: z.boolean() }),
   lastCheck: z
     .object({
       channel: channelSchema,
@@ -50,12 +53,12 @@ export const systemRoutes: FastifyPluginAsyncZod = async (app) => {
     { schema: { tags: ['System'], summary: 'Version, update channel and the result of the last update check', response: { 200: infoOut } } },
     async (req) => {
       requireUser(req);
-      const [info, update] = await Promise.all([getVersionInfo(ctx), getSetting(ctx, 'update')]);
+      const [info, update, names, orchestrator] = await Promise.all([getVersionInfo(ctx), getSetting(ctx, 'update'), serverNames(ctx), getSetting(ctx, 'orchestrator')]);
       const addresses = Object.values(networkInterfaces())
         .flat()
         .filter((a) => a && a.family === 'IPv4' && !a.internal)
         .map((a) => a!.address);
-      return { name: 'Hosted Radio Station', ...info, channel: update.channel, addresses, lastCheck };
+      return { name: 'Hosted Radio Station', ...info, channel: update.channel, addresses, lastCheck, server: { name: names.orchestrator, ingest: names.ingest, relay: names.relay, orchestratorOnly: orchestrator.only } };
     },
   );
 

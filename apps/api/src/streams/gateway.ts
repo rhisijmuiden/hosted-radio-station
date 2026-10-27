@@ -157,9 +157,10 @@ export class IngestGateway {
     this.snap = snap;
     await this.loadCertificates();
     const wanted = new Map<string, { port: number; kind: 'tls' | 'plain' | 'legacy'; stationId?: string }>();
-    if (this.secure.has('default')) wanted.set('tls', { port: snap.streaming.ingestTlsPort, kind: 'tls' });
+    // Orchestrator only (phase 18): no encoder port is open on this server at all.
+    if (this.secure.has('default') && !snap.orchestratorOnly) wanted.set('tls', { port: snap.streaming.ingestTlsPort, kind: 'tls' });
     else this.servers.get('tls')?.server.close();
-    if (snap.streaming.ingestPlainPort) wanted.set('plain', { port: snap.streaming.ingestPlainPort, kind: 'plain' });
+    if (snap.streaming.ingestPlainPort && !snap.orchestratorOnly) wanted.set('plain', { port: snap.streaming.ingestPlainPort, kind: 'plain' });
     for (const v of snap.stations.values()) {
       if (!v.active || v.onNode || !v.ingest.local || !v.station.legacyPort) continue;
       wanted.set(`legacy:${v.station.id}:0`, { port: v.station.legacyPort, kind: 'legacy', stationId: v.station.id });
@@ -172,7 +173,7 @@ export class IngestGateway {
         this.servers.delete(key);
       }
     }
-    if (!this.secure.has('default')) this.servers.delete('tls');
+    if (!this.secure.has('default') || snap.orchestratorOnly) this.servers.delete('tls');
     for (const [key, want] of wanted) {
       if (this.servers.has(key)) continue;
       const handler = (socket: net.Socket) => void this.handle(socket, want.kind === 'tls' ? 'tls' : want.kind === 'plain' ? 'plain' : 'shoutcast', want.stationId);

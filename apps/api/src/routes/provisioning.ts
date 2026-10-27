@@ -20,6 +20,7 @@ import { emitEvent } from '../services/billing/webhooks.js';
 import { emailWords, fill, renderTemplate } from '../services/email-templates.js';
 import { mailConfigured, sendMail } from '../services/mail.js';
 import { contactSchema, findPackage, invoiceOut, loadSubscriptionOut, packageOut, subscriberCounts, subscriptionOut, toInvoiceOut, toPackageOut } from './billing.js';
+import { welcomeConnectionLines } from './orchestrator.js';
 
 const slugify = (name: string) =>
   name
@@ -200,6 +201,8 @@ export const provisioningRoutes: FastifyPluginAsyncZod = async (app) => {
           { product: 'Hosted Radio Station', name: user.name, customer: tenant.name, package: pkg.name, trial, email: user.email },
           activationUrl ?? `${base}/login`,
         );
+        // The connection details of the first station, as the orchestrator hands them out (phase 18).
+        if (station) msg.paragraphs.push(...(await welcomeConnectionLines(ctx, station.id, body.owner.locale).catch(() => [])));
         try {
           await sendMail(ctx, { to: user.email, ...msg });
           welcomeSent = true;

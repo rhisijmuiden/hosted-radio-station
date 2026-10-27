@@ -3,7 +3,7 @@ import clsx from 'clsx';
 import { AlertTriangle, ArrowLeft, CheckCircle2, KeyRound, Link2Off, Radio, Trash2, XCircle } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import { formatBps, formatMs, formatPct, formatUptime, HealthBadge, nodeHealth, PairingPanel, RoleBadges } from '../components/nodes/common';
 import { FmOnAir, FmSettingsCards } from '../components/nodes/FmPanel';
@@ -15,8 +15,10 @@ import { api, type NodeEvent, type NodeItem, type NodeMetric, type NodePairing, 
 import { isAdmin, useMe } from '../lib/auth';
 import { formatDate, formatRelative, shortCommit } from '../lib/format';
 import { RolePicker } from './Nodes';
+import { FirewallTab } from '../components/connection/Connection';
 
-type Tab = 'overview' | 'probes' | 'events' | 'settings';
+type Tab = 'overview' | 'probes' | 'events' | 'firewall' | 'settings';
+const TABS: Tab[] = ['overview', 'probes', 'events', 'firewall', 'settings'];
 const PERIODS = [1, 24, 24 * 7, 24 * 30] as const;
 
 const timeFormat = (hours: number) => (iso: string) =>
@@ -483,7 +485,10 @@ export function NodeDetailPage() {
   const navigate = useNavigate();
   const me = useMe().data!;
   const admin = isAdmin(me);
-  const [tab, setTab] = useState<Tab>('overview');
+  const [params, setParams] = useSearchParams();
+  const requested = params.get('tab') as Tab | null;
+  const tab: Tab = requested && TABS.includes(requested) ? requested : 'overview';
+  const setTab = (v: Tab) => setParams(v === 'overview' ? {} : { tab: v }, { replace: true });
   const [pairing, setPairing] = useState<NodePairing | null>(null);
   const node = useQuery({ queryKey: ['nodes', id], queryFn: () => api<NodeItem>(`/nodes/${id}`), refetchInterval: 5000 });
   const settings = useQuery({ queryKey: ['nodes', 'settings'], queryFn: () => api<{ latencyWarnMs: number }>('/nodes/settings'), enabled: admin });
@@ -546,6 +551,7 @@ export function NodeDetailPage() {
         description={
           <span className="flex flex-wrap items-center gap-2">
             <RoleBadges roles={n.roles} />
+            {(s.hostname || s.ip) && <span className="font-mono text-xs">{[s.hostname, s.ip].filter(Boolean).join(' · ')}</span>}
             {n.location && <span>{n.location}</span>}
             {admin && <span>· {n.tenantName ?? t('nodes.platform')}</span>}
           </span>
@@ -620,12 +626,14 @@ export function NodeDetailPage() {
           { value: 'overview', label: t('nodes.detail.tabs.overview') },
           { value: 'probes', label: t('nodes.detail.tabs.probes') },
           { value: 'events', label: t('nodes.detail.tabs.events') },
+          { value: 'firewall', label: t('nodes.detail.tabs.firewall') },
           ...(canEdit ? [{ value: 'settings' as const, label: t('nodes.detail.tabs.settings') }] : []),
         ]}
       />
       {tab === 'overview' && <Overview node={n} warnMs={warnMs} canEdit={canEdit} />}
       {tab === 'probes' && <Probes node={n} />}
       {tab === 'events' && <Events node={n} />}
+      {tab === 'firewall' && <FirewallTab node={n} />}
       {tab === 'settings' && canEdit && <SettingsForm node={n} admin={admin} />}
 
       <Dialog open={!!pairing && n.paired} onClose={() => setPairing(null)} wide title={t('nodes.detail.repairTitle')} description={t('nodes.detail.repairHint')}>

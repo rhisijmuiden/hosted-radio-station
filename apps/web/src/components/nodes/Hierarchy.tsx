@@ -34,9 +34,9 @@ export function NodeHierarchy({ nodes, warnMs }: { nodes: NodeItem[]; warnMs: nu
             <Cpu />
           </span>
           <span className="min-w-0">
-            <b className="block text-sm">{t('topology.main')}</b>
+            <b className="block text-sm">{info?.server.name ?? t('topology.main')}</b>
             <small className="block text-[11.5px] text-muted">
-              {t('topology.controlOnly')}
+              {t('topology.orchestrator')} · {info?.server.orchestratorOnly ? t('orchestratorOnly.badgeOn') : t('topology.controlOnly')}
               {info ? ` · v${info.version}` : ''} · {t('nodes.tree.online', { up: online, total: nodes.filter((n) => n.paired).length })}
             </small>
           </span>
