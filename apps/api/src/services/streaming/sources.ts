@@ -39,12 +39,25 @@ export async function outsideShow(ctx: AppContext, stationId: string, accountId:
 /** Encoder passwords handed out to the studio client start with this. */
 export const LIVE_TOKEN_PREFIX = 'hrsl_';
 
-async function validLiveToken(ctx: AppContext, accountId: string, token: string) {
-  const [row] = await ctx.db
-    .select({ id: schema.studioLiveTokens.id })
-    .from(schema.studioLiveTokens)
-    .where(and(eq(schema.studioLiveTokens.hash, sha256(token)), eq(schema.studioLiveTokens.accountId, accountId), gt(schema.studioLiveTokens.expiresAt, new Date())));
-  return !!row;
+/** How long a station node waits for a password the main server just handed out (it comes with the next package). */
+export const LIVE_TOKEN_WAIT_MS = 8000;
+
+async function validLiveToken(ctx: AppContext, accountId: string, token: string, wait = LIVE_TOKEN_WAIT_MS) {
+  const find = async () => {
+    const [row] = await ctx.db
+      .select({ id: schema.studioLiveTokens.id })
+      .from(schema.studioLiveTokens)
+      .where(and(eq(schema.studioLiveTokens.hash, sha256(token)), eq(schema.studioLiveTokens.accountId, accountId), gt(schema.studioLiveTokens.expiresAt, new Date())));
+    return !!row;
+  };
+  if (await find()) return true;
+  // On a station node the studio client is often quicker than the package that brings the new password.
+  if (!ctx.config.STATION_NODE) return false;
+  for (const until = Date.now() + wait; Date.now() < until; ) {
+    await new Promise((r) => setTimeout(r, 500));
+    if (await find()) return true;
+  }
+  return false;
 }
 
 export type Account = typeof schema.stationAccounts.$inferSelect;

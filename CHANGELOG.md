@@ -19,6 +19,8 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   schedule list in the old sidebar is gone; its blocks are in the playlist now.
 - A station node takes encoders on the bare mount (`/live`), as the panel and RHIS Studio give it, when one station
   there has that mount. Before, it answered "Unknown mount /live".
+- A station node waits up to 8 seconds for a Go Live password RHIS Studio just got from the main server. The
+  password comes with the next station package, and Studio was quicker: "wrong user name or password".
 - The streams service logs every refused encoder with its reason (`journalctl -u hosted-radio-streams`).
 - Encoders get TLS only on a public name: a station node or ingest node whose name is internal (for example
   `.loc`, `.lan`) or an IP address, or a station node reached on its LAN address, only has a self-signed
