@@ -39,6 +39,7 @@ import { ssoAdminRoutes, ssoAuthRoutes } from './routes/sso.js';
 import { stationRoutingRoutes } from './routes/station-routing.js';
 import { stationRoutes } from './routes/stations.js';
 import { statsRoutes } from './routes/stats.js';
+import { jingleRoutes } from './routes/jingles.js';
 import { studioRoutes } from './routes/studio.js';
 import { systemRoutes } from './routes/system.js';
 import { tenantRoutes } from './routes/tenants.js';
@@ -193,6 +194,7 @@ export async function buildApp(ctx: AppContext) {
   await app.register(tenantStreamingRoutes, { prefix: '/api/tenants' });
   await app.register(statsRoutes, { prefix: '/api/stats' });
   await app.register(studioRoutes, { prefix: '/api/studio' });
+  await app.register(jingleRoutes, { prefix: '/api/studio' });
   await app.register(publicRoutes, { prefix: '/api/public' });
   await app.register(listenRedirectRoutes, { prefix: '/api/public' });
   await app.register(billingPublicRoutes, { prefix: '/api/public' });

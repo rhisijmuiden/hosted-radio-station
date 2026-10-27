@@ -73,6 +73,18 @@ A file from the network or this PC goes on air through the station library: Q1/Q
 it to the library, waits until the server has read its tags and then puts it in the queue. This needs the manager or
 owner role (it counts towards the storage of the station); DJs can preview local files.
 
+### Jingle buttons
+
+Above the queues are your own jingle buttons: six on a page, more pages with **+** (up to 48 buttons). Click a button
+to play it, again to stop. Fill an empty button by clicking it (choose a file), or drag a file from *This PC* or
+*Network*, or a track of the server library, onto it; a file dropped on a full button replaces it. The pencil sets
+the label, colour and loop, or empties the button.
+
+The jingles are kept in your profile on the server, per station, so you get the same buttons on every studio PC. The
+client downloads them once and plays them itself, like the cart wall: into the stream and/or on the output device, as
+set in *Settings*. The jingles of the station itself (station IDs, news intros) come with the format from the server.
+It needs server 1.1 (`/api/studio/stations/:id/jingles`, at most 25 MB per file).
+
 ## Going live
 
 1. In **Settings** choose the driver (**WASAPI**, or **ASIO** for professional sound cards), the sound card, and the

@@ -10,7 +10,7 @@ import { updateSettings, useSettings, type CartSlot } from '../lib/settings';
 
 export const PER_PAGE = 12;
 export const PAGES = 4;
-const COLORS = ['#FF6B57', '#9CC3FF', '#4ACB8C', '#F2B640', '#B18CFF', '#FF8FC7', '#5ED3D1', '#A3AEC4'];
+export const COLORS = ['#FF6B57', '#9CC3FF', '#4ACB8C', '#F2B640', '#B18CFF', '#FF8FC7', '#5ED3D1', '#A3AEC4'];
 
 const fileName = (p: string) => p.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, '') ?? p;
 

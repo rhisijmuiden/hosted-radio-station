@@ -14,6 +14,8 @@ import { Card, EmptyState, Input, Spinner } from './ui';
 export type QueueName = 'q1' | 'q2';
 export type AddToQueue = (v: { mediaId: string; queue: QueueName; at: 'top' | 'bottom' }) => void;
 export const DRAG_MEDIA = 'application/x-hrs-media';
+/** The library path of a dragged server track (its extension tells the format). */
+export const DRAG_MEDIA_PATH = 'application/x-hrs-media-path';
 /** A file on this PC or a network share: it goes to the station library first. */
 export const DRAG_FILE = 'application/x-hrs-file';
 
@@ -156,6 +158,7 @@ function ServerList({ stationId, add, preview, playing }: { stationId: string; a
               draggable
               onDragStart={(e) => {
                 e.dataTransfer.setData(DRAG_MEDIA, m.id);
+                e.dataTransfer.setData(DRAG_MEDIA_PATH, m.path);
                 e.dataTransfer.effectAllowed = 'copy';
               }}
               className="group flex cursor-grab items-center gap-2 border-b border-line px-3 py-2 hover:bg-hover"

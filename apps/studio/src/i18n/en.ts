@@ -150,6 +150,13 @@ export const en = {
     othersLive: 'Also live right now: {{names}}',
     openSettings: 'Choose a sound card',
   },
+  jingles: {
+    drop: 'Drop or pick a jingle',
+    saving: 'Saving…',
+    addPage: 'Add a page of buttons',
+    editTitle: 'Jingle button',
+    replace: 'Choose another file',
+  },
   carts: {
     subtitle: 'Jingles and effects under F1–F12. Click or press the key to play, again to stop.',
     page: 'Page {{n}}',

@@ -1162,6 +1162,26 @@ export const studioLiveTokens = pgTable(
   (t) => [uniqueIndex('studio_live_tokens_hash_idx').on(t.hash), index('studio_live_tokens_account_idx').on(t.accountId)],
 );
 
+/** The jingle buttons of a DJ in RHIS Studio (phase 17): their own jingles per station, the same on every studio PC. */
+export const studioJingles = pgTable(
+  'studio_jingles',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    /** The button: page = position / 6. */
+    position: integer('position').notNull(),
+    label: text('label').notNull(),
+    color: text('color').notNull(),
+    looped: boolean('looped').notNull().default(false),
+    /** The file extension (mp3, wav, ...); the file is jingles/<user>/<id>.<ext> in the station folder. */
+    ext: text('ext').notNull(),
+    size: integer('size').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('studio_jingles_button_idx').on(t.stationId, t.userId, t.position)],
+);
+
 // Phase 10: hosted service (packages, subscriptions, invoices, webhooks)
 
 /**

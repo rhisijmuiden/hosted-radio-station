@@ -387,6 +387,11 @@ which features it has and says so when the server needs an update, instead of fa
    outside), so the studio keeps working when the internet connection drops. Settings › Connection shows the link and
    takes a manual address.
 
+Added 2026-10-27, after step 3: **one playlist**. Q2 goes away everywhere (RHIS Studio, the panel and the server;
+playlists and queue rules move over), and Live assist gets the layout of the approved sketch: the next fixed block
+with a countdown at the top, one playlist with start times and backtiming to the next fixed block, a narrow icon menu
+and a status bar. The intro countdown on the player comes with step 5, locked blocks in the playlist with step 6.
+
 Step 1, light theme in English (Auto) and dark theme in Dutch (Manual, waiting for Play):
 
 | Auto | Manual |

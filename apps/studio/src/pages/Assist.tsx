@@ -5,6 +5,7 @@ import { useEffect, useState, type DragEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { addLocalFile, DRAG_FILE, DRAG_MEDIA, LibraryPanel, useCanUpload, type QueueName } from '../components/Library';
+import { JingleBar } from '../components/Jingles';
 import { Badge, Button, Card, EmptyState, Spinner } from '../components/ui';
 import { api, type AutoDj, type QueueRow, type QueueRule } from '../lib/api';
 import { duration } from '../lib/format';
@@ -419,7 +420,7 @@ function TakeTurns({ data, stationId }: { data: AutoDj; stationId: string }) {
 
 export function AssistPage() {
   const { t } = useTranslation();
-  const { station } = useSession();
+  const { station, supports } = useSession();
   const autodj = useAutoDj(station?.id);
   const queueActions = useQueueActions(station?.id ?? '');
   if (!station) return <EmptyState icon={<ListMusic className="size-6" />} title={t('station.none')} description={t('station.noneText')} />;
@@ -443,6 +444,7 @@ export function AssistPage() {
     <div className="grid h-full min-h-[600px] grid-cols-[minmax(0,1fr)_minmax(300px,360px)] gap-4">
       <div className="flex min-h-0 flex-col gap-4">
         <NowPlaying data={data} stationId={station.id} />
+        {supports('jingles') && <JingleBar stationId={station.id} />}
         <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_112px_minmax(0,1fr)] gap-3">
           <QueueColumn name="q1" otherName="q2" rows={data.queues.q1} stationId={station.id} />
           <TakeTurns data={data} stationId={station.id} />

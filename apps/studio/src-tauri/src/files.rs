@@ -91,6 +91,25 @@ pub fn upload(url: &str, token: &str, path: &str) -> anyhow::Result<serde_json::
     Ok(body)
 }
 
+/// Downloads a file of the server once into the cache of this PC (jingles: a new file on the server gets a new name).
+pub fn cached(url: &str, token: &str, name: &str) -> anyhow::Result<std::path::PathBuf> {
+    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.') || name.starts_with('.') {
+        anyhow::bail!("invalid file name");
+    }
+    let dir = std::env::temp_dir().join("rhis-studio-jingles");
+    let path = dir.join(name);
+    if path.is_file() {
+        return Ok(path);
+    }
+    std::fs::create_dir_all(&dir)?;
+    let client = reqwest::blocking::Client::builder().user_agent(concat!("RHIS Studio/", env!("CARGO_PKG_VERSION"))).build()?;
+    let data = client.get(url).bearer_auth(token).send()?.error_for_status()?.bytes()?;
+    let tmp = dir.join(format!("{name}.part"));
+    std::fs::write(&tmp, &data).with_context(|| format!("cannot write {}", tmp.display()))?;
+    std::fs::rename(&tmp, &path)?;
+    Ok(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
