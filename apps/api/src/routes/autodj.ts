@@ -40,6 +40,8 @@ import { assertAudioAllowedHere } from '../services/nodes/orchestrator.js';
 
 const stationParams = z.object({ id: z.uuid() });
 const queueSchema = z.enum(['q1', 'q2']);
+/** Since 1.3 there is one queue, `q1`; `q2` from older clients means the same queue. */
+const queueIn = queueSchema.transform(() => 'q1' as const).default('q1');
 
 const mediaOut = z.object({
   id: z.uuid(),
@@ -65,7 +67,8 @@ const mediaOut = z.object({
 const folderSchema = z.object({ location: z.string().max(64), path: z.string().max(500) });
 const playlistBody = z.object({
   name: z.string().trim().min(1).max(80),
-  queue: queueSchema.default('q1'),
+  /** Always `q1` since 1.3 (one queue); kept for older clients. */
+  queue: queueIn,
   weight: z.number().int().min(1).max(10).default(5),
   order: z.enum(['shuffle', 'random', 'sequential']).default('shuffle'),
   folders: z.array(folderSchema).max(50).default([]),
@@ -73,7 +76,7 @@ const playlistBody = z.object({
   /** Feeds its queue; off = only played where an hour clock asks for it (news, commercials, jingles). */
   rotation: z.boolean().default(true),
 });
-const playlistOut = playlistBody.extend({ id: z.uuid(), trackCount: z.number().int(), averageSeconds: z.number().nullable(), createdAt: z.date() });
+const playlistOut = playlistBody.extend({ queue: queueSchema, id: z.uuid(), trackCount: z.number().int(), averageSeconds: z.number().nullable(), createdAt: z.date() });
 const sourceStatusOut = z.object({ state: z.enum(['pending', 'ok', 'error']), message: z.string().optional(), checkedAt: z.string().optional() }).nullable();
 const sourceBody = z.object({
   name: z.string().trim().min(1).max(80),
@@ -459,7 +462,8 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
       config: { audit: 'autodj.rule' },
       schema: {
         tags: ['AutoDJ'],
-        summary: 'How the AutoDJ takes turns between Q1 and Q2 (DJs too, from RHIS Studio). Takes effect at the next track.',
+        summary: 'Kept for RHIS Studio before 0.13: how Q1 and Q2 took turns. No effect since 1.3, which has one queue.',
+        deprecated: true,
         params: stationParams,
         body: queueRuleSchema,
         response: { 200: autodjOut },
@@ -548,9 +552,9 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
     {
       schema: {
         tags: ['AutoDJ'],
-        summary: 'Put a library track in Q1 or Q2, at the top or the bottom (DJs too)',
+        summary: 'Put a library track in the queue, at the top or the bottom (DJs too)',
         params: stationParams,
-        body: z.object({ mediaId: z.uuid(), queue: queueSchema, at: z.enum(['top', 'bottom']).default('bottom') }),
+        body: z.object({ mediaId: z.uuid(), queue: queueIn, at: z.enum(['top', 'bottom']).default('bottom') }),
         response: { 200: autodjOut },
       },
     },
@@ -568,7 +572,7 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
         tags: ['AutoDJ'],
         summary: 'Move a waiting track: to the other queue and/or before another track (null = to the end)',
         params: stationParams.extend({ itemId: z.uuid() }),
-        body: z.object({ queue: queueSchema, beforeId: z.uuid().nullable().default(null) }),
+        body: z.object({ queue: queueIn, beforeId: z.uuid().nullable().default(null) }),
         response: { 200: autodjOut },
       },
     },
@@ -602,7 +606,7 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
         tags: ['AutoDJ'],
         summary: 'Empty a queue. `rotationOnly` keeps requests and tracks added by hand; the playlists fill it again.',
         params: stationParams,
-        body: z.object({ queue: queueSchema, rotationOnly: z.boolean().default(true) }),
+        body: z.object({ queue: queueIn, rotationOnly: z.boolean().default(true) }),
         response: { 200: autodjOut },
       },
     },

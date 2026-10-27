@@ -61,6 +61,6 @@ export async function queueRequest(ctx: AppContext, station: Station, request: R
   }
   const [already] = await ctx.db.select({ id: schema.queueItems.id }).from(schema.queueItems).where(eq(schema.queueItems.requestId, request.id)).limit(1);
   if (already) return true;
-  await enqueue(ctx, station.id, mediaId, autodjSettings(station).requests.queue, { at: 'top', origin: 'request', requestId: request.id, addedBy: by });
+  await enqueue(ctx, station.id, mediaId, 'q1', { at: 'top', origin: 'request', requestId: request.id, addedBy: by });
   return true;
 }

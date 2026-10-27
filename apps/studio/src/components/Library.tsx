@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowUp, Folder, HardDrive, Headphones, ListMusic, Network, Pause, Play, Search, Server, Square, X } from 'lucide-react';
+import { ArrowUp, Folder, HardDrive, Headphones, ListMusic, Network, Pause, Play, Plus, Search, Server, Square, X } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -11,6 +11,7 @@ import { useSession } from '../lib/session';
 import { getSettings, useSettings } from '../lib/settings';
 import { Card, EmptyState, Input, Spinner } from './ui';
 
+/** Since server 1.3 there is one queue; the API still names it `q1`. */
 export type QueueName = 'q1' | 'q2';
 export type AddToQueue = (v: { mediaId: string; queue: QueueName; at: 'top' | 'bottom' }) => void;
 export const DRAG_MEDIA = 'application/x-hrs-media';
@@ -97,21 +98,18 @@ function PreviewButton({ onClick, active, label }: { onClick: () => void; active
   );
 }
 
+/** Into the playlist: at the bottom, or at the top with Shift. */
 function QueueButtons({ onAdd }: { onAdd: (queue: QueueName, top: boolean) => void }) {
   const { t } = useTranslation();
   return (
-    <div className="flex gap-1">
-      {(['q1', 'q2'] as const).map((qn) => (
-        <button
-          key={qn}
-          onClick={(e) => onAdd(qn, e.shiftKey)}
-          title={t('assist.addTo', { queue: qn.toUpperCase() })}
-          className="rounded border border-line px-1.5 py-0.5 text-[10px] font-bold text-muted hover:border-koraal hover:text-ink"
-        >
-          {qn.toUpperCase()}
-        </button>
-      ))}
-    </div>
+    <button
+      onClick={(e) => onAdd('q1', e.shiftKey)}
+      title={t('assist.addToPlaylist')}
+      aria-label={t('assist.addToPlaylist')}
+      className="grid size-6 place-items-center rounded bg-koraal text-nacht hover:brightness-95"
+    >
+      <Plus className="size-3.5" />
+    </button>
   );
 }
 

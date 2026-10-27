@@ -11,41 +11,17 @@ import { hourStart } from '../scheduler/time.js';
 import { filePath, locationRoot, type MediaFile, type MediaSource } from './library.js';
 import { autodjSettings, type AutodjSettings } from './settings.js';
 
+/**
+ * Since 1.3 a station has one queue. The database and the API still name it `q1` (old clients may send `q2`, which
+ * means the same queue).
+ */
 export type Queue = 'q1' | 'q2';
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 type Playlist = typeof schema.playlists.$inferSelect;
 
-const other = (q: Queue): Queue => (q === 'q1' ? 'q2' : 'q1');
-
 /** Serialises everything that changes a station's queues (the player, the panel and requests can act at once). */
 async function lock(tx: Tx, stationId: string) {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`autodj:${stationId}`}))`);
-}
-
-/**
- * The queue the next track comes from, by the station's rule and what played before. Exported for tests.
- * `available` says which queues have a track; an empty preferred queue hands over to the other one.
- */
-export function chooseQueue(rule: AutodjSettings['rule'], last: Queue | null, streak: number, available: Record<Queue, boolean>): Queue | null {
-  let want: Queue;
-  switch (rule.mode) {
-    case 'alternate':
-      want = last ? other(last) : 'q1';
-      break;
-    case 'q1_first':
-      want = 'q1';
-      break;
-    case 'q2_first':
-      want = 'q2';
-      break;
-    default: {
-      const limit = (q: Queue) => (q === 'q1' ? rule.q1 : rule.q2);
-      want = !last ? 'q1' : streak < limit(last) ? last : other(last);
-    }
-  }
-  if (available[want]) return want;
-  if (available[other(want)]) return other(want);
-  return null;
 }
 
 /** Picks one of the playlists, the higher the weight the more often. Exported for tests. */
@@ -134,31 +110,29 @@ async function afterRequests(tx: Tx, stationId: string, queue: Queue) {
   return (rows[i - 1]!.position + rows[i]!.position) / 2;
 }
 
-/** Tops up the queues that are filled from playlists to the configured depth. */
+/** Tops up the queue from the rotation playlists to the configured depth. */
 async function refill(tx: Tx, station: Station, s: AutodjSettings) {
-  const lists = await tx
+  if (!s.fill.q1) return;
+  const queue = 'q1';
+  let pool = await tx
     .select()
     .from(schema.playlists)
     .where(and(eq(schema.playlists.stationId, station.id), eq(schema.playlists.enabled, true), eq(schema.playlists.rotation, true)));
-  for (const queue of ['q1', 'q2'] as const) {
-    if (!s.fill[queue]) continue;
-    const [c] = await tx
-      .select({ n: sql<number>`count(*)::int` })
-      .from(schema.queueItems)
-      .where(and(eq(schema.queueItems.stationId, station.id), eq(schema.queueItems.queue, queue), ne(schema.queueItems.state, 'playing')));
-    let need = s.queueDepth - (c?.n ?? 0);
-    let pool = lists.filter((p) => p.queue === queue);
-    let pos = await bottom(tx, station.id, queue);
-    while (need > 0 && pool.length) {
-      const p = weightedPick(pool)!;
-      const track = await pickTrack(tx, station, s, p);
-      if (!track) {
-        pool = pool.filter((x) => x !== p);
-        continue;
-      }
-      await tx.insert(schema.queueItems).values({ stationId: station.id, queue, mediaId: track.id, position: pos++, origin: 'rotation', playlistId: p.id });
-      need--;
+  const [c] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(schema.queueItems)
+    .where(and(eq(schema.queueItems.stationId, station.id), ne(schema.queueItems.state, 'playing')));
+  let need = s.queueDepth - (c?.n ?? 0);
+  let pos = await bottom(tx, station.id, queue);
+  while (need > 0 && pool.length) {
+    const p = weightedPick(pool)!;
+    const track = await pickTrack(tx, station, s, p);
+    if (!track) {
+      pool = pool.filter((x) => x !== p);
+      continue;
     }
+    await tx.insert(schema.queueItems).values({ stationId: station.id, queue, mediaId: track.id, position: pos++, origin: 'rotation', playlistId: p.id });
+    need--;
   }
 }
 
@@ -281,7 +255,6 @@ export async function nextTrack(
     const s = autodjSettings(station);
     await refill(tx, station, s);
     const sources = await loadSources(tx, stationId);
-    const [state] = await tx.select().from(schema.autodjState).where(eq(schema.autodjState.stationId, stationId));
     for (let attempt = 0; attempt < 10; attempt++) {
       const heads = await tx
         .select({ item: schema.queueItems, media: schema.mediaFiles })
@@ -290,17 +263,14 @@ export async function nextTrack(
         .where(and(eq(schema.queueItems.stationId, stationId), eq(schema.queueItems.state, 'queued')))
         .orderBy(asc(schema.queueItems.position))
         .limit(200);
-      const first = (q: Queue) => heads.find((h) => h.item.queue === q);
-      let queue = chooseQueue(s.rule, state?.lastQueue ?? null, state?.streak ?? 0, { q1: !!first('q1'), q2: !!first('q2') });
-      let pick = queue ? first(queue) : undefined;
+      let pick = heads[0];
       const scheduled = await clockPick(tx, station, s, pick?.media.durationSeconds ?? 210, skipped);
       if (scheduled) pick = scheduled;
       if (!pick) {
-        // Both queues are empty (no playlists, or nothing left in them): any track from the library.
+        // The queue is empty (no playlists, or nothing left in them): any track from the library.
         const track = await pickTrack(tx, station, s, null);
         if (!track) return null;
-        queue = 'q1';
-        const [item] = await tx.insert(schema.queueItems).values({ stationId, queue, mediaId: track.id, position: await top(tx, stationId, queue), origin: 'rotation' }).returning();
+        const [item] = await tx.insert(schema.queueItems).values({ stationId, queue: 'q1', mediaId: track.id, position: await top(tx, stationId, 'q1'), origin: 'rotation' }).returning();
         pick = { item: item!, media: track };
       }
       const full = mediaPath(ctx, pick.media, sources);
@@ -309,17 +279,11 @@ export async function nextTrack(
         continue;
       }
       await tx.update(schema.queueItems).set({ state: 'cued', cuedAt: new Date() }).where(eq(schema.queueItems.id, pick.item.id));
-      // Clock items do not count for the queue rule.
-      if (!scheduled) {
-        const streak = state?.lastQueue === queue ? state.streak + 1 : 1;
-        await tx
-          .insert(schema.autodjState)
-          .values({ stationId, lastQueue: queue!, streak, seenAt: new Date() })
-          .onConflictDoUpdate({ target: schema.autodjState.stationId, set: { lastQueue: queue!, streak, seenAt: new Date() } });
-      } else {
-        await tx.update(schema.autodjState).set({ seenAt: new Date() }).where(eq(schema.autodjState.stationId, stationId));
-      }
-      // Keep the queues full for the panel.
+      await tx
+        .insert(schema.autodjState)
+        .values({ stationId, lastQueue: 'q1', streak: 0, seenAt: new Date() })
+        .onConflictDoUpdate({ target: schema.autodjState.stationId, set: { seenAt: new Date() } });
+      // Keep the queue full for the panel.
       await refill(tx, station, s);
       return { uri: requestUri({ id: pick.item.id, queue: pick.item.queue }, pick.media, full, s), itemId: pick.item.id, cutAt: scheduled?.cutAt ?? null, skipped };
     }

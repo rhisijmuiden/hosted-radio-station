@@ -124,20 +124,15 @@ export interface QueueRow {
   startedAt: string | null;
   media: Pick<Media, 'id' | 'title' | 'artist' | 'album' | 'durationSeconds' | 'location' | 'path'>;
 }
-export type QueueRuleMode = 'alternate' | 'ratio' | 'q1_first' | 'q2_first';
-export interface QueueRule {
-  mode: QueueRuleMode;
-  q1: number;
-  q2: number;
-}
 export interface AutoDj {
   edition: 'distribution' | 'station';
-  settings: { enabled: boolean; rule: QueueRule };
+  settings: { enabled: boolean; crossfadeSeconds?: number };
   player: { expected: boolean; connected: boolean; paused: boolean };
   /** Manual playout: every track waits for Play; holding = the track ended and the player waits. */
   playout: { manual: boolean; holding: boolean; until: string | null };
   nowPlaying: QueueRow | null;
-  queues: { q1: QueueRow[]; q2: QueueRow[] };
+  /** One queue since server 1.3 (`q1`); an older server may still have tracks in `q2`. */
+  queues: { q1: QueueRow[]; q2?: QueueRow[] };
   schedule: { enabled: boolean; clock: { name: string; color: string } | null; entry: { name: string; live: boolean } | null };
 }
 /** One item of the format of the coming hours (an hour clock item), from /autodj/rundown. */
