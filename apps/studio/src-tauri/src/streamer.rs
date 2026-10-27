@@ -39,7 +39,12 @@ pub enum Status {
     Off,
     Connecting { attempt: u32 },
     Live { since: u64, bytes: u64 },
-    Reconnecting { error: String, retry_in: u64 },
+    Reconnecting {
+        error: String,
+        // rename_all only renames the variants, not their fields.
+        #[serde(rename = "retryIn")]
+        retry_in: u64,
+    },
     Failed { error: String },
 }
 
