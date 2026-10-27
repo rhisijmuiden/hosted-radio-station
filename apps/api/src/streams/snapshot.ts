@@ -155,6 +155,12 @@ export function resolveMount(snap: Snapshot, host: string | null, path: string):
       .filter((x): x is NonNullable<typeof x> => !!x);
     if (matches.length === 1) return matches[0]!;
   }
+  // A bare mount (/live) when one station here takes it: a station node runs the stations of one customer, and RHIS
+  // Studio and the panel give its encoders the mount without the station in front.
+  if (parts.length >= 1) {
+    const matches = [...snap.stations.values()].map((v) => ok(v, `/${parts.join('/')}`)).filter((x): x is NonNullable<typeof x> => !!x);
+    if (matches.length === 1) return matches[0]!;
+  }
   return null;
 }
 
