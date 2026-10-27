@@ -313,6 +313,16 @@ export class NodeHub {
     s.txBps = num(m.txBps);
     s.listeners = num(m.listeners);
     s.encoders = num(m.encoders);
+    // The node's own view of its public address wins over the one it connects from (a proxy or CDN in between,
+    // phase 19): DNS, GeoIP and the panel then use the address the internet really reaches it on.
+    if (typeof m.publicIp === 'string' && net.isIP(m.publicIp) === 4 && isPublicAddress(m.publicIp) && m.publicIp !== s.ip) {
+      s.ip = m.publicIp;
+      const geo = this.geo.lookup(s.ip);
+      s.country = geo?.country ?? null;
+      s.city = geo?.city ?? null;
+      s.latitude = geo?.latitude ?? null;
+      s.longitude = geo?.longitude ?? null;
+    }
     s.icmp = m.icmp && typeof m.icmp === 'object' ? { rttMs: num(m.icmp.rttMs) ?? null, loss: num(m.icmp.loss, 1) ?? 0 } : null;
     if (Array.isArray(m.ingest)) {
       const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : null);

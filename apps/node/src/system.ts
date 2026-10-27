@@ -117,3 +117,41 @@ export function icmpPing(host: string): Promise<{ rttMs: number | null; loss: nu
     });
   });
 }
+
+/**
+ * The node's public IPv4 address as the internet sees it (phase 19), also behind a router or NAT, so its platform
+ * name in DNS points at the right place and the panel shows the real address. Asked of Cloudflare's trace page, with
+ * ipify as second source, at most every 15 minutes; a failed lookup keeps the last known address.
+ */
+let lastPublicIp: { ip: string | null; at: number } = { ip: null, at: 0 };
+let lookingUp: Promise<void> | null = null;
+const IPV4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+
+async function lookupPublicIp(): Promise<string | null> {
+  const sources: [string, (body: string) => string | undefined][] = [
+    ['https://1.1.1.1/cdn-cgi/trace', (b) => b.match(/^ip=(.+)$/m)?.[1]],
+    ['https://api.ipify.org', (b) => b],
+  ];
+  for (const [url, parse] of sources) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      if (!res.ok) continue;
+      const ip = parse((await res.text()).trim())?.trim();
+      if (ip && IPV4.test(ip)) return ip;
+    } catch {
+      /* try the next source */
+    }
+  }
+  return null;
+}
+
+export function publicIp(): string | null {
+  if (!lookingUp && Date.now() - lastPublicIp.at > 15 * 60_000) {
+    lookingUp = lookupPublicIp()
+      .then((ip) => {
+        lastPublicIp = { ip: ip ?? lastPublicIp.ip, at: Date.now() };
+      })
+      .finally(() => (lookingUp = null));
+  }
+  return lastPublicIp.ip;
+}

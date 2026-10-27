@@ -44,6 +44,9 @@ Firewall check of nodes outside the own network:
 
 - When a node's name does not resolve on this server, the check asks public DNS and otherwise tests the node's own
   public address, with a clear note instead of ENOTFOUND. A name that does not resolve now reads "Name not found in DNS".
+- Every node looks up its own public IPv4 address (as the internet sees it, also behind a router or NAT) and reports
+  it to the orchestrator every 15 minutes. That address is used for its platform name in DNS, GeoIP and the panel, so
+  nobody has to look it up or set it by hand; the **Public address** setting of a node still overrides it.
 - A node that connects through Cloudflare without its real address in CF-Connecting-IP is shown (and placed in DNS and
   GeoIP) with the public address of its own interface instead of a Cloudflare edge address.
 - A node with a public address on its own interface (a server in a data centre) is told that nothing has to be

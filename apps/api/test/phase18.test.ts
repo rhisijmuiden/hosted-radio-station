@@ -207,6 +207,22 @@ describe('firewall checklist (phase 18)', () => {
     server.close();
   }, 15_000);
 
+  it('uses the public address a node looks up itself (phase 19)', async () => {
+    const node = await pair({ name: 'nat-relay', roles: ['relay'] });
+    const a = agent(node.id, node.secret);
+    await a.opened;
+    await wait(300);
+    a.send({ t: 'stats', cpu: 0, memory: 0, load: 0, uptime: 1, rxBps: 0, txBps: 0, listeners: 0, encoders: 0, icmp: null, problems: [], update: null, revision: null, publicIp: '203.0.113.50' });
+    await wait(300);
+    const got = (await t.app.inject({ method: 'GET', url: `/api/nodes/${node.id}`, headers: admin })).json();
+    expect(got.status.ip).toBe('203.0.113.50');
+    // A private or malformed address is ignored.
+    a.send({ t: 'stats', cpu: 0, memory: 0, load: 0, uptime: 1, rxBps: 0, txBps: 0, listeners: 0, encoders: 0, icmp: null, problems: [], update: null, revision: null, publicIp: '10.0.0.5' });
+    await wait(300);
+    expect((await t.app.inject({ method: 'GET', url: `/api/nodes/${node.id}`, headers: admin })).json().status.ip).toBe('203.0.113.50');
+    a.close();
+  });
+
   it('shows the push port of a relay as not in use while nothing pushes to it', async () => {
     // A customer without stations: nothing pushes to its relay.
     const other = await t.app.inject({
