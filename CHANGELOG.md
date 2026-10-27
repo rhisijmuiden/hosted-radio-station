@@ -12,6 +12,11 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   on its own sound card output. Files from the network or this PC go into a queue through the station library.
 - `/api/studio/hello` tells the client the server version and its features, so an older server is reported instead
   of failing.
+- Fixed: the remaining time of the playing track in Live assist now counts down every second.
+- Fixed: dragging tracks in RHIS Studio on Windows (library to Q1/Q2, and between queues). The window caught every
+  drag as a file drop from Explorer.
+- The status at the top of RHIS Studio is labelled "On air now" and shows Auto or Manual next to AutoDJ, with a
+  tooltip; it is a status, not a button.
 
 ## 1.0.1 (October 2026)
 

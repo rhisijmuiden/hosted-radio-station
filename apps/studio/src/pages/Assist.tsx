@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { ArrowLeftRight, ArrowUpToLine, CalendarClock, Eraser, GripVertical, ListMusic, Minus, Music2, Play, Plus, SkipForward, Square, Trash2 } from 'lucide-react';
-import { useState, type DragEvent } from 'react';
+import { useEffect, useState, type DragEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { addLocalFile, DRAG_FILE, DRAG_MEDIA, LibraryPanel, useCanUpload, type QueueName } from '../components/Library';
@@ -100,13 +100,24 @@ function ModeSwitch({ data, stationId }: { data: AutoDj; stationId: string }) {
   );
 }
 
+/** Re-renders every second: the autodj poll returns the same object while a track plays, so the clock must tick on its own. */
+function useNow() {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return now;
+}
+
 function NowPlaying({ data, stationId }: { data: AutoDj; stationId: string }) {
   const { t } = useTranslation();
   const a = useQueueActions(stationId);
   const manual = !!data.playout?.manual;
   const holding = manual && !!data.playout?.holding;
   const np = data.nowPlaying;
-  const elapsed = np?.startedAt ? (Date.now() - new Date(np.startedAt).getTime()) / 1000 : 0;
+  const now = useNow();
+  const elapsed = np?.startedAt ? (now - new Date(np.startedAt).getTime()) / 1000 : 0;
   const total = np?.media.durationSeconds ?? null;
   const pct = total && !holding ? Math.min(100, (elapsed / total) * 100) : 0;
   const remaining = total && !holding ? Math.max(0, total - elapsed) : null;

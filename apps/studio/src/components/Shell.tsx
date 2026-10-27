@@ -168,14 +168,21 @@ function TopBar() {
   const meLive = broadcast.state === 'live';
   return (
     <header className="flex items-center gap-5 border-b border-line bg-raised px-6 py-3.5">
-      <div
-        className={clsx(
-          'flex h-11 shrink-0 items-center gap-2 rounded-md px-4 text-sm font-extrabold tracking-[0.12em] uppercase',
-          meLive ? 'onair-pulse bg-koraal text-nacht' : live ? 'bg-offline/15 text-offline' : 'bg-chip text-muted',
-        )}
-      >
-        <i className={clsx('size-2.5 rounded-full', meLive ? 'bg-nacht' : live ? 'bg-offline' : 'bg-muted/50')} />
-        {meLive ? t('live.onAir') : live ? t('live.someoneLive') : t('live.autodj')}
+      {/* Who is on the station right now: a status, not a button. */}
+      <div className="shrink-0 cursor-default" title={meLive ? t('live.tipYou') : live ? t('live.tipOther', { name: live.accountName }) : t('live.tipAutodj')}>
+        <div className="mb-1 text-[10px] font-semibold tracking-[0.08em] text-muted uppercase">{t('live.onAirNow')}</div>
+        <div
+          className={clsx(
+            'flex h-9 items-center gap-2 rounded-md px-3.5 text-sm font-extrabold tracking-[0.12em] uppercase',
+            meLive ? 'onair-pulse bg-koraal text-nacht' : live ? 'bg-offline/15 text-offline' : 'bg-chip text-muted',
+          )}
+        >
+          <i className={clsx('size-2.5 rounded-full', meLive ? 'bg-nacht' : live ? 'bg-offline' : 'bg-muted/50')} />
+          {meLive ? t('live.onAir') : live ? t('live.someoneLive') : t('live.autodj')}
+          {!meLive && !live && autodj.data?.playout && (
+            <span className="font-semibold tracking-normal normal-case">· {autodj.data.playout.manual ? t('playout.manual') : t('playout.auto')}</span>
+          )}
+        </div>
       </div>
       <div className="min-w-0 flex-1">
         {live && !meLive ? (
