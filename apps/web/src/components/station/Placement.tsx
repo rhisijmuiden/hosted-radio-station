@@ -8,6 +8,7 @@ import { api, type NodeItem, type Station, type StationDetail } from '../../lib/
 import { isAdmin, useMe } from '../../lib/auth';
 import { formatBytes, formatRelative } from '../../lib/format';
 import { Badge, Button, Card, Field, Select } from '../ui';
+import { useServerNames } from '../../lib/server';
 
 const MAIN = 'main';
 
@@ -49,6 +50,10 @@ export function PlacementCard({ station }: { station: StationDetail }) {
   const [target, setTarget] = useState(station.nodeId ?? MAIN);
   useEffect(() => setTarget(station.nodeId ?? MAIN), [station.nodeId]);
   const current = nodes.find((n) => n.id === station.nodeId);
+  const server = useServerNames();
+  const here = server?.name ?? t('placement.mainServer');
+  // Orchestrator only (phase 18): a station cannot come back to this server.
+  const noWayBack = !!server?.orchestratorOnly;
   const moveTo = nodes.find((n) => n.id === move?.nodeId);
 
   const refresh = () => {
@@ -71,7 +76,7 @@ export function PlacementCard({ station }: { station: StationDetail }) {
 
   const start = () => {
     const nodeId = target === MAIN ? null : target;
-    const name = nodeId ? (nodes.find((n) => n.id === nodeId)?.name ?? '') : t('placement.mainServer');
+    const name = nodeId ? (nodes.find((n) => n.id === nodeId)?.name ?? '') : here;
     if (confirm(t('placement.confirm', { name }))) place.mutate({ nodeId });
   };
   const pct = move && move.bytes ? Math.min(100, Math.round((move.bytesDone / move.bytes) * 100)) : 0;
@@ -90,7 +95,7 @@ export function PlacementCard({ station }: { station: StationDetail }) {
                 {current?.name ?? t('placement.stationNode')}
               </Link>
             ) : (
-              t('placement.mainServer')
+              here
             )}
             {station.nodeId && (
               <Badge tone={station.nodeOnline ? 'online' : 'warning'} dot>
@@ -105,7 +110,7 @@ export function PlacementCard({ station }: { station: StationDetail }) {
         <div className="mt-4 rounded-md border border-line p-3">
           <div className="flex items-center justify-between gap-2 text-[13px]">
             <span className="font-semibold">
-              {move.state === 'failed' ? t('placement.failed') : move.direction === 'to_node' ? t('placement.movingTo', { name: moveTo?.name ?? t('placement.stationNode') }) : t('placement.movingBack')}
+              {move.state === 'failed' ? t('placement.failed') : move.direction === 'to_node' ? t('placement.movingTo', { name: moveTo?.name ?? t('placement.stationNode') }) : t('placement.movingBack', { name: here })}
             </span>
             <span className="tabular-nums text-muted">{pct}%</span>
           </div>
@@ -131,7 +136,7 @@ export function PlacementCard({ station }: { station: StationDetail }) {
         <div className="mt-4 flex flex-col gap-3">
           <Field label={t('placement.moveTo')} hint={nodes.length ? t('placement.moveHint') : t('placement.noNodes')}>
             <Select value={target} onChange={(e) => setTarget(e.target.value)} disabled={!nodes.length && !station.nodeId}>
-              <option value={MAIN}>{t('placement.mainServer')}</option>
+              {(!noWayBack || !station.nodeId) && <option value={MAIN}>{here}</option>}
               {nodes.map((n) => (
                 <option key={n.id} value={n.id}>
                   {n.name}
@@ -144,13 +149,14 @@ export function PlacementCard({ station }: { station: StationDetail }) {
             <Button variant="primary" disabled={target === (station.nodeId ?? MAIN) || (!!station.nodeId && target !== MAIN)} loading={place.isPending} onClick={start}>
               {t('placement.move')}
             </Button>
-            {station.nodeId && station.nodeOnline === false && (
+            {station.nodeId && station.nodeOnline === false && !noWayBack && (
               <Button variant="danger" loading={place.isPending} onClick={() => confirm(t('placement.forceConfirm')) && place.mutate({ nodeId: null, force: true })}>
                 {t('placement.force')}
               </Button>
             )}
           </div>
           {station.nodeId && target !== MAIN && target !== station.nodeId && <p className="text-xs text-muted">{t('placement.backFirst')}</p>}
+          {noWayBack && station.nodeId && <p className="text-xs text-muted">{t('placement.orchestratorOnly', { name: here })}</p>}
         </div>
       )}
     </Card>

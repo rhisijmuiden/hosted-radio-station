@@ -272,3 +272,47 @@ body {
     animation: none !important;
   }
 }
+
+/* Topology phase 18: a backup feed on standby, location groups, the matrix. */
+.topo-edge.standby {
+  stroke: var(--lucht);
+  stroke-dasharray: 5 6;
+  opacity: 0.85;
+  filter: none;
+  animation: topo-flow 2.4s linear infinite;
+}
+.topo-group {
+  border-radius: 10px;
+  border: 1px dashed color-mix(in srgb, var(--lucht) 35%, transparent);
+  background: color-mix(in srgb, var(--lucht) 4%, transparent);
+}
+.topo-group-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.topo-cell {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ink-muted) 18%, transparent);
+}
+.topo-cell.onAir {
+  background: var(--status-online);
+}
+.topo-cell.standby {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--lucht);
+}
+.topo-cell.degraded {
+  background: var(--status-warning);
+}
+.topo-cell.down {
+  background: var(--status-offline);
+}
+.topo-cell.idle {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--ink-muted) 45%, transparent);
+}
