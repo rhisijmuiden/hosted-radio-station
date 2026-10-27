@@ -3,6 +3,8 @@ import { and, eq, isNull, lt, or } from 'drizzle-orm';
 import { schema } from '../../db/index.js';
 import type { DomainCheck } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
+import { targetsOf } from '../dns/config.js';
+import { nodeHost } from '../nodes/plan.js';
 import { getSetting } from '../settings.js';
 
 type DomainRow = typeof schema.tenantDomains.$inferSelect;
@@ -26,36 +28,78 @@ async function addressesOf(r: Resolver, host: string) {
   return [...v4, ...v6];
 }
 
-/** A name is fine when it is a CNAME to the platform host, or resolves to one of this server's addresses. */
-export async function checkHost(host: string, target: { cname: string; ips: string[] }, r = resolver()): Promise<DomainCheck> {
-  const cnames = await r.resolveCname(host).catch(() => [] as string[]);
-  const want = target.cname.replace(/\.$/, '');
+/** Cloudflare's proxy ranges (IPv4): a name that resolves here has the orange cloud on, which hides the real target. */
+const CLOUDFLARE_V4 = ['173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22', '141.101.64.0/18', '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20', '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13', '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22'];
+const v4num = (ip: string) => ip.split('.').reduce((n, p) => n * 256 + Number(p), 0);
+export function isCloudflareAddress(ip: string) {
+  if (ip.includes(':')) return /^(2400:cb00|2606:4700|2803:f800|2405:b500|2405:8100|2a06:98c0|2a06:98c1|2c0f:f248):/i.test(ip);
+  const n = v4num(ip);
+  return CLOUDFLARE_V4.some((c) => {
+    const [net, bits] = c.split('/') as [string, string];
+    const size = 2 ** (32 - Number(bits));
+    const start = v4num(net);
+    return n >= start && n < start + size;
+  });
+}
+
+export interface HostTarget {
+  /** The CNAME target the record should have. */
+  cname: string;
+  /** Addresses that count as ours, for an A/AAAA record (or a CNAME chain that ends here). */
+  ips: string[];
+  /** Older targets that still work, e.g. the shared target from before Cloudflare DNS (phase 15). */
+  accept?: string[];
+  /** A CNAME is wanted: an A record works, but gets a warning because it does not follow changes. */
+  preferCname?: boolean;
+}
+
+const bare = (h: string) => h.replace(/\.$/, '').toLowerCase();
+
+/**
+ * A name is fine when it is a CNAME to the platform host, or resolves to one of this server's addresses. With a
+ * per-customer target (Cloudflare DNS) an older target or an A record still works, with a warning.
+ */
+export async function checkHost(host: string, target: HostTarget, r = resolver()): Promise<DomainCheck> {
+  const cnames = (await r.resolveCname(host).catch(() => [] as string[])).map(bare);
+  const want = bare(target.cname);
+  const expected = want || undefined;
   if (cnames.length) {
-    const found = cnames.map((c) => c.replace(/\.$/, '').toLowerCase());
-    if (want && found.includes(want)) return { host, ok: true, found };
+    if (want && cnames.includes(want)) return { host, ok: true, found: cnames, expected };
+    if (target.accept?.some((a) => a && cnames.includes(bare(a)))) return { host, ok: true, found: cnames, expected, warning: target.preferCname ? 'old_target' : undefined };
     // A CNAME chain via another name of ours is fine too, as long as it ends at our addresses.
   }
   const addrs = await addressesOf(r, host);
-  const ours = new Set([...target.ips, ...(want ? await addressesOf(r, want) : [])]);
-  const found = cnames.length ? cnames.map((c) => c.replace(/\.$/, '').toLowerCase()) : addrs;
-  if (!addrs.length && !cnames.length) return { host, ok: false, found: [], error: 'not_found' };
-  if (addrs.length && addrs.every((a) => ours.has(a))) return { host, ok: true, found };
-  return { host, ok: false, found, error: ours.size ? 'wrong_target' : 'no_target' };
+  const ours = new Set([...target.ips, ...(want ? await addressesOf(r, want) : []), ...(await Promise.all((target.accept ?? []).filter(Boolean).map((a) => addressesOf(r, a)))).flat()]);
+  const found = cnames.length ? cnames : addrs;
+  if (!addrs.length && !cnames.length) return { host, ok: false, found: [], error: 'not_found', expected };
+  if (addrs.length && addrs.every((a) => ours.has(a))) return { host, ok: true, found, expected, warning: target.preferCname && !cnames.length ? 'a_record' : undefined };
+  if (addrs.length && addrs.every(isCloudflareAddress)) return { host, ok: false, found, error: 'proxied', expected };
+  return { host, ok: false, found, error: ours.size ? 'wrong_target' : 'no_target', expected };
 }
 
 /** Where the encoder name must point when it is routed to a source node: the node's host name or addresses. */
 async function nodeTarget(ctx: AppContext, nodeId: string) {
   const [node] = await ctx.db.select({ config: schema.nodes.config, status: schema.nodes.status }).from(schema.nodes).where(eq(schema.nodes.id, nodeId));
   if (!node) return null;
-  const ips = [node.status.ip, ...(node.status.addresses ?? [])].filter((a): a is string => !!a);
-  return { cname: node.config.publicHost ?? '', ips };
+  const ips = [node.config.publicAddress, node.status.ip, ...(node.status.addresses ?? [])].filter((a): a is string => !!a);
+  return { cname: nodeHost(node), ips };
 }
 
 /** Checks both names of a domain and stores the result. */
 export async function verifyDomain(ctx: AppContext, row: DomainRow) {
   const target = await dnsTarget(ctx);
-  const ingestTarget = (row.ingestNodeId && (await nodeTarget(ctx, row.ingestNodeId))) || target;
-  const checks = await Promise.all([checkHost(row.panelHost, target), checkHost(row.ingestHost, ingestTarget)]);
+  const nodeT = row.ingestNodeId ? await nodeTarget(ctx, row.ingestNodeId) : null;
+  const ingestTarget: HostTarget = nodeT || target;
+  let panel: HostTarget = target;
+  let ingest = ingestTarget;
+  // Cloudflare DNS (phase 15): the customer's own targets; the shared target and A records keep working.
+  const targets = await targetsOf(ctx, row.targetLabel);
+  if (targets) {
+    const origin = (await getSetting(ctx, 'dnsState')).origin.addresses;
+    panel = { cname: targets.panel, ips: [...target.ips, ...origin], accept: [target.cname], preferCname: true };
+    ingest = { cname: targets.ingest, ips: [...ingestTarget.ips, ...(nodeT ? [] : origin)], accept: [ingestTarget.cname], preferCname: true };
+  }
+  const checks = await Promise.all([checkHost(row.panelHost, panel), checkHost(row.ingestHost, ingest)]);
   const ok = checks.every((c) => c.ok);
   let status: DomainRow['status'];
   if (row.verifiedManually || ok) status = 'verified';

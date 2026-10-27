@@ -7,6 +7,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import { formatBps, formatMs, formatPct, formatUptime, HealthBadge, nodeHealth, PairingPanel, RoleBadges } from '../components/nodes/common';
 import { FmOnAir, FmSettingsCards } from '../components/nodes/FmPanel';
+import { NodeDnsCard } from '../components/nodes/NodeDns';
 import { NodeUpdateCard, NodeUpdateSettings } from '../components/nodes/updates';
 import { AreaChart, ChartLegend } from '../components/stats/charts';
 import { Badge, Button, Card, CardHeader, Dialog, EmptyState, Fact, Field, Input, PageHeader, Spinner, Switch, Table, Tabs } from '../components/ui';
@@ -393,14 +394,12 @@ function SettingsForm({ node, admin }: { node: NodeItem; admin: boolean }) {
           <Switch checked={c.probe} onChange={(probe) => set({ probe })} label={t('nodes.fields.probe')} description={t('nodes.fields.probeHint')} />
         </div>
       </Card>
+      <NodeDnsCard node={node} value={c} onChange={set} />
       {roles.includes('relay') && (
         <Card>
           <CardHeader title={t('nodes.detail.relaySettings')} description={t('nodes.detail.relaySettingsHint')} />
           <div className="flex flex-col gap-4 p-5">
             <div className="grid gap-3 sm:grid-cols-3">
-              <Field label={t('nodes.fields.publicHost')} hint={caddy === false ? t('nodes.fields.publicHostDirect') : t('nodes.fields.publicHostHint')} className="sm:col-span-2">
-                <Input value={c.publicHost} onChange={(e) => set({ publicHost: e.target.value.trim().toLowerCase() })} placeholder="relay-ams.example.com" />
-              </Field>
               <Field label={t('nodes.fields.listenPort')} hint={t('nodes.fields.listenPortHint', { port: caddy ? 80 : 8000 })}>
                 <Input type="number" min={1} max={65535} value={c.listenPort ?? ''} placeholder={caddy ? '80' : '8000'} onChange={(e) => set({ listenPort: port(e.target.value) })} />
               </Field>

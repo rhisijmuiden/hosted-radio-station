@@ -355,6 +355,18 @@ The orchestrator manages the DNS records of the platform's own domain through th
 - Optional extras through the API: cache rules for the public pages, artwork and on-demand files, and DNS-01 certificates so nodes behind a firewall still get HTTPS.
 - Dry run and a record overview in the panel (what exists, what the platform would change), and an audit log entry for every change.
 
+Built in two steps. Step 1 (everything above except the optional extras) is in *Administration › DNS (Cloudflare)*:
+modes Off, Dry run and On; records for this server (`origin.<domain>`), every node, the `listen.<domain>` relay pool
+and per customer domain `<customer>.stream.<domain>` and `<customer>.src.<domain>`; a run every 30 seconds and right
+after a node connects, drops out or is drained; only records the platform made itself (comment `hrs:<install>:…`) are
+ever changed. Step 2 adds the cache rules and DNS-01 certificates. See [docs/dns.md](docs/dns.md).
+
+| Records and settings | Dark, Dutch |
+| --- | --- |
+| ![DNS page with the record overview](docs/screenshots/phase-15-dns.png) | ![DNS page, dark, Dutch](docs/screenshots/phase-15-dns-dark-nl.png) |
+| ![Customer domain with its two CNAME records and the Check button](docs/screenshots/phase-15-customer-domain.png) | ![Node without a public address, dark, Dutch](docs/screenshots/phase-15-node-no-address-dark-nl.png) |
+| ![Customer studio node with its platform name and own name checked](docs/screenshots/phase-15-node-studio.png) | |
+
 ### Phase 16: Installer menu and node enrollment
 
 One installer with a menu, for the standalone Debian 13 install and the Proxmox LXC install.

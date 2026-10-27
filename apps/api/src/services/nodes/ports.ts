@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { schema } from '../../db/index.js';
 import type { AppContext } from '../../lib/context.js';
 import { streamingSchema } from '../settings.js';
-import { defaultListenPort, nodeSettings, type Node } from './plan.js';
+import { defaultListenPort, nodeHost, nodeSettings, type Node } from './plan.js';
 
 /** What a port is for, shown translated in the panel and in e-mails. */
 export type PortService = 'encoderTls' | 'encoderPlain' | 'legacy' | 'sftp' | 'ftp' | 'ftpPassive' | 'listeners' | 'listenersTls' | 'push';
@@ -26,7 +26,7 @@ export interface InboundPort {
 export const STATION_NODE_STREAMING = streamingSchema.parse({});
 
 /** The address the outside world reaches a node on: its own name, else the address it connects to us from. */
-export const externalAddress = (n: Pick<Node, 'config' | 'status'>) => nodeSettings(n).publicHost || n.status.ip || null;
+export const externalAddress = (n: Pick<Node, 'config' | 'status'>) => nodeHost(n) || n.status.ip || null;
 
 /** Its address on its own network: the one set for the studio, else the first address of its interfaces. */
 export const internalAddress = (n: Pick<Node, 'config' | 'status'>) => nodeSettings(n).lanAddress || n.status.addresses?.find((a) => !a.includes(':')) || null;
@@ -40,7 +40,7 @@ export async function inboundPorts(ctx: AppContext, node: Node): Promise<Inbound
   const out: InboundPort[] = [];
   if (node.roles.includes('station')) {
     const s = STATION_NODE_STREAMING;
-    const tls = !!c.publicHost && !!node.status.caddy;
+    const tls = !!nodeHost(node) && !!node.status.caddy;
     if (tls) out.push({ service: 'encoderTls', port: s.ingestTlsPort, for: ['studio', 'encoders'] });
     if (s.ingestPlainPort) out.push({ service: 'encoderPlain', port: s.ingestPlainPort, for: ['studio', 'encoders'] });
     const stations = await ctx.db.select({ slug: schema.stations.slug, legacyPort: schema.stations.legacyPort }).from(schema.stations).where(eq(schema.stations.nodeId, node.id));
@@ -58,7 +58,7 @@ export async function inboundPorts(ctx: AppContext, node: Node): Promise<Inbound
   if (node.roles.includes('relay')) {
     const port = c.listenPort ?? defaultListenPort(node);
     out.push({ service: 'listeners', port, for: ['listeners'] });
-    if (node.status.caddy && c.publicHost) out.push({ service: 'listenersTls', port: 443, for: ['listeners'] });
+    if (node.status.caddy && nodeHost(node)) out.push({ service: 'listenersTls', port: 443, for: ['listeners'] });
     if (c.pushPort) out.push({ service: 'push', port: c.pushPort, for: ['ingests'] });
   }
   // One entry per port: a source and a station role can share the encoder ports.
