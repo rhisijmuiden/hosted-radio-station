@@ -972,6 +972,10 @@ export interface NodeConfig {
   /** Written by the DNS manager: the platform name while its record exists, and the check of an own publicHost. */
   dnsHost?: string;
   publicHostCheck?: { ok: boolean; found: string[]; error?: string; at: string } | null;
+  /** Shared or dedicated (1.1.1), see services/nodes/dedication.ts. */
+  dedication?: 'auto' | 'shared' | 'customer' | 'station';
+  dedicatedTenantId?: string | null;
+  dedicatedStationId?: string | null;
 }
 
 /** What a node reported last, kept with the node so every process (API, streams) can read it. */

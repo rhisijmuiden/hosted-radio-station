@@ -83,7 +83,7 @@ Every node is pinged over its control channel every 5 seconds. The panel shows t
 
 The **Topology** page (customers: **My setup**) shows all of this live. Customers see their own nodes and the platform relays that carry their stations by name, but host names and addresses only of their own nodes. Four views, switched above the map and remembered per user:
 
-- **Layers** (the default): fixed columns Studios & encoders → Ingest → Distribution → Audience, from left to right or from top to bottom (**2D → / 2D ↓**). The orchestrator stands above on a control bus of its own. Relays of the same location are grouped, lines grow with bitrate and the number of streams, a backup ingest on standby is dashed, and listeners are shown per country. Every control line carries its latency and packet loss (for example `6.0 ms · 0.02%`).
+- **Layers** (the default): fixed columns Studios & encoders → Ingest → Distribution → Audience, from left to right or from top to bottom (**2D → / 2D ↓**). Station nodes stand under Studios & encoders, because they are the studio; an FM/MPX node of their station stands right beside them, framed as one group with the live studios on that node. The orchestrator stands above on a control bus of its own. Relays of the same location are grouped, lines grow with bitrate and the number of streams, a backup ingest on standby is dashed, and listeners are shown per country. Every control line carries its latency and packet loss (for example `6.0 ms · 0.02%`).
 - **Per station**: pick a station (customers only see their own) and follow its path: main and backup ingest, the feed each relay plays (main or backup) and its listeners per relay and country. Everything else fades out.
 - **Matrix**: servers × stations in one table, for large networks. A cell is on air, standby, degraded, down or assigned but idle.
 - **3D**: the skyline. The layers on a floor, each server a tower whose height shows its listeners (relays, FM, countries) or load (ingest and station nodes) and whose top shows its health. The orchestrator hovers above as a ring with faint control lines; audio runs as light trails over the floor.
@@ -145,6 +145,10 @@ hrs-node restart
 ```
 
 Files: configuration in `/etc/hrs-node/node.json` (with the secret), state in `/var/lib/hrs-node`, code in `/opt/hrs-node`. Services: `hrs-node` (agent), `hrs-node-icecast`, and the helpers `hrs-node-apply` and `hrs-node-update`.
+
+## Shared or dedicated
+
+Every node is **Shared** or **Dedicated** (*Node › Settings › Shared or dedicated*). A shared node carries the stations of every customer; a dedicated node only those of one customer or one station, and only receives, shows and serves their streams. **Automatic** (the default) makes relay and ingest nodes of the platform shared, so any customer's station or station node may push to those relays and use those ingests, while a customer's own node is dedicated to that customer and a station node to the customer whose stations run on it. Automatic relays, spare relays, ingests, encoder names and stream checks never put other stations on a dedicated node, and a change that would cut off stations still using the node is refused with their names. A customer never sees other customers' streams on a shared node.
 
 ## Customers with their own nodes
 

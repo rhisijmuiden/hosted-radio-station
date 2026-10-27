@@ -1,10 +1,11 @@
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '../../db/index.js';
 import type { NodeClient, NodeStatus } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
 import { unauthorized } from '../../lib/errors.js';
 import { secretMatches, type NodeHub } from './hub.js';
+import { serves } from './dedication.js';
 import { carried, pairedRelays, type Node } from './plan.js';
 
 const short = (n: number) => z.string().max(n);
@@ -73,9 +74,10 @@ export async function authenticateNode(ctx: AppContext, header: string | undefin
  */
 export async function storeReport(ctx: AppContext, hub: NodeHub, node: Node, report: Report) {
   const stations = await ctx.db
-    .select({ id: schema.stations.id, slug: schema.stations.slug, tenantId: schema.stations.tenantId, routing: schema.stations.routing })
+    .select({ id: schema.stations.id, slug: schema.stations.slug, tenantId: schema.stations.tenantId, nodeId: schema.stations.nodeId, routing: schema.stations.routing })
     .from(schema.stations)
     .where(node.tenantId ? eq(schema.stations.tenantId, node.tenantId) : undefined);
+  // carried() only counts stations the node serves (shared, or dedicated to their customer or station).
   const mine = carried(node, stations, await pairedRelays(ctx));
   const bySlug = new Map(stations.filter((s) => mine.has(s.id)).map((s) => [s.slug, s]));
   const resolve = (key: string) => {
@@ -119,7 +121,8 @@ export async function storeReport(ctx: AppContext, hub: NodeHub, node: Node, rep
       );
   }
 
-  const allowedStations = new Set(stations.map((s) => s.id));
+  // Stream checks only of the stations the node serves: a dedicated node never shows another customer's streams.
+  const allowedStations = new Set(stations.filter((s) => serves(node, s)).map((s) => s.id));
   const probes = report.probes.filter((p) => allowedStations.has(p.stationId));
   if (probes.length) {
     const existing = await ctx.db
@@ -156,7 +159,14 @@ export async function storeReport(ctx: AppContext, hub: NodeHub, node: Node, rep
         .onConflictDoUpdate({ target: [schema.nodeProbes.nodeId, schema.nodeProbes.target], set: { ...values, nodeId: sql`excluded.node_id` } });
     }
   }
-  // Checks of streams that are no longer in the node's plan go away after a day.
-  await ctx.db.delete(schema.nodeProbes).where(and(eq(schema.nodeProbes.nodeId, node.id), sql`${schema.nodeProbes.checkedAt} < now() - interval '1 day'`));
+  // Checks of streams that are no longer in the node's plan go away after a day, those of stations it no longer serves at once.
+  await ctx.db
+    .delete(schema.nodeProbes)
+    .where(
+      and(
+        eq(schema.nodeProbes.nodeId, node.id),
+        or(sql`${schema.nodeProbes.checkedAt} < now() - interval '1 day'`, allowedStations.size ? notInArray(schema.nodeProbes.stationId, [...allowedStations]) : sql`true`),
+      ),
+    );
   return { clients: clients.length, relays: relays.length, probes: probes.length };
 }

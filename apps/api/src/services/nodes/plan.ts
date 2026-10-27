@@ -9,6 +9,7 @@ import { dnsConfig } from '../dns/config.js';
 import { getSetting, UPDATE_POLICIES, updateWindowSchema } from '../settings.js';
 import { platformHost } from '../streaming/state.js';
 import { runningVersion } from '../system.js';
+import { DEDICATIONS, serves } from './dedication.js';
 import { buildFmPlan, fmConfigSchema } from './fm.js';
 import { ingestsOf, pushedRouting, stationRouting } from './routing-rules.js';
 import type { IngestStation, NodePlan, ProbeTarget, RelayMount } from './protocol.js';
@@ -67,6 +68,15 @@ export const nodeConfigSchema = z.object({
    * node whose port 80 cannot be reached still gets HTTPS. The main server sets the TXT records; the token stays there.
    */
   certDns: z.boolean().default(false),
+  /**
+   * Shared or dedicated (1.1.1): auto = a customer's own node and a station node are dedicated, relay and ingest nodes
+   * of the platform are shared. See dedication.ts.
+   */
+  dedication: z.enum(DEDICATIONS).default('auto'),
+  /** Dedicated to this customer (a platform node with dedication "customer"). */
+  dedicatedTenantId: z.uuid().nullable().default(null),
+  /** Dedicated to this station (dedication "station"). */
+  dedicatedStationId: z.uuid().nullable().default(null),
   /** Set by the DNS manager, not by hand: the node's platform name while its record exists. */
   dnsHost: z.string().default(''),
   /** Set by the DNS manager: the check of the node's own host name (publicHost) when it is not a platform name. */
@@ -146,8 +156,8 @@ export async function servableStations(ctx: AppContext, tenantId: string | null)
 type RelayNode = Pick<Node, 'id' | 'roles' | 'config' | 'tenantId' | 'status'>;
 type RoutedStation = { id: string; tenantId: string; routing?: Record<string, unknown> | null };
 
-/** A relay may carry a station of this customer (a customer's own relay only carries that customer's stations). */
-const mayCarry = (n: RelayNode, s: RoutedStation) => n.roles.includes('relay') && (!n.tenantId || n.tenantId === s.tenantId);
+/** A relay may carry a station: it serves it (shared, or dedicated to its customer or to the station itself). */
+const mayCarry = (n: RelayNode, s: RoutedStation) => n.roles.includes('relay') && serves(n, s);
 
 /** The relays that carry a station by their own settings ("all stations" or a chosen list). */
 const byOwnSettings = (n: RelayNode, s: RoutedStation) => {
@@ -208,7 +218,7 @@ const baseUrl = (ctx: AppContext) => ctx.config.PUBLIC_URL.replace(/\/$/, '');
 export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> {
   const c = nodeSettings(node);
   const roles = node.roles.filter((r): r is NodeRole => NODE_ROLES.includes(r));
-  const [settings, v, stations] = await Promise.all([getSetting(ctx, 'nodes'), runningVersion(ctx), servableStations(ctx, node.tenantId)]);
+  const [settings, v, stations] = await Promise.all([getSetting(ctx, 'nodes'), runningVersion(ctx), servableStations(ctx, node.tenantId).then((l) => l.filter((s) => serves(node, s)))]);
   const ids = stations.map((s) => s.id);
   const [allMounts, relays] = await Promise.all([
     ids.length

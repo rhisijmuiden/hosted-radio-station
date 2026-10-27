@@ -905,6 +905,17 @@ export interface NodeConfig {
   /** Set by the platform: the node's platform name while its record exists. */
   dnsHost: string;
   publicHostCheck: { ok: boolean; found: string[]; error?: string; at: string } | null;
+  /** Shared or dedicated (1.1.1). */
+  dedication: NodeDedication;
+  dedicatedTenantId: string | null;
+  dedicatedStationId: string | null;
+}
+export type NodeDedication = 'auto' | 'shared' | 'customer' | 'station';
+/** Who a node serves: everyone, one customer, one station, or the stations that run on it (a station node). */
+export interface NodeScope {
+  kind: 'shared' | 'customer' | 'station' | 'placed' | 'none';
+  tenantId: string | null;
+  stationId: string | null;
 }
 export type UpdatePolicy = 'rolling' | 'window' | 'manual';
 export interface UpdateWindow {
@@ -1007,6 +1018,7 @@ export interface NodeItem {
   updateAvailable: boolean;
   update: NodeUpdateInfo;
   ingestHosts: string[];
+  scope: NodeScope;
   createdAt: string;
 }
 export interface NodePairing {
@@ -1107,6 +1119,8 @@ export interface NodeFirewall {
 export interface TopologyNode {
   id: string;
   name: string;
+  /** FM/MPX node: the station node of its studio, drawn beside it (null = none). */
+  home?: string | null;
   /** Host name and address, for who manages the node. */
   hostname: string | null;
   ip: string | null;

@@ -9,6 +9,7 @@ import type { AppContext } from '../lib/context.js';
 import { authenticateSource, type Account, type OutsideShow } from '../services/streaming/sources.js';
 import type { LiveBroadcast } from './recorder.js';
 import { PREAMBLE_PREFIX, verifyPreamble } from '../services/nodes/preamble.js';
+import { serves } from '../services/nodes/dedication.js';
 import { resolveMount, type Snapshot, type StationView } from './snapshot.js';
 
 type SourceNode = Snapshot['sourceNodes'] extends Map<string, infer N> ? N : never;
@@ -295,8 +296,8 @@ export class IngestGateway {
         if (elsewhere?.active && !elsewhere.ingest.local) return reply(socket, '403 Forbidden', 'This station takes encoders on its ingest node. See the connection details in the panel.');
         return reply(socket, '404 Not Found', `Unknown mount ${req.path}. Use /<station>/<mount>, for example /my-station/live.`);
       }
-      // A customer's own node only carries that customer's stations.
-      if (node?.tenantId && node.tenantId !== target.view.tenantId) return reply(socket, '403 Forbidden', 'This node cannot deliver to this station.');
+      // A dedicated node (a customer's own, or one set to one customer or station) only delivers to those stations.
+      if (node && !serves(node, { id: target.view.station.id, tenantId: target.view.tenantId })) return reply(socket, '403 Forbidden', 'This node cannot deliver to this station.');
       const creds = basicAuth(req.headers.get('authorization'));
       if (!creds) return reply(socket, '401 Unauthorized', 'Log-in required', ['WWW-Authenticate: Basic realm="Icecast2 Server"']);
       let outside: OutsideShow | null = null;

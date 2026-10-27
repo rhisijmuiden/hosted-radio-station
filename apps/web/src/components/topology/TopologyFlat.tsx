@@ -26,7 +26,8 @@ interface Card {
   audience?: boolean;
   own?: boolean;
   dim: boolean;
-  /** Location group (relays of the same place stand together). */
+  /** A frame around cards that belong together: relays of one location ("loc:…"), or a station node with its FM/MPX
+   * nodes ("studio:…"). */
   group?: string;
 }
 interface Edge {
@@ -136,14 +137,27 @@ export default function TopologyFlat({
       core: true,
       dim: false,
     });
+    // An FM/MPX node of a station on a station node stands in the studio, right beside that node.
+    const homeOf = (fmId: string) => {
+      const id = data.nodes.find((x) => x.id === fmId)?.home ?? data.stations.find((s) => s.cells[fmId] && s.stationNode)?.stationNode;
+      return id ? data.nodes.find((x) => x.id === id && x.roles.includes('station')) : undefined;
+    };
+    const studioGroup = (n: TopologyNode) => `studio:${nodeName(t, n, customer)}`;
+    // A live studio on a station node joins that node's group too.
+    const studioHome = (studioId: string) => {
+      const to = data.links.find((l) => l.kind === 'stream' && l.from === studioId)?.to;
+      return data.nodes.find((x) => x.id === to && x.roles.includes('station'));
+    };
+    const homes = new Set([...data.nodes.filter((n) => n.roles.includes('fm') && !n.roles.includes('relay')).map((n) => homeOf(n.id)?.id), ...data.studios.map((s) => studioHome(s.id)?.id)].filter(Boolean));
     for (const s of data.studios) {
       if (focus && s.stationId !== focus.id) continue;
-      add({ key: s.id, select: s.id, lane: 'studios', icon: <Mic />, title: t('topology.studioOf', { station: s.station }), meta: `${s.account} · ${s.via}`, health: 'online', dim: dimmed.has(s.id) });
+      const home = studioHome(s.id);
+      add({ key: s.id, select: s.id, lane: 'studios', group: home ? studioGroup(home) : undefined, icon: <Mic />, title: t('topology.studioOf', { station: s.station }), meta: `${s.account} · ${s.via}`, health: 'online', dim: dimmed.has(s.id) });
     }
     // Relays of one location stand together.
     const ordered = [...data.nodes].sort((a, b) => (a.roles.includes('relay') && b.roles.includes('relay') ? (a.location || '~').localeCompare(b.location || '~') : 0));
     for (const n of ordered) {
-      // A station node runs its stations itself and pushes to the relays like an ingest does.
+      // A station node is the studio itself: it runs its stations and pushes to the relays like an ingest does.
       const stationNode = n.roles.includes('station');
       const ingest = n.roles.includes('source') || stationNode;
       const relay = n.roles.includes('relay');
@@ -156,7 +170,7 @@ export default function TopologyFlat({
           : stationNode
             ? t('topology.stationsCount', { count: n.stations })
             : t('topology.encodersCount', { count: n.encoders });
-        add({ ...common, key: `${n.id}#in`, lane: 'ingest', icon: stationNode ? <Building2 /> : <Server />, tag: role ? t(`topology.station.${role}`).toUpperCase() : stationNode ? t('topology.tags.station') : t('topology.tags.ingest'), meta: meta(n, text) });
+        add({ ...common, key: `${n.id}#in`, lane: stationNode ? 'studios' : 'ingest', group: stationNode && homes.has(n.id) ? studioGroup(n) : undefined, icon: stationNode ? <Building2 /> : <Server />, tag: role ? t(`topology.station.${role}`).toUpperCase() : stationNode ? t('topology.tags.station') : t('topology.tags.ingest'), meta: meta(n, text) });
       }
       if (relay || !ingest) {
         const text = relay
@@ -168,7 +182,16 @@ export default function TopologyFlat({
               ? t('topology.fmOnAir')
               : t('topology.fmOff')
             : n.location || t('nodes.noRoles');
-        add({ ...common, key: `${n.id}#out`, lane: 'distribution', icon: relay ? <Radio /> : fm ? <RadioTower /> : <Server />, tag: relay ? t('topology.tags.relay') : fm ? 'FM' : undefined, meta: meta(n, text), group: relay && !focus ? n.location || undefined : undefined });
+        const home = fm ? homeOf(n.id) : undefined;
+        add({
+          ...common,
+          key: `${n.id}#out`,
+          lane: home ? 'studios' : 'distribution',
+          icon: relay ? <Radio /> : fm ? <RadioTower /> : <Server />,
+          tag: relay ? t('topology.tags.relay') : fm ? 'FM' : undefined,
+          meta: meta(n, text),
+          group: home ? studioGroup(home) : relay && !focus && n.location ? `loc:${n.location}` : undefined,
+        });
       }
       // Control only: the orchestrator steers the node, the audio does not pass it.
       if (n.paired) edges.push({ from: 'main', to: ingest ? `${n.id}#in` : `${n.id}#out`, kind: 'control', state: !n.online ? 'down' : n.degraded ? 'degraded' : 'ok', label: n.local ? null : latency(n), dim: off(n.id) });
@@ -256,7 +279,14 @@ export default function TopologyFlat({
         edges.push({ from, to, kind: 'stream', state: l.standby ? 'standby' : !l.active ? 'down' : l.degraded ? 'degraded' : 'ok', label: null, dim: dimmed.has(l.from) || dimmed.has(l.to), width: l.standby ? undefined : streamWidth(l) });
       }
     }
-    return { cards, edges };
+    // Cards of one studio group stand side by side: the FM/MPX nodes right after their station node.
+    const sorted: Card[] = [];
+    for (const c of cards) {
+      if (sorted.includes(c)) continue;
+      sorted.push(c);
+      if (c.group?.startsWith('studio:')) sorted.push(...cards.filter((x) => x !== c && x.group === c.group && !sorted.includes(x)));
+    }
+    return { cards: sorted, edges };
   }, [data, dimmed, focus, t, i18n.language]);
 
   const lr = layout === 'lr';
@@ -271,7 +301,7 @@ export default function TopologyFlat({
   // The view fits the box; it only grows (and scrolls) when the cards would get too small. Room is kept at the bottom
   // for the legend and the zoom buttons.
   const W = lr ? Math.max(box.w, n * 186 + 48) : Math.max(box.w, BAND + most * 158 + 48);
-  const H = lr ? Math.max(box.h, BAND + most * STEP + 120) : Math.max(box.h, n * 112 + 120);
+  const H = lr ? Math.max(box.h, BAND + most * STEP + 150) : Math.max(box.h, n * 112 + 120);
   const cardW = lr ? clamp((W - 48) / n - 36, 150, 180) : clamp((W - BAND - 48) / most - 18, 140, 172);
   const [start, end] = lr ? [cardW / 2 + 24, cardW / 2 + 24] : [76, 140];
   const along = (i: number) => start + (i * ((lr ? W : H) - start - end)) / (n - 1);
@@ -282,7 +312,7 @@ export default function TopologyFlat({
   const bus = lr ? `M${mainPos.x + cardW / 2} ${mainPos.y} H${W - 24}` : `M${mainPos.x} ${mainPos.y + CARD_H / 2} V${H - 24}`;
   perLane.forEach((list, i) => {
     const a = along(i);
-    const [from, to] = lr ? [BAND + 52, H - 64] : [BAND + 24, W - 24];
+    const [from, to] = lr ? [BAND + 52, H - 92] : [BAND + 24, W - 24];
     list.forEach((c, j) => {
       const b = from + ((j + 0.5) * (to - from)) / list.length;
       pos.set(c.key, lr ? { x: a, y: b } : { x: b, y: a });
@@ -290,7 +320,7 @@ export default function TopologyFlat({
   });
   // A frame around the relays of each location.
   const groups: { name: string; x: number; y: number; w: number; h: number }[] = [];
-  for (const c of perLane[2]!) {
+  for (const c of perLane.flat()) {
     if (!c.group) continue;
     const p = pos.get(c.key)!;
     const g = groups.find((x) => x.name === c.group);
@@ -316,9 +346,16 @@ export default function TopologyFlat({
       // Straight off the control bus into the top (or the left) of the node.
       d = lr ? `M${B.x} ${A.y} V${B.y - CARD_H / 2}` : `M${A.x} ${B.y} H${B.x - cardW / 2}`;
     } else
-      d = lr
-        ? `M${A.x + cardW / 2} ${A.y} C${(A.x + B.x) / 2} ${A.y} ${(A.x + B.x) / 2} ${B.y} ${B.x - cardW / 2} ${B.y}`
-        : `M${A.x} ${A.y + CARD_H / 2} C${A.x} ${(A.y + B.y) / 2} ${B.x} ${(A.y + B.y) / 2} ${B.x} ${B.y - CARD_H / 2}`;
+    {
+      // A line back to an earlier lane (a relay feeding an FM node in the studio) leaves and enters on the near sides.
+      const k = (lr ? B.x < A.x : B.y < A.y) ? -1 : 1;
+      // Within one lane (a studio and its station node): a short straight line between the two cards.
+      if (lr ? A.x === B.x : A.y === B.y)
+        d = lr ? `M${A.x} ${A.y + (B.y > A.y ? 1 : -1) * (CARD_H / 2)} V${B.y - (B.y > A.y ? 1 : -1) * (CARD_H / 2)}` : `M${A.x + (B.x > A.x ? 1 : -1) * (cardW / 2)} ${A.y} H${B.x - (B.x > A.x ? 1 : -1) * (cardW / 2)}`;
+      else d = lr
+        ? `M${A.x + (k * cardW) / 2} ${A.y} C${(A.x + B.x) / 2} ${A.y} ${(A.x + B.x) / 2} ${B.y} ${B.x - (k * cardW) / 2} ${B.y}`
+        : `M${A.x} ${A.y + (k * CARD_H) / 2} C${A.x} ${(A.y + B.y) / 2} ${B.x} ${(A.y + B.y) / 2} ${B.x} ${B.y - (k * CARD_H) / 2}`;
+    }
     // A control pill sits just above its node, clear of the neighbouring cards.
     const mid = e.kind === 'control' ? { x: B.x, y: B.y - CARD_H / 2 - (lr ? 16 : 10) } : { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
     return [{ ...e, d, mid }];
@@ -357,7 +394,7 @@ export default function TopologyFlat({
                 <div key={g.name}>
                   <div className="topo-group pointer-events-none absolute" style={{ left: g.x, top: g.y, width: g.w, height: g.h }} />
                   <div className="topo-group-title pointer-events-none absolute" style={{ left: g.x + 8, top: g.y + 4 }}>
-                    📍 {g.name}
+                    {g.name.startsWith('loc:') ? `📍 ${g.name.slice(4)}` : `🏢 ${g.name.slice(7)}`}
                   </div>
                 </div>
               ))}
@@ -387,8 +424,9 @@ export default function TopologyFlat({
                     <span className="topo-card-icon">{c.icon}</span>
                     <span className="min-w-0 flex-1 text-left">
                       <span className="flex items-center gap-1.5">
-                        <b className="block min-w-0 flex-1 truncate text-[12px] leading-tight">{c.title}</b>
-                        {c.tag && <i className="shrink-0 text-[8.5px] font-bold tracking-wide text-accent-text not-italic">{c.tag}</i>}
+                        {/* The name goes first: a long tag (STATION NODE) gives way, so two nodes stay apart. */}
+                        <b className="block max-w-full min-w-0 shrink-0 truncate text-[12px] leading-tight">{c.title}</b>
+                        {c.tag && <i className="ml-auto min-w-0 truncate text-[8.5px] font-bold tracking-wide text-accent-text not-italic">{c.tag}</i>}
                       </span>
                       <small className="flex items-center gap-1.5 truncate text-[10.5px]">
                         {c.health && <span className={clsx('topo-dot shrink-0', c.health !== 'online' && c.health)} />}

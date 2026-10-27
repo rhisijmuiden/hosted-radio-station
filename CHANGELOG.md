@@ -5,6 +5,24 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 
 ## Unreleased
 
+Topology fixes (found after 1.1.0):
+
+- Station nodes stand in the Studios & encoders layer, not under Ingest: a station node is the studio itself. In 3D
+  they are in the Studios lane too.
+- An FM/MPX node of a station on a station node stands right beside that node, framed together with it and its live
+  studios as one group (2D and 3D). Its audio line still comes from the relay it actually listens to.
+
+Shared or dedicated nodes (pulled forward from phase 19):
+
+- Every node is **Shared** (stations of every customer) or **Dedicated** to one customer or one station, under
+  *Node › Settings › Shared or dedicated*. Automatic: relay and ingest nodes of the platform are shared, a customer's
+  own node is dedicated to that customer, and a station node to the customer whose stations run on it.
+- A dedicated node only receives, shows and serves the streams of its customer or station. Automatic relays, spare
+  relays, ingests, encoder names and stream checks never put other stations on it, and the routing of other customers
+  does not offer it. A change that would cut off stations still using the node is refused with their names.
+- A customer only sees its own streams on a shared node: the topology no longer counts other customers' streams,
+  listeners or encoders on it. The node list shows Shared or who a platform node is dedicated to.
+
 Phase 15, step 1: Cloudflare DNS of the platform domain.
 
 - *Administration › DNS (Cloudflare)*: connect the zone with a scoped API token (tested in the panel), then Dry run

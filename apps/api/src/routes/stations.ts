@@ -18,6 +18,7 @@ import { cachedRelays, forgetStations } from '../services/nodes/routing.js';
 import { stationRouting } from '../services/nodes/routing-rules.js';
 import { allocatePort, applyStreams, loadStation, waitForApply, newInternalPassword, stationStats, type Mount, type Output, type Station } from '../services/streaming/state.js';
 import { assertAudioAllowedHere } from '../services/nodes/orchestrator.js';
+import { serves } from '../services/nodes/dedication.js';
 
 const stationParams = z.object({ id: z.uuid() });
 const mountParams = z.object({ id: z.uuid(), mountId: z.uuid() });
@@ -408,7 +409,8 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
       if ((await getSetting(ctx, 'orchestrator')).only && !onStationNode) {
         if (req.body.edition === 'station') throw conflict('This server is orchestrator only: a Radio station runs on a station node. Link the customer to a station node first.');
         const ingests = (await ctx.db.select().from(schema.nodes).where(isNotNull(schema.nodes.pairedAt)).orderBy(asc(schema.nodes.name))).filter(
-          (n) => n.roles.includes('source') && (!n.tenantId || n.tenantId === tenant.id),
+          // A new station has no id yet: a node dedicated to one station is never picked for it.
+          (n) => n.roles.includes('source') && serves(n, { id: '', tenantId: tenant.id }),
         );
         const pick = req.body.ingestNodeId ? ingests.find((n) => n.id === req.body.ingestNodeId) : (ingests.find((n) => n.tenantId === tenant.id) ?? ingests.find((n) => n.status.online) ?? ingests[0]);
         if (!pick) throw conflict(req.body.ingestNodeId ? 'Choose a paired ingest node of this customer or of the platform' : 'This server is orchestrator only and there is no ingest node yet; add one under Infrastructure → Nodes first.');
