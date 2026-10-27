@@ -19,11 +19,25 @@ page, where you can unlink them; **Sign out** in the client revokes its key too.
 
 ## Live assist
 
-For stations with the Radio station edition. The top shows what is on air with the time left, and **Skip**. Below is
-the **playlist**: one queue (server 1.3 and later), with the time each track starts. Drag tracks to reorder them, or
-use the buttons that appear on hover (to the top, remove). The eraser empties the rotation; requests and tracks added
-by hand stay. Search the library on the right and drag a track onto the playlist, or use **+** (Shift = at the top);
-see *Library and preview* below.
+For stations with the Radio station edition. The screen has a narrow menu on the left (Assist, Live, Carts,
+Settings, and your account at the bottom) and a status bar at the bottom: the connection of your broadcast, the
+server and quality, the sound card input, the language, the theme and **Info**.
+
+The **top bar** shows the station (click it to switch), who is on air (you, another DJ, or the AutoDJ in Auto or
+Manual), the **next fixed block** of the format (news, commercials) with a countdown, the listeners and the clock.
+
+The **player** shows what is on air, when it ends and the time left in large figures, and on the line below it what
+comes next. **Next** starts the next line of the playlist at once (in Auto it skips the track on air).
+
+Below the jingle buttons is the **playlist**: one queue (server 1.3 and later), with the time each line starts.
+Drag tracks to reorder them, or use the buttons that appear on hover (to the top, remove). The eraser empties the
+rotation; requests and tracks added by hand stay. Search the library on the right and drag a track onto the
+playlist, or use **+** (Shift = at the top); see *Library and preview* below.
+
+The fixed blocks of the hour clock sit in the playlist at their minute, with a lock and their expected length. A
+block on the minute (*hard*) cuts the track that runs into it; another block waits for that track to end. The header
+**backtimes** to the next block: how much the track that runs into it is too long, or how much the playlist is too
+short to reach it. The lengths of news and commercials are estimates (the average track of their playlist).
 
 ### Auto and Manual
 
@@ -36,15 +50,10 @@ Manual stays on only while a studio PC is connected: the client checks in every 
 its connection, the server goes back to Auto by itself after 30 seconds and plays on with what is in the queues.
 Hard timed items of the hour clock (news on the hour) still start on their minute in Manual.
 
-### Schedule
-
-The left menu shows the format of the coming hours, from the hour clocks and schedule set in the panel. Items of the
-format (station ID, news, commercials) have a lock and their own colour; the stretches where your playlist plays are
-blue. The item the player is at has a frame, and what already played is dimmed.
-
 The level meter at the right edge shows the stream this PC sends while you are live.
 
-These features need server version 1.1 or newer; on an older server the client says the server needs an update.
+The countdown, the fixed blocks and backtiming need server 1.1 or newer (expected lengths: 1.3); on an older server
+the client says the server needs an update.
 
 ### Library and preview
 

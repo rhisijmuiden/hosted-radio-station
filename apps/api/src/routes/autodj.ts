@@ -200,6 +200,8 @@ const rundownRowOut = z.object({
   source: z.enum(['queues', 'playlist', 'track']),
   label: z.string(),
   count: z.number().int(),
+  /** Expected length of a format item in seconds: its track, or count × the average of its playlist (null = unknown). */
+  seconds: z.number().nullable(),
   clock: z.object({ id: z.uuid(), name: z.string(), color: z.string() }).nullable(),
   show: z.object({ id: z.uuid(), name: z.string(), live: z.boolean() }).nullable(),
   /** The item the player is at now. */
@@ -506,13 +508,31 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
     const playlistIds = new Set(clocks.flatMap((c) => c.items.map((i) => i.playlistId).filter((x): x is string => !!x)));
     const mediaIds = new Set(clocks.flatMap((c) => c.items.map((i) => i.mediaId).filter((x): x is string => !!x)));
     const [lists, tracks] = await Promise.all([
-      playlistIds.size ? ctx.db.select({ id: schema.playlists.id, name: schema.playlists.name }).from(schema.playlists).where(inArray(schema.playlists.id, [...playlistIds])) : [],
+      playlistIds.size
+        ? ctx.db.select({ id: schema.playlists.id, name: schema.playlists.name, folders: schema.playlists.folders }).from(schema.playlists).where(inArray(schema.playlists.id, [...playlistIds]))
+        : [],
       mediaIds.size
-        ? ctx.db.select({ id: schema.mediaFiles.id, title: schema.mediaFiles.title, artist: schema.mediaFiles.artist, path: schema.mediaFiles.path }).from(schema.mediaFiles).where(inArray(schema.mediaFiles.id, [...mediaIds]))
+        ? ctx.db
+            .select({ id: schema.mediaFiles.id, title: schema.mediaFiles.title, artist: schema.mediaFiles.artist, path: schema.mediaFiles.path, durationSeconds: schema.mediaFiles.durationSeconds })
+            .from(schema.mediaFiles)
+            .where(inArray(schema.mediaFiles.id, [...mediaIds]))
         : [],
     ]);
     const listName = new Map(lists.map((l) => [l.id, l.name]));
     const trackName = new Map(tracks.map((t) => [t.id, t.title ? (t.artist ? `${t.artist} – ${t.title}` : t.title) : t.path]));
+    const trackSeconds = new Map(tracks.map((t) => [t.id, t.durationSeconds]));
+    // The average track of each playlist the clocks use, for the expected length of its items (backtiming in RHIS Studio).
+    const listSeconds = new Map(
+      await Promise.all(
+        lists.map(async (l) => {
+          const [row] = await ctx.db
+            .select({ avg: sql<number | null>`avg(${schema.mediaFiles.durationSeconds})::float` })
+            .from(schema.mediaFiles)
+            .where(and(eq(schema.mediaFiles.stationId, station.id), eq(schema.mediaFiles.enabled, true), inPlaylist(l)));
+          return [l.id, row?.avg ?? null] as const;
+        }),
+      ),
+    );
     const rows: z.infer<typeof rundownRowOut>[] = [];
     const first = hourStart(now, tz);
     for (let h = 0; h < hours; h++) {
@@ -526,7 +546,7 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
         past: false,
       };
       if (!clock?.items.length) {
-        rows.push({ ...base, startsAt: new Date(hour), timed: true, hard: false, kind: 'music', source: 'queues', label: '', count: 0, current: false });
+        rows.push({ ...base, startsAt: new Date(hour), timed: true, hard: false, kind: 'music', source: 'queues', label: '', count: 0, seconds: null, current: false });
         continue;
       }
       let start = hour;
@@ -536,7 +556,11 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
         const source = item.kind === 'rotation' ? 'queues' : item.kind;
         const label = item.label || (item.kind === 'playlist' ? (listName.get(item.playlistId ?? '') ?? '') : item.kind === 'track' ? (trackName.get(item.mediaId ?? '') ?? '') : '');
         const current = !!st?.clockHour && st.clockHour.getTime() === hour && st.clockId === clock.id && st.clockStep === i;
-        rows.push({ ...base, startsAt: new Date(start), timed: a !== null, hard: item.hard, kind: isFill(item) ? 'music' : 'item', source, label, count: item.kind === 'track' ? 1 : item.count, current });
+        const count = item.kind === 'track' ? 1 : item.count;
+        const each = item.kind === 'track' ? trackSeconds.get(item.mediaId ?? '') : item.kind === 'playlist' ? listSeconds.get(item.playlistId ?? '') : null;
+        const kind = isFill(item) ? 'music' : 'item';
+        const seconds = kind === 'item' && each != null ? Math.round(each * count) : null;
+        rows.push({ ...base, startsAt: new Date(start), timed: a !== null, hard: item.hard, kind, source, label, count, seconds, current });
       });
     }
     // Rows before the one the player is at are past; without that, the ones a later row has started after.

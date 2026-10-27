@@ -145,6 +145,8 @@ export interface RundownRow {
   source: 'queues' | 'playlist' | 'track';
   label: string;
   count: number;
+  /** Expected length of a format item in seconds (server 1.3; null = unknown). */
+  seconds?: number | null;
   clock: { id: string; name: string; color: string } | null;
   show: { id: string; name: string; live: boolean } | null;
   current: boolean;

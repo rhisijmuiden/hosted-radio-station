@@ -11,6 +11,14 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   effect any more.
 - RHIS Studio 0.13: one playlist in Live assist with the time each track starts, instead of Q1, Q2 and the take-turns
   control. **+** in the library adds a track (Shift = at the top).
+- RHIS Studio 0.13, the new DJ screen: a narrow icon menu on the left and a status bar (connection, server and
+  quality, sound card, version). The top bar shows the station, who is on air, the next fixed block of the format
+  with a countdown, listeners and the clock. The player shows the remaining time large, when the track ends, what
+  comes next and one big **Next** button. The fixed blocks of the format (news, commercials) sit in the playlist at
+  their minute with a lock, and the playlist header backtimes to the next one ("Until News: 0:42 too long"). The
+  schedule list in the old sidebar is gone; its blocks are in the playlist now.
+- `GET /autodj/rundown` gives each format item its expected length (`seconds`): its track, or the number of tracks
+  times the average track of its playlist.
 
 ## 1.2.0 (27 October 2026)
 
