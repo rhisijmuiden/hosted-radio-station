@@ -171,6 +171,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 17 | RHIS Studio 1.0 (Windows client) | Paused after step 3 (resumes after 16 and 14) |
 | 18 | Server names and topology views | Done (1.1.0) |
 | 19 | Clearer control panels and node assignment | Planned (before 17) |
+| 20 | Monitoring node | Planned (1.x) |
 
 ## Phases
 
@@ -439,6 +440,17 @@ Make the admin and customer panels more logical and easier to scan, before the W
 - Review the overviews of the admin and customer panels: what sits where in the menu, what each overview page shows first, and fewer clicks to the common tasks.
 - Delivery path per station: on the station page, a customer sees how their stream reaches the listener, from their own studio node (or ingest node) through the relays to the listeners, with the state of each hop.
 - Shared or dedicated nodes (done in 1.1.1): every node is marked **Shared** (carries stations of several customers) or **Dedicated** to one customer or one station. A dedicated node only receives, shows and serves the streams of its own customer or station, and routing refuses to put other stations on it. A customer's own node is dedicated by default.
+
+### Phase 20: Monitoring node
+
+A node role that watches the whole platform from the outside, as a listener and as a customer would, and tells the orchestrator when something is wrong.
+
+- Stream checks for every station of every customer: is the stream up, silence detection, bitrate and codec as configured, titles updating, time to first audio, from every relay.
+- DNS checks: platform names, the relay pool and the customers' `stream.` and `src.` CNAMEs point where the orchestrator expects.
+- Firewall checks on demand: when a customer (or an admin) presses **Check firewall**, the orchestrator asks the monitoring node to test every port of that customer's studio node from outside, and shows a green or red tick per port. This replaces the node checking itself.
+- Alerts: problems go to the orchestrator, which shows them in the panel and sends e-mail or webhooks, with a quiet period so one outage gives one alert.
+- Several monitoring nodes in different places can run together, so a problem is only raised when more than one sees it.
+- The existing remote probes on every node keep running; the monitoring node adds the independent outside view.
 
 ## Queued fixes
 
