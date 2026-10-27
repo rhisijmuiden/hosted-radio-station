@@ -6,7 +6,7 @@ import { and, eq, gt } from 'drizzle-orm';
 import { schema } from '../db/index.js';
 import type { AppContext } from '../lib/context.js';
 import { autodjSocketPath, autodjToken } from '../services/autodj/liquidsoap.js';
-import { flushForClock, nextTrack, playerStarted, trackStarted } from '../services/autodj/planner.js';
+import { flushForClock, nextTrack, playerStarted, trackStarted, uncue } from '../services/autodj/planner.js';
 import { autodjSettings } from '../services/autodj/settings.js';
 import type { LiveBroadcast } from './recorder.js';
 import type { Snapshot, StationView } from './snapshot.js';
@@ -58,6 +58,8 @@ export class AutodjController {
   private lastSnap: Snapshot | null = null;
   /** Hard timed clock items: the cut of the track that plays at their minute. */
   private cuts = new Map<string, NodeJS.Timeout>();
+  /** A track to play now: the next request of the player gets it, whatever the queue rule or the clock says. */
+  private forced = new Map<string, { itemId: string; until: number }>();
 
   constructor(
     private readonly ctx: AppContext,
@@ -90,7 +92,7 @@ export class AutodjController {
             reply('OK');
           })
         : m[2] === 'next'
-          ? nextTrack(this.ctx, stationId).then((next) => {
+          ? nextTrack(this.ctx, stationId, this.takeForced(stationId)).then((next) => {
               seen();
               if (next?.cutAt) this.scheduleCut(stationId, next.itemId, next.cutAt);
               for (const item of next?.skipped ?? []) this.log.warn({ stationId, item }, 'Clock item skipped: its playlist has no track to play');
@@ -105,6 +107,12 @@ export class AutodjController {
       res.writeHead(500).end();
     });
     return true;
+  }
+
+  private takeForced(stationId: string) {
+    const f = this.forced.get(stationId);
+    this.forced.delete(stationId);
+    return f && f.until > Date.now() ? f.itemId : undefined;
   }
 
   /**
@@ -218,11 +226,18 @@ export class AutodjController {
   /** A command from the panel. */
   async command(raw: string) {
     try {
-      const { stationId, command } = JSON.parse(raw) as { stationId?: string; command?: string };
+      const { stationId, command, itemId } = JSON.parse(raw) as { stationId?: string; command?: string; itemId?: string };
       if (!stationId || !/^[0-9a-f-]{36}$/.test(stationId)) return;
       const path = autodjSocketPath(this.ctx, stationId);
       if (command === 'skip') await playerCommand(path, 'skip');
       if (command === 'play' || command === 'stop') await playerCommand(path, command);
+      // Play now: the player drops the track loaded ahead, asks again (and gets this one) and skips to it.
+      if (command === 'playnow' && itemId) {
+        this.forced.set(stationId, { itemId, until: Date.now() + 30_000 });
+        clearTimeout(this.cuts.get(stationId));
+        await uncue(this.ctx, stationId);
+        await playerCommand(path, 'playnow');
+      }
       if (command === 'mode' && this.lastSnap) await this.syncManual(this.lastSnap, stationId);
       // The clock or schedule changed: a hard timed item may need the track that is loaded ahead out of the way.
       if (command === 'replan' && (await flushForClock(this.ctx, stationId))) {

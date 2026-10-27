@@ -35,6 +35,8 @@ export const nl: Translation = {
     remainingLabel: 'resterend',
     skip: 'Overslaan',
     skipped: 'Door naar het volgende nummer',
+    playingNow: 'Speelt nu af',
+    dropToPlay: 'Loslaten om nu af te spelen',
     next: 'Hierna',
     noShow: 'Nu geen programma',
     paused: 'AutoDJ gepauzeerd',

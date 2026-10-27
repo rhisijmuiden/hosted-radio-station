@@ -33,6 +33,8 @@ export const en = {
     remainingLabel: 'remaining',
     skip: 'Skip',
     skipped: 'Skipped to the next track',
+    playingNow: 'Playing now',
+    dropToPlay: 'Drop to play now',
     next: 'Next',
     noShow: 'No show now',
     paused: 'AutoDJ paused',

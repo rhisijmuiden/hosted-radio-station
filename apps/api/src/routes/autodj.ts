@@ -22,7 +22,7 @@ import {
   STORAGE,
   type MediaSource,
 } from '../services/autodj/library.js';
-import { clearQueue, dropDisabled, enqueue, fillQueues, inPlaylist, mediaPath, moveItem, queueRows } from '../services/autodj/planner.js';
+import { clearQueue, dropDisabled, enqueue, fillQueues, inPlaylist, mediaPath, moveItem, playNow, queueRows } from '../services/autodj/planner.js';
 import { autodjSchema, autodjSettings, queueRuleSchema } from '../services/autodj/settings.js';
 import { anchorOf, isFill } from '../services/scheduler/clock.js';
 import { hourStart } from '../services/scheduler/time.js';
@@ -387,6 +387,26 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
       const { station } = await radio(req, req.params.id, 'dj');
       await ctx.db.execute(sql`select pg_notify(${AUTODJ_CHANNEL}, ${JSON.stringify({ stationId: station.id, command: 'skip' })})`);
       return { ok: true as const };
+    },
+  );
+
+  app.post(
+    '/:id/autodj/play-now',
+    {
+      config: { audit: 'autodj.playNow' },
+      schema: {
+        tags: ['AutoDJ'],
+        summary: 'Play a waiting track (itemId) or a library track (mediaId) now: the track on air fades out (DJs too)',
+        params: stationParams,
+        body: z.union([z.object({ itemId: z.uuid() }), z.object({ mediaId: z.uuid() })]),
+        response: { 200: autodjOut },
+      },
+    },
+    async (req) => {
+      const { station, access } = await radio(req, req.params.id, 'dj');
+      const itemId = await playNow(ctx, station.id, req.body, access.user.name);
+      await ctx.db.execute(sql`select pg_notify(${AUTODJ_CHANNEL}, ${JSON.stringify({ stationId: station.id, command: 'playnow', itemId })})`);
+      return describe(station);
     },
   );
 
