@@ -10,6 +10,7 @@ import type { AppContext } from '../lib/context.js';
 import { randomToken } from '../lib/crypto.js';
 import { badRequest, conflict, forbidden, HttpError, notFound } from '../lib/errors.js';
 import { okOut } from '../lib/schemas.js';
+import { clientIp } from '../lib/cloudflare-ips.js';
 import { nodeEvent } from '../services/nodes/hub.js';
 import { hashCode, installCommand, newPairingCode, PAIRING_HOURS } from '../services/nodes/pairing.js';
 import { carried, nodeConfigPatch, nodeConfigSchema, nodeSettings, relayBaseUrl, relaysByStation, relaysOf, storedConfig, type Node } from '../services/nodes/plan.js';
@@ -1089,7 +1090,7 @@ export const nodeAgentRoutes: FastifyPluginAsyncZod = async (app) => {
   );
 
   app.get('/connect', { websocket: true, schema: { hide: true } }, (socket: WebSocket, req) => {
-    hub.attach(socket, req.ip ?? null);
+    hub.attach(socket, clientIp(req));
   });
 
   app.post(

@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { schema } from '../src/db/index.js';
+import { clientIp } from '../src/lib/cloudflare-ips.js';
 import { cloudflareSchema } from '../src/services/settings.js';
 import { desiredRecords, isPublicAddress, labelOf, nodeAddresses, planChanges, type DnsNode } from '../src/services/dns/records.js';
 import type { CfRecord } from '../src/services/dns/cloudflare.js';
@@ -78,6 +79,15 @@ describe('DNS record plan', () => {
     expect(isPublicAddress('fd00::1')).toBe(false);
     expect(isPublicAddress('2a01:7c8::1')).toBe(true);
     expect(labelOf('Relay Amsterdam · 1')).toBe('relay-amsterdam-1');
+    // A node that connects through the Cloudflare proxy shows up with an edge address, never its own.
+    expect(isPublicAddress('104.23.172.75')).toBe(false);
+    expect(isPublicAddress('162.158.111.94')).toBe(false);
+  });
+
+  it('takes the real client address from CF-Connecting-IP only when the request comes from Cloudflare', () => {
+    expect(clientIp({ ip: '104.23.172.75', headers: { 'cf-connecting-ip': '37.251.48.104' } })).toBe('37.251.48.104');
+    expect(clientIp({ ip: '198.51.100.9', headers: { 'cf-connecting-ip': '37.251.48.104' } })).toBe('198.51.100.9');
+    expect(clientIp({ ip: '104.23.172.75', headers: { 'cf-connecting-ip': 'nonsense' } })).toBe('104.23.172.75');
   });
 
   it('takes the address a node connects from, a manual one first, and never a LAN address', () => {
