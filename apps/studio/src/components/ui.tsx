@@ -5,6 +5,7 @@ import {
   useEffect,
   useId,
   type ButtonHTMLAttributes,
+  type HTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
   type SelectHTMLAttributes,
@@ -42,8 +43,12 @@ export const Button = forwardRef<
   );
 });
 
-export function Card({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={clsx('min-w-0 rounded-lg border border-line bg-raised', className)}>{children}</div>;
+export function Card({ className, children, ...rest }: HTMLAttributes<HTMLDivElement> & { children: ReactNode }) {
+  return (
+    <div {...rest} className={clsx('min-w-0 rounded-lg border border-line bg-raised', className)}>
+      {children}
+    </div>
+  );
 }
 
 export function CardHeader({ title, description, actions }: { title: ReactNode; description?: ReactNode; actions?: ReactNode }) {
@@ -70,7 +75,7 @@ export function PageHeader({ title, description, actions }: { title: ReactNode; 
   );
 }
 
-type Tone = 'online' | 'warning' | 'offline' | 'neutral' | 'accent';
+type Tone = 'online' | 'warning' | 'offline' | 'neutral' | 'accent' | 'onair';
 export function Badge({ tone = 'neutral', dot, children }: { tone?: Tone; dot?: boolean; children: ReactNode }) {
   return (
     <span
@@ -80,6 +85,7 @@ export function Badge({ tone = 'neutral', dot, children }: { tone?: Tone; dot?: 
         tone === 'warning' && 'bg-warning/15 text-warning',
         tone === 'offline' && 'bg-offline/15 text-offline',
         tone === 'accent' && 'bg-koraal/15 text-accent-text',
+        tone === 'onair' && 'bg-onair text-white',
         tone === 'neutral' && 'bg-chip text-ink',
       )}
     >

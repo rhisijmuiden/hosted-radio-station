@@ -100,14 +100,14 @@ export function LivePage({ onPage }: { onPage: (p: Page) => void }) {
   return (
     <div className="grid gap-4 xl:grid-cols-[1.25fr_1fr]">
       <Card className="overflow-hidden">
-        <div className={clsx('relative flex flex-col items-center gap-5 px-6 py-9 text-center', broadcast.state === 'live' ? 'bg-koraal/10' : '')}>
+        <div className={clsx('relative flex flex-col items-center gap-5 px-6 py-9 text-center', broadcast.state === 'live' ? 'bg-onair/10' : '')}>
           <button
             onClick={() => (onAir ? stop() : goLive.mutate())}
             disabled={(!onAir && (!mount || !account || !ingest)) || goLive.isPending}
             className={clsx(
               'grid size-40 place-items-center rounded-full border-4 text-center transition-all disabled:cursor-not-allowed disabled:opacity-50',
               broadcast.state === 'live'
-                ? 'onair-pulse border-koraal bg-koraal text-nacht'
+                ? 'onair-pulse border-onair bg-onair text-white'
                 : onAir
                   ? 'border-warning bg-warning/15 text-warning'
                   : 'border-line bg-raised text-ink hover:border-koraal hover:text-accent-text',
@@ -119,7 +119,7 @@ export function LivePage({ onPage }: { onPage: (p: Page) => void }) {
             </span>
           </button>
           <div>
-            <div className="display text-2xl">
+            <div className={clsx('display text-2xl', broadcast.state === 'live' && 'text-onair')}>
               {broadcast.state === 'live'
                 ? t('live.onAir')
                 : broadcast.state === 'connecting'

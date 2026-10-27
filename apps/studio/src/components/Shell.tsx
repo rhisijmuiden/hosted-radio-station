@@ -3,10 +3,12 @@ import { ChevronsUpDown, Grid3x3, Headphones, LogOut, Mic, Radio, Settings, type
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEngine } from '../lib/engine';
+import { api } from '../lib/api';
 import { useAutoDj, useStatus } from '../lib/queries';
 import { useSession } from '../lib/session';
 import { duration } from '../lib/format';
 import { InfoButton } from './InfoDialog';
+import { RundownList } from './Rundown';
 import { StereoMeter } from './Meter';
 import { LanguageToggle, ThemeToggle } from './Toggles';
 import { Avatar, Badge } from './ui';
@@ -100,16 +102,15 @@ function Sidebar({ page, onPage }: { page: Page; onPage: (p: Page) => void }) {
           >
             <Icon className={clsx('size-[18px]', page === p ? 'text-koraal' : 'text-muted')} strokeWidth={1.8} />
             <span className="flex-1">{t(`nav.${p}`)}</span>
-            {p === 'live' && broadcast === 'live' && <Badge tone="accent" dot>{t('live.onAirShort')}</Badge>}
+            {p === 'live' && broadcast === 'live' && <Badge tone="onair" dot>{t('live.onAirShort')}</Badge>}
             {p === 'carts' && <kbd className="text-[10px] text-muted">F1–F12</kbd>}
           </button>
         ))}
       </nav>
-      <div className="mt-6 rounded-md border border-line p-3">
-        <StereoMeter source="output" label={t('meters.stream')} />
+      <div className="flex min-h-0 flex-1 flex-col">
+        <RundownList />
       </div>
-      <div className="flex-1" />
-      <div className="border-t border-line pt-3">
+      <div className="mt-3 border-t border-line pt-3">
         {user && (
           <div className="flex items-center gap-2.5 px-2 py-2">
             <Avatar name={user.name} />
@@ -167,14 +168,21 @@ function TopBar() {
   const meLive = broadcast.state === 'live';
   return (
     <header className="flex items-center gap-5 border-b border-line bg-raised px-6 py-3.5">
-      <div
-        className={clsx(
-          'flex h-11 shrink-0 items-center gap-2 rounded-md px-4 text-sm font-extrabold tracking-[0.12em] uppercase',
-          meLive ? 'onair-pulse bg-koraal text-nacht' : live ? 'bg-offline/15 text-offline' : 'bg-chip text-muted',
-        )}
-      >
-        <i className={clsx('size-2.5 rounded-full', meLive ? 'bg-nacht' : live ? 'bg-offline' : 'bg-muted/50')} />
-        {meLive ? t('live.onAir') : live ? t('live.someoneLive') : t('live.autodj')}
+      {/* Who is on the station right now: a status, not a button. */}
+      <div className="shrink-0 cursor-default" title={meLive ? t('live.tipYou') : live ? t('live.tipOther', { name: live.accountName }) : t('live.tipAutodj')}>
+        <div className="mb-1 text-[10px] font-semibold tracking-[0.08em] text-muted uppercase">{t('live.onAirNow')}</div>
+        <div
+          className={clsx(
+            'flex h-9 items-center gap-2 rounded-md px-3.5 text-sm font-extrabold tracking-[0.12em] uppercase',
+            meLive ? 'onair-pulse bg-onair text-white' : live ? 'bg-offline/15 text-offline' : 'bg-chip text-muted',
+          )}
+        >
+          <i className={clsx('size-2.5 rounded-full', meLive ? 'bg-white' : live ? 'bg-offline' : 'bg-muted/50')} />
+          {meLive ? t('live.onAir') : live ? t('live.someoneLive') : t('live.autodj')}
+          {!meLive && !live && autodj.data?.playout && (
+            <span className="font-semibold tracking-normal normal-case">· {autodj.data.playout.manual ? t('playout.manual') : t('playout.auto')}</span>
+          )}
+        </div>
       </div>
       <div className="min-w-0 flex-1">
         {live && !meLive ? (
@@ -205,6 +213,35 @@ function TopBar() {
   );
 }
 
+/** The level of the stream this PC sends, at the right edge of every screen, rising from the bottom. */
+function MeterColumn() {
+  const { t } = useTranslation();
+  return (
+    <aside aria-label={t('meters.stream')} className="flex w-[76px] shrink-0 flex-col items-center border-l border-line bg-raised px-2 pt-5 pb-4">
+      <StereoMeter source="output" label={t('meters.stream')} vertical scale className="min-h-0 flex-1" />
+    </aside>
+  );
+}
+
+/**
+ * Manual playout stays on only while a studio PC keeps saying so: every 10 seconds while the server reports it on.
+ * When this PC closes or loses its connection, the server goes back to Auto by itself after 30 seconds.
+ */
+function PlayoutKeepAlive() {
+  const { station, supports } = useSession();
+  const autodj = useAutoDj(station?.edition === 'station' ? station.id : undefined);
+  const manual = !!autodj.data?.playout?.manual;
+  const id = station?.id;
+  const can = supports('playout');
+  useEffect(() => {
+    if (!manual || !id || !can) return;
+    const renew = () => void api(`/stations/${id}/autodj/mode`, { method: 'POST', body: { manual: true } }).catch(() => undefined);
+    const timer = setInterval(renew, 10_000);
+    return () => clearInterval(timer);
+  }, [manual, id, can]);
+  return null;
+}
+
 export function Shell({ page, onPage, children }: { page: Page; onPage: (p: Page) => void; children: ReactNode }) {
   return (
     <div className="flex h-full">
@@ -213,6 +250,8 @@ export function Shell({ page, onPage, children }: { page: Page; onPage: (p: Page
         <TopBar />
         <main className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{children}</main>
       </div>
+      <MeterColumn />
+      <PlayoutKeepAlive />
     </div>
   );
 }

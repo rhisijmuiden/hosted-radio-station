@@ -7,7 +7,8 @@ import { Link, useSearchParams } from 'react-router';
 import { formatBps, formatMs, formatPct } from '../components/nodes/common';
 import { Sparkline } from '../components/stats/charts';
 import type { SceneData, SceneHealth, SceneKind } from '../components/topology/scene';
-import TopologyFlat, { nodeName } from '../components/topology/TopologyFlat';
+import TopologyFlat, { countryName, flag, nodeName, streamWidth, type FlatLayout } from '../components/topology/TopologyFlat';
+import TopologyMatrix from '../components/topology/TopologyMatrix';
 import { Badge, Button, Card, PageHeader, Select, Spinner } from '../components/ui';
 import { api, type NodeEvent, type NodeMetric, type Tenant, type Topology, type TopologyNode } from '../lib/api';
 import { isAdmin, useMe } from '../lib/auth';
@@ -17,31 +18,68 @@ import { eventText } from './NodeDetail';
 
 const TopologyCanvas = lazy(() => import('../components/topology/TopologyCanvas'));
 
-type Layout = '3d' | 'lr' | 'tb';
-const LAYOUTS: Layout[] = ['3d', 'lr', 'tb'];
-const layoutKey = (userId: string) => `hrs-topology-layout:${userId}`;
+/** Layers (A, the default), one station's path (B), the matrix (D) and the 3D skyline (phase 18). */
+type View = 'layers' | 'station' | 'matrix' | '3d';
+const VIEWS: View[] = ['layers', 'station', 'matrix', '3d'];
+const ORIENTATIONS: FlatLayout[] = ['lr', 'tb'];
 
-/** The chosen view (3D or one of the 2D flows), remembered per user in this browser. */
-function useLayout(userId: string): [Layout, (l: Layout) => void] {
-  const [layout, setLayout] = useState<Layout>(() => {
-    try {
-      const v = localStorage.getItem(layoutKey(userId));
-      return LAYOUTS.includes(v as Layout) ? (v as Layout) : '3d';
-    } catch {
-      return '3d';
-    }
-  });
-  return [
-    layout,
-    (l) => {
-      setLayout(l);
-      try {
-        localStorage.setItem(layoutKey(userId), l);
-      } catch {
-        /* storage is off: the choice lasts for this visit */
-      }
+function load<T extends string>(key: string, allowed: T[], fallback: T): T {
+  try {
+    const v = localStorage.getItem(key);
+    return allowed.includes(v as T) ? (v as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function save(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* storage is off: the choice lasts for this visit */
+  }
+}
+
+/** The chosen view and the direction of the flat views, remembered per user in this browser. */
+function useView(userId: string) {
+  const viewKey = `hrs-topology-view:${userId}`;
+  const flowKey = `hrs-topology-layout:${userId}`;
+  // Before phase 18 one setting held both: "3d", "lr" or "tb".
+  const [view, setView] = useState<View>(() => load(viewKey, VIEWS, load(flowKey, ['3d'], 'layers' as View)));
+  const [flow, setFlow] = useState<FlatLayout>(() => load(flowKey, ORIENTATIONS, 'lr'));
+  return {
+    view,
+    flow,
+    setView: (v: View) => {
+      setView(v);
+      save(viewKey, v);
     },
-  ];
+    setFlow: (f: FlatLayout) => {
+      setFlow(f);
+      save(flowKey, f);
+    },
+  };
+}
+
+/** A row of rounded toggle buttons. */
+function Segmented<T extends string>({ value, options, label, onChange, text, title }: { value: T; options: T[]; label: string; onChange: (v: T) => void; text: (v: T) => ReactNode; title?: (v: T) => string }) {
+  return (
+    <div className="flex rounded-full border border-line bg-raised p-[3px]" role="radiogroup" aria-label={label}>
+      {options.map((o) => (
+        <button
+          key={o}
+          type="button"
+          role="radio"
+          aria-checked={value === o}
+          title={title?.(o)}
+          onClick={() => onChange(o)}
+          className={clsx('rounded-full px-3 py-1 text-xs font-semibold whitespace-nowrap transition-colors', value === o ? 'bg-nacht text-white dark:bg-koraal dark:text-nacht' : 'text-muted hover:text-ink')}
+        >
+          {text(o)}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 type Filter = 'all' | 'relays' | 'sources' | 'stations' | 'problems' | 'mine' | 'streams';
@@ -84,6 +122,11 @@ function Tile({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
+function Host({ node }: { node: Pick<TopologyNode, 'hostname' | 'ip'> }) {
+  const text = [node.hostname, node.ip].filter(Boolean).join(' · ');
+  return text ? <div className="font-mono text-[11.5px] text-muted">{text}</div> : null;
+}
+
 /** One of this server's own roles: no node page, no metrics of its own. */
 function LocalPanel({ node }: { node: TopologyNode }) {
   const { t } = useTranslation();
@@ -93,6 +136,7 @@ function LocalPanel({ node }: { node: TopologyNode }) {
       <div>
         <div className="text-[11px] tracking-[0.08em] text-muted uppercase">{t('topology.selected')}</div>
         <h2 className="display text-lg">{nodeName(t, node, false)}</h2>
+        <Host node={node} />
       </div>
       <div className="flex flex-wrap gap-1.5">
         <Badge tone={node.online ? 'online' : 'offline'} dot>
@@ -120,6 +164,7 @@ function NodePanel({ node, open }: { node: TopologyNode; open: boolean }) {
       <div>
         <div className="text-[11px] tracking-[0.08em] text-muted uppercase">{t('topology.selected')}</div>
         <h2 className="display text-lg">{node.name}</h2>
+        <Host node={node} />
       </div>
       <div className="flex flex-wrap gap-1.5">
         <Badge tone={healthTone[health]} dot>
@@ -176,13 +221,15 @@ function MainPanel({ data }: { data: Topology }) {
     <>
       <div>
         <div className="text-[11px] tracking-[0.08em] text-muted uppercase">{t('topology.selected')}</div>
-        <h2 className="display text-lg">{t('topology.main')}</h2>
+        <h2 className="display text-lg">{data.main.name}</h2>
+        {data.main.host && <div className="font-mono text-[11.5px] text-muted">{data.main.host}</div>}
       </div>
       <div className="flex flex-wrap gap-1.5">
         <Badge tone="online" dot>
           {t('nodes.health.online')}
         </Badge>
-        <Badge>{t('topology.controlOnly')}</Badge>
+        <Badge tone="accent">{t('topology.orchestrator')}</Badge>
+        <Badge>{data.main.orchestratorOnly ? t('orchestratorOnly.badgeOn') : t('topology.controlOnly')}</Badge>
       </div>
       <p className="text-[13px] text-muted">{t('topology.orchestratorHint')}</p>
       <div className="grid grid-cols-2 gap-2">
@@ -230,7 +277,7 @@ function StudioPanel({ studio, target }: { studio: Topology['studios'][number]; 
 }
 
 export function TopologyPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const me = useMe().data!;
   const admin = isAdmin(me);
   const { theme } = useThemeContext();
@@ -246,28 +293,39 @@ export function TopologyPage() {
   }, []);
   // Control lines stay hidden unless asked for, or for the selected block: the audio paths stay readable.
   const [showControl, setShowControl] = useState(false);
-  const [layout, setLayout] = useLayout(me.user.id);
+  const { view, flow, setView, setFlow } = useView(me.user.id);
   const topo = useQuery({ queryKey: ['topology', tenantId], queryFn: () => api<Topology>(`/nodes/topology${tenantId ? `?tenantId=${tenantId}` : ''}`), refetchInterval: 5000 });
   const tenants = useQuery({ queryKey: ['tenants'], queryFn: () => api<Tenant[]>('/tenants'), enabled: admin });
   const data = topo.data;
   const customer = data?.view === 'customer';
   const filters: Filter[] = customer ? ['all', 'mine', 'streams'] : ['all', 'relays', 'sources', 'stations', 'problems'];
+  // The per station view: the station in the URL, else the one with the most listeners.
+  const stationId = params.get('station');
+  const focus = view === 'station' && data ? (data.stations.find((s) => s.id === stationId) ?? [...data.stations].sort((a, b) => b.listeners - a.listeners)[0] ?? null) : null;
+  const pickStation = (id: string) => {
+    const next = new URLSearchParams(params);
+    next.set('station', id);
+    setParams(next, { replace: true });
+    setSelected(null);
+  };
 
   const scene = useMemo<SceneData>(() => {
     if (!data) return { nodes: [], links: [] };
     const matches = (n: TopologyNode) =>
       filter === 'all' || filter === 'streams' || (filter === 'relays' && n.roles.includes('relay')) || (filter === 'sources' && n.roles.includes('source')) || (filter === 'stations' && n.roles.includes('station')) || (filter === 'problems' && (n.degraded || !n.online)) || (filter === 'mine' && n.own);
+    // Relays of one location stand next to each other.
+    const ordered = [...data.nodes].sort((a, b) => (a.roles.includes('relay') && b.roles.includes('relay') ? a.location.localeCompare(b.location) : 0));
     const nodes: SceneData['nodes'] = [
-      // The orchestrator carries no audio: no listeners around it, only control lines.
-      { id: 'main', kind: 'main', label: t('topology.main'), meta: `${t('topology.controlOnly')} · v${data.main.version}`, health: 'online', listeners: 0, dim: false },
-      ...data.nodes.map((n) => {
+      // The orchestrator carries no audio: it hovers above as a ring with control lines only.
+      { id: 'main', kind: 'main', label: data.main.name, meta: data.main.orchestratorOnly ? t('orchestratorOnly.badgeOn') : t('topology.orchestrator'), health: 'online', listeners: 0, dim: false },
+      ...ordered.map((n) => {
         const kind = kindOf(n);
         const meta = !n.paired
           ? t('nodes.health.unpaired')
           : !n.online
             ? t('nodes.health.offline')
             : kind === 'relay'
-              ? t('topology.listenersCount', { count: n.listeners })
+              ? `${t('topology.listenersCount', { count: n.listeners })}${n.rttMs != null && !n.local ? ` · ${formatMs(n.rttMs)}` : ''}`
               : kind === 'source'
                 ? t('topology.encodersCount', { count: n.encoders })
                 : kind === 'station'
@@ -276,8 +334,9 @@ export function TopologyPage() {
                     ? n.fmOnAir
                       ? t('topology.fmOnAir')
                       : t('topology.fmOff')
-                  : n.location || t('nodes.noRoles');
-        return { id: n.id, kind, label: nodeName(t, n, customer), meta, health: healthOf(n), listeners: n.online ? n.listeners : 0, dim: !matches(n), own: customer && n.own };
+                    : n.location || t('nodes.noRoles');
+        const load = n.cpu ?? Math.min(1, n.encoders / 8);
+        return { id: n.id, kind, label: nodeName(t, n, customer), meta, health: healthOf(n), listeners: n.online ? n.listeners : 0, load: n.online ? load : 0, dim: !matches(n), own: customer && n.own };
       }),
       ...data.studios.map((s) => ({
         id: s.id,
@@ -289,42 +348,75 @@ export function TopologyPage() {
         dim: filter !== 'all' && filter !== 'streams' && !(s.nodeId && matches(data.nodes.find((n) => n.id === s.nodeId)!)),
       })),
     ];
+    // Listeners per country: the six biggest as towers of their own, the rest together.
+    const perCountry = new Map<string, number>();
+    for (const a of data.audience) perCountry.set(a.country ?? '', (perCountry.get(a.country ?? '') ?? 0) + a.listeners);
+    const top = [...perCountry].filter(([cc]) => cc).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([cc]) => cc);
+    const countryId = (cc: string | null) => `country:${cc && top.includes(cc) ? cc : 'other'}`;
+    for (const [cc, n] of [...perCountry].sort((a, b) => b[1] - a[1])) {
+      const id = countryId(cc);
+      const known = nodes.find((x) => x.id === id);
+      if (known) known.listeners += n;
+      else nodes.push({ id, kind: 'country', label: id === 'country:other' ? `🌐 ${t('topology.flat.other')}` : `${flag(cc)} ${countryName(cc, i18n.language)}`, meta: '', health: 'online', listeners: n, dim: filter !== 'all' && filter !== 'streams' && filter !== 'relays' });
+    }
+    for (const n of nodes) if (n.kind === 'country') n.meta = t('topology.listenersCount', { count: n.listeners });
     const dim = new Set(nodes.filter((n) => n.dim).map((n) => n.id));
-    const shown = (l: Topology['links'][number]) => l.kind !== 'control' || showControl || selected === 'main' || (!!selected && l.to === selected);
-    const links: SceneData['links'] = data.links.filter(shown).map((l) => ({
+    const links: SceneData['links'] = data.links.map((l) => ({
       from: l.from,
       to: l.to,
       kind: l.kind,
       state: !l.active ? 'down' : l.degraded ? 'degraded' : 'ok',
       label: l.kind === 'control' && l.active && l.rttMs != null ? `${formatMs(l.rttMs)}${(l.loss ?? 0) > 0.005 ? ` · ${formatPct(l.loss, 0)}` : ''}` : null,
       dim: dim.has(l.from) || dim.has(l.to) || (filter === 'streams' && l.kind === 'control'),
+      width: l.kind === 'stream' ? streamWidth(l) : undefined,
+      standby: l.standby,
     }));
-    return { nodes, links };
-  }, [data, filter, customer, showControl, selected, t]);
+    // Relays hand their listeners to the countries.
+    const toCountry = new Map<string, number>();
+    for (const a of data.audience) {
+      const key = `${a.nodeId}>${countryId(a.country)}`;
+      toCountry.set(key, (toCountry.get(key) ?? 0) + a.listeners);
+    }
+    for (const [key, n] of toCountry) {
+      const [from, to] = key.split('>') as [string, string];
+      links.push({ from, to, kind: 'stream', state: 'ok', label: null, dim: dim.has(from) || dim.has(to), width: 1.5 + Math.min(5, Math.log2(1 + n) / 1.6) });
+    }
+    return { nodes, links, lanes: { studios: t('topology.lanes.studios'), ingest: t('topology.lanes.ingest'), relays: t('topology.lanes.relays'), listeners: t('topology.lanes.listeners') } };
+  }, [data, filter, customer, t, i18n.language]);
 
   const dimmed = useMemo(() => new Set(scene.nodes.filter((n) => n.dim).map((n) => n.id)), [scene]);
   const k = data?.kpis;
   const selNode = data?.nodes.find((n) => n.id === selected);
   const selStudio = data?.studios.find((s) => s.id === selected);
-  // In 3D the panel always shows something; the 2D flows use the whole width until a block is clicked.
-  const ownSel = selNode ?? (!selected && customer && layout === '3d' ? data?.nodes.find((n) => n.own) : undefined);
-  const showPanel = layout === '3d' || !!selected;
+  // In 3D the panel always shows something; the other views use the whole width until a block is clicked.
+  const ownSel = selNode ?? (!selected && customer && view === '3d' ? data?.nodes.find((n) => n.own) : undefined);
+  const showPanel = view === '3d' || (!!selected && !selected.startsWith('country:'));
+  const flat = view === 'layers' || view === 'station';
   const studioTarget = (s: Topology['studios'][number]) => {
     const to = data?.links.find((l) => l.from === s.id)?.to;
     const n = data?.nodes.find((x) => x.id === to);
-    return n ? nodeName(t, n, !!customer) : t('topology.main');
+    return n ? nodeName(t, n, !!customer) : data?.main.name ?? t('topology.main');
   };
+  const subtitle = `topology.views.${view}Hint`;
 
   return (
     <>
       <PageHeader
         title={customer && !admin ? t('topology.myTitle') : t('topology.title')}
-        description={customer && !admin ? t(layout === '3d' ? 'topology.mySubtitle' : 'topology.mySubtitleFlat') : t(layout === '3d' ? 'topology.subtitle' : 'topology.subtitleFlat')}
+        description={t(subtitle)}
         actions={
           <>
             {admin && (
               <div className="w-56">
-                <Select className="h-9" value={tenantId} onChange={(e) => setParams(e.target.value ? { customer: e.target.value } : {}, { replace: true })} aria-label={t('topology.viewAs')}>
+                <Select
+                  className="h-9"
+                  value={tenantId}
+                  onChange={(e) => {
+                    setParams(e.target.value ? { customer: e.target.value } : {}, { replace: true });
+                    setSelected(null);
+                  }}
+                  aria-label={t('topology.viewAs')}
+                >
                   <option value="">{t('topology.wholeNetwork')}</option>
                   {(tenants.data ?? []).map((x) => (
                     <option key={x.id} value={x.id}>
@@ -334,39 +426,34 @@ export function TopologyPage() {
                 </Select>
               </div>
             )}
-            <div className="flex rounded-full border border-line bg-raised p-[3px]" role="radiogroup" aria-label={t('topology.layout.label')}>
-              {LAYOUTS.map((l) => (
-                <button
-                  key={l}
-                  type="button"
-                  role="radio"
-                  aria-checked={layout === l}
-                  title={t(`topology.layout.${l}Title`)}
-                  onClick={() => {
-                    setLayout(l);
-                    setSelected(null);
-                  }}
-                  className={clsx('rounded-full px-3 py-1 text-xs font-semibold whitespace-nowrap transition-colors', layout === l ? 'bg-nacht text-white dark:bg-koraal dark:text-nacht' : 'text-muted hover:text-ink')}
-                >
-                  {t(`topology.layout.${l}`)}
-                </button>
-              ))}
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {filters.map((f) => (
-                <button
-                  key={f}
-                  type="button"
-                  onClick={() => setFilter(f)}
-                  className={clsx(
-                    'rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors',
-                    filter === f ? 'border-nacht bg-nacht text-white dark:border-koraal dark:bg-koraal dark:text-nacht' : 'border-line bg-raised hover:bg-hover',
-                  )}
-                >
-                  {t(`topology.filters.${f}`)}
-                </button>
-              ))}
-            </div>
+            <Segmented
+              value={view}
+              options={VIEWS}
+              label={t('topology.views.label')}
+              text={(v) => t(`topology.views.${v}`)}
+              onChange={(v) => {
+                setView(v);
+                setSelected(null);
+              }}
+            />
+            {flat && <Segmented value={flow} options={ORIENTATIONS} label={t('topology.layout.label')} text={(f) => t(`topology.layout.${f}`)} title={(f) => t(`topology.layout.${f}Title`)} onChange={setFlow} />}
+            {view !== 'station' && view !== 'matrix' && (
+              <div className="flex flex-wrap gap-1.5">
+                {filters.map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => setFilter(f)}
+                    className={clsx(
+                      'rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors',
+                      filter === f ? 'border-nacht bg-nacht text-white dark:border-koraal dark:bg-koraal dark:text-nacht' : 'border-line bg-raised hover:bg-hover',
+                    )}
+                  >
+                    {t(`topology.filters.${f}`)}
+                  </button>
+                ))}
+              </div>
+            )}
           </>
         }
       />
@@ -375,28 +462,57 @@ export function TopologyPage() {
       ) : (
         <div className="flex flex-col gap-4 xl:flex-row">
           <div className="flex min-w-0 flex-1 flex-col gap-3">
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <Kpi
-                label={t('topology.nodesOnline')}
-                value={`${k!.nodesOnline} / ${k!.nodesTotal}`}
-                note={k!.degraded ? t('topology.degradedCount', { count: k!.degraded }) : k!.nodesOnline < k!.nodesTotal ? t('topology.someOffline') : t('topology.allHealthy')}
-                warn={!!k!.degraded || k!.nodesOnline < k!.nodesTotal}
-              />
-              <Kpi label={t('topology.listenersNow')} value={k!.listeners.toLocaleString()} note={t('topology.viaRelays', { count: k!.relayListeners })} />
-              <Kpi
-                label={customer ? t('topology.latencyToMain') : t('topology.avgLatency')}
-                value={formatMs(k!.avgRttMs)}
-                note={k!.worst && (k!.worstRttMs ?? 0) > (k!.avgRttMs ?? 0) * 1.5 ? `${k!.worst} ${formatMs(k!.worstRttMs)}` : t('topology.stable')}
-                warn={!!data.nodes.some((n) => n.online && n.degraded)}
-              />
-              {customer ? (
-                <Kpi label={t('nodes.detail.timeouts24h')} value={k!.timeouts24h} note={k!.timeouts24h ? t('topology.checkEvents') : t('topology.noIncidents')} warn={k!.timeouts24h > 0} />
-              ) : (
-                <Kpi label={t('topology.throughput')} value={formatBps(k!.txBps)} note={t('topology.fromNodes')} />
-              )}
-            </div>
-            <div className="topo-stage relative h-[min(70vh,640px)] min-h-[420px] overflow-hidden rounded-lg border border-line">
-              {layout === '3d' ? (
+            {view === 'station' ? (
+              <Card className="flex flex-wrap items-center gap-3 px-4 py-3">
+                <div className="w-72 max-w-full">
+                  <Select className="h-9" value={focus?.id ?? ''} onChange={(e) => pickStation(e.target.value)} aria-label={t('topology.station.pick')}>
+                    {!data.stations.length && <option value="">{t('topology.station.none')}</option>}
+                    {[...data.stations]
+                      .sort((a, b) => a.name.localeCompare(b.name))
+                      .map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                  </Select>
+                </div>
+                {focus && (
+                  <div className="flex flex-wrap items-center gap-2 text-[13px]">
+                    <Badge tone={focus.active ? 'online' : 'offline'} dot>
+                      {focus.active ? t('topology.onAir') : t('topology.station.offAir')}
+                    </Badge>
+                    <span className="text-muted">{t('topology.listenersCount', { count: focus.listeners })}</span>
+                    <span className="text-muted">· {t('topology.station.relays', { count: focus.relays.length })}</span>
+                    <Link to={`/stations/${focus.id}?tab=routing`} className="font-semibold text-accent-text hover:underline">
+                      {t('topology.station.routing')}
+                    </Link>
+                  </div>
+                )}
+              </Card>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <Kpi
+                  label={t('topology.nodesOnline')}
+                  value={`${k!.nodesOnline} / ${k!.nodesTotal}`}
+                  note={k!.degraded ? t('topology.degradedCount', { count: k!.degraded }) : k!.nodesOnline < k!.nodesTotal ? t('topology.someOffline') : t('topology.allHealthy')}
+                  warn={!!k!.degraded || k!.nodesOnline < k!.nodesTotal}
+                />
+                <Kpi label={t('topology.listenersNow')} value={k!.listeners.toLocaleString()} note={t('topology.viaRelays', { count: k!.relayListeners })} />
+                <Kpi
+                  label={customer ? t('topology.latencyToMain') : t('topology.avgLatency')}
+                  value={formatMs(k!.avgRttMs)}
+                  note={k!.worst && (k!.worstRttMs ?? 0) > (k!.avgRttMs ?? 0) * 1.5 ? `${k!.worst} ${formatMs(k!.worstRttMs)}` : t('topology.stable')}
+                  warn={!!data.nodes.some((n) => n.online && n.degraded)}
+                />
+                {customer ? (
+                  <Kpi label={t('nodes.detail.timeouts24h')} value={k!.timeouts24h} note={k!.timeouts24h ? t('topology.checkEvents') : t('topology.noIncidents')} warn={k!.timeouts24h > 0} />
+                ) : (
+                  <Kpi label={t('topology.throughput')} value={formatBps(k!.txBps)} note={t('topology.fromNodes')} />
+                )}
+              </div>
+            )}
+            <div className={clsx('relative h-[min(70vh,640px)] min-h-[420px] overflow-hidden rounded-lg border border-line', view === 'matrix' ? 'bg-raised' : 'topo-stage')}>
+              {view === '3d' ? (
                 <Suspense
                   fallback={
                     <div className="grid h-full place-items-center">
@@ -406,32 +522,46 @@ export function TopologyPage() {
                 >
                   <TopologyCanvas data={scene} selected={selected ?? ownSel?.id ?? null} onSelect={setSelected} dark={theme === 'dark'} />
                 </Suspense>
+              ) : view === 'matrix' ? (
+                <TopologyMatrix data={data} customer={!!customer} selected={selected} onSelect={setSelected} />
+              ) : view === 'station' && !focus ? (
+                <p className="p-6 text-[13px] text-muted">{t('topology.station.none')}</p>
               ) : (
-                <TopologyFlat data={data} layout={layout} dimmed={dimmed} selected={selected ?? ownSel?.id ?? null} showControl={showControl} onSelect={setSelected} />
+                <TopologyFlat data={data} layout={flow} dimmed={view === 'station' ? new Set() : dimmed} selected={selected ?? ownSel?.id ?? null} showControl={showControl} focus={focus} onSelect={setSelected} />
               )}
-              <div className="pointer-events-none absolute bottom-3 left-3 hidden flex-wrap gap-3 rounded-md border border-line bg-raised/85 px-3 py-2 text-xs text-muted backdrop-blur sm:flex">
-                <span className="flex items-center gap-1.5">
-                  <i className="inline-block h-[3px] w-4 rounded bg-koraal" /> {t('topology.legend.stream')}
-                </span>
-                {/* The control legend doubles as the switch for the control lines. */}
-                <button
-                  type="button"
-                  aria-pressed={showControl}
-                  title={t(showControl ? 'topology.controlLinesHide' : 'topology.controlLinesShow')}
-                  onClick={() => setShowControl((x) => !x)}
-                  className={clsx('pointer-events-auto -my-1 flex items-center gap-1.5 rounded-full border px-2 py-0.5 transition-colors', showControl ? 'border-lucht bg-lucht/15 text-ink' : 'border-line hover:text-ink')}
-                >
-                  <i className="inline-block w-4 border-t-2 border-dashed border-lucht" /> {t('topology.legend.control')}
-                  {showControl ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
-                </button>
-                <span className="flex items-center gap-1.5">
-                  <i className="inline-block h-[3px] w-4 rounded bg-warning" /> {t('topology.legend.degraded')}
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <i className="inline-block size-2 rounded-full bg-lucht" /> {t('topology.legend.listeners')}
-                </span>
-              </div>
-              {!data.nodes.length && (
+              {view !== 'matrix' && (
+                <div className="pointer-events-none absolute bottom-3 left-3 hidden max-w-[calc(100%-10rem)] flex-wrap gap-x-3 gap-y-1.5 rounded-md border border-line bg-raised/85 px-3 py-2 text-xs text-muted backdrop-blur sm:flex">
+                  <span className="flex items-center gap-1.5">
+                    <i className="inline-block h-[3px] w-4 rounded bg-koraal" /> {t('topology.legend.stream')}
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <i className="inline-block w-4 border-t-2 border-dashed border-lucht" /> {t('topology.legend.standby')}
+                  </span>
+                  {/* The control legend doubles as the switch for the control lines. */}
+                  {view !== '3d' && (
+                    <button
+                      type="button"
+                      aria-pressed={showControl}
+                      title={t(showControl ? 'topology.controlLinesHide' : 'topology.controlLinesShow')}
+                      onClick={() => setShowControl((x) => !x)}
+                      className={clsx('pointer-events-auto -my-1 flex items-center gap-1.5 rounded-full border px-2 py-0.5 transition-colors', showControl ? 'border-lucht bg-lucht/15 text-ink' : 'border-line hover:text-ink')}
+                    >
+                      <i className="inline-block w-4 border-t-2 border-dotted border-lucht" /> {t('topology.legend.control')}
+                      {showControl ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+                    </button>
+                  )}
+                  {view === '3d' && (
+                    <span className="flex items-center gap-1.5">
+                      <i className="inline-block w-4 border-t-2 border-dotted border-lucht" /> {t('topology.legend.control')}
+                    </span>
+                  )}
+                  <span className="flex items-center gap-1.5">
+                    <i className="inline-block h-[3px] w-4 rounded bg-warning" /> {t('topology.legend.degraded')}
+                  </span>
+                  {view === '3d' && <span>{t('topology.legend.height')}</span>}
+                </div>
+              )}
+              {!data.nodes.length && view !== 'matrix' && (
                 <div className="absolute top-3 left-3 max-w-xs rounded-md border border-line bg-raised/90 p-3 text-[13px] backdrop-blur">
                   <p className="text-muted">{t('topology.noNodes')}</p>
                   <Link to="/nodes" className="mt-2 inline-block">
@@ -441,12 +571,12 @@ export function TopologyPage() {
                   </Link>
                 </div>
               )}
-              {layout === '3d' && <p className="pointer-events-none absolute top-3 right-3 hidden text-[11px] text-muted md:block">{t('topology.hint')}</p>}
+              {view === '3d' && <p className="pointer-events-none absolute top-3 right-3 hidden text-[11px] text-muted md:block">{t('topology.hint')}</p>}
             </div>
           </div>
           {showPanel && (
             <Card className="relative flex w-full shrink-0 flex-col gap-3.5 p-5 xl:w-[330px]">
-              {layout !== '3d' && (
+              {view !== '3d' && (
                 <button type="button" className="absolute top-3 right-3 grid size-8 place-items-center rounded-md text-muted hover:bg-hover hover:text-ink" title={t('common.close')} onClick={() => setSelected(null)}>
                   <X className="size-4" />
                 </button>

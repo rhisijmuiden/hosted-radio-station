@@ -13,6 +13,8 @@
 
 /* Same app tokens as the admin panel. */
 :root {
+  /* On air: a clear broadcast red, apart from the coral accent of the house style. */
+  --onair: #e11d2e;
   --hover: #eef1f7;
   --chip: #e8f0ff;
   --nav-active-bg: var(--nacht);
@@ -51,6 +53,7 @@
   --color-online: var(--status-online);
   --color-warning: var(--status-warning);
   --color-offline: var(--status-offline);
+  --color-onair: var(--onair);
   --color-hover: var(--hover);
   --color-chip: var(--chip);
   --color-meter: var(--meter-bg);
@@ -108,10 +111,10 @@ textarea {
 @keyframes onair {
   0%,
   100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--koraal) 55%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--onair) 60%, transparent);
   }
   50% {
-    box-shadow: 0 0 0 10px color-mix(in srgb, var(--koraal) 0%, transparent);
+    box-shadow: 0 0 0 10px color-mix(in srgb, var(--onair) 0%, transparent);
   }
 }
 .onair-pulse {

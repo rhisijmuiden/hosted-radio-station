@@ -81,6 +81,27 @@ export interface Target {
   sampleRate: number;
   name: string;
 }
+export interface PreviewState {
+  loaded: boolean;
+  playing: boolean;
+  ended: boolean;
+  name: string;
+  position: number;
+  duration: number;
+  device: string | null;
+}
+export interface FolderEntry {
+  name: string;
+  path: string;
+  dir: boolean;
+  size: number;
+}
+export interface Folder {
+  /** null: the drives of this PC. */
+  path: string | null;
+  parent: string | null;
+  entries: FolderEntry[];
+}
 export type EngineEvent =
   | { kind: 'meters'; data: Meters }
   | { kind: 'carts'; data: CartState[] }
@@ -90,12 +111,38 @@ export type EngineEvent =
 
 // Simulation for the browser
 
+const simFolders: Record<string, FolderEntry[]> = {
+  'C:\\': [{ name: 'Users', path: 'C:\\Users', dir: true, size: 0 }],
+  'E:\\': [
+    { name: 'Jingles', path: 'E:\\Jingles', dir: true, size: 0 },
+    { name: 'Mixes', path: 'E:\\Mixes', dir: true, size: 0 },
+    { name: 'Avond intro.mp3', path: 'E:\\Avond intro.mp3', dir: false, size: 812_000 },
+  ],
+  'E:\\Jingles': [
+    { name: 'Station ID kort.wav', path: 'E:\\Jingles\\Station ID kort.wav', dir: false, size: 690_000 },
+    { name: 'Weerbed.mp3', path: 'E:\\Jingles\\Weerbed.mp3', dir: false, size: 1_420_000 },
+    { name: 'Nieuws intro.mp3', path: 'E:\\Jingles\\Nieuws intro.mp3', dir: false, size: 380_000 },
+  ],
+  '\\\\nas\\muziek': [
+    { name: 'Nederpop', path: '\\\\nas\\muziek\\Nederpop', dir: true, size: 0 },
+    { name: 'Golden Earring - Radar Love.mp3', path: '\\\\nas\\muziek\\Golden Earring - Radar Love.mp3', dir: false, size: 9_100_000 },
+    { name: 'Doe Maar - Smoorverliefd.flac', path: '\\\\nas\\muziek\\Doe Maar - Smoorverliefd.flac', dir: false, size: 24_000_000 },
+  ],
+};
+const simParent = (p: string) => {
+  if (/^[A-Z]:\\$/.test(p) || /^\\\\[^\\]+\\[^\\]+$/.test(p)) return null;
+  const i = p.lastIndexOf('\\');
+  return i > 2 ? p.slice(0, i) : p.slice(0, 3);
+};
+
 type Listener = (e: EngineEvent) => void;
 const sim = {
   listeners: new Set<Listener>(),
-  carts: Array.from({ length: 48 }, (_, slot): CartState & { started: number } => ({ slot, loaded: false, playing: false, position: 0, duration: 0, started: 0 })),
+  carts: Array.from({ length: 96 }, (_, slot): CartState & { started: number } => ({ slot, loaded: false, playing: false, position: 0, duration: 0, started: 0 })),
   broadcast: { state: 'off' } as BroadcastStatus,
   config: null as AudioConfig | null,
+  previewOutput: null as string | null,
+  preview: { loaded: false, playing: false, ended: false, name: '', position: 0, duration: 0, device: null, at: 0 } as PreviewState & { at: number },
   timer: 0 as unknown as ReturnType<typeof setInterval>,
   emit(e: EngineEvent) {
     sim.listeners.forEach((l) => l(e));
@@ -146,6 +193,14 @@ const simDevices: Devices = {
   ],
 };
 
+function simPreview(): PreviewState {
+  const { at, ...p } = sim.preview;
+  if (!p.loaded) return p;
+  const position = p.playing ? Math.min(p.duration, p.position + (Date.now() - at) / 1000) : p.position;
+  const ended = position >= p.duration;
+  return { ...p, position, ended, playing: p.playing && !ended };
+}
+
 async function simInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
   sim.start();
   const engineInfo = (): EngineInfo => ({
@@ -158,7 +213,7 @@ async function simInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Pr
   });
   switch (cmd) {
     case 'app_info':
-      return { version: '0.9.0', os: 'windows', arch: 'x86_64', hostname: 'STUDIO-1', asio: true } as T;
+      return { version: '0.12.0', os: 'windows', arch: 'x86_64', hostname: 'STUDIO-1', asio: true } as T;
     case 'list_devices':
       return simDevices as T;
     case 'configure_audio':
@@ -184,6 +239,8 @@ async function simInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Pr
     case 'stop_cart':
       Object.assign(sim.carts[args.slot as number]!, { playing: false, position: 0 });
       return undefined as T;
+    case 'cache_file':
+      return `C:\\Cache\\${args.name as string}` as T;
     case 'stop_all_carts':
       sim.carts.forEach((c) => Object.assign(c, { playing: false, position: 0 }));
       return undefined as T;
@@ -218,6 +275,38 @@ async function simInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Pr
         /* private mode */
       }
       return undefined as T;
+    case 'preview_output':
+      sim.previewOutput = (args.output as OutputSel | null)?.device ?? null;
+      return undefined as T;
+    case 'preview_file':
+    case 'preview_url': {
+      const name = (args.name as string | undefined) ?? (args.path as string).split('\\').pop()!.replace(/\.[^.]+$/, '');
+      Object.assign(sim.preview, { loaded: true, playing: true, ended: false, name, position: 0, duration: 30 + (name.length % 7) * 31, device: sim.previewOutput ?? 'Speakers (Realtek Audio)', at: Date.now() });
+      return simPreview() as T;
+    }
+    case 'preview_toggle': {
+      const p = simPreview();
+      Object.assign(sim.preview, p.ended ? { playing: true, ended: false, position: 0, at: Date.now() } : { playing: !p.playing, position: p.position, at: Date.now() });
+      return simPreview() as T;
+    }
+    case 'preview_seek':
+      Object.assign(sim.preview, { position: Math.min(args.seconds as number, sim.preview.duration), at: Date.now() });
+      return simPreview() as T;
+    case 'preview_stop':
+      Object.assign(sim.preview, { loaded: false, playing: false, position: 0 });
+      return undefined as T;
+    case 'preview_state':
+      return simPreview() as T;
+    case 'list_folder': {
+      const path = (args.path as string | null) ?? null;
+      if (!path) return { path: null, parent: null, entries: ['C:\\', 'E:\\'].map((d) => ({ name: d.slice(0, 2), path: d, dir: true, size: 0 })) } as T;
+      const entries = simFolders[path];
+      if (!entries) throw new Error(`cannot open ${path}`);
+      return { path, parent: simParent(path), entries } as T;
+    }
+    case 'upload_file':
+      await new Promise((r) => setTimeout(r, 900));
+      return { saved: [`music/${(args.path as string).split('\\').pop()}`], skipped: [] } as T;
     case 'install_update':
       throw new Error('Updates can only be installed in the Windows app');
     default:

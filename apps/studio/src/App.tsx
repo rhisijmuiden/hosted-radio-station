@@ -20,6 +20,7 @@ const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, ref
 // The sound card and the cart wall start with the app, also before signing in.
 startEngineEvents();
 void call('configure_audio', { config: getSettings().audio }).catch(() => undefined);
+void call('preview_output', { output: getSettings().preview.output }).catch(() => undefined);
 loadAllCarts(getSettings().carts);
 
 function Main() {

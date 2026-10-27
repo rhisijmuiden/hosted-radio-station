@@ -17,6 +17,7 @@ import { applyMirror, mirrorSchema } from '../services/stationnode/mirror.js';
 import { moveToMain, finishMoveToNode } from '../services/stationnode/move.js';
 import { buildPackage } from '../services/stationnode/package.js';
 import { NODE_TABLES, nodeTable, rowKey, toWire, type WireRow } from '../services/stationnode/tables.js';
+import { assertAudioAllowedHere } from '../services/nodes/orchestrator.js';
 
 const stationParams = z.object({ id: z.uuid() });
 
@@ -259,6 +260,8 @@ export const stationPlacementRoutes: FastifyPluginAsyncZod = async (app) => {
         if (s.nodeMove) await ctx.db.update(schema.stations).set({ nodeMove: null }).where(eq(schema.stations.id, s.id));
         return { nodeId: null, move: null };
       }
+      // Orchestrator only: there is no way back to this server, also not when the node is lost.
+      await assertAudioAllowedHere(ctx, 'move the station to another station node instead');
       if (req.body.force) {
         await ctx.db.update(schema.stations).set({ nodeId: null, nodeMove: null, nodeRuntime: null }).where(eq(schema.stations.id, s.id));
         await applyStreams(ctx, { stationIds: [s.id], by: req.auth?.user.email });
@@ -315,7 +318,7 @@ export const tenantStationNodeRoutes: FastifyPluginAsyncZod = async (app) => {
         if (!node || !node.roles.includes('station')) throw badRequest('Choose a node with the station node role');
         if (node.tenantId && node.tenantId !== tenant.id) throw badRequest('This node belongs to another customer');
         if (access.role !== 'superadmin' && node.tenantId !== tenant.id) throw forbidden('Only administrators can link a customer to a shared node');
-      }
+      } else if (req.body.moveStations) await assertAudioAllowedHere(ctx, 'its stations cannot move back to this server');
       await ctx.db.update(schema.tenants).set({ stationNodeId: target }).where(eq(schema.tenants.id, tenant.id));
       Object.assign(req.auditInfo, { tenantId: tenant.id, targetId: tenant.id, details: { from: tenant.stationNodeId, to: target, moveStations: req.body.moveStations } });
       let moving = 0;

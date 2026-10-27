@@ -371,6 +371,43 @@ export async function flushForClock(ctx: AppContext, stationId: string, now = Da
   });
 }
 
+/**
+ * A DJ plays a track now (RHIS Studio: dragged onto the player): a waiting track, or a library track that goes on top of
+ * Q1 first. Checks the track and returns its item id; the streams service then hands it to the player (cueNow).
+ */
+export async function playNow(ctx: AppContext, stationId: string, what: { itemId: string } | { mediaId: string }, addedBy: string | null) {
+  const itemId = 'itemId' in what ? what.itemId : (await enqueue(ctx, stationId, what.mediaId, 'q1', { at: 'top', origin: 'manual', addedBy })).id;
+  await ctx.db.transaction(async (tx) => {
+    await lock(tx, stationId);
+    const [item] = await tx.select().from(schema.queueItems).where(and(eq(schema.queueItems.id, itemId), eq(schema.queueItems.stationId, stationId)));
+    if (!item) throw notFound('Queue item');
+    if (item.state === 'playing') throw badRequest('This track is on air already');
+  });
+  return itemId;
+}
+
+/**
+ * Loads a waiting track for play now: marked cued and handed to the player on its own, outside the queue rule and the
+ * hour clock. 'loaded' when the player has it loaded ahead already; null when it is gone or its file is missing.
+ */
+export async function cueNow(ctx: AppContext, stationId: string, itemId: string): Promise<{ uri: string; itemId: string } | 'loaded' | null> {
+  return ctx.db.transaction(async (tx) => {
+    await lock(tx, stationId);
+    const [station] = await tx.select().from(schema.stations).where(eq(schema.stations.id, stationId));
+    const [row] = await tx
+      .select({ item: schema.queueItems, media: schema.mediaFiles })
+      .from(schema.queueItems)
+      .innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.queueItems.mediaId))
+      .where(and(eq(schema.queueItems.id, itemId), eq(schema.queueItems.stationId, stationId)));
+    if (!station || !row || row.item.state === 'playing') return null;
+    if (row.item.state === 'cued') return 'loaded';
+    const full = mediaPath(ctx, row.media, await loadSources(tx, stationId));
+    if (!full || !(await stat(full).then((st) => st.isFile()).catch(() => false))) return null;
+    await tx.update(schema.queueItems).set({ state: 'cued', cuedAt: new Date() }).where(eq(schema.queueItems.id, itemId));
+    return { uri: requestUri({ id: itemId, queue: row.item.queue }, row.media, full, autodjSettings(station)), itemId };
+  });
+}
+
 /** The player started a track: it is on air now, the previous one is done. */
 export async function trackStarted(ctx: AppContext, stationId: string, itemId: string) {
   await ctx.db.transaction(async (tx) => {

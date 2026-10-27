@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 
-export type SceneKind = 'main' | 'relay' | 'source' | 'station' | 'fm' | 'node' | 'studio';
+export type SceneKind = 'main' | 'relay' | 'source' | 'station' | 'fm' | 'node' | 'studio' | 'country';
 export type SceneHealth = 'online' | 'degraded' | 'offline' | 'unpaired';
 
 export interface SceneNode {
@@ -13,6 +13,8 @@ export interface SceneNode {
   meta: string;
   health: SceneHealth;
   listeners: number;
+  /** Ingest and station nodes: how busy they are, 0–1. Sets the height of their tower. */
+  load?: number;
   /** Shown faintly: filtered out, or not part of the customer's own setup. */
   dim: boolean;
   /** Customer's own node: highlighted edge. */
@@ -27,11 +29,17 @@ export interface SceneLink {
   /** Shown halfway, e.g. "12 ms". */
   label: string | null;
   dim: boolean;
+  /** Line thickness, from bitrate and number of streams. */
+  width?: number;
+  /** The backup path: dashed and quiet until it takes over. */
+  standby?: boolean;
 }
 
 export interface SceneData {
   nodes: SceneNode[];
   links: SceneLink[];
+  /** Titles of the four lanes on the floor. */
+  lanes?: Record<Lane, string>;
 }
 
 export interface ScenePalette {
@@ -48,7 +56,20 @@ export interface ScenePalette {
   dark: boolean;
 }
 
-/** Lucide-style icons (24×24 strokes) drawn on the top of each block. */
+export type Lane = 'studios' | 'ingest' | 'relays' | 'listeners';
+const LANES: Lane[] = ['studios', 'ingest', 'relays', 'listeners'];
+/** Where each lane runs across the floor. */
+const LANE_X: Record<Lane, number> = { studios: -16, ingest: -6, relays: 4, listeners: 14 };
+const LANE_W = 7.4;
+const GAP = 5.6;
+const FOOT = 1.9;
+/** Height the orchestrator's ring hovers at. */
+const RING_Y = 9;
+
+const laneOf = (k: SceneKind): Lane | null =>
+  k === 'studio' ? 'studios' : k === 'source' || k === 'station' ? 'ingest' : k === 'relay' || k === 'node' ? 'relays' : k === 'fm' || k === 'country' ? 'listeners' : null;
+
+/** Lucide-style icons (24×24 strokes) drawn on the top of each tower. */
 const ICONS: Record<SceneKind, string> = {
   main: '<circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l3 3M16 16l3 3M5 19l3-3M16 8l3-3"/>',
   relay: '<circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/>',
@@ -57,60 +78,51 @@ const ICONS: Record<SceneKind, string> = {
   station: '<circle cx="12" cy="11" r="2"/><path d="M8.5 7a6 6 0 0 0 0 8M15.5 7a6 6 0 0 1 0 8M9 21l3-8 3 8"/>',
   fm: '<path d="M4.9 16.1C1 12.2 1 5.8 4.9 1.9M7.8 4.7a6.14 6.14 0 0 0-.8 7.5M16.2 4.8c2 2 2.26 5.11.8 7.47M19.1 1.9a9.96 9.96 0 0 1 0 14.1"/><circle cx="12" cy="9" r="2"/><path d="M9.5 18h5M8 22l4-11 4 11"/>',
   studio: '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/>',
-};
-
-const SIZE: Record<SceneKind, { w: number; h: number }> = {
-  main: { w: 3, h: 2.2 },
-  relay: { w: 2.2, h: 1.1 },
-  source: { w: 2.2, h: 1.3 },
-  station: { w: 2.4, h: 1.5 },
-  node: { w: 2.2, h: 0.9 },
-  fm: { w: 2.2, h: 1.6 },
-  studio: { w: 1.8, h: 0.5 },
+  country: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
 };
 
 interface Placed {
   node: SceneNode;
   pos: THREE.Vector3;
-  size: { w: number; h: number };
+  /** Footprint and height of the tower. */
+  w: number;
+  h: number;
 }
 
 /**
- * Where every block goes. The audio flows left to right: studios, then the ingests, then the relays with their
- * listeners. The orchestrator stands apart in the back left corner, out of that flow; it only steers the nodes and
- * carries no audio.
+ * The skyline: the layers view laid on a floor. Four lanes run left to right (studios, ingest, relays, listeners) and
+ * every server is a tower in its lane; its height shows listeners (relays, FM, countries) or load (ingests). The
+ * orchestrator hovers above the middle as a ring: it carries no audio.
  */
 export function layout(data: SceneData): Map<string, Placed> {
   const out = new Map<string, Placed>();
-  const put = (n: SceneNode, x: number, z: number) => out.set(n.id, { node: n, pos: new THREE.Vector3(x, 0, z), size: SIZE[n.kind] });
-  // A column along z, centred in front of the orchestrator, bent a little so the far blocks stay in view.
-  const column = (list: SceneNode[], x: number, gap: number, bend: number) =>
-    list.forEach((n, i) => {
-      const k = i - (list.length - 1) / 2;
-      put(n, x + bend * Math.abs(k) * Math.abs(k) * 0.12, 2 + k * gap);
-    });
-  // Station nodes push to the relays like an ingest does, so they stand in the same column.
-  column(data.nodes.filter((n) => n.kind === 'source' || n.kind === 'station'), -7, 6, -1);
-  column(data.nodes.filter((n) => n.kind === 'relay'), 8, 6, 1);
-  // FM transmitters are fed by the relays: they stand beyond them, like masts on the horizon.
-  column(data.nodes.filter((n) => n.kind === 'fm'), 17, 6, 1);
-  // Studios sit left of the ingest they broadcast to.
-  const perTarget = new Map<string, number>();
+  const reach = Math.max(1, ...data.nodes.filter((n) => n.kind === 'relay' || n.kind === 'fm' || n.kind === 'country').map((n) => n.listeners));
+  const height = (n: SceneNode) =>
+    n.kind === 'studio'
+      ? 0.18
+      : n.kind === 'source' || n.kind === 'station'
+        ? 0.5 + 3.2 * Math.min(1, Math.max(0, n.load ?? 0))
+        : n.kind === 'node'
+          ? 0.4
+          : 0.5 + 5.5 * Math.sqrt(Math.max(0, n.listeners) / reach);
+  const put = (n: SceneNode, x: number, z: number) => out.set(n.id, { node: n, pos: new THREE.Vector3(x, 0, z), w: n.kind === 'studio' ? 1.6 : FOOT, h: height(n) });
+  const column = (list: SceneNode[], lane: Lane) => list.forEach((n, i) => put(n, LANE_X[lane], (i - (list.length - 1) / 2) * GAP));
+  column(data.nodes.filter((n) => laneOf(n.kind) === 'ingest'), 'ingest');
+  column(data.nodes.filter((n) => laneOf(n.kind) === 'relays'), 'relays');
+  column(data.nodes.filter((n) => laneOf(n.kind) === 'listeners'), 'listeners');
+  // Studios line up with the ingest they broadcast to; those without one fill the lane from the front.
+  const taken = new Set<number>();
+  const free = (z: number) => {
+    for (let k = 0; ; k++) for (const d of k ? [k, -k] : [0]) if (!taken.has(Math.round((z + d * 3.2) * 10))) return z + d * 3.2;
+  };
   for (const s of data.nodes.filter((n) => n.kind === 'studio')) {
-    const link = data.links.find((l) => l.from === s.id);
-    const target = link ? out.get(link.to) : undefined;
-    const key = target && target.node.kind !== 'main' ? target.node.id : 'main';
-    const k = perTarget.get(key) ?? 0;
-    perTarget.set(key, k + 1);
-    const offset = (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 1.6;
-    if (key === 'main' || !target) put(s, -15, 2 + offset * 1.6);
-    else put(s, target.pos.x - 6.5, target.pos.z + offset);
+    const target = out.get(data.links.find((l) => l.from === s.id)?.to ?? '');
+    const z = free(target ? target.pos.z : 0);
+    taken.add(Math.round(z * 10));
+    put(s, LANE_X.studios, z);
   }
-  // Behind everything, on the far left: the orchestrator, with nodes without a role in a row beside it.
-  const back = Math.min(-4, ...[...out.values()].map((x) => x.pos.z)) - 7;
   const main = data.nodes.find((n) => n.kind === 'main');
-  if (main) put(main, -17, back - 3);
-  data.nodes.filter((n) => n.kind === 'node').forEach((n, i) => put(n, -11 + i * 3.4, back - 3));
+  if (main) out.set(main.id, { node: main, pos: new THREE.Vector3((LANE_X.ingest + LANE_X.relays) / 2, RING_Y, Math.min(0, ...[...out.values()].map((x) => x.pos.z)) - 3), w: 3.2, h: 0 });
   return out;
 }
 
@@ -137,7 +149,7 @@ function radialTexture(inner: string, alpha: number) {
 const esc = (s: string) => s.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[ch]!);
 
 interface Flow {
-  curve: THREE.QuadraticBezierCurve3;
+  curve: THREE.Curve<THREE.Vector3>;
   dots: THREE.Mesh[];
   speed: number;
   /** Control links ping there and back. */
@@ -150,8 +162,9 @@ interface Pulse {
 }
 
 /**
- * The live topology as a WebGL scene: blocks per server, arcs with moving dots for streams and dashed control lines,
- * listener clouds around relays and HTML labels that follow the camera. Drag to rotate, scroll to zoom.
+ * The live topology as a WebGL skyline: towers per server on four lanes, light trails with moving dots over the floor
+ * for audio, a hovering ring for the orchestrator with faint control lines, and HTML labels that follow the camera.
+ * Drag to rotate, scroll to zoom.
  */
 export class TopologyScene {
   private renderer: THREE.WebGLRenderer;
@@ -162,7 +175,7 @@ export class TopologyScene {
   private content = new THREE.Group();
   private flows: Flow[] = [];
   private pulses: Pulse[] = [];
-  private clouds: THREE.Points[] = [];
+  private ring: THREE.Object3D | null = null;
   private pickables: THREE.Mesh[] = [];
   private labelEls = new Map<string, HTMLElement>();
   private pillEls = new Map<string, HTMLElement>();
@@ -194,18 +207,18 @@ export class TopologyScene {
     host.appendChild(this.labels.domElement);
 
     this.camera = new THREE.PerspectiveCamera(34, 1, 0.5, 400);
-    this.camera.position.set(10, 26, 30);
+    this.camera.position.set(-6, 26, 34);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
     this.controls.maxPolarAngle = 1.32;
     this.controls.minDistance = 10;
-    this.controls.maxDistance = 120;
-    this.controls.target.set(0, 0, 1);
+    this.controls.maxDistance = 140;
+    this.controls.target.set(0, 0, 0);
 
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x445066, 1.6));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.6);
-    sun.position.set(-8, 20, 12);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x445066, 1.5));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.7);
+    sun.position.set(-10, 22, 14);
     this.scene.add(sun);
     this.scene.add(this.content);
 
@@ -251,10 +264,11 @@ export class TopologyScene {
 
   setData(data: SceneData) {
     this.data = data;
-    const bucket = (n: number) => (n <= 0 ? 0 : Math.ceil(Math.log2(1 + n)));
+    const bucket = (n: number) => (n <= 0 ? 0 : Math.ceil(Math.log2(1 + n) * 2));
     const key = JSON.stringify([
-      data.nodes.map((n) => [n.id, n.kind, n.health, n.dim, n.own, bucket(n.listeners)]),
-      data.links.map((l) => [l.from, l.to, l.kind, l.state, l.dim]),
+      data.nodes.map((n) => [n.id, n.kind, n.health, n.dim, n.own, bucket(n.listeners), Math.round((n.load ?? 0) * 10)]),
+      data.links.map((l) => [l.from, l.to, l.kind, l.state, l.dim, l.standby, Math.round((l.width ?? 0) * 2)]),
+      data.lanes,
       this.selected,
     ]);
     if (key === this.structure) {
@@ -297,7 +311,7 @@ export class TopologyScene {
     this.content.clear();
     this.flows = [];
     this.pulses = [];
-    this.clouds = [];
+    this.ring = null;
     this.pickables = [];
     this.labelEls.clear();
     this.pillEls.clear();
@@ -312,22 +326,29 @@ export class TopologyScene {
     return t;
   }
 
-  private iconTexture(kind: SceneKind, color: string, edge: string | null, edgeWidth: number) {
-    return this.texture(`icon:${kind}:${color}:${edge}:${edgeWidth}`, () => {
+  /** The top of a tower: filled with its health colour, the icon on it and an edge when it is selected or yours. */
+  private topTexture(kind: SceneKind, fill: string, color: string, edge: string | null, edgeWidth: number) {
+    return this.texture(`top:${kind}:${fill}:${color}:${edge}:${edgeWidth}`, () => {
       const c = document.createElement('canvas');
       c.width = c.height = 256;
       const tex = new THREE.CanvasTexture(c);
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.anisotropy = 4;
+      const g = c.getContext('2d')!;
+      g.fillStyle = fill;
+      g.beginPath();
+      g.roundRect(0, 0, 256, 256, 26);
+      g.fill();
       const img = new Image();
       img.onload = () => {
-        const g = c.getContext('2d')!;
-        g.drawImage(img, 68, 68, 120, 120);
+        g.globalAlpha = 0.55;
+        g.drawImage(img, 78, 78, 100, 100);
+        g.globalAlpha = 1;
         if (edge) {
           g.strokeStyle = edge;
           g.lineWidth = edgeWidth;
           g.beginPath();
-          g.roundRect(edgeWidth / 2 + 2, edgeWidth / 2 + 2, 252 - edgeWidth, 252 - edgeWidth, 30);
+          g.roundRect(edgeWidth / 2 + 2, edgeWidth / 2 + 2, 252 - edgeWidth, 252 - edgeWidth, 26);
           g.stroke();
         }
         tex.needsUpdate = true;
@@ -342,67 +363,80 @@ export class TopologyScene {
     const p = this.palette;
     this.placed = layout(this.data);
     const healthColor = { online: p.online, degraded: p.warning, offline: p.offline, unpaired: p.muted };
+    const towers = [...this.placed.values()].filter((x) => x.node.kind !== 'main');
+    const depth = Math.max(14, ...towers.map((x) => Math.abs(x.pos.z) * 2 + GAP * 1.6));
 
-    // Ground: a soft grid and a warm glow under the orchestrator.
-    const extent = Math.max(34, ...[...this.placed.values()].map((x) => Math.max(Math.abs(x.pos.x), Math.abs(x.pos.z)) * 2 + 10));
-    const grid = new THREE.GridHelper(Math.ceil(extent / 2) * 2, Math.ceil(extent / 2), p.line, p.line);
+    // Floor: a faint grid, with a plate and a title per lane.
+    const span = Math.ceil(Math.max(52, depth + 16) / 2) * 2;
+    const grid = new THREE.GridHelper(span, span / 2, p.line, p.line);
     (grid.material as THREE.Material).transparent = true;
-    (grid.material as THREE.Material).opacity = p.dark ? 0.55 : 0.8;
-    grid.position.y = -0.01;
+    (grid.material as THREE.Material).opacity = p.dark ? 0.4 : 0.65;
+    grid.position.y = -0.02;
     this.content.add(grid);
-    const glow = new THREE.Mesh(new THREE.PlaneGeometry(14, 14), new THREE.MeshBasicMaterial({ map: this.texture(`glow:${p.koraal}`, () => radialTexture(p.koraal, p.dark ? 0.2 : 0.11)), transparent: true, depthWrite: false }));
-    glow.rotation.x = -Math.PI / 2;
-    glow.position.copy(this.placed.get('main')?.pos ?? new THREE.Vector3());
-    this.content.add(glow);
-    const shadowTex = this.texture('shadow', () => radialTexture('#000000', p.dark ? 0.55 : 0.28));
+    for (const lane of LANES) {
+      const plate = new THREE.Mesh(new THREE.PlaneGeometry(LANE_W, depth), new THREE.MeshBasicMaterial({ color: p.lucht, transparent: true, opacity: p.dark ? 0.06 : 0.1, depthWrite: false }));
+      plate.rotation.x = -Math.PI / 2;
+      plate.position.set(LANE_X[lane], 0, 0);
+      this.content.add(plate);
+      if (this.data.lanes) {
+        const title = document.createElement('div');
+        title.className = 'topo-lane-title';
+        title.textContent = this.data.lanes[lane];
+        const obj = new CSS2DObject(title);
+        // At the far end of each lane, clear of the legend and the zoom buttons.
+        obj.position.set(LANE_X[lane], 0, -depth / 2 - 0.8);
+        this.content.add(obj);
+      }
+    }
+    const shadowTex = this.texture('shadow', () => radialTexture('#000000', p.dark ? 0.5 : 0.22));
 
-    for (const { node, pos, size } of this.placed.values()) {
+    for (const placed of this.placed.values()) {
+      const { node, pos, w, h } = placed;
+      if (node.kind === 'main') {
+        this.addRing(placed);
+        continue;
+      }
       const g = new THREE.Group();
       g.position.copy(pos);
       const faded = node.dim || node.health === 'offline' || node.health === 'unpaired';
-      const opacity = node.dim ? 0.28 : faded ? 0.6 : 1;
+      const opacity = node.dim ? 0.25 : faded ? 0.6 : 1;
 
-      const shadow = new THREE.Mesh(new THREE.PlaneGeometry(size.w * 2, size.w * 2), new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false, opacity }));
+      const shadow = new THREE.Mesh(new THREE.PlaneGeometry(w * 2.2, w * 2.2), new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false, opacity }));
       shadow.rotation.x = -Math.PI / 2;
       shadow.position.y = 0.005;
       g.add(shadow);
 
-      const tile = node.kind === 'main' ? p.coreTile : p.tile;
       const box = new THREE.Mesh(
-        new RoundedBoxGeometry(size.w, size.h, size.w, 4, 0.18),
+        new RoundedBoxGeometry(w, h, w, 3, Math.min(0.12, h / 2.2)),
         new THREE.MeshStandardMaterial({
-          color: tile,
-          roughness: 0.55,
+          color: node.kind === 'studio' ? p.lucht : p.dark ? p.coreTile : p.tile,
+          roughness: 0.6,
           metalness: 0.08,
           transparent: opacity < 1,
           opacity,
-          emissive: node.health === 'degraded' ? p.warning : node.id === this.selected ? p.koraal : '#000000',
-          emissiveIntensity: node.health === 'degraded' ? 0.1 : node.id === this.selected ? 0.12 : 0,
+          emissive: node.id === this.selected ? p.koraal : '#000000',
+          emissiveIntensity: node.id === this.selected ? 0.12 : 0,
         }),
       );
-      box.position.y = size.h / 2;
+      box.position.y = h / 2;
       box.userData.id = node.id;
       g.add(box);
       if (!node.dim) this.pickables.push(box);
 
-      // The top: icon, with an edge in the brand colour for this server, the customer's own nodes and the selection.
-      const edge = node.id === this.selected || node.kind === 'main' || node.own ? p.koraal : null;
-      const icon = new THREE.Mesh(
-        new THREE.PlaneGeometry(size.w - 0.06, size.w - 0.06),
-        new THREE.MeshBasicMaterial({ map: this.iconTexture(node.kind, node.kind === 'main' ? p.koraal : p.ink, edge, node.id === this.selected ? 10 : 5), transparent: true, opacity, depthWrite: false }),
+      // The top shows health; countries are listeners, in the brand colour.
+      const fill = node.kind === 'studio' ? p.lucht : node.kind === 'country' ? p.koraal : healthColor[node.health];
+      const edge = node.id === this.selected || node.own ? p.ink : null;
+      const top = new THREE.Mesh(
+        new THREE.PlaneGeometry(w - 0.04, w - 0.04),
+        new THREE.MeshBasicMaterial({ map: this.topTexture(node.kind, fill, '#0b1530', edge, node.id === this.selected ? 12 : 6), transparent: true, opacity, depthWrite: false }),
       );
-      icon.rotation.x = -Math.PI / 2;
-      icon.position.y = size.h + 0.02;
-      g.add(icon);
+      top.rotation.x = -Math.PI / 2;
+      top.position.y = h + 0.012;
+      g.add(top);
 
-      // Status light on the front corner.
-      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 12), new THREE.MeshBasicMaterial({ color: healthColor[node.health], transparent: node.dim, opacity: node.dim ? 0.3 : 1 }));
-      lamp.position.set(size.w / 2 - 0.3, size.h + 0.12, size.w / 2 - 0.3);
-      g.add(lamp);
-
-      if ((node.kind === 'main' || node.id === this.selected) && !node.dim) {
+      if (node.id === this.selected && !node.dim) {
         for (const phase of [0, 0.5]) {
-          const ring = new THREE.Mesh(new THREE.RingGeometry(size.w * 0.72, size.w * 0.72 + 0.07, 72), new THREE.MeshBasicMaterial({ color: p.koraal, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false }));
+          const ring = new THREE.Mesh(new THREE.RingGeometry(w * 0.78, w * 0.78 + 0.07, 72), new THREE.MeshBasicMaterial({ color: p.koraal, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false }));
           ring.rotation.x = -Math.PI / 2;
           ring.position.y = 0.02;
           g.add(ring);
@@ -410,19 +444,7 @@ export class TopologyScene {
         }
       }
 
-      if (node.listeners > 0 && !node.dim && node.health !== 'offline') this.addCloud(g, node, pos);
-
-      const label = document.createElement('div');
-      label.className = 'topo-label';
-      label.style.opacity = node.dim ? '0.45' : '1';
-      label.innerHTML = this.labelHtml(node);
-      label.dataset.id = node.id;
-      const obj = new CSS2DObject(label);
-      obj.center.set(0.5, 0);
-      obj.position.set(0, 0, size.w / 2 + 0.55);
-      g.add(obj);
-      this.labelEls.set(node.id, label);
-
+      g.add(this.label(node, new THREE.Vector3(0, h + 0.35, 0)));
       this.content.add(g);
     }
 
@@ -430,27 +452,48 @@ export class TopologyScene {
     if (!this.fitted) this.fit();
   }
 
-  private labelHtml(n: SceneNode) {
-    return `<b>${esc(n.label)}</b><small><i class="topo-dot ${n.health}"></i>${esc(n.meta)}</small>`;
+  private label(node: SceneNode, at: THREE.Vector3) {
+    const el = document.createElement('div');
+    el.className = 'topo-label';
+    el.style.opacity = node.dim ? '0.45' : '1';
+    el.innerHTML = this.labelHtml(node);
+    el.dataset.id = node.id;
+    const obj = new CSS2DObject(el);
+    obj.center.set(0.5, 1);
+    obj.position.copy(at);
+    this.labelEls.set(node.id, el);
+    return obj;
   }
 
-  private addCloud(g: THREE.Group, node: SceneNode, pos: THREE.Vector3) {
-    const count = Math.min(90, Math.round(5 * Math.log2(1 + node.listeners)) + 3);
-    const out = Math.atan2(pos.z, pos.x || 0.0001);
-    const pts = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) {
-      const a = (node.kind === 'main' ? Math.random() * Math.PI * 2 : out + (Math.random() - 0.5) * 2.4);
-      const r = 1.9 + Math.random() * (node.kind === 'main' ? 3 : 2.2);
-      pts[i * 3] = Math.cos(a) * r;
-      pts[i * 3 + 1] = 0.15 + Math.random() * 0.25;
-      pts[i * 3 + 2] = Math.sin(a) * r;
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pts, 3));
-    const dot = this.texture(`dot:${this.palette.lucht}`, () => radialTexture(this.palette.lucht, 1));
-    const cloud = new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.55, map: dot, color: this.palette.lucht, transparent: true, depthWrite: false, blending: this.palette.dark ? THREE.AdditiveBlending : THREE.NormalBlending }));
-    g.add(cloud);
-    this.clouds.push(cloud);
+  private labelHtml(n: SceneNode) {
+    return `<b>${esc(n.label)}</b><small>${n.kind === 'country' || n.kind === 'studio' ? '' : `<i class="topo-dot ${n.health}"></i>`}${esc(n.meta)}</small>`;
+  }
+
+  /** The orchestrator: a ring hovering over the floor, with a glow below it. */
+  private addRing({ node, pos, w }: Placed) {
+    const p = this.palette;
+    const g = new THREE.Group();
+    g.position.copy(pos);
+    const torus = new THREE.Mesh(
+      new THREE.TorusGeometry(w / 2, 0.28, 18, 64),
+      new THREE.MeshStandardMaterial({ color: p.koraal, roughness: 0.4, metalness: 0.15, emissive: p.koraal, emissiveIntensity: node.id === this.selected ? 0.45 : 0.2, transparent: node.dim, opacity: node.dim ? 0.3 : 1 }),
+    );
+    torus.rotation.x = -Math.PI / 2;
+    torus.userData.id = node.id;
+    g.add(torus);
+    // A clear disc inside the ring, so a click in the middle selects it too.
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(w / 2, 32), new THREE.MeshBasicMaterial({ visible: false }));
+    disc.rotation.x = -Math.PI / 2;
+    disc.userData.id = node.id;
+    g.add(disc);
+    this.pickables.push(torus, disc);
+    g.add(this.label(node, new THREE.Vector3(0, 1.1, 0)));
+    this.content.add(g);
+    this.ring = torus;
+    const glow = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), new THREE.MeshBasicMaterial({ map: this.texture(`glow:${p.koraal}`, () => radialTexture(p.koraal, p.dark ? 0.16 : 0.09)), transparent: true, depthWrite: false }));
+    glow.rotation.x = -Math.PI / 2;
+    glow.position.set(pos.x, 0.01, pos.z);
+    this.content.add(glow);
   }
 
   private addLink(l: SceneLink) {
@@ -458,63 +501,83 @@ export class TopologyScene {
     const b = this.placed.get(l.to);
     if (!a || !b) return;
     const p = this.palette;
-    const start = a.pos.clone().setY(a.size.h * 0.6);
-    const end = b.pos.clone().setY(b.size.h * 0.6);
-    // Control and stream between the same two blocks bend to different sides.
-    const lift = 1.2 + start.distanceTo(end) * 0.12;
-    const mid = start.clone().lerp(end, 0.5).setY(Math.max(start.y, end.y) + lift);
-    const side = new THREE.Vector3(end.z - start.z, 0, start.x - end.x).normalize().multiplyScalar(l.kind === 'control' ? 0.6 : -0.6);
-    mid.add(side);
-    const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
-    const color = l.state === 'degraded' ? p.warning : l.state === 'down' ? p.offline : l.kind === 'stream' ? p.koraal : p.lucht;
-    const opacity = l.dim ? 0.12 : l.state === 'down' ? 0.25 : l.kind === 'stream' ? 0.4 : 0.55;
-    if (l.kind === 'stream') {
-      const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 48, 0.05, 6, false), new THREE.MeshBasicMaterial({ color: l.state === 'down' ? p.muted : color, transparent: true, opacity, depthWrite: false }));
-      this.content.add(tube);
-    } else {
-      // Control only: a dashed line, so it never reads as audio.
-      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(curve.getPoints(48)), new THREE.LineDashedMaterial({ color: l.state === 'down' ? p.muted : color, dashSize: 0.35, gapSize: 0.25, transparent: true, opacity, depthWrite: false }));
+    const color = l.state === 'degraded' ? p.warning : l.state === 'down' ? p.offline : l.kind === 'stream' ? (l.standby ? p.lucht : p.koraal) : p.lucht;
+    if (l.kind === 'control') {
+      // From the ring straight down to the top of the tower: faint and dashed, so it never reads as audio.
+      const ringSide = a.node.kind === 'main' ? a : b;
+      const other = ringSide === a ? b : a;
+      const start = ringSide.pos.clone().setY(ringSide.pos.y - 0.25);
+      const end = other.pos.clone().setY(other.h + 0.05);
+      const curve = new THREE.LineCurve3(start, end);
+      const focus = this.selected === l.from || this.selected === l.to;
+      const opacity = l.dim ? 0.06 : l.state === 'down' ? 0.15 : focus ? 0.6 : 0.22;
+      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([start, end]), new THREE.LineDashedMaterial({ color: l.state === 'down' ? p.muted : color, dashSize: 0.3, gapSize: 0.3, transparent: true, opacity, depthWrite: false }));
       line.computeLineDistances();
       this.content.add(line);
+      if (focus && l.state !== 'down' && !l.dim) this.addDots(curve, 1, 0.09, color, 0.3, true);
+      if (l.label && focus && !l.dim) this.addPill(l, curve.getPointAt(0.85));
+      return;
     }
-    if (l.state !== 'down' && !l.dim) {
-      const n = l.kind === 'stream' ? 4 : 1;
-      const dots: THREE.Mesh[] = [];
-      for (let i = 0; i < n; i++) {
-        const dot = new THREE.Mesh(new THREE.SphereGeometry(l.kind === 'stream' ? 0.13 : 0.1, 12, 10), new THREE.MeshBasicMaterial({ color }));
-        const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.texture(`halo:${color}`, () => radialTexture(color, 0.9)), transparent: true, depthWrite: false, blending: p.dark ? THREE.AdditiveBlending : THREE.NormalBlending, opacity: p.dark ? 0.9 : 0.6 }));
-        halo.scale.setScalar(0.9);
-        dot.add(halo);
-        this.content.add(dot);
-        dots.push(dot);
-      }
-      this.flows.push({ curve, dots, speed: (l.kind === 'stream' ? 0.35 : 0.25) * (this.reduced ? 0.3 : 1), pingPong: l.kind === 'control' });
+    // Audio: a light trail over the floor, from the front of one tower to the back of the next.
+    const start = a.pos.clone().setY(0.12).add(new THREE.Vector3(a.w / 2, 0, 0));
+    const end = b.pos.clone().setY(0.12).sub(new THREE.Vector3(b.w / 2, 0, 0));
+    const mid = start.clone().lerp(end, 0.5).setY(0.12 + 0.25 + start.distanceTo(end) * 0.02);
+    const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
+    const radius = 0.02 + (l.width ?? 2.5) * 0.012;
+    const opacity = l.dim ? 0.1 : l.state === 'down' ? 0.25 : l.standby ? 0.35 : 0.8;
+    if (l.standby) {
+      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(curve.getPoints(40)), new THREE.LineDashedMaterial({ color, dashSize: 0.4, gapSize: 0.3, transparent: true, opacity, depthWrite: false }));
+      line.computeLineDistances();
+      this.content.add(line);
+    } else {
+      const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 48, radius, 6, false), new THREE.MeshBasicMaterial({ color: l.state === 'down' ? p.muted : color, transparent: true, opacity, depthWrite: false }));
+      this.content.add(tube);
+      // A soft glow along the floor under the trail.
+      const glow = new THREE.Mesh(new THREE.TubeGeometry(curve, 48, radius * 3.2, 6, false), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: l.dim ? 0.03 : p.dark ? 0.12 : 0.08, depthWrite: false, blending: p.dark ? THREE.AdditiveBlending : THREE.NormalBlending }));
+      this.content.add(glow);
+      if (l.state !== 'down' && !l.dim) this.addDots(curve, 4, 0.11, color, 0.32, false);
     }
-    if (l.label && !l.dim) {
-      const pill = document.createElement('span');
-      pill.className = `topo-pill ${l.state}`;
-      pill.textContent = l.label;
-      const obj = new CSS2DObject(pill);
-      // A control pill sits near its node, so the pills don't pile up at the orchestrator.
-      obj.position.copy(curve.getPointAt(l.kind === 'control' ? 0.8 : 0.5));
-      this.content.add(obj);
-      this.pillEls.set(`${l.from}>${l.to}>${l.kind}`, pill);
+    if (l.label && !l.dim) this.addPill(l, curve.getPointAt(0.5).setY(0.6));
+  }
+
+  private addDots(curve: THREE.Curve<THREE.Vector3>, n: number, size: number, color: string, speed: number, pingPong: boolean) {
+    const p = this.palette;
+    const dots: THREE.Mesh[] = [];
+    for (let i = 0; i < n; i++) {
+      const dot = new THREE.Mesh(new THREE.SphereGeometry(size, 12, 10), new THREE.MeshBasicMaterial({ color: '#ffffff' }));
+      const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.texture(`halo:${color}`, () => radialTexture(color, 0.9)), transparent: true, depthWrite: false, blending: p.dark ? THREE.AdditiveBlending : THREE.NormalBlending, opacity: p.dark ? 0.9 : 0.6 }));
+      halo.scale.setScalar(0.8);
+      dot.add(halo);
+      this.content.add(dot);
+      dots.push(dot);
     }
+    this.flows.push({ curve, dots, speed: speed * (this.reduced ? 0.3 : 1), pingPong });
+  }
+
+  private addPill(l: SceneLink, at: THREE.Vector3) {
+    const pill = document.createElement('span');
+    pill.className = `topo-pill ${l.state}`;
+    pill.textContent = l.label;
+    const obj = new CSS2DObject(pill);
+    obj.position.copy(at);
+    this.content.add(obj);
+    this.pillEls.set(`${l.from}>${l.to}>${l.kind}`, pill);
   }
 
   // Camera
 
   private fit() {
-    const pts = [...this.placed.values()].map((x) => x.pos);
+    const pts = [...this.placed.values()].map((x) => x.pos.clone().setY(Math.min(x.pos.y, 4)));
     if (!pts.length) return;
-    const box = new THREE.Box3().setFromPoints(pts).expandByScalar(4);
+    pts.push(new THREE.Vector3(LANE_X.studios - LANE_W / 2, 0, 0), new THREE.Vector3(LANE_X.listeners + LANE_W / 2, 0, 0));
+    const box = new THREE.Box3().setFromPoints(pts).expandByScalar(1);
     const center = box.getCenter(new THREE.Vector3());
     const radius = box.getSize(new THREE.Vector3()).length() / 2;
     const aspect = Math.max(0.6, this.camera.aspect);
-    const dist = (radius / Math.tan((this.camera.fov * Math.PI) / 360)) * (aspect < 1.2 ? 1.35 / aspect : 0.95);
-    this.controls.target.copy(center).setY(0);
-    const dir = new THREE.Vector3(0.18, 0.78, 0.6).normalize();
-    this.camera.position.copy(center).add(dir.multiplyScalar(THREE.MathUtils.clamp(dist, 16, 110)));
+    const dist = (radius / Math.tan((this.camera.fov * Math.PI) / 360)) * (aspect < 1.2 ? 1.2 / aspect : 0.8);
+    this.controls.target.copy(center).setY(0.5);
+    const dir = new THREE.Vector3(-0.1, 0.82, 0.56).normalize();
+    this.camera.position.copy(center).add(dir.multiplyScalar(THREE.MathUtils.clamp(dist, 18, 130)));
     this.controls.update();
     this.fitted = true;
   }
@@ -567,11 +630,12 @@ export class TopologyScene {
       });
     }
     for (const p of this.pulses) {
-      const u = this.reduced ? 0.3 : ((t / 2.4 + p.phase) % 1);
+      const u = this.reduced ? 0.3 : (t / 2.4 + p.phase) % 1;
       p.mesh.scale.setScalar(0.85 + u * 0.9);
       (p.mesh.material as THREE.MeshBasicMaterial).opacity = 0.55 * (1 - u);
     }
-    if (!this.reduced) for (const c of this.clouds) c.rotation.y = Math.sin(t * 0.15) * 0.08;
+    // The ring bobs gently, as if it hovers.
+    if (this.ring && !this.reduced) this.ring.position.y = Math.sin(t * 1.1) * 0.12;
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
     this.labels.render(this.scene, this.camera);

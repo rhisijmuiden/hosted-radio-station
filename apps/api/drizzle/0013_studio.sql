@@ -1,0 +1,1 @@
+ALTER TABLE "autodj_state" ADD COLUMN "manual_until" timestamp with time zone;

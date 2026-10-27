@@ -145,7 +145,7 @@ pub fn host_ids() -> Vec<cpal::HostId> {
     cpal::available_hosts()
 }
 
-fn host_by_name(name: &str) -> anyhow::Result<cpal::Host> {
+pub(crate) fn host_by_name(name: &str) -> anyhow::Result<cpal::Host> {
     let id = cpal::available_hosts().into_iter().find(|h| h.name() == name).ok_or_else(|| anyhow!("audio system {name} is not available"))?;
     Ok(cpal::host_from_id(id)?)
 }
@@ -179,13 +179,13 @@ pub fn list_devices() -> Devices {
     out
 }
 
-fn find_device(host: &cpal::Host, name: &str, input: bool) -> anyhow::Result<cpal::Device> {
+pub(crate) fn find_device(host: &cpal::Host, name: &str, input: bool) -> anyhow::Result<cpal::Device> {
     let mut devs: Box<dyn Iterator<Item = cpal::Device>> = if input { Box::new(host.input_devices()?) } else { Box::new(host.output_devices()?) };
     devs.find(|d| d.name().map(|n| n == name).unwrap_or(false)).ok_or_else(|| anyhow!("sound card \"{name}\" not found"))
 }
 
 /// Picks the config with enough channels at 48 or 44.1 kHz, preferring 32-bit float; else the device default.
-fn pick_config(ranges: Vec<SupportedStreamConfigRange>, min_channels: u16, fallback: cpal::SupportedStreamConfig) -> cpal::SupportedStreamConfig {
+pub(crate) fn pick_config(ranges: Vec<SupportedStreamConfigRange>, min_channels: u16, fallback: cpal::SupportedStreamConfig) -> cpal::SupportedStreamConfig {
     let rank = |f: cpal::SampleFormat| match f {
         cpal::SampleFormat::F32 => 0,
         cpal::SampleFormat::I32 => 1,

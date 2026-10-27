@@ -85,6 +85,20 @@
       "when": 1793023901198,
       "tag": "0012_phase13",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793050839321,
+      "tag": "0013_studio",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793100000000,
+      "tag": "0014_studio_jingles",
+      "breakpoints": true
     }
   ]
 }

@@ -127,6 +127,8 @@ export interface SystemInfo {
   helpers: boolean;
   addresses: string[];
   lastCheck: UpdateCheck | null;
+  /** Names of this server and its own roles (phase 18). */
+  server: { name: string; ingest: string; relay: string; orchestratorOnly: boolean };
 }
 export interface JobStatus {
   id: string | null;
@@ -348,6 +350,8 @@ export interface ConnectionInfo {
   listenBase: string;
   mounts: { id: string; path: string; encoderMount: string; listenUrl: string | null }[];
   upload: { host: string; sftpPort: number | null; ftpPort: number | null; ftpRequireTls: boolean };
+  endpoints: ConnectionEndpoint[];
+  panelUrl: string;
 }
 export interface StationDetail extends Station {
   tenantPlan: Plan;
@@ -433,6 +437,7 @@ export interface TenantUsage {
 export interface StreamingSettings {
   ingestTlsPort: number;
   ingestPlainPort: number;
+  encoderHost: string;
   icecastPortFrom: number;
   icecastPortTo: number;
   legacyPortFrom: number;
@@ -1039,9 +1044,58 @@ export interface NodesSettings {
   /** Where source nodes pass encoders on to this server; empty = its public name. */
   ingestAddress: string;
 }
+export type PortService = 'encoderTls' | 'encoderPlain' | 'legacy' | 'sftp' | 'ftp' | 'ftpPassive' | 'listeners' | 'listenersTls' | 'push';
+/** Where a station's studio, encoders and uploads connect, as the orchestrator hands it out (phase 18). */
+export interface ConnectionEndpoint {
+  role: 'stationNode' | 'ingest' | 'backupIngest' | 'uploads';
+  name: string;
+  /** Null = this server. */
+  node: { id: string; name: string } | null;
+  online: boolean;
+  external: string | null;
+  internal: string | null;
+  ports: { service: PortService; port: number; to?: number; tls?: boolean }[];
+}
+export interface StationConnection {
+  endpoints: ConnectionEndpoint[];
+  panelUrl: string;
+  orchestrator: string;
+  orchestratorOnly: boolean;
+}
+export interface ServerNames {
+  orchestrator: { name: string; default: string; shown: string; host: string };
+  ingest: { name: string; default: string; shown: string };
+  relay: { name: string; default: string; shown: string };
+  nodes: { id: string; name: string; roles: NodeRole[]; location: string; hostname: string | null; ip: string | null; tenantName: string | null; online: boolean }[];
+}
+export type AudioUse = 'ingest' | 'backupIngest' | 'listeners' | 'autodj' | 'moving';
+export interface OrchestratorView {
+  only: boolean;
+  stations: { id: string; name: string; slug: string; tenantId: string; tenantName: string; uses: AudioUse[] }[];
+  ingestNodes: number;
+  stationNodes: number;
+  relayNodes: number;
+}
+export interface FirewallPort {
+  service: PortService;
+  port: number;
+  to?: number;
+  for: ('studio' | 'encoders' | 'uploads' | 'listeners' | 'ingests')[];
+  station?: string;
+}
+export interface NodeFirewall {
+  selfHosted: boolean;
+  external: string | null;
+  internal: string | null;
+  ports: FirewallPort[];
+  checks: Record<string, { ok: boolean; message: string | null; ms: number | null; at: string }>;
+}
 export interface TopologyNode {
   id: string;
   name: string;
+  /** Host name and address, for who manages the node. */
+  hostname: string | null;
+  ip: string | null;
   /** One of this server's own roles (local:ingest, local:relay), not a node. */
   local: boolean;
   /** Stations this node is the main or backup ingest of. */
@@ -1088,6 +1142,8 @@ export interface RoutingChoice {
 export interface StationRoutingView {
   routing: StationRouting;
   locked: 'station_node' | null;
+  /** This server carries no audio (phase 18). */
+  orchestratorOnly: boolean;
   autodjHere: boolean;
   canEdit: boolean;
   options: { ingests: RoutingChoice[]; relays: RoutingChoice[] };
@@ -1115,13 +1171,34 @@ export interface TopologyLink {
   degraded: boolean;
   rttMs: number | null;
   loss: number | null;
+  /** Streams on the line and their bitrate together. */
+  streams: number;
+  kbps: number | null;
+  /** A backup ingest feeding the relay on standby. */
+  standby: boolean;
+}
+export type TopologyCell = 'onAir' | 'standby' | 'degraded' | 'down' | 'idle';
+export interface TopologyStation {
+  id: string;
+  name: string;
+  tenantId: string | null;
+  edition: 'distribution' | 'station';
+  stationNode: string | null;
+  ingest: string | null;
+  backup: string | null;
+  active: string | null;
+  relays: string[];
+  listeners: number;
+  cells: Record<string, TopologyCell>;
 }
 export interface Topology {
   view: 'admin' | 'customer';
-  main: { id: 'main'; name: string; version: string; commit: string | null; branch: string | null; listeners: number; stations: number };
+  main: { id: 'main'; name: string; host: string | null; orchestratorOnly: boolean; version: string; commit: string | null; branch: string | null; listeners: number; stations: number };
   nodes: TopologyNode[];
   studios: TopologyStudio[];
   links: TopologyLink[];
+  stations: TopologyStation[];
+  audience: { nodeId: string; stationId: string; country: string | null; listeners: number }[];
   kpis: {
     nodesOnline: number;
     nodesTotal: number;

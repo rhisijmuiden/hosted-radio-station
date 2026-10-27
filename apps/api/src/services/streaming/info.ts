@@ -1,8 +1,10 @@
 import { and, eq, isNotNull } from 'drizzle-orm';
 import { schema } from '../../db/index.js';
 import type { AppContext } from '../../lib/context.js';
+import { namesFrom } from '../nodes/names.js';
 import { nodeSettings } from '../nodes/plan.js';
-import { pushedRouting, stationRouting } from '../nodes/routing-rules.js';
+import { externalAddress, inboundPorts, internalAddress, STATION_NODE_STREAMING, type PortService } from '../nodes/ports.js';
+import { ingestsOf, pushedRouting, stationRouting } from '../nodes/routing-rules.js';
 import { getSetting } from '../settings.js';
 import type { Mount, Station } from './state.js';
 
@@ -32,13 +34,45 @@ export interface ConnectionInfo {
   /** Base of the listen URLs, e.g. https://stream.example.com */
   listenBase: string;
   mounts: { id: string; path: string; encoderMount: string; listenUrl: string | null }[];
+  /** The upload ports of the server that holds the library (this server, or the station node); null = no uploads. */
+  upload: { sftpPort: number | null; ftpPort: number | null; ftpRequireTls: boolean; passive: { from: number; to: number } | null } | null;
+  /**
+   * Where everything connects, as the orchestrator hands it out from the station's routing (phase 18): the station
+   * node with its external and internal address, or the ingest(s) the customer may stream to, and where uploads go.
+   */
+  endpoints: Endpoint[];
+  /** Panel address RHIS Studio signs in to. */
+  panelUrl: string;
+}
+
+export interface Endpoint {
+  role: 'stationNode' | 'ingest' | 'backupIngest' | 'uploads';
+  /** Server name (phase 18). */
+  name: string;
+  /** Null = this server (the orchestrator or one of its roles). */
+  node: { id: string; name: string } | null;
+  online: boolean;
+  /** Address from outside (internet). */
+  external: string | null;
+  /** Address on the customer's or studio's own network, when known. */
+  internal: string | null;
+  ports: { service: PortService; port: number; to?: number; tls?: boolean }[];
 }
 
 /** Everything a DJ needs to set up an encoder, and the listen URLs of the public mounts. */
 export async function connectionInfo(ctx: AppContext, station: Station, mounts: Mount[], localEnabled: boolean): Promise<ConnectionInfo> {
+  const base = await baseConnection(ctx, station, mounts, localEnabled);
+  return { ...base, ...(await endpointsOf(ctx, station, base)) };
+}
+
+type BaseConnection = Omit<ConnectionInfo, 'endpoints' | 'panelUrl' | 'upload'>;
+
+async function baseConnection(ctx: AppContext, station: Station, mounts: Mount[], localEnabled: boolean): Promise<BaseConnection> {
   const [proxy, streaming, domain] = await Promise.all([getSetting(ctx, 'proxy'), getSetting(ctx, 'streaming'), tenantDomain(ctx, station.tenantId)]);
   const publicUrl = new URL(ctx.config.PUBLIC_URL);
-  const ingestHost = domain?.ingestHost ?? (proxy.domain || publicUrl.hostname);
+  const ingestHost = domain?.ingestHost ?? (streaming.encoderHost || proxy.domain || publicUrl.hostname);
+  // A separate encoder address has no certificate of its own: TLS only on the customer's src. name or the main domain.
+  const tlsHere = proxy.mode === 'builtin' && (!!domain || (!!proxy.domain && !streaming.encoderHost));
   const listenBase = domain ? `https://${domain.panelHost}` : ctx.config.PUBLIC_URL.replace(/\/$/, '');
   const legacyMount = mounts.find((m) => m.id === station.legacyMountId) ?? mounts.find((m) => m.kind === 'source') ?? null;
   // A station on a station node (phase 12): encoders and RHIS Studio connect to the node in the studio itself.
@@ -47,14 +81,17 @@ export async function connectionInfo(ctx: AppContext, station: Station, mounts: 
     if (sn) {
       const c = nodeSettings(sn);
       const host = c.lanAddress || c.publicHost || sn.status.ip || ingestHost;
+      const d = STATION_NODE_STREAMING;
       return {
         ingestHost: host,
         node: { id: sn.id, name: sn.name },
         backup: null,
-        uploadHost: domain?.panelHost ?? ingestHost,
-        // The node's own Icecast takes encoders; TLS only with a name and a certificate of its own.
-        tls: { port: streaming.ingestTlsPort, available: false },
-        plain: { port: station.icecastPort },
+        // The library lives on the node, so uploads go there too.
+        uploadHost: externalAddress(sn) ?? host,
+        // The node's own ingest gateway takes encoders, on the ports of a fresh install; TLS only with a name and a
+        // certificate of its own.
+        tls: { port: d.ingestTlsPort, available: !!c.publicHost && !!sn.status.caddy },
+        plain: d.ingestPlainPort ? { port: d.ingestPlainPort } : null,
         legacy: station.legacyPort ? { port: station.legacyPort, sourcePort: station.legacyPort + 1, mount: legacyMount?.path ?? null } : null,
         listenBase,
         mounts: mounts.map((m) => ({ id: m.id, path: m.path, encoderMount: m.path, listenUrl: m.isPublic ? `${listenBase}/listen/${station.slug}${m.path}` : null })),
@@ -72,7 +109,7 @@ export async function connectionInfo(ctx: AppContext, station: Station, mounts: 
     const host = domain?.ingestNodeId === n.id ? domain.ingestHost : c.publicHost || n.status.ip || n.name;
     return { host, node: { id: n.id, name: n.name }, tls: { port: c.sourceTlsPort ?? streaming.ingestTlsPort, available: !!c.sourceTlsPort && !!n.status.caddy && (domain?.ingestNodeId === n.id || !!c.publicHost) }, plain: c.sourcePlainPort ? { port: c.sourcePlainPort } : null };
   };
-  const here = { host: ingestHost, node: null, tls: { port: streaming.ingestTlsPort, available: proxy.mode === 'builtin' && (!!domain || !!proxy.domain) }, plain: streaming.ingestPlainPort ? { port: streaming.ingestPlainPort } : null };
+  const here = { host: ingestHost, node: null, tls: { port: streaming.ingestTlsPort, available: tlsHere }, plain: streaming.ingestPlainPort ? { port: streaming.ingestPlainPort } : null };
   const backup = routing.backupIngest && routing.backupIngest !== routing.ingest ? (routing.backupIngest === 'local' ? here : await nodeIngest(routing.backupIngest)) : null;
   const pushed = pushedRouting(routing);
   if (routing.ingest !== 'local') {
@@ -114,7 +151,7 @@ export async function connectionInfo(ctx: AppContext, station: Station, mounts: 
     backup,
     uploadHost: ingestHost,
     // Certificates come from the built-in web server; behind an external proxy, TLS for encoders is set up there.
-    tls: { port: streaming.ingestTlsPort, available: proxy.mode === 'builtin' && (!!domain || !!proxy.domain) },
+    tls: { port: streaming.ingestTlsPort, available: tlsHere },
     plain: streaming.ingestPlainPort ? { port: streaming.ingestPlainPort } : null,
     legacy: station.legacyPort ? { port: station.legacyPort, sourcePort: station.legacyPort + 1, mount: legacyMount?.path ?? null } : null,
     listenBase,
@@ -125,4 +162,76 @@ export async function connectionInfo(ctx: AppContext, station: Station, mounts: 
       listenUrl: m.isPublic && pushed ? `${listenBase}/api/public/stations/${station.slug}/listen${m.path}` : m.isPublic && localEnabled ? `${listenBase}/listen/${station.slug}${m.path}` : null,
     })),
   };
+}
+
+/** The endpoints of a station, its upload ports and the panel address (see ConnectionInfo.endpoints). */
+async function endpointsOf(ctx: AppContext, station: Station, conn: BaseConnection): Promise<Pick<ConnectionInfo, 'endpoints' | 'panelUrl' | 'upload'>> {
+  const [streaming, orchestrator, proxy, domain] = await Promise.all([getSetting(ctx, 'streaming'), getSetting(ctx, 'orchestrator'), getSetting(ctx, 'proxy'), tenantDomain(ctx, station.tenantId)]);
+  const names = namesFrom(orchestrator, proxy.domain || streaming.cnameTarget || new URL(ctx.config.PUBLIC_URL).hostname);
+  const panelUrl = domain ? `https://${domain.panelHost}` : ctx.config.PUBLIC_URL.replace(/\/$/, '');
+  const nodeRow = async (id: string) => (await ctx.db.select().from(schema.nodes).where(and(eq(schema.nodes.id, id), isNotNull(schema.nodes.pairedAt))))[0];
+  const uploadPorts = (s: typeof streaming) => ({
+    sftpPort: s.sftp.enabled ? s.sftp.port : null,
+    ftpPort: s.ftp.enabled ? s.ftp.port : null,
+    ftpRequireTls: s.ftp.requireTls,
+    passive: s.ftp.enabled ? { from: s.ftp.passivePortFrom, to: s.ftp.passivePortTo } : null,
+  });
+  const uploadList = (u: ReturnType<typeof uploadPorts>): Endpoint['ports'] => [
+    ...(u.sftpPort ? [{ service: 'sftp' as const, port: u.sftpPort }] : []),
+    ...(u.ftpPort ? [{ service: 'ftp' as const, port: u.ftpPort, tls: u.ftpRequireTls }] : []),
+    ...(u.passive ? [{ service: 'ftpPassive' as const, port: u.passive.from, to: u.passive.to }] : []),
+  ];
+  const endpoints: Endpoint[] = [];
+
+  if (station.nodeId) {
+    const sn = await nodeRow(station.nodeId);
+    if (sn) {
+      const routed = domain?.ingestNodeId === sn.id ? domain.ingestHost : null;
+      const ports = (await inboundPorts(ctx, sn)).filter((p) => p.service !== 'legacy' || p.station === station.slug).map((p) => ({ service: p.service, port: p.port, ...(p.to ? { to: p.to } : {}), ...(p.service === 'encoderTls' ? { tls: true } : {}) }));
+      endpoints.push({ role: 'stationNode', name: sn.name, node: { id: sn.id, name: sn.name }, online: !!sn.status.online, external: routed ?? externalAddress(sn), internal: internalAddress(sn), ports });
+      return { endpoints, panelUrl, upload: uploadPorts(STATION_NODE_STREAMING) };
+    }
+  }
+
+  const routing = stationRouting(station);
+  for (const i of ingestsOf(routing)) {
+    const role = i.priority === 0 ? 'ingest' : 'backupIngest';
+    if (i.ref === 'local') {
+      if (orchestrator.only) continue;
+      // Encoders may come through the customer's source node, which passes them on to this server.
+      const viaNode = i.priority === 0 ? conn.node : null;
+      endpoints.push({
+        role,
+        name: viaNode?.name ?? names.ingest,
+        node: viaNode,
+        online: true,
+        external: i.priority === 0 ? conn.ingestHost : (conn.backup?.host ?? conn.ingestHost),
+        internal: null,
+        ports: [
+          { service: 'encoderTls' as const, port: conn.tls.port, tls: true },
+          ...(streaming.ingestPlainPort ? [{ service: 'encoderPlain' as const, port: streaming.ingestPlainPort }] : []),
+          ...(station.legacyPort && !viaNode ? [{ service: 'legacy' as const, port: station.legacyPort, to: station.legacyPort + 1 }] : []),
+        ].filter((p) => p.service !== 'encoderTls' || (i.priority === 0 ? conn.tls.available : !!conn.backup?.tls.available)),
+      });
+      continue;
+    }
+    const n = await nodeRow(i.ref);
+    if (!n) continue;
+    const c = nodeSettings(n);
+    const tlsOk = !!c.sourceTlsPort && !!n.status.caddy && (domain?.ingestNodeId === n.id || !!c.publicHost);
+    endpoints.push({
+      role,
+      name: n.name,
+      node: { id: n.id, name: n.name },
+      online: !!n.status.online,
+      external: domain?.ingestNodeId === n.id ? domain.ingestHost : externalAddress(n),
+      // The address on the customer's own network only for the customer's own node.
+      internal: n.tenantId === station.tenantId ? internalAddress(n) : null,
+      ports: [...(c.sourceTlsPort && tlsOk ? [{ service: 'encoderTls' as const, port: c.sourceTlsPort, tls: true }] : []), ...(c.sourcePlainPort ? [{ service: 'encoderPlain' as const, port: c.sourcePlainPort }] : [])],
+    });
+  }
+  // Without a station node the library is on this server; an orchestrator only takes no uploads.
+  const upload = orchestrator.only ? null : uploadPorts(streaming);
+  if (upload && (upload.sftpPort || upload.ftpPort)) endpoints.push({ role: 'uploads', name: names.orchestrator, node: null, online: true, external: conn.uploadHost, internal: null, ports: uploadList(upload) });
+  return { endpoints, panelUrl, upload };
 }

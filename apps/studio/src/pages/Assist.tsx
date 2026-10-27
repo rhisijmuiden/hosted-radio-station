@@ -1,18 +1,18 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowLeftRight, ArrowUpToLine, CalendarClock, Eraser, GripVertical, ListMusic, Music2, Search, SkipForward, Trash2, X } from 'lucide-react';
-import { useState, type DragEvent } from 'react';
+import { ArrowLeftRight, ArrowUpToLine, CalendarClock, Eraser, GripVertical, ListMusic, Minus, Music2, Play, Plus, SkipForward, Square, Trash2 } from 'lucide-react';
+import { useEffect, useState, type DragEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { Badge, Button, Card, EmptyState, Input, Spinner } from '../components/ui';
-import { api, type AutoDj, type Media, type QueueRow } from '../lib/api';
+import { addLocalFile, DRAG_FILE, DRAG_MEDIA, LibraryPanel, useCanUpload, type QueueName } from '../components/Library';
+import { JingleBar } from '../components/Jingles';
+import { Badge, Button, Card, EmptyState, Spinner } from '../components/ui';
+import { api, type AutoDj, type QueueRow, type QueueRule } from '../lib/api';
 import { duration } from '../lib/format';
 import { useAutoDj } from '../lib/queries';
 import { useSession } from '../lib/session';
 
-type QueueName = 'q1' | 'q2';
 const DRAG = 'application/x-hrs-item';
-const DRAG_MEDIA = 'application/x-hrs-media';
 
 function useQueueActions(stationId: string) {
   const qc = useQueryClient();
@@ -52,43 +52,183 @@ function useQueueActions(stationId: string) {
       },
       onError: fail,
     }),
+    playNow: useMutation({
+      mutationFn: (v: { itemId: string } | { mediaId: string }) => api<AutoDj>(`/stations/${stationId}/autodj/play-now`, { method: 'POST', body: v }),
+      onSuccess: (d) => {
+        done(d);
+        toast.success(t('assist.playingNow'));
+        setTimeout(() => void qc.invalidateQueries({ queryKey: ['autodj', stationId] }), 1500);
+      },
+      onError: fail,
+    }),
+    player: useMutation({
+      mutationFn: (command: 'play' | 'stop') => api(`/stations/${stationId}/autodj/${command}`, { method: 'POST' }),
+      onSuccess: () => setTimeout(() => void qc.invalidateQueries({ queryKey: ['autodj', stationId] }), 800),
+      onError: fail,
+    }),
+    mode: useMutation({
+      mutationFn: (manual: boolean) => api<AutoDj>(`/stations/${stationId}/autodj/mode`, { method: 'POST', body: { manual } }),
+      onSuccess: (d) => {
+        done(d);
+        toast.success(d.playout.manual ? t('playout.manualOn') : t('playout.autoOn'));
+      },
+      onError: fail,
+    }),
+    rule: useMutation({
+      mutationFn: (rule: QueueRule) => api<AutoDj>(`/stations/${stationId}/queue-rule`, { method: 'PUT', body: rule }),
+      onSuccess: done,
+      onError: fail,
+    }),
   };
 }
 
-function NowPlaying({ data, onSkip, skipping }: { data: AutoDj; onSkip: () => void; skipping: boolean }) {
+/** Auto: the player plays on from track to track. Manual: it stops after each track until Play. */
+function ModeSwitch({ data, stationId }: { data: AutoDj; stationId: string }) {
   const { t } = useTranslation();
-  const np = data.nowPlaying;
-  const elapsed = np?.startedAt ? (Date.now() - new Date(np.startedAt).getTime()) / 1000 : 0;
-  const total = np?.media.durationSeconds ?? null;
-  const pct = total ? Math.min(100, (elapsed / total) * 100) : 0;
-  const remaining = total ? total - elapsed : null;
-  const next = data.queues.q1[0] ?? data.queues.q2[0];
+  const { supports } = useSession();
+  const a = useQueueActions(stationId);
+  const manual = !!data.playout?.manual;
+  const can = supports('playout');
   return (
-    <Card className="overflow-hidden">
+    <div role="group" aria-label={t('playout.label')} title={can ? undefined : t('server.needsUpdate')} className="flex rounded-md border border-line bg-surface p-0.5">
+      {([false, true] as const).map((m) => (
+        <button
+          key={String(m)}
+          type="button"
+          disabled={!can || a.mode.isPending}
+          aria-pressed={manual === m}
+          onClick={() => manual !== m && a.mode.mutate(m)}
+          className={clsx(
+            'h-8 rounded-[7px] px-3.5 text-[13px] font-bold transition-colors disabled:cursor-not-allowed',
+            manual === m ? 'bg-koraal text-nacht' : 'text-muted hover:text-ink',
+          )}
+        >
+          {m ? t('playout.manual') : t('playout.auto')}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Re-renders every second: the autodj poll returns the same object while a track plays, so the clock must tick on its own. */
+function useNow() {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return now;
+}
+
+function NowPlaying({ data, stationId }: { data: AutoDj; stationId: string }) {
+  const { t } = useTranslation();
+  const a = useQueueActions(stationId);
+  const manual = !!data.playout?.manual;
+  const holding = manual && !!data.playout?.holding;
+  const np = data.nowPlaying;
+  const now = useNow();
+  const elapsed = np?.startedAt ? (now - new Date(np.startedAt).getTime()) / 1000 : 0;
+  const total = np?.media.durationSeconds ?? null;
+  const pct = total && !holding ? Math.min(100, (elapsed / total) * 100) : 0;
+  const remaining = total && !holding ? Math.max(0, total - elapsed) : null;
+  const next = [...data.queues.q1, ...data.queues.q2].find((r) => r.state === 'cued') ?? data.queues.q1[0] ?? data.queues.q2[0];
+  // A track dropped on the player plays now: from a queue, the library, or this PC (uploaded first).
+  const { supports } = useSession();
+  const canUpload = useCanUpload();
+  const [over, setOver] = useState(false);
+  const accepts = (e: DragEvent) => supports('play-now') && [DRAG, DRAG_MEDIA, ...(canUpload ? [DRAG_FILE] : [])].some((k) => e.dataTransfer.types.includes(k));
+  const drop = (e: DragEvent) => {
+    e.preventDefault();
+    setOver(false);
+    const itemId = e.dataTransfer.getData(DRAG);
+    const mediaId = e.dataTransfer.getData(DRAG_MEDIA);
+    const file = e.dataTransfer.getData(DRAG_FILE);
+    if (itemId) a.playNow.mutate({ itemId });
+    else if (mediaId) a.playNow.mutate({ mediaId });
+    else if (file && canUpload) void addLocalFile(stationId, file, 'q1', 'top', (v) => a.playNow.mutate({ mediaId: v.mediaId }), t);
+  };
+  return (
+    <Card
+      className={clsx('relative overflow-hidden', over && 'ring-2 ring-koraal')}
+      onDragOver={(e) => {
+        if (!accepts(e)) return;
+        e.preventDefault();
+        setOver(true);
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={drop}
+    >
+      {over && (
+        <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-koraal/15 text-sm font-extrabold tracking-[0.08em] text-accent-text uppercase">
+          {t('assist.dropToPlay')}
+        </div>
+      )}
       <div className="flex items-center gap-5 p-5">
         <div className="grid size-16 shrink-0 place-items-center rounded-md bg-nacht text-koraal">
           <Music2 className="size-7" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">{t('assist.nowPlaying')}</div>
-          <div className="display truncate text-xl">{np ? np.media.title || np.media.path : t('assist.nothing')}</div>
-          <div className="truncate text-[13px] text-muted">{np ? [np.media.artist, np.media.album].filter(Boolean).join(' · ') : !data.player.connected && data.player.expected ? t('assist.playerOffline') : ''}</div>
+          <div className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">{holding ? t('playout.waiting') : t('assist.nowPlaying')}</div>
+          <div className="display truncate text-xl">{holding ? (next ? next.media.title || next.media.path : t('assist.nothing')) : np ? np.media.title || np.media.path : t('assist.nothing')}</div>
+          <div className="truncate text-[13px] text-muted">
+            {holding
+              ? next
+                ? [next.media.artist, t('playout.pressPlay')].filter(Boolean).join(' · ')
+                : ''
+              : np
+                ? [np.media.artist, np.media.album].filter(Boolean).join(' · ')
+                : !data.player.connected && data.player.expected
+                  ? t('assist.playerOffline')
+                  : ''}
+          </div>
         </div>
         <div className="text-right">
-          <div className={clsx('display text-[32px] leading-none tabular', remaining != null && remaining < 15 && 'text-accent-text')}>{remaining != null ? `-${duration(remaining)}` : '–:––'}</div>
-          <div className="mt-1 text-[11px] text-muted">{t('assist.remainingLabel')}</div>
+          {holding ? (
+            <>
+              <div className="display text-[32px] leading-none tabular">{next ? duration(next.media.durationSeconds) : '–:––'}</div>
+              <div className="mt-1 text-[11px] text-muted">{t('playout.length')}</div>
+            </>
+          ) : (
+            <>
+              <div className={clsx('display text-[32px] leading-none tabular', remaining != null && remaining < 15 && 'text-accent-text')}>{remaining != null ? `-${duration(remaining)}` : '–:––'}</div>
+              <div className="mt-1 text-[11px] text-muted">{t('assist.remainingLabel')}</div>
+            </>
+          )}
         </div>
-        <Button variant="dark" onClick={onSkip} loading={skipping} disabled={!np || data.edition !== 'station'} className="h-12 px-5">
-          <SkipForward className="size-5" /> {t('assist.skip')}
-        </Button>
+        <div className="flex items-center gap-2 border-l border-line pl-4">
+          {manual && (
+            <>
+              <Button
+                variant="primary"
+                onClick={() => a.player.mutate('play')}
+                disabled={a.player.isPending}
+                title={holding ? t('playout.play') : t('playout.playAfter')}
+                aria-label={t('playout.play')}
+                className={clsx('size-14 px-0', holding && 'onair-pulse')}
+              >
+                <Play className="size-6 fill-current" />
+              </Button>
+              <Button variant="secondary" onClick={() => a.player.mutate('stop')} disabled={a.player.isPending || holding || !np} title={t('playout.stop')} aria-label={t('playout.stop')} className="size-12 px-0">
+                <Square className="size-4 fill-current" />
+              </Button>
+            </>
+          )}
+          <Button variant="dark" onClick={() => a.skip.mutate()} loading={a.skip.isPending} disabled={(!np && !holding) || data.edition !== 'station'} className="h-12 px-5">
+            <SkipForward className="size-5" /> {manual ? t('playout.next') : t('assist.skip')}
+          </Button>
+        </div>
       </div>
       <div className="h-1.5 bg-meter">
         <div className="h-full bg-koraal transition-[width] duration-1000 ease-linear" style={{ width: `${pct}%` }} />
       </div>
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 px-5 py-2.5 text-xs text-muted">
-        <span>
-          {t('assist.next')}: <b className="text-ink">{next ? `${next.media.artist ? `${next.media.artist} – ` : ''}${next.media.title}` : '–'}</b>
-        </span>
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 px-5 py-2.5 text-xs text-muted">
+        <ModeSwitch data={data} stationId={stationId} />
+        <span className="text-[13px]">{manual ? (holding ? t('playout.holdingText') : t('playout.manualText')) : t('playout.autoText')}</span>
+        {!holding && (
+          <span>
+            {t('assist.next')}: <b className="text-ink">{next ? `${next.media.artist ? `${next.media.artist} – ` : ''}${next.media.title}` : '–'}</b>
+          </span>
+        )}
         {data.schedule.enabled && (
           <span className="flex items-center gap-1.5">
             <CalendarClock className="size-3.5" />
@@ -109,6 +249,7 @@ function NowPlaying({ data, onSkip, skipping }: { data: AutoDj; onSkip: () => vo
 function QueueColumn({ name, rows, stationId, otherName }: { name: QueueName; rows: QueueRow[]; stationId: string; otherName: QueueName }) {
   const { t } = useTranslation();
   const a = useQueueActions(stationId);
+  const canUpload = useCanUpload();
   const [over, setOver] = useState<string | 'end' | null>(null);
   const total = rows.reduce((n, r) => n + (r.media.durationSeconds ?? 0), 0);
 
@@ -117,11 +258,14 @@ function QueueColumn({ name, rows, stationId, otherName }: { name: QueueName; ro
     setOver(null);
     const itemId = e.dataTransfer.getData(DRAG);
     const mediaId = e.dataTransfer.getData(DRAG_MEDIA);
+    const file = e.dataTransfer.getData(DRAG_FILE);
+    const at = beforeId && beforeId === rows[0]?.id ? 'top' : 'bottom';
     if (itemId) a.move.mutate({ itemId, queue: name, beforeId });
-    else if (mediaId) a.add.mutate({ mediaId, queue: name, at: beforeId === rows[0]?.id ? 'top' : 'bottom' });
+    else if (mediaId) a.add.mutate({ mediaId, queue: name, at });
+    else if (file && canUpload) void addLocalFile(stationId, file, name, at, (v) => a.add.mutate(v), t);
   };
   const allow = (e: DragEvent, id: string | 'end') => {
-    if (e.dataTransfer.types.includes(DRAG) || e.dataTransfer.types.includes(DRAG_MEDIA)) {
+    if ([DRAG, DRAG_MEDIA, DRAG_FILE].some((k) => e.dataTransfer.types.includes(k))) {
       e.preventDefault();
       setOver(id);
     }
@@ -130,13 +274,13 @@ function QueueColumn({ name, rows, stationId, otherName }: { name: QueueName; ro
   return (
     <Card className="flex min-h-0 flex-col">
       <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
-        <div className="flex items-center gap-2">
-          <span className={clsx('rounded-md px-2 py-0.5 text-xs font-extrabold', name === 'q1' ? 'bg-nacht text-white dark:bg-koraal dark:text-nacht' : 'bg-lucht text-nacht')}>{name.toUpperCase()}</span>
-          <span className="text-[13px] font-semibold">{t(`assist.${name}`)}</span>
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={clsx('shrink-0 rounded-md px-2 py-0.5 text-xs font-extrabold', name === 'q1' ? 'bg-nacht text-white dark:bg-koraal dark:text-nacht' : 'bg-lucht text-nacht')}>{name.toUpperCase()}</span>
+          <span className="truncate text-[13px] font-semibold">{t(`assist.${name}`)}</span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted tabular">
-            {t('assist.tracks', { count: rows.length })} · {duration(total)}
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="text-xs whitespace-nowrap text-muted tabular" title={t('assist.tracks', { count: rows.length })}>
+            {rows.length} · {duration(total)}
           </span>
           <Button size="sm" variant="ghost" title={t('assist.clear')} onClick={() => confirm(t('assist.clearConfirm', { queue: name.toUpperCase() })) && a.clear.mutate(name)}>
             <Eraser className="size-4" />
@@ -197,78 +341,88 @@ function QueueColumn({ name, rows, stationId, otherName }: { name: QueueName; ro
   );
 }
 
-function LibraryPanel({ stationId }: { stationId: string }) {
+/** Which queue leads the rule: the one that plays first or most. */
+const leadOf = (r: QueueRule): 'q1' | 'q2' => (r.mode === 'q2_first' || (r.mode === 'ratio' && r.q2 > r.q1) ? 'q2' : 'q1');
+
+/** Between the queues: how the AutoDJ takes turns between Q1 and Q2, and from which queue the next track comes. */
+function TakeTurns({ data, stationId }: { data: AutoDj; stationId: string }) {
   const { t } = useTranslation();
-  const [q, setQ] = useState('');
+  const { supports } = useSession();
   const a = useQueueActions(stationId);
-  const search = useQuery({
-    queryKey: ['library', stationId, q],
-    queryFn: () => api<{ items: Media[]; total: number }>(`/stations/${stationId}/library?enabled=yes&limit=60&sort=artist&q=${encodeURIComponent(q)}`),
-    placeholderData: (prev) => prev,
-  });
+  const rule = data.settings.rule;
+  const lead = leadOf(rule);
+  const other = lead === 'q1' ? 'q2' : 'q1';
+  const can = supports('queue-rule') && !a.rule.isPending;
+  const many = Math.max(rule.q1, rule.q2);
+  const few = Math.min(rule.q1, rule.q2);
+  const ratio = (n: number, l: 'q1' | 'q2' = lead): QueueRule => (l === 'q1' ? { mode: 'ratio', q1: n, q2: 1 } : { mode: 'ratio', q1: 1, q2: n });
+  const flip = () =>
+    a.rule.mutate(
+      rule.mode === 'ratio' ? { ...rule, q1: rule.q2, q2: rule.q1 } : rule.mode === 'alternate' ? rule : { ...rule, mode: rule.mode === 'q1_first' ? 'q2_first' : 'q1_first' },
+    );
+  const cued = [...data.queues.q1, ...data.queues.q2].find((r) => r.state === 'cued');
+  const options = [
+    { key: 'ratio', label: rule.mode === 'ratio' ? `${many} : ${few}` : '3 : 1', on: rule.mode === 'ratio', pick: () => a.rule.mutate(ratio(3)) },
+    { key: 'alternate', label: t('turns.alternate'), on: rule.mode === 'alternate', pick: () => a.rule.mutate({ ...rule, mode: 'alternate' }) },
+    {
+      key: 'first',
+      label: t('turns.first', { queue: lead.toUpperCase() }),
+      on: rule.mode === 'q1_first' || rule.mode === 'q2_first',
+      pick: () => a.rule.mutate({ ...rule, mode: lead === 'q1' ? 'q1_first' : 'q2_first' }),
+    },
+  ];
   return (
-    <Card className="flex min-h-0 flex-col">
-      <div className="border-b border-line p-3">
-        <div className="relative">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" />
-          <Input className="pl-9" placeholder={t('assist.search')} value={q} onChange={(e) => setQ(e.target.value)} />
-          {q && (
-            <button className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-muted hover:text-ink" onClick={() => setQ('')} aria-label={t('common.clear')}>
-              <X className="size-4" />
-            </button>
+    <div role="group" aria-label={t('turns.label')} title={supports('queue-rule') ? undefined : t('server.needsUpdate')} className="flex flex-col justify-center gap-2">
+      <div className="text-center text-[10px] font-extrabold tracking-[0.08em] text-muted uppercase">{t('turns.label')}</div>
+      <button
+        type="button"
+        onClick={flip}
+        disabled={!can || rule.mode === 'alternate'}
+        title={t('turns.flip')}
+        className="h-10 rounded-md border border-line bg-raised text-[13px] font-extrabold hover:bg-hover disabled:cursor-not-allowed disabled:opacity-55"
+      >
+        {lead.toUpperCase()} → {other.toUpperCase()}
+      </button>
+      {options.map((o) => (
+        <button
+          key={o.key}
+          type="button"
+          disabled={!can}
+          aria-pressed={o.on}
+          onClick={() => !o.on && o.pick()}
+          className={clsx(
+            'h-8 rounded-md border text-xs font-bold transition-colors disabled:cursor-not-allowed',
+            o.on ? 'border-koraal bg-koraal text-nacht' : 'border-line bg-raised text-muted hover:text-ink',
           )}
+        >
+          {o.label}
+        </button>
+      ))}
+      {rule.mode === 'ratio' && (
+        <div className="flex items-center justify-between gap-1">
+          <button type="button" disabled={!can || many <= 1} onClick={() => a.rule.mutate(ratio(many - 1))} aria-label={t('turns.fewer', { queue: lead.toUpperCase() })} className="grid size-7 place-items-center rounded-md border border-line text-muted hover:text-ink disabled:opacity-40">
+            <Minus className="size-3.5" />
+          </button>
+          <span className="text-[11px] text-muted tabular">{lead.toUpperCase()}</span>
+          <button type="button" disabled={!can || many >= 20} onClick={() => a.rule.mutate(ratio(many + 1))} aria-label={t('turns.more', { queue: lead.toUpperCase() })} className="grid size-7 place-items-center rounded-md border border-line text-muted hover:text-ink disabled:opacity-40">
+            <Plus className="size-3.5" />
+          </button>
         </div>
-        <div className="mt-1.5 text-[11px] text-muted">{search.data ? t('assist.found', { count: search.data.total }) : ' '}</div>
+      )}
+      <div className="mt-1 text-center text-[11px] leading-tight text-muted">
+        {t('turns.nextFrom')}
+        <br />
+        <b className="text-ink">{cued ? cued.queue.toUpperCase() : '–'}</b>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {search.isPending ? (
-          <div className="grid place-items-center py-10">
-            <Spinner />
-          </div>
-        ) : !search.data?.items.length ? (
-          <EmptyState icon={<ListMusic className="size-6" />} title={t('assist.noTracks')} />
-        ) : (
-          search.data.items.map((m) => (
-            <div
-              key={m.id}
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.setData(DRAG_MEDIA, m.id);
-                e.dataTransfer.effectAllowed = 'copy';
-              }}
-              className="group flex cursor-grab items-center gap-2 border-b border-line px-3 py-2 hover:bg-hover"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[13px] font-semibold">{m.title || m.path}</div>
-                <div className="truncate text-[11px] text-muted">{m.artist}</div>
-              </div>
-              <span className="text-xs text-muted tabular">{duration(m.durationSeconds)}</span>
-              <div className="flex gap-1">
-                {(['q1', 'q2'] as const).map((qn) => (
-                  <button
-                    key={qn}
-                    onClick={(e) => a.add.mutate({ mediaId: m.id, queue: qn, at: e.shiftKey ? 'top' : 'bottom' })}
-                    title={t('assist.addTo', { queue: qn.toUpperCase() })}
-                    className="rounded border border-line px-1.5 py-0.5 text-[10px] font-bold text-muted hover:border-koraal hover:text-ink"
-                  >
-                    {qn.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-      <div className="border-t border-line px-3 py-2 text-[11px] text-muted">{t('assist.libraryHint')}</div>
-    </Card>
+    </div>
   );
 }
 
 export function AssistPage() {
   const { t } = useTranslation();
-  const { station } = useSession();
+  const { station, supports } = useSession();
   const autodj = useAutoDj(station?.id);
-  const actions = useQueueActions(station?.id ?? '');
+  const queueActions = useQueueActions(station?.id ?? '');
   if (!station) return <EmptyState icon={<ListMusic className="size-6" />} title={t('station.none')} description={t('station.noneText')} />;
   if (autodj.isPending) {
     return (
@@ -287,13 +441,17 @@ export function AssistPage() {
     );
   }
   return (
-    <div className="flex h-full min-h-[560px] flex-col gap-4">
-      <NowPlaying data={data} onSkip={() => actions.skip.mutate()} skipping={actions.skip.isPending} />
-      <div className="grid min-h-0 flex-1 grid-cols-[1fr_1fr_minmax(300px,0.9fr)] gap-4">
-        <QueueColumn name="q1" otherName="q2" rows={data.queues.q1} stationId={station.id} />
-        <QueueColumn name="q2" otherName="q1" rows={data.queues.q2} stationId={station.id} />
-        <LibraryPanel stationId={station.id} />
+    <div className="grid h-full min-h-[600px] grid-cols-[minmax(0,1fr)_minmax(300px,360px)] gap-4">
+      <div className="flex min-h-0 flex-col gap-4">
+        <NowPlaying data={data} stationId={station.id} />
+        {supports('jingles') && <JingleBar stationId={station.id} />}
+        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_112px_minmax(0,1fr)] gap-3">
+          <QueueColumn name="q1" otherName="q2" rows={data.queues.q1} stationId={station.id} />
+          <TakeTurns data={data} stationId={station.id} />
+          <QueueColumn name="q2" otherName="q1" rows={data.queues.q2} stationId={station.id} />
+        </div>
       </div>
+      <LibraryPanel stationId={station.id} add={(v) => queueActions.add.mutate(v)} />
     </div>
   );
 }

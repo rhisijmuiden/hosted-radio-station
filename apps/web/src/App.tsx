@@ -34,6 +34,7 @@ import { TopologyPage } from './pages/Topology';
 import { UpdatesPage } from './pages/Updates';
 import { UsersPage } from './pages/Users';
 import { WebServerPage } from './pages/WebServer';
+import { ServerNamesPage } from './pages/ServerNames';
 
 function RequireAuth({ admin, children }: { admin?: boolean; children: React.ReactNode }) {
   const me = useMe();
@@ -71,6 +72,7 @@ export function App() {
           <Route path="stations/:id" element={<StationDetailPage />} />
           <Route path="statistics" element={<StatisticsPage />} />
           <Route path="nodes" element={<NodesPage />} />
+          <Route path="nodes/names" element={<RequireAuth admin><ServerNamesPage /></RequireAuth>} />
           <Route path="nodes/:id" element={<NodeDetailPage />} />
           <Route path="topology" element={<TopologyPage />} />
           <Route path="studio" element={<StudioPage />} />

@@ -123,6 +123,42 @@ const templates: Record<string, Record<Locale, Template>> = {
       action: 'Kies je wachtwoord',
     },
   },
+  connectionDetails: {
+    en: {
+      subject: 'Connection details for {{station}}',
+      title: 'Connection details for {{station}}',
+      paragraphs: ['Hello {{name}},', 'This is where the studio, encoders and uploads of {{station}} connect. The addresses follow the routing of the station: when it moves, you get the new ones in the panel.', '{{intro}}'],
+      action: 'Open the connection page',
+    },
+    nl: {
+      subject: 'Verbindingsgegevens voor {{station}}',
+      title: 'Verbindingsgegevens voor {{station}}',
+      paragraphs: ['Hallo {{name}},', 'Hier maken de studio, encoders en uploads van {{station}} verbinding. De adressen volgen de routering van het station: verhuist het, dan staan de nieuwe in het paneel.', '{{intro}}'],
+      action: 'Open de verbindingspagina',
+    },
+  },
+  firewall: {
+    en: {
+      subject: 'Ports to open for {{node}}',
+      title: 'Ports to open for {{node}}',
+      paragraphs: [
+        'Hello {{name}},',
+        'The node {{node}} runs in your own network. Open (or forward) these ports to it in your firewall or router, so the studio, encoders and uploads can reach it from outside. The connections to the orchestrator and the relays go outwards, so they need nothing.',
+        'External address: {{external}} · internal address: {{internal}}',
+      ],
+      action: 'Open the node',
+    },
+    nl: {
+      subject: 'Poorten om open te zetten voor {{node}}',
+      title: 'Poorten om open te zetten voor {{node}}',
+      paragraphs: [
+        'Hallo {{name}},',
+        'De node {{node}} draait in je eigen netwerk. Zet deze poorten open (of stuur ze door) in je firewall of router, zodat de studio, encoders en uploads hem van buitenaf bereiken. De verbindingen naar de orchestrator en de relays gaan naar buiten, die hebben niets nodig.',
+        'Extern adres: {{external}} · intern adres: {{internal}}',
+      ],
+      action: 'Open de node',
+    },
+  },
   invoice: {
     en: {
       subject: 'Invoice {{number}} from {{seller}}',
@@ -218,6 +254,24 @@ export const emailWords: Record<Locale, Record<string, string>> = {
     payTransfer: 'Please transfer the amount to {{iban}} stating {{number}}.',
     suspendWarning: 'If the invoice stays unpaid, your stations will go off the air on {{date}}.',
     resumed: 'Your stations are back on the air.',
+    connectionIntro: 'Connection details of your first station:',
+    unknown: 'unknown',
+    'role.stationNode': 'Station node {{name}}',
+    'role.ingest': 'Encoders to {{name}}',
+    'role.backupIngest': 'Backup ingest {{name}}',
+    'role.uploads': 'Uploads to {{name}}',
+    external: 'outside: {{host}}',
+    internal: 'inside: {{host}}',
+    panel: 'RHIS Studio signs in at {{url}}',
+    'port.encoderTls': 'RHIS Studio and encoders (Icecast, TLS)',
+    'port.encoderPlain': 'RHIS Studio and encoders (Icecast)',
+    'port.legacy': 'Shoutcast v1 encoders',
+    'port.sftp': 'SFTP / SCP uploads',
+    'port.ftp': 'FTP uploads',
+    'port.ftpPassive': 'FTP passive range',
+    'port.listeners': 'Listeners (HTTP)',
+    'port.listenersTls': 'Listeners (HTTPS)',
+    'port.push': 'Streams from the ingests (push, TLS)',
   },
   nl: {
     full: 'volledige',
@@ -229,6 +283,24 @@ export const emailWords: Record<Locale, Record<string, string>> = {
     payTransfer: 'Maak het bedrag over naar {{iban}} onder vermelding van {{number}}.',
     suspendWarning: 'Blijft de factuur onbetaald, dan gaan je stations op {{date}} uit de lucht.',
     resumed: 'Je stations zijn weer in de lucht.',
+    connectionIntro: 'Verbindingsgegevens van je eerste station:',
+    unknown: 'onbekend',
+    'role.stationNode': 'Stationnode {{name}}',
+    'role.ingest': 'Encoders naar {{name}}',
+    'role.backupIngest': 'Back-up-ingest {{name}}',
+    'role.uploads': 'Uploads naar {{name}}',
+    external: 'buiten: {{host}}',
+    internal: 'binnen: {{host}}',
+    panel: 'RHIS Studio logt in op {{url}}',
+    'port.encoderTls': 'RHIS Studio en encoders (Icecast, TLS)',
+    'port.encoderPlain': 'RHIS Studio en encoders (Icecast)',
+    'port.legacy': 'Shoutcast v1-encoders',
+    'port.sftp': 'SFTP / SCP-uploads',
+    'port.ftp': 'FTP-uploads',
+    'port.ftpPassive': 'FTP passieve poorten',
+    'port.listeners': 'Luisteraars (HTTP)',
+    'port.listenersTls': 'Luisteraars (HTTPS)',
+    'port.push': 'Streams van de ingests (push, TLS)',
   },
 };
 
@@ -246,4 +318,29 @@ export function renderTemplate(name: keyof typeof templates, locale: string | nu
     paragraphs: t.paragraphs.map((p) => fill(p, vars)).filter((p) => p.trim() !== ''),
     action: t.action && url ? { label: fill(t.action, vars), url } : undefined,
   };
+}
+
+type PortLine = { service: string; port: number; to?: number };
+
+/** "8010 TCP · RHIS Studio and encoders (Icecast)", one line per port. */
+export function portLines(ports: PortLine[], locale: string | null | undefined) {
+  const w = emailWords[emailLocale(locale)]!;
+  return ports.map((p) => `${p.to ? `${p.port}–${p.to}` : p.port} TCP · ${w[`port.${p.service}`] ?? p.service}`);
+}
+
+/** The connection details of a station as plain lines, for e-mails (see ConnectionInfo.endpoints). */
+export function endpointLines(
+  endpoints: { role: string; name: string; external: string | null; internal: string | null; ports: PortLine[] }[],
+  panelUrl: string,
+  locale: string | null | undefined,
+) {
+  const w = emailWords[emailLocale(locale)]!;
+  const out: string[] = [];
+  for (const e of endpoints) {
+    const where = [e.external && fill(w.external!, { host: e.external }), e.internal && fill(w.internal!, { host: e.internal })].filter(Boolean).join(' · ');
+    out.push(`${fill(w[`role.${e.role}`] ?? e.role, { name: e.name })}${where ? ` (${where})` : ''}:`);
+    out.push(...portLines(e.ports, locale).map((l) => `  ${l}`));
+  }
+  out.push(fill(w.panel!, { url: panelUrl }));
+  return out;
 }

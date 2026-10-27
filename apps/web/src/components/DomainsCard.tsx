@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { api, ApiError, type NodeItem, type TenantDomain, type TenantUsage } from '../lib/api';
 import { formatBytes, formatRelative } from '../lib/format';
 import { Badge, Button, Card, CardHeader, CopyField, Dialog, Field, Input, Select, Spinner, Switch } from './ui';
+import { useServerNames } from '../lib/server';
 
 function AddDomainDialog({ tenantId, open, onClose }: { tenantId: string; open: boolean; onClose: () => void }) {
   const { t } = useTranslation();
@@ -60,6 +61,7 @@ const statusTone = { verified: 'online', pending: 'warning', failed: 'offline' }
 /** A customer's own domains: stream.<domain> for the panel, pages and streams, src.<domain> for encoders. */
 export function DomainsCard({ tenantId, canEdit, admin }: { tenantId: string; canEdit: boolean; admin: boolean }) {
   const { t } = useTranslation();
+  const server = useServerNames();
   const qc = useQueryClient();
   const [adding, setAdding] = useState(false);
   const domains = useQuery({ queryKey: ['domains', tenantId], queryFn: () => api<{ items: TenantDomain[]; target: { cname: string; ips: string[] } }>(`/tenants/${tenantId}/domains`) });
@@ -174,7 +176,7 @@ export function DomainsCard({ tenantId, canEdit, admin }: { tenantId: string; ca
                       disabled={!canEdit || ingestNode.isPending}
                       onChange={(e) => ingestNode.mutate({ d, nodeId: e.target.value || null })}
                     >
-                      <option value="">{t('domains.ingestMain')}</option>
+                      <option value="">{server?.ingest ?? t('domains.ingestMain')}</option>
                       {sourceNodes.map((n) => (
                         <option key={n.id} value={n.id}>
                           {n.name}

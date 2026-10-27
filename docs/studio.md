@@ -23,7 +23,67 @@ For stations with the Radio station edition. The top shows what is on air with t
 **Q1** and **Q2** side by side: drag tracks to reorder them or move them to the other queue, or use the buttons that
 appear on hover (to the top, to the other queue, remove). The eraser empties the rotation of a queue; requests and
 tracks added by hand stay. Search the library on the right and drag a track onto a queue, or use the Q1/Q2 buttons
-(Shift = at the top).
+(Shift = at the top); see *Library and preview* below.
+
+### Auto and Manual
+
+- **Auto**: the AutoDJ plays on from track to track.
+- **Manual**: after each track the player waits, silent, until you press **Play**. The next track is already cued, so
+  it starts at once. **Play** while a track plays starts the next one when it ends; **Next** starts it right away;
+  **Stop** ends the track on air (with the crossfade of the station) and waits.
+
+Manual stays on only while a studio PC is connected: the client checks in every 10 seconds. When it closes or loses
+its connection, the server goes back to Auto by itself after 30 seconds and plays on with what is in the queues.
+Hard timed items of the hour clock (news on the hour) still start on their minute in Manual.
+
+### Taking turns
+
+Between the queues you choose how the AutoDJ takes turns: a ratio (**3 : 1**, change it with − and +), **Alternate**
+or one queue **first** (the other one only plays when it is empty). The arrow button swaps which queue leads
+(**Q1 → Q2** or **Q2 → Q1**). Below it the client shows from which queue the next track comes. It is the same setting
+as *Pick rule* on the station's AutoDJ page in the panel.
+
+### Schedule
+
+The left menu shows the format of the coming hours, from the hour clocks and schedule set in the panel. Items of the
+format (station ID, news, commercials) have a lock and their own colour; the stretches where your queues play are
+blue. The item the player is at has a frame, and what already played is dimmed.
+
+The level meter at the right edge shows the stream this PC sends while you are live.
+
+These features need server version 1.1 or newer; on an older server the client says the server needs an update.
+
+### Library and preview
+
+The panel on the right has three sources:
+
+- **Server**: the station library. Search, drag a track onto a queue or use Q1/Q2.
+- **Network**: the network shares you added under *Settings › Network shares* (for example `\\nas\music`). They
+  open with the Windows sign-in of the PC, like in Explorer.
+- **This PC**: the drives of the PC, including a USB stick and mapped network drives.
+
+The headphones button plays a track on the **preview output** (*Settings › Preview*), off air: never in the stream
+and not on the output of the cart wall unless you choose the same sound card. The bar at the bottom of the panel has
+pause, stop and a position slider.
+
+Drag a track onto the **player** (the Now playing card) to play it now: from Q1/Q2, the library or this PC. The track
+on air fades out and the dropped track starts at once, in Auto and in Manual. It needs server 1.1.
+
+A file from the network or this PC goes on air through the station library: Q1/Q2 or dragging it onto a queue uploads
+it to the library, waits until the server has read its tags and then puts it in the queue. This needs the manager or
+owner role (it counts towards the storage of the station); DJs can preview local files.
+
+### Jingle buttons
+
+Above the queues are your own jingle buttons: six on a page, more pages with **+** (up to 48 buttons). Click a button
+to play it, again to stop. Fill an empty button by clicking it (choose a file), or drag a file from *This PC* or
+*Network*, or a track of the server library, onto it; a file dropped on a full button replaces it. The pencil sets
+the label, colour and loop, or empties the button.
+
+The jingles are kept in your profile on the server, per station, so you get the same buttons on every studio PC. The
+client downloads them once and plays them itself, like the cart wall: into the stream and/or on the output device, as
+set in *Settings*. The jingles of the station itself (station IDs, news intros) come with the format from the server.
+It needs server 1.1 (`/api/studio/stations/:id/jingles`, at most 25 MB per file).
 
 ## Going live
 

@@ -81,6 +81,17 @@ export const streamingSchema = z
     ingestTlsPort: portSchema.default(8443),
     /** Encoders without TLS (Icecast protocol). 0 = off. */
     ingestPlainPort: z.union([z.literal(0), portSchema]).default(8010),
+    /**
+     * Host name or IP address encoders and RHIS Studio connect to, when the public name does not carry raw TCP (e.g.
+     * behind the Cloudflare proxy). Empty = the domain under Web server. Customer src. names still take precedence.
+     */
+    encoderHost: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .max(253)
+      .regex(/^$|^[a-z0-9.:-]+$/, 'Use an IP address or host name')
+      .default(''),
     /** Internal Icecast servers, one port per station, bound to 127.0.0.1. */
     icecastPortFrom: portSchema.default(18000),
     icecastPortTo: portSchema.default(18999),
@@ -206,6 +217,29 @@ export const nodesSchema = z.object({
 });
 export type NodesSettings = z.infer<typeof nodesSchema>;
 
+/** One name per server (phase 18): letters, digits, spaces and . _ - ·, at most 40 characters. */
+export const serverNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(40)
+  .regex(/^[\p{L}\p{N}][\p{L}\p{N} ._·-]*$/u, 'Use letters, digits, spaces and . _ - ·');
+
+/** The orchestrator (this server) itself (phase 18): its names and whether it carries audio. */
+export const orchestratorSchema = z.object({
+  /** Name of this server. Empty = the first part of its host name, e.g. "onlineradio". */
+  name: serverNameSchema.or(z.literal('')).default(''),
+  /** Names of its own ingest and relay roles. Empty = "<name> · ingest" and "<name> · relay". */
+  ingestName: serverNameSchema.or(z.literal('')).default(''),
+  relayName: serverNameSchema.or(z.literal('')).default(''),
+  /**
+   * Orchestrator only: this server's own ingest and relay are off, so it carries no audio at all. No encoder ports, no
+   * Icecast, no uploads; it cannot be chosen as ingest or relay, and listeners are never sent to it.
+   */
+  only: z.boolean().default(false),
+});
+export type OrchestratorSettings = z.infer<typeof orchestratorSchema>;
+
 const commitRe = /^[0-9a-f]{7,40}$/;
 const versionRef = z.object({ commit: z.string().regex(commitRe).nullable(), branch: z.string().max(100).nullable() });
 
@@ -313,6 +347,7 @@ const registry = {
   streaming: { schema: streamingSchema, secrets: [] },
   statistics: { schema: statisticsSchema, secrets: ['geoip.maxmindLicenseKey'] },
   nodes: { schema: nodesSchema, secrets: [] },
+  orchestrator: { schema: orchestratorSchema, secrets: [] },
   nodeRollout: { schema: nodeRolloutSchema, secrets: [] },
   billing: { schema: billingSettingsSchema, secrets: ['mollie.apiKey'] },
 } as const;

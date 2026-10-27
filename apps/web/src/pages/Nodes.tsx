@@ -11,6 +11,7 @@ import { RolloutCard, UpdateBadge } from '../components/nodes/updates';
 import { Badge, Button, Card, Dialog, EmptyState, Field, Input, PageHeader, Select, Spinner, Switch, Table } from '../components/ui';
 import { api, ApiError, type NodeItem, type NodePairing, type NodeRole, type NodesSettings, type Tenant } from '../lib/api';
 import { isAdmin, useMe } from '../lib/auth';
+import { OrchestratorOnlyCard } from '../components/nodes/OrchestratorOnly';
 
 export const ROLES: NodeRole[] = ['relay', 'source', 'station', 'fm'];
 
@@ -248,6 +249,7 @@ export function NodesPage() {
         }
       />
 
+      {admin && <OrchestratorOnlyCard />}
       {admin && <RolloutCard />}
 
       {!!list.length && (
@@ -309,7 +311,9 @@ export function NodesPage() {
                     <Link to={`/nodes/${n.id}`} className="font-semibold hover:underline" onClick={(e) => e.stopPropagation()}>
                       {n.name}
                     </Link>
-                    <div className="text-xs text-muted">{[n.location, s.city && s.country ? `${s.city}, ${s.country}` : s.country].filter(Boolean).join(' · ') || s.hostname || '—'}</div>
+                    {/* The name is the node's own; host name and address stay visible underneath (phase 18). */}
+                    {(s.hostname || s.ip) && <div className="font-mono text-[11.5px] text-muted">{[s.hostname, s.ip].filter(Boolean).join(' · ')}</div>}
+                    <div className="text-xs text-muted">{[n.location, s.city && s.country ? `${s.city}, ${s.country}` : s.country].filter(Boolean).join(' · ') || '—'}</div>
                   </td>
                   {admin && <td className="text-[13px]">{n.tenantName ?? <span className="text-muted">{t('nodes.platform')}</span>}</td>}
                   <td>

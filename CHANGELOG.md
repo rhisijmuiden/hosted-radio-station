@@ -3,6 +3,44 @@
 All notable changes to Hosted Radio Station. Versions follow [semantic versioning](https://semver.org). The
 [roadmap](ROADMAP.md) has the full description of each phase, with screenshots.
 
+## 1.1.0 (27 October 2026)
+
+Phase 18 (server names, topology views, orchestrator only, connection details and firewall checklist) and the
+first three steps of RHIS Studio 1.0 on the server side.
+
+- Server names (phase 18): *Nodes › Names* gives the orchestrator, its own ingest and relay, and every node one name,
+  used everywhere instead of "This server". Customers see node names; host names and IPs only of their own nodes.
+- Topology views (phase 18): Layers (default, grouped per location, lines by bitrate), Per station, Matrix and the 3D
+  skyline with towers by listeners or load and the orchestrator as a hovering ring.
+- Orchestrator only (phase 18): a switch on the Nodes page that turns off this server's own ingest and relay, closes its
+  encoder ports and Icecast, and lists the stations that still use it before it goes on.
+- Connection tab per station (phase 18): external and internal addresses with ports for RHIS Studio, encoders and
+  uploads, from the routing; also in the welcome e-mail and `GET /api/stations/:id/connection`.
+- Firewall tab per node (phase 18): the ports to open or forward, with a reachability check from outside per port.
+
+- Live assist in RHIS Studio: the format of the coming hours in the left menu, Auto and Manual playout, how Q1 and Q2
+  take turns, and the level meter at the right edge. In Manual the AutoDJ waits for Play after each track and goes
+  back to Auto by itself when the studio stops checking in for 30 seconds.
+- Library panel in RHIS Studio: the server library, network shares and this PC (USB sticks), with a preview player
+  on its own sound card output. Files from the network or this PC go into a queue through the station library.
+- `/api/studio/hello` tells the client the server version and its features, so an older server is reported instead
+  of failing.
+- Fixed: the remaining time of the playing track in Live assist now counts down every second.
+- Fixed: dragging tracks in RHIS Studio on Windows (library to Q1/Q2, and between queues). The window caught every
+  drag as a file drop from Explorer.
+- The status at the top of RHIS Studio is labelled "On air now" and shows Auto or Manual next to AutoDJ, with a
+  tooltip; it is a status, not a button.
+- On air in RHIS Studio is a clear red: the Go live button, the status at the top and the Live badge in the menu.
+- Play now: drag a track onto the player in RHIS Studio and it starts at once (`POST /api/stations/:id/autodj/play-now`).
+  In Manual while the player waits for Play, the chosen track now starts (Liquidsoap 2.3 let the old track through first).
+
+- Jingle buttons in RHIS Studio: six of the DJ's own jingles above the queues, more on extra pages. Kept in the DJ's
+  profile on the server (`/api/studio/stations/:id/jingles`), so they are the same on every studio PC, and played by
+  the client into the broadcast. Fill a button by clicking it or by dragging a file or a library track onto it.
+- Encoder address (*Settings › Streaming*): the address the server gives encoders and RHIS Studio, for a panel domain
+  behind a proxy such as Cloudflare, which does not pass the encoder ports.
+- Fixed: the reconnect countdown on Go live in RHIS Studio showed no number.
+
 ## 1.0.1 (26 October 2026)
 
 Fixes found while testing 1.0.0.

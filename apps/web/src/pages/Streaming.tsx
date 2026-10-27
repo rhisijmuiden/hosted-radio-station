@@ -150,6 +150,9 @@ export function StreamingPage() {
                   <PortInput allowOff value={draft.ingestPlainPort} onChange={(ingestPlainPort) => set({ ingestPlainPort })} />
                 </Field>
               </div>
+              <Field label={t('streaming.encoderHost')} hint={t('streaming.encoderHostHint')}>
+                <Input value={draft.encoderHost} onChange={(e) => set({ encoderHost: e.target.value })} placeholder="src.example.com" />
+              </Field>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label={t('streaming.legacyRange')} hint={t('streaming.legacyRangeHint')}>
                   <div className="flex items-center gap-2">

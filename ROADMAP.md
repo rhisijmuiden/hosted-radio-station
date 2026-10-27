@@ -168,8 +168,8 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 14 | Orchestrator redundancy | Planned (1.x) |
 | 15 | Cloudflare DNS integration | Planned (1.x) |
 | 16 | Installer menu and node enrollment | Planned (1.x) |
-| 17 | RHIS Studio 2 (Windows client) | Paused (after 18 and 15) |
-| 18 | Server names and topology views | Next |
+| 17 | RHIS Studio 1.0 (Windows client) | Paused after step 3 (after 18 and 15) |
+| 18 | Server names and topology views | Done (1.1.0) |
 
 ## Phases
 
@@ -365,17 +365,50 @@ One installer with a menu, for the standalone Debian 13 install and the Proxmox 
 - Setup page on the node: after a bare node install, the node serves a small web page on port 8080. It shows only two fields, the orchestrator URL and the pairing code from the orchestrator's dashboard, and nothing else. Once the node is paired, the page closes for good and port 8080 is freed. The same can be done from the shell with `hrs-node pair --server <url> --code <code>`.
 - Pairing codes from the panel keep working for scripted installs; pending registrations expire after 24 hours and open registration can be switched off.
 
-### Phase 17: RHIS Studio 2 (Windows client)
+### Phase 17: RHIS Studio 1.0 (Windows client)
 
-A new live-assist layout for RHIS Studio, built in seven steps, each tested before the next.
+A calmer, more complete studio client, built in seven steps. Each step is its own pull request and is tested on the
+test server before the next one starts. The client keeps its own version and releases (`studio-v…`, updated from its
+Info dialog); this phase makes it RHIS Studio 1.0. The server side ships in server 1.1. The client asks the server
+which features it has and says so when the server needs an update, instead of failing.
 
-1. Calm layout with Auto and Manual mode, take turns between Q1 and Q2, and the meter on the right.
-2. Library (server, network share, this PC) with pre-listen on a separate output.
-3. Jingle buttons stored in the DJ's profile on the server.
-4. Fader start from the mixing desk over MIDI or USB-GPIO.
-5. Cue point editor with waveform, stored per track on the server.
-6. Locked format blocks from the hour clocks.
-7. Direct connection: after signing in, the orchestrator gives the client the internal and external address of its station node (or ingest node). The client tries the internal one first, and Go Live goes straight to that node, which feeds the relays.
+1. **New Live assist layout**: the format of the coming hours in the left menu (items of the format and your own
+   queues in their own colour), **Auto** and **Manual** playout, how the queues take turns between Q1 and Q2, and a
+   vertical level meter at the right edge. In Manual the player waits for **Play** after each track; when the client
+   stops checking in for 30 seconds the server goes back to Auto by itself, so the station never goes silent.
+2. **Library panel and preview**: browse the server library, a network share (SMB) or this PC / a USB stick, and
+   pre-listen to a track on a separate sound card output, off air.
+3. **Jingle buttons**: six buttons above the queues, more if the DJ adds them, on pages. Jingles are kept in the DJ's
+   profile on the server, so they are the same on every studio PC; load them by drag and drop, also from a USB stick.
+4. **Fader start**: open a fader on the mixing desk and the player or a jingle starts, close it and it stops. Over
+   MIDI or a USB GPIO interface, set up on its own settings page with a Learn button.
+5. **Cue point editor**: a waveform of the track with cue in, intro, the point where the next track starts, the fade
+   out and cue out. Saved on the server, so the AutoDJ and every studio use them.
+6. **Locked format blocks**: parts of an hour clock (for example station ID, news, station ID) can be locked in the
+   panel. The client shows them and DJs cannot skip them or put music inside them.
+7. **Direct connection to the station**: the client signs in at the main server, which tells it where the station
+   runs; on a station node it then talks to the node directly (its LAN address in the studio, its public address from
+   outside), so the studio keeps working when the internet connection drops. Settings › Connection shows the link and
+   takes a manual address.
+
+Added 2026-10-27, after step 3: **one playlist**. Q2 goes away everywhere (RHIS Studio, the panel and the server;
+playlists and queue rules move over), and Live assist gets the layout of the approved sketch: the next fixed block
+with a countdown at the top, one playlist with start times and backtiming to the next fixed block, a narrow icon menu
+and a status bar. The intro countdown on the player comes with step 5, locked blocks in the playlist with step 6.
+
+Step 1, light theme in English (Auto) and dark theme in Dutch (Manual, waiting for Play):
+
+| Auto | Manual |
+| --- | --- |
+| ![Live assist, Auto, light, English](docs/screenshots/phase-17-assist-light-en.png) | ![Live assist, Manual, dark, Dutch](docs/screenshots/phase-17-assist-manual-dark-nl.png) |
+
+Step 2, the library panel with a network share and this PC (a USB stick), the preview bar, and the preview output and
+network shares in the settings:
+
+| Network share, English | This PC, dark, Dutch |
+| --- | --- |
+| ![Library panel on a network share with the preview bar](docs/screenshots/phase-17-library-network-en.png) | ![Library panel on a USB stick, dark, Dutch](docs/screenshots/phase-17-library-pc-dark-nl.png) |
+| ![Settings: preview output and network shares](docs/screenshots/phase-17-preview-settings-en.png) | |
 
 ### Phase 18: Server names and topology views
 
@@ -389,6 +422,14 @@ Clear names everywhere and topology views that stay readable as the network grow
 - **Connection details from the orchestrator**: per station the orchestrator hands out the right addresses, based on its routing. With a station node, that is the node's external and internal address with ports for RHIS Studio, encoders and SFTP/SCP/FTP uploads. Without one, it is the ingest node(s) the customer may stream to, with the backup ingest. The details are shown on the station's Connection page for customers and DJs, are sent in the welcome e-mail, and are available in the API. They follow automatically when a station moves to another node.
 - **Firewall checklist for self-hosted nodes**: a node the customer runs in their own network gets a page (and e-mail) listing exactly which ports to open or forward for remote access: RHIS Studio, encoders, SFTP/SCP/FTP with the passive range, and nothing for the orchestrator or relays because those connections go outwards. The node checks from the outside whether each port is reachable and shows a green or red tick per port.
 - **3D skyline**: the 3D view becomes the layers view laid on a floor. Each server is a tower whose height shows listeners or load and whose top shows its health; the orchestrator hovers above as a ring with control lines only, and audio runs as light trails over the floor.
+
+| Layers | Per station |
+| --- | --- |
+| ![Topology, layers view](docs/screenshots/phase-18-topology-layers.png) | ![Topology, per station](docs/screenshots/phase-18-topology-per-station.png) |
+| ![Topology, matrix](docs/screenshots/phase-18-topology-matrix.png) | ![Topology, 3D skyline](docs/screenshots/phase-18-topology-3d.png) |
+| ![Server names](docs/screenshots/phase-18-names-saved.png) | ![Orchestrator only on the Nodes page](docs/screenshots/phase-18-nodes-orchestrator-only.png) |
+| ![Orchestrator only: stations that still use this server](docs/screenshots/phase-18-orchestrator-only-dialog.png) | ![Connection tab of a station](docs/screenshots/phase-18-station-connection.png) |
+| ![Firewall checklist of a node with the check from outside](docs/screenshots/phase-18-node-firewall.png) | |
 
 ## Future ideas
 

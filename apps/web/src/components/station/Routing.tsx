@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { api, ApiError, type StationDetail, type StationRouting, type StationRoutingView } from '../../lib/api';
 import { Badge, Button, Card, CardHeader, Field, Segmented, Select, Spinner, Switch, Table } from '../ui';
+import { useServerNames } from '../../lib/server';
 
 function Step({ icon, title, meta, active, muted }: { icon: ReactNode; title: ReactNode; meta?: ReactNode; active?: boolean; muted?: boolean }) {
   return (
@@ -26,6 +27,7 @@ const Arrow = () => <ArrowRight className="mx-auto size-4 shrink-0 rotate-90 tex
  * (phase 13). The orchestrator only hands out this route; the audio goes from the ingest straight to the relays.
  */
 export function RoutingCard({ station }: { station: StationDetail }) {
+  const server = useServerNames();
   const { t } = useTranslation();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['station-routing', station.id], queryFn: () => api<StationRoutingView>(`/stations/${station.id}/routing`), refetchInterval: 5000 });
@@ -48,6 +50,7 @@ export function RoutingCard({ station }: { station: StationDetail }) {
     onError: (e) => setError(e instanceof ApiError ? e.message : String(e)),
   });
 
+  const here = server?.ingest ?? t('routing.thisServer');
   if (!v || !form)
     return (
       <Card className="grid place-items-center p-10">
@@ -55,7 +58,7 @@ export function RoutingCard({ station }: { station: StationDetail }) {
       </Card>
     );
 
-  const name = (ref: string | null) => (ref === 'local' ? t('routing.thisServer') : (v.options.ingests.find((n) => n.id === ref)?.name ?? v.status.ingests.find((i) => i.ref === ref)?.name ?? '—'));
+  const name = (ref: string | null) => (ref === 'local' ? here : (v.options.ingests.find((n) => n.id === ref)?.name ?? v.status.ingests.find((i) => i.ref === ref)?.name ?? '—'));
   const ingestStatus = (ref: string) => v.status.ingests.find((i) => i.ref === ref);
   const edit = v.canEdit && !v.locked;
   const chosen = form.relays === 'auto' ? null : form.relays;
@@ -63,7 +66,8 @@ export function RoutingCard({ station }: { station: StationDetail }) {
   const toggleRelay = (id: string) => chosen && setForm({ ...form, relays: chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id] });
   const ingestOptions = (
     <>
-      <option value="local">{t('routing.thisServer')}</option>
+      {/* Orchestrator only: this server takes no encoders (phase 18). */}
+      {!v.orchestratorOnly && <option value="local">{here}</option>}
       {v.options.ingests.map((n) => (
         <option key={n.id} value={n.id}>
           {n.name}

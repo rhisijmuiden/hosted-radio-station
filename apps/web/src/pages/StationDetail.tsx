@@ -22,8 +22,9 @@ import { Badge, Button, Card, CardHeader, CopyField, Fact, Field, Input, PageHea
 import { api, type LiveSession, type StationDetail, type StationStatus, type Tenant } from '../lib/api';
 import { formatBytes, formatDate, formatDuration } from '../lib/format';
 import { EditionBadge } from './Stations';
+import { ConnectionTab } from '../components/connection/Connection';
 
-type Tab = 'overview' | 'autodj' | 'library' | 'playlists' | 'clocks' | 'schedule' | 'statistics' | 'mounts' | 'outputs' | 'routing' | 'accounts' | 'history' | 'public' | 'requests' | 'ondemand' | 'settings';
+type Tab = 'overview' | 'connection' | 'autodj' | 'library' | 'playlists' | 'clocks' | 'schedule' | 'statistics' | 'mounts' | 'outputs' | 'routing' | 'accounts' | 'history' | 'public' | 'requests' | 'ondemand' | 'settings';
 const rank = { dj: 1, manager: 2, owner: 3, superadmin: 4 } as const;
 
 function useStationStatus(id: string) {
@@ -478,6 +479,7 @@ export function StationDetailPage() {
   const manager = rank[s.role] >= rank.manager;
   const tabs: { value: Tab; label: ReactNode }[] = [
     { value: 'overview', label: t('stations.tabs.overview') },
+    { value: 'connection', label: t('stations.tabs.connection') },
     ...(s.edition === 'station'
       ? [
           { value: 'autodj' as const, label: t('stations.tabs.autodj') },
@@ -562,6 +564,7 @@ export function StationDetailPage() {
           </div>
         </div>
       )}
+      {tab === 'connection' && <ConnectionTab station={s} />}
       {tab === 'autodj' && <AutodjTab station={s} canEdit={manager} />}
       {tab === 'library' && <LibraryTab station={s} canEdit={manager} />}
       {tab === 'playlists' && <PlaylistsTab station={s} canEdit={manager} />}

@@ -124,13 +124,47 @@ export interface QueueRow {
   startedAt: string | null;
   media: Pick<Media, 'id' | 'title' | 'artist' | 'album' | 'durationSeconds' | 'location' | 'path'>;
 }
+export type QueueRuleMode = 'alternate' | 'ratio' | 'q1_first' | 'q2_first';
+export interface QueueRule {
+  mode: QueueRuleMode;
+  q1: number;
+  q2: number;
+}
 export interface AutoDj {
   edition: 'distribution' | 'station';
-  settings: { enabled: boolean };
+  settings: { enabled: boolean; rule: QueueRule };
   player: { expected: boolean; connected: boolean; paused: boolean };
+  /** Manual playout: every track waits for Play; holding = the track ended and the player waits. */
+  playout: { manual: boolean; holding: boolean; until: string | null };
   nowPlaying: QueueRow | null;
   queues: { q1: QueueRow[]; q2: QueueRow[] };
   schedule: { enabled: boolean; clock: { name: string; color: string } | null; entry: { name: string; live: boolean } | null };
+}
+/** One item of the format of the coming hours (an hour clock item), from /autodj/rundown. */
+export interface RundownRow {
+  hour: string;
+  startsAt: string;
+  timed: boolean;
+  hard: boolean;
+  kind: 'music' | 'item';
+  source: 'queues' | 'playlist' | 'track';
+  label: string;
+  count: number;
+  clock: { id: string; name: string; color: string } | null;
+  show: { id: string; name: string; live: boolean } | null;
+  current: boolean;
+  past: boolean;
+}
+export interface Rundown {
+  timezone: string;
+  enabled: boolean;
+  rows: RundownRow[];
+}
+/** The answer to /studio/hello: servers before 1.1 answer only { ok }. */
+export interface Hello {
+  ok: true;
+  serverVersion?: string;
+  features?: string[];
 }
 export interface StudioRelease {
   version: string;
