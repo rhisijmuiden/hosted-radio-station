@@ -431,6 +431,15 @@ Clear names everywhere and topology views that stay readable as the network grow
 | ![Orchestrator only: stations that still use this server](docs/screenshots/phase-18-orchestrator-only-dialog.png) | ![Connection tab of a station](docs/screenshots/phase-18-station-connection.png) |
 | ![Firewall checklist of a node with the check from outside](docs/screenshots/phase-18-node-firewall.png) | |
 
+## Queued fixes
+
+Small fixes planned for a patch release, one at a time after the current phase.
+
+### 1.1.1: topology layout (after phase 15)
+
+- Station nodes are drawn in the Ingest layer, but they are studios: they move to the "Studios & encoders" layer, in all views (layers, per station, matrix, 3D skyline).
+- An FM/MPX node is linked directly to the station node (studio) it takes its audio from, and is drawn right next to it as one group, instead of on its own in the distribution layer.
+
 ## Future ideas
 
 Not scheduled in a phase yet.
