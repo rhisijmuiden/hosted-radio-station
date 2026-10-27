@@ -51,6 +51,15 @@ function useQueueActions(stationId: string) {
       },
       onError: fail,
     }),
+    playNow: useMutation({
+      mutationFn: (v: { itemId: string } | { mediaId: string }) => api<AutoDj>(`/stations/${stationId}/autodj/play-now`, { method: 'POST', body: v }),
+      onSuccess: (d) => {
+        done(d);
+        toast.success(t('assist.playingNow'));
+        setTimeout(() => void qc.invalidateQueries({ queryKey: ['autodj', stationId] }), 1500);
+      },
+      onError: fail,
+    }),
     player: useMutation({
       mutationFn: (command: 'play' | 'stop') => api(`/stations/${stationId}/autodj/${command}`, { method: 'POST' }),
       onSuccess: () => setTimeout(() => void qc.invalidateQueries({ queryKey: ['autodj', stationId] }), 800),
@@ -122,8 +131,37 @@ function NowPlaying({ data, stationId }: { data: AutoDj; stationId: string }) {
   const pct = total && !holding ? Math.min(100, (elapsed / total) * 100) : 0;
   const remaining = total && !holding ? Math.max(0, total - elapsed) : null;
   const next = [...data.queues.q1, ...data.queues.q2].find((r) => r.state === 'cued') ?? data.queues.q1[0] ?? data.queues.q2[0];
+  // A track dropped on the player plays now: from a queue, the library, or this PC (uploaded first).
+  const { supports } = useSession();
+  const canUpload = useCanUpload();
+  const [over, setOver] = useState(false);
+  const accepts = (e: DragEvent) => supports('play-now') && [DRAG, DRAG_MEDIA, ...(canUpload ? [DRAG_FILE] : [])].some((k) => e.dataTransfer.types.includes(k));
+  const drop = (e: DragEvent) => {
+    e.preventDefault();
+    setOver(false);
+    const itemId = e.dataTransfer.getData(DRAG);
+    const mediaId = e.dataTransfer.getData(DRAG_MEDIA);
+    const file = e.dataTransfer.getData(DRAG_FILE);
+    if (itemId) a.playNow.mutate({ itemId });
+    else if (mediaId) a.playNow.mutate({ mediaId });
+    else if (file && canUpload) void addLocalFile(stationId, file, 'q1', 'top', (v) => a.playNow.mutate({ mediaId: v.mediaId }), t);
+  };
   return (
-    <Card className="overflow-hidden">
+    <Card
+      className={clsx('relative overflow-hidden', over && 'ring-2 ring-koraal')}
+      onDragOver={(e) => {
+        if (!accepts(e)) return;
+        e.preventDefault();
+        setOver(true);
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={drop}
+    >
+      {over && (
+        <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center bg-koraal/15 text-sm font-extrabold tracking-[0.08em] text-accent-text uppercase">
+          {t('assist.dropToPlay')}
+        </div>
+      )}
       <div className="flex items-center gap-5 p-5">
         <div className="grid size-16 shrink-0 place-items-center rounded-md bg-nacht text-koraal">
           <Music2 className="size-7" />

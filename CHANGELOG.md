@@ -18,6 +18,7 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 - The status at the top of RHIS Studio is labelled "On air now" and shows Auto or Manual next to AutoDJ, with a
   tooltip; it is a status, not a button.
 - On air in RHIS Studio is a clear red: the Go live button, the status at the top and the Live badge in the menu.
+- Play now: drag a track onto the player in RHIS Studio and it starts at once (`POST /api/stations/:id/autodj/play-now`).
 
 ## 1.0.1 (October 2026)
 

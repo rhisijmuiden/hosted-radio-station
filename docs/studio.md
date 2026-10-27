@@ -66,6 +66,9 @@ The headphones button plays a track on the **preview output** (*Settings › Pre
 and not on the output of the cart wall unless you choose the same sound card. The bar at the bottom of the panel has
 pause, stop and a position slider.
 
+Drag a track onto the **player** (the Now playing card) to play it now: from Q1/Q2, the library or this PC. The track
+on air fades out and the dropped track starts at once, in Auto and in Manual. It needs server 1.1.
+
 A file from the network or this PC goes on air through the station library: Q1/Q2 or dragging it onto a queue uploads
 it to the library, waits until the server has read its tags and then puts it in the queue. This needs the manager or
 owner role (it counts towards the storage of the station); DJs can preview local files.
