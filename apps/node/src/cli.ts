@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { readdir, readFile } from 'node:fs/promises';
 import { Agent } from './agent.js';
-import { dataPath, readNodeFile, readVersion } from './config.js';
+import { dataPath, readInstallFile, readNodeFile, readVersion } from './config.js';
 import { pairWithCode, register, registrationSummary, ROLES, waitForPairing, type Role } from './enroll.js';
 import { log } from './log.js';
+import { facts } from './system.js';
 
 function arg(args: string[], name: string) {
   const i = args.indexOf(`--${name}`);
@@ -40,7 +41,9 @@ async function status() {
   if (!file) {
     const pending = await registrationSummary();
     console.log(pending ? `Not paired yet: ${pending}.` : 'Not paired. Pair with: hrs-node pair --server <url> --code <code>, or register with: hrs-node register --server <url>');
-    if (process.env.HRS_NODE_SETUP_PORT !== '0') console.log('Setup page: http://<this node>:8080 (until the node is paired)');
+    const port = process.env.HRS_NODE_SETUP_PORT ?? '8080';
+    const ip = facts('direct').facts.addresses.find((a) => !a.includes(':')) ?? 'this-node';
+    if (port !== '0' && readInstallFile().setupPage) console.log(`Setup page: http://${ip}:${port} (until the node is paired)`);
     return;
   }
   const v = readVersion();
