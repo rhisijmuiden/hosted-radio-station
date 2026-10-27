@@ -166,9 +166,9 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 12 | Station nodes | Done |
 | 13 | Orchestrator as control plane | Done |
 | 14 | Orchestrator redundancy | Planned (1.x) |
-| 15 | Cloudflare DNS integration | Planned (1.x) |
+| 15 | Cloudflare DNS integration | Done on test, ships with 1.1.1 |
 | 16 | Installer menu and node enrollment | Planned (1.x) |
-| 17 | RHIS Studio 1.0 (Windows client) | Paused after step 3 (after 18 and 15) |
+| 17 | RHIS Studio 1.0 (Windows client) | Paused after step 3 (resumes after 16 and 14) |
 | 18 | Server names and topology views | Done (1.1.0) |
 
 ## Phases
@@ -435,7 +435,7 @@ Clear names everywhere and topology views that stay readable as the network grow
 
 Small fixes planned for a patch release, one at a time after the current phase.
 
-### 1.1.1: topology layout (after phase 15)
+### 1.1.1: topology layout (next, ships together with phase 15)
 
 - Station nodes are drawn in the Ingest layer, but they are studios: they move to the "Studios & encoders" layer, in all views (layers, per station, matrix, 3D skyline).
 - An FM/MPX node is linked directly to the station node (studio) it takes its audio from, and is drawn right next to it as one group, instead of on its own in the distribution layer.
