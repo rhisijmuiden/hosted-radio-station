@@ -433,6 +433,7 @@ export interface TenantUsage {
 export interface StreamingSettings {
   ingestTlsPort: number;
   ingestPlainPort: number;
+  encoderHost: string;
   icecastPortFrom: number;
   icecastPortTo: number;
   legacyPortFrom: number;

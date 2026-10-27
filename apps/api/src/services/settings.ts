@@ -81,6 +81,17 @@ export const streamingSchema = z
     ingestTlsPort: portSchema.default(8443),
     /** Encoders without TLS (Icecast protocol). 0 = off. */
     ingestPlainPort: z.union([z.literal(0), portSchema]).default(8010),
+    /**
+     * Host name or IP address encoders and RHIS Studio connect to, when the public name does not carry raw TCP (e.g.
+     * behind the Cloudflare proxy). Empty = the domain under Web server. Customer src. names still take precedence.
+     */
+    encoderHost: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .max(253)
+      .regex(/^$|^[a-z0-9.:-]+$/, 'Use an IP address or host name')
+      .default(''),
     /** Internal Icecast servers, one port per station, bound to 127.0.0.1. */
     icecastPortFrom: portSchema.default(18000),
     icecastPortTo: portSchema.default(18999),

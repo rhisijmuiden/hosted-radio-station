@@ -38,7 +38,9 @@ export interface ConnectionInfo {
 export async function connectionInfo(ctx: AppContext, station: Station, mounts: Mount[], localEnabled: boolean): Promise<ConnectionInfo> {
   const [proxy, streaming, domain] = await Promise.all([getSetting(ctx, 'proxy'), getSetting(ctx, 'streaming'), tenantDomain(ctx, station.tenantId)]);
   const publicUrl = new URL(ctx.config.PUBLIC_URL);
-  const ingestHost = domain?.ingestHost ?? (proxy.domain || publicUrl.hostname);
+  const ingestHost = domain?.ingestHost ?? (streaming.encoderHost || proxy.domain || publicUrl.hostname);
+  // A separate encoder address has no certificate of its own: TLS only on the customer's src. name or the main domain.
+  const tlsHere = proxy.mode === 'builtin' && (!!domain || (!!proxy.domain && !streaming.encoderHost));
   const listenBase = domain ? `https://${domain.panelHost}` : ctx.config.PUBLIC_URL.replace(/\/$/, '');
   const legacyMount = mounts.find((m) => m.id === station.legacyMountId) ?? mounts.find((m) => m.kind === 'source') ?? null;
   // A station on a station node (phase 12): encoders and RHIS Studio connect to the node in the studio itself.
@@ -72,7 +74,7 @@ export async function connectionInfo(ctx: AppContext, station: Station, mounts: 
     const host = domain?.ingestNodeId === n.id ? domain.ingestHost : c.publicHost || n.status.ip || n.name;
     return { host, node: { id: n.id, name: n.name }, tls: { port: c.sourceTlsPort ?? streaming.ingestTlsPort, available: !!c.sourceTlsPort && !!n.status.caddy && (domain?.ingestNodeId === n.id || !!c.publicHost) }, plain: c.sourcePlainPort ? { port: c.sourcePlainPort } : null };
   };
-  const here = { host: ingestHost, node: null, tls: { port: streaming.ingestTlsPort, available: proxy.mode === 'builtin' && (!!domain || !!proxy.domain) }, plain: streaming.ingestPlainPort ? { port: streaming.ingestPlainPort } : null };
+  const here = { host: ingestHost, node: null, tls: { port: streaming.ingestTlsPort, available: tlsHere }, plain: streaming.ingestPlainPort ? { port: streaming.ingestPlainPort } : null };
   const backup = routing.backupIngest && routing.backupIngest !== routing.ingest ? (routing.backupIngest === 'local' ? here : await nodeIngest(routing.backupIngest)) : null;
   const pushed = pushedRouting(routing);
   if (routing.ingest !== 'local') {
@@ -114,7 +116,7 @@ export async function connectionInfo(ctx: AppContext, station: Station, mounts: 
     backup,
     uploadHost: ingestHost,
     // Certificates come from the built-in web server; behind an external proxy, TLS for encoders is set up there.
-    tls: { port: streaming.ingestTlsPort, available: proxy.mode === 'builtin' && (!!domain || !!proxy.domain) },
+    tls: { port: streaming.ingestTlsPort, available: tlsHere },
     plain: streaming.ingestPlainPort ? { port: streaming.ingestPlainPort } : null,
     legacy: station.legacyPort ? { port: station.legacyPort, sourcePort: station.legacyPort + 1, mount: legacyMount?.path ?? null } : null,
     listenBase,

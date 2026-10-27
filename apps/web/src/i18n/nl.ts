@@ -1030,6 +1030,9 @@ export const nl: Translation = {
     tlsPortHint: 'Versleuteld. Gebruikt het certificaat van het klantdomein of van deze server.',
     plainPort: 'Poort zonder TLS',
     plainPortHint: 'Voor encoders zonder TLS. 0 = uit.',
+    encoderHost: 'Encoder-adres',
+    encoderHostHint:
+      'Waar encoders en RHIS Studio verbinden als je domein achter een proxy staat die deze poorten niet doorgeeft, zoals Cloudflare. Gebruik een naam met alleen DNS of een IP-adres. Leeg = het domein onder Webserver.',
     legacyRange: 'Poorten voor Shoutcast v1',
     legacyRangeHint: 'Elk station dat het aanzet krijgt twee poorten uit deze reeks.',
     icecastRange: 'Interne poorten',

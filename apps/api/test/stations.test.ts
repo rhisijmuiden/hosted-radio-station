@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { getSetting, putSetting } from '../src/services/settings.js';
 import { parseStats } from '../src/services/streaming/icecast.js';
 import { login, setup } from './helpers.js';
 
@@ -201,6 +202,18 @@ describe('DJ and upload accounts', () => {
 
 describe('domains', () => {
   let domainId: string;
+  it('sends encoders to the encoder address when the domain runs behind a proxy such as Cloudflare', async () => {
+    const streaming = await getSetting(t.ctx, 'streaming');
+    await putSetting(t.ctx, 'streaming', { ...streaming, encoderHost: 'src.radio.invalid' });
+    try {
+      const s = (await t.app.inject({ url: `/api/stations/${stationId}`, headers: owner })).json();
+      expect(s.connection.ingestHost).toBe('src.radio.invalid');
+      expect(s.connection.tls.available).toBe(false);
+    } finally {
+      await putSetting(t.ctx, 'streaming', streaming);
+    }
+  });
+
   it('adds a domain and only issues certificates once it is verified', async () => {
     const res = await t.app.inject({ method: 'POST', url: `/api/tenants/${tenantId}/domains`, headers: owner, payload: { domain: 'harder.invalid' } });
     expect(res.statusCode).toBe(201);
