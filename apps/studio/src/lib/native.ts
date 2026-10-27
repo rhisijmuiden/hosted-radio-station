@@ -213,7 +213,7 @@ async function simInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Pr
   });
   switch (cmd) {
     case 'app_info':
-      return { version: '0.11.1', os: 'windows', arch: 'x86_64', hostname: 'STUDIO-1', asio: true } as T;
+      return { version: '0.11.2', os: 'windows', arch: 'x86_64', hostname: 'STUDIO-1', asio: true } as T;
     case 'list_devices':
       return simDevices as T;
     case 'configure_audio':
