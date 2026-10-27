@@ -219,6 +219,16 @@ describe('relays of a station on a station node (phase 19)', () => {
       // the station does not play) redirects too instead of ending on the panel's "Page not found".
       const detail = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}`, headers: admin })).json();
       expect(detail.connection.mounts[0].listenUrl).toContain('/api/public/stations/schermer-fm/listen/live');
+      // TLS for encoders only on a public name with the node's web server: an internal name or a LAN address only ever
+      // has a self-signed certificate, which RHIS Studio and encoders refuse.
+      const tlsFor = async (config: Record<string, unknown>) => {
+        const [row] = await t.db.select().from(schema.nodes).where(eq(schema.nodes.id, node.id));
+        await t.db.update(schema.nodes).set({ config: { ...row!.config, ...config }, status: { ...row!.status, caddy: true } }).where(eq(schema.nodes.id, node.id));
+        return (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}`, headers: admin })).json().connection as { ingestHost: string; tls: { available: boolean } };
+      };
+      expect((await tlsFor({ publicHost: 'radionode3.mngt.onzehut.loc', lanAddress: '' })).tls.available).toBe(false);
+      expect(await tlsFor({ publicHost: 'studio.radio.example.com', lanAddress: '' })).toMatchObject({ ingestHost: 'studio.radio.example.com', tls: { available: true } });
+      expect(await tlsFor({ lanAddress: '10.0.0.9' })).toMatchObject({ ingestHost: '10.0.0.9', tls: { available: false } });
       const direct = await t.app.inject({ method: 'GET', url: '/listen/schermer-fm/live' });
       expect(direct.statusCode).toBe(503);
       expect(direct.json().error.code).toBe('no_relay');

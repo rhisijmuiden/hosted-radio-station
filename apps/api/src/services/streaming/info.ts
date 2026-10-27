@@ -67,6 +67,18 @@ export async function connectionInfo(ctx: AppContext, station: Station, mounts: 
 
 type BaseConnection = Omit<ConnectionInfo, 'endpoints' | 'panelUrl' | 'upload'>;
 
+const INTERNAL_TLDS = new Set(['loc', 'local', 'lan', 'home', 'internal', 'intranet', 'corp', 'localdomain', 'test', 'invalid', 'localhost', 'arpa']);
+
+/**
+ * A name a public certificate can exist for: a dotted DNS name outside the internal suffixes. An IP address or a
+ * name such as radionode3.mngt.example.loc only ever gets a self-signed certificate, which encoders do not trust.
+ */
+export function publicName(host: string): boolean {
+  const h = host.trim().toLowerCase().replace(/\.$/, '');
+  if (!h || h.includes(':') || /^\d+(\.\d+){3}$/.test(h) || !h.includes('.')) return false;
+  return !INTERNAL_TLDS.has(h.slice(h.lastIndexOf('.') + 1));
+}
+
 async function baseConnection(ctx: AppContext, station: Station, mounts: Mount[], localEnabled: boolean): Promise<BaseConnection> {
   const [proxy, streaming, domain] = await Promise.all([getSetting(ctx, 'proxy'), getSetting(ctx, 'streaming'), tenantDomain(ctx, station.tenantId)]);
   const publicUrl = new URL(ctx.config.PUBLIC_URL);
@@ -80,8 +92,12 @@ async function baseConnection(ctx: AppContext, station: Station, mounts: Mount[]
     const [sn] = await ctx.db.select().from(schema.nodes).where(and(eq(schema.nodes.id, station.nodeId), isNotNull(schema.nodes.pairedAt)));
     if (sn) {
       const c = nodeSettings(sn);
-      const host = c.lanAddress || nodeHost(sn) || sn.status.ip || ingestHost;
+      const name = nodeHost(sn);
+      const host = c.lanAddress || name || sn.status.ip || ingestHost;
       const d = STATION_NODE_STREAMING;
+      // TLS only where encoders connect to the node's public name: its certificate is for that name, so a LAN address
+      // (plain inside the studio) or an internal name would fail on the certificate.
+      const tlsOk = !c.lanAddress && !!name && publicName(name) && !!sn.status.caddy;
       return {
         ingestHost: host,
         node: { id: sn.id, name: sn.name },
@@ -90,7 +106,7 @@ async function baseConnection(ctx: AppContext, station: Station, mounts: Mount[]
         uploadHost: externalAddress(sn) ?? host,
         // The node's own ingest gateway takes encoders, on the ports of a fresh install; TLS only with a name and a
         // certificate of its own.
-        tls: { port: d.ingestTlsPort, available: !!nodeHost(sn) && !!sn.status.caddy },
+        tls: { port: d.ingestTlsPort, available: tlsOk },
         plain: d.ingestPlainPort ? { port: d.ingestPlainPort } : null,
         legacy: station.legacyPort ? { port: station.legacyPort, sourcePort: station.legacyPort + 1, mount: legacyMount?.path ?? null } : null,
         listenBase,
@@ -108,7 +124,7 @@ async function baseConnection(ctx: AppContext, station: Station, mounts: Mount[]
     if (!n?.roles.includes('source')) return null;
     const c = nodeSettings(n);
     const host = domain?.ingestNodeId === n.id ? domain.ingestHost : nodeHost(n) || n.status.ip || n.name;
-    return { host, node: { id: n.id, name: n.name }, tls: { port: c.sourceTlsPort ?? streaming.ingestTlsPort, available: !!c.sourceTlsPort && !!n.status.caddy && (domain?.ingestNodeId === n.id || !!nodeHost(n)) }, plain: c.sourcePlainPort ? { port: c.sourcePlainPort } : null };
+    return { host, node: { id: n.id, name: n.name }, tls: { port: c.sourceTlsPort ?? streaming.ingestTlsPort, available: !!c.sourceTlsPort && !!n.status.caddy && publicName(host) }, plain: c.sourcePlainPort ? { port: c.sourcePlainPort } : null };
   };
   const here = { host: ingestHost, node: null, tls: { port: streaming.ingestTlsPort, available: tlsHere }, plain: streaming.ingestPlainPort ? { port: streaming.ingestPlainPort } : null };
   const backup = routing.backupIngest && routing.backupIngest !== routing.ingest ? (routing.backupIngest === 'local' ? here : await nodeIngest(routing.backupIngest)) : null;
@@ -219,7 +235,7 @@ async function endpointsOf(ctx: AppContext, station: Station, conn: BaseConnecti
     const n = await nodeRow(i.ref);
     if (!n) continue;
     const c = nodeSettings(n);
-    const tlsOk = !!c.sourceTlsPort && !!n.status.caddy && (domain?.ingestNodeId === n.id || !!nodeHost(n));
+    const tlsOk = !!c.sourceTlsPort && !!n.status.caddy && publicName(domain?.ingestNodeId === n.id ? domain.ingestHost : nodeHost(n));
     endpoints.push({
       role,
       name: n.name,
