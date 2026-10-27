@@ -18,6 +18,7 @@ import { moveToMain, finishMoveToNode } from '../services/stationnode/move.js';
 import { buildPackage } from '../services/stationnode/package.js';
 import { NODE_TABLES, nodeTable, rowKey, toWire, type WireRow } from '../services/stationnode/tables.js';
 import { assertAudioAllowedHere } from '../services/nodes/orchestrator.js';
+import { mayPlace, scopeOf } from '../services/nodes/dedication.js';
 
 const stationParams = z.object({ id: z.uuid() });
 
@@ -246,6 +247,8 @@ export const stationPlacementRoutes: FastifyPluginAsyncZod = async (app) => {
         const [node] = await ctx.db.select().from(schema.nodes).where(eq(schema.nodes.id, target));
         if (!node || !node.roles.includes('station')) throw badRequest('Choose a node with the station node role');
         if (node.tenantId && node.tenantId !== s.tenantId) throw badRequest('This node belongs to another customer');
+        if (!mayPlace(node, s, await ctx.db.select({ id: schema.stations.id, tenantId: schema.stations.tenantId, nodeId: schema.stations.nodeId }).from(schema.stations)))
+          throw badRequest('This node is dedicated to another customer or station');
         // Administrators place stations on any node; customers only on their own.
         if (access.role !== 'superadmin' && node.tenantId !== s.tenantId) throw forbidden('Only administrators can place a station on a shared node');
         if (!node.pairedAt) throw badRequest('Pair the node first');
@@ -317,6 +320,9 @@ export const tenantStationNodeRoutes: FastifyPluginAsyncZod = async (app) => {
         const [node] = await ctx.db.select().from(schema.nodes).where(eq(schema.nodes.id, target));
         if (!node || !node.roles.includes('station')) throw badRequest('Choose a node with the station node role');
         if (node.tenantId && node.tenantId !== tenant.id) throw badRequest('This node belongs to another customer');
+        const all = await ctx.db.select({ id: schema.stations.id, tenantId: schema.stations.tenantId, nodeId: schema.stations.nodeId }).from(schema.stations);
+        // A node dedicated to one station takes no other stations of the customer, so it cannot be the customer's node.
+        if (scopeOf(node).kind === 'station' || !mayPlace(node, { id: '', tenantId: tenant.id, nodeId: null }, all)) throw badRequest('This node is dedicated to another customer or station');
         if (access.role !== 'superadmin' && node.tenantId !== tenant.id) throw forbidden('Only administrators can link a customer to a shared node');
       } else if (req.body.moveStations) await assertAudioAllowedHere(ctx, 'its stations cannot move back to this server');
       await ctx.db.update(schema.tenants).set({ stationNodeId: target }).where(eq(schema.tenants.id, tenant.id));

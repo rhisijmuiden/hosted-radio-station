@@ -11,6 +11,7 @@ import { applyStreams } from '../services/streaming/state.js';
 import { readStreamsStatus } from '../services/streaming/status.js';
 import { stationAccess } from './stations.js';
 import { getSetting } from '../services/settings.js';
+import { serves } from '../services/nodes/dedication.js';
 
 const params = z.object({ id: z.uuid() });
 const ref = z.union([z.literal('local'), z.uuid()]);
@@ -49,9 +50,10 @@ export const stationRoutingRoutes: FastifyPluginAsyncZod = async (app) => {
     const nodes = (await ctx.db.select().from(schema.nodes).where(isNotNull(schema.nodes.pairedAt)).orderBy(asc(schema.nodes.name))).map((n) => ({ ...n, status: hub.liveStatus(n.id) ?? { ...n.status, online: false } }));
     const r = stationRouting(station);
     // Customers choose among their own nodes; platform nodes are the administrator's to hand out.
-    const allowed = (n: (typeof nodes)[number]) => (n.tenantId ? n.tenantId === tenantId : superadmin);
+    // A dedicated node (1.1.1) is only offered to the customer or station it is dedicated to.
+    const allowed = (n: (typeof nodes)[number]) => serves(n, station) && (n.tenantId ? n.tenantId === tenantId : superadmin);
     const choice = (n: (typeof nodes)[number]) => ({ id: n.id, name: n.name, location: n.location, online: n.status.online, own: n.tenantId === tenantId });
-    const relays = nodes.filter((n) => n.roles.includes('relay') && (!n.tenantId || n.tenantId === tenantId));
+    const relays = nodes.filter((n) => n.roles.includes('relay') && serves(n, station));
     const worker = await readStreamsStatus(ctx).then((s) => s.worker);
     const only = (await getSetting(ctx, 'orchestrator')).only;
     const onAir = (x: string) => (x === 'local' ? !!worker?.onAir[station.id]?.length : !!nodes.find((n) => n.id === x)?.status.ingest?.some((m) => m.stationId === station.id));
@@ -117,6 +119,7 @@ export const stationRoutingRoutes: FastifyPluginAsyncZod = async (app) => {
         if (!n) throw badRequest('Unknown or unpaired node');
         if (!n.roles.includes(role)) throw badRequest(`${n.name} does not have the ${role === 'source' ? 'ingest' : 'relay'} role`);
         if (n.tenantId && n.tenantId !== tenant.id) throw forbidden('This node belongs to another customer');
+        if (!serves(n, station)) throw forbidden(`${n.name} is dedicated to another customer or station`);
         if (!n.tenantId && !superadmin && !kept(n.id)) throw forbidden('Only an administrator can assign the platform nodes');
       };
       for (const i of [body.ingest, body.backupIngest]) if (i && i !== 'local') check(i, 'source');

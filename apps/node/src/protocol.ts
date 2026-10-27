@@ -47,6 +47,11 @@ export interface NodePlan {
     publicHost: string | null;
     /** Port for listeners without a domain (or without a web server on the node). Null = the agent's default. */
     listenPort: number | null;
+    /**
+     * Names to fetch certificates for through Cloudflare DNS (DNS-01, phase 15): the main server sets the TXT record
+     * when the node asks (POST /api/nodes/agent/acme/present). Null or missing = HTTP as usual.
+     */
+    dnsCerts?: { hosts: string[]; email: string } | null;
   };
   relay: {
     maxListeners: number;

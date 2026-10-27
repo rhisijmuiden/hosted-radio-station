@@ -1,5 +1,6 @@
 import { eq, isNotNull } from 'drizzle-orm';
 import { schema } from '../db/index.js';
+import type { NodeConfig } from '../db/schema.js';
 import type { AppContext } from '../lib/context.js';
 import { getSetting, type StreamingSettings } from '../services/settings.js';
 import { pairedRelays, pushTarget, pushToken, relaysOf } from '../services/nodes/plan.js';
@@ -39,7 +40,7 @@ export interface Snapshot {
   /** Ingest or panel host of a verified customer domain → customer id. */
   hostTenant: Map<string, string>;
   /** Paired source nodes that may pass encoders on to this server, with their secret. */
-  sourceNodes: Map<string, { id: string; tenantId: string | null; secret: string }>;
+  sourceNodes: Map<string, { id: string; tenantId: string | null; roles: string[]; config: NodeConfig; secret: string }>;
   /** Orchestrator only (phase 18): no encoders, no audio on this server. */
   orchestratorOnly: boolean;
 }
@@ -63,7 +64,7 @@ export async function loadSnapshot(ctx: AppContext): Promise<Snapshot> {
   for (const n of nodes) {
     if (!n.roles.includes('source') || !n.secret) continue;
     try {
-      sourceNodes.set(n.id, { id: n.id, tenantId: n.tenantId, secret: ctx.box.decrypt(n.secret) });
+      sourceNodes.set(n.id, { id: n.id, tenantId: n.tenantId, roles: n.roles, config: n.config, secret: ctx.box.decrypt(n.secret) });
     } catch {
       /* a secret of another installation (restored backup); the node must pair again */
     }

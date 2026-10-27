@@ -5,8 +5,10 @@ import { schema } from '../db/index.js';
 import { requireSuperadmin, requireTenantRole } from '../lib/auth.js';
 import { badRequest, conflict, isUniqueViolation, notFound } from '../lib/errors.js';
 import { idParam, okOut } from '../lib/schemas.js';
+import { dnsConfig, targetsOf } from '../services/dns/config.js';
 import { dnsTarget, hostRe, verifyDomain } from '../services/streaming/domains.js';
 import { applyStreams, stationStats } from '../services/streaming/state.js';
+import { scopeOf } from '../services/nodes/dedication.js';
 
 const domainParams = z.object({ id: z.uuid(), domainId: z.uuid() });
 const hostSchema = z
@@ -23,18 +25,25 @@ const domainOut = z.object({
   ingestHost: z.string(),
   status: z.enum(['pending', 'verified', 'failed']),
   verifiedManually: z.boolean(),
-  checks: z.array(z.object({ host: z.string(), ok: z.boolean(), found: z.array(z.string()), error: z.string().optional() })),
+  checks: z.array(z.object({ host: z.string(), ok: z.boolean(), found: z.array(z.string()), error: z.string().optional(), warning: z.string().optional(), expected: z.string().optional() })),
   checkedAt: z.date().nullable(),
   verifiedAt: z.date().nullable(),
   /** Source node that takes the encoders of the ingest name; null = this server. */
   ingestNodeId: z.uuid().nullable(),
+  /** Cloudflare DNS (phase 15): the CNAME targets of this domain on the platform domain; null = the shared target. */
+  targets: z.object({ panel: z.string(), ingest: z.string() }).nullable(),
   createdAt: z.date(),
 });
-const toDomainOut = ({ tenantId: _t, ...d }: typeof schema.tenantDomains.$inferSelect) => d;
+type DomainRow = typeof schema.tenantDomains.$inferSelect;
 
 /** Customer domains (stream./src.) and the use of a customer's limits. Mounted under /api/tenants. */
 export const tenantStreamingRoutes: FastifyPluginAsyncZod = async (app) => {
   const { ctx } = app;
+  const toDomainOut = async ({ tenantId: _t, targetLabel, ...d }: DomainRow) => ({ ...d, targets: await targetsOf(ctx, targetLabel) });
+  /** Cloudflare DNS makes (or removes) the domain's targets; a domain waits for its label before it is checked. */
+  const dnsFollow = async () => {
+    if (app.dns && (await dnsConfig(ctx)).active) await app.dns.run().catch(() => undefined);
+  };
 
   app.get(
     '/:id/domains',
@@ -49,7 +58,7 @@ export const tenantStreamingRoutes: FastifyPluginAsyncZod = async (app) => {
     async (req) => {
       await requireTenantRole(ctx, req, req.params.id, 'manager');
       const items = await ctx.db.select().from(schema.tenantDomains).where(eq(schema.tenantDomains.tenantId, req.params.id)).orderBy(asc(schema.tenantDomains.createdAt));
-      return { items: items.map(toDomainOut), target: await dnsTarget(ctx) };
+      return { items: await Promise.all(items.map(toDomainOut)), target: await dnsTarget(ctx) };
     },
   );
 
@@ -79,12 +88,14 @@ export const tenantStreamingRoutes: FastifyPluginAsyncZod = async (app) => {
         if (isUniqueViolation(err)) throw conflict('One of these names is already in use');
         throw err;
       }
-      const { domain: checked } = await verifyDomain(ctx, row!);
+      await dnsFollow();
+      const [labelled] = await ctx.db.select().from(schema.tenantDomains).where(eq(schema.tenantDomains.id, row!.id));
+      const { domain: checked } = await verifyDomain(ctx, labelled ?? row!);
       if (checked.status === 'verified') await applyStreams(ctx, { by: req.auth?.user.email });
       req.auditInfo.targetId = checked.id;
       req.auditInfo.details = { domain, panelHost, ingestHost, status: checked.status };
       reply.status(201);
-      return toDomainOut(checked);
+      return await toDomainOut(checked);
     },
   );
 
@@ -100,7 +111,7 @@ export const tenantStreamingRoutes: FastifyPluginAsyncZod = async (app) => {
       if (!row) throw notFound('Domain');
       const { domain, changed } = await verifyDomain(ctx, row);
       if (changed) await applyStreams(ctx, { by: req.auth?.user.email });
-      return toDomainOut(domain);
+      return await toDomainOut(domain);
     },
   );
 
@@ -128,7 +139,7 @@ export const tenantStreamingRoutes: FastifyPluginAsyncZod = async (app) => {
       await applyStreams(ctx, { by: req.auth?.user.email });
       req.auditInfo.targetId = row.id;
       req.auditInfo.details = { domain: row.domain, verifiedManually: row.verifiedManually };
-      return toDomainOut(domain);
+      return await toDomainOut(domain);
     },
   );
 
@@ -154,13 +165,18 @@ export const tenantStreamingRoutes: FastifyPluginAsyncZod = async (app) => {
         if (!node || !node.roles.includes('source')) throw badRequest('Choose a node with the source role');
         // Customers use their own nodes; administrators may also use the platform's nodes.
         if (node.tenantId !== req.params.id && !(node.tenantId === null && access.role === 'superadmin')) throw badRequest('This node cannot take encoders of this customer');
+        // A dedicated node (1.1.1) only takes encoders of its own customer; one dedicated to a single station takes no
+        // encoder name of the whole customer.
+        const sc = scopeOf(node);
+        if (sc.kind === 'station' || (sc.kind === 'customer' && sc.tenantId !== req.params.id)) throw badRequest('This node is dedicated to another customer or station');
       }
       const [updated] = await ctx.db.update(schema.tenantDomains).set({ ingestNodeId: nodeId }).where(eq(schema.tenantDomains.id, row.id)).returning();
+      await dnsFollow();
       const { domain } = await verifyDomain(ctx, updated!);
       await applyStreams(ctx, { by: req.auth?.user.email });
       req.auditInfo.targetId = row.id;
       req.auditInfo.details = { domain: row.domain, ingestNodeId: nodeId };
-      return toDomainOut(domain);
+      return await toDomainOut(domain);
     },
   );
 
@@ -177,6 +193,7 @@ export const tenantStreamingRoutes: FastifyPluginAsyncZod = async (app) => {
       req.auditInfo.targetId = deleted[0]!.id;
       req.auditInfo.details = { domain: deleted[0]!.domain };
       await applyStreams(ctx, { by: req.auth?.user.email });
+      app.dns?.nudge();
       return { ok: true as const };
     },
   );

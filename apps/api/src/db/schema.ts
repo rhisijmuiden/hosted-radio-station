@@ -490,6 +490,10 @@ export interface DomainCheck {
   /** What the name points to now: CNAME target or addresses. */
   found: string[];
   error?: string;
+  /** Works, but could be better, e.g. an A record where a CNAME would follow changes by itself (phase 15). */
+  warning?: string;
+  /** What the record should be: the CNAME target customers set (phase 15). */
+  expected?: string;
 }
 
 /**
@@ -507,6 +511,8 @@ export const tenantDomains = pgTable(
     status: domainStatus('status').notNull().default('pending'),
     /** Source node that takes the encoders of `ingestHost` (phase 8). Null = this server. */
     ingestNodeId: uuid('ingest_node_id').references((): AnyPgColumn => nodes.id, { onDelete: 'set null' }),
+    /** First part of the domain's platform targets, <label>.stream.<platform domain> and <label>.src.… (phase 15). */
+    targetLabel: text('target_label').unique(),
     /** Set by an administrator for DNS setups that cannot be checked from here (split DNS, LAN). */
     verifiedManually: boolean('verified_manually').notNull().default(false),
     checks: jsonb('checks').$type<DomainCheck[]>().notNull().default([]),
@@ -958,6 +964,18 @@ export interface NodeConfig {
   updatePolicy?: 'inherit' | 'rolling' | 'window' | 'manual';
   updateGroup?: string | null;
   updateWindow?: { days: number[]; start: string; end: string } | null;
+  /** Cloudflare DNS (phase 15): label of the platform name, whether the node gets one, and a manual public address. */
+  dnsName?: string;
+  dnsRecord?: boolean;
+  certDns?: boolean;
+  publicAddress?: string;
+  /** Written by the DNS manager: the platform name while its record exists, and the check of an own publicHost. */
+  dnsHost?: string;
+  publicHostCheck?: { ok: boolean; found: string[]; error?: string; at: string } | null;
+  /** Shared or dedicated (1.1.1), see services/nodes/dedication.ts. */
+  dedication?: 'auto' | 'shared' | 'customer' | 'station';
+  dedicatedTenantId?: string | null;
+  dedicatedStationId?: string | null;
 }
 
 /** What a node reported last, kept with the node so every process (API, streams) can read it. */

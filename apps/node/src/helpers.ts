@@ -15,6 +15,8 @@ export interface WebState {
   icecastBind: string;
   /** Names the web server gets certificates for (the node's own and customer encoder names). */
   certHosts: string[];
+  /** Of those, the names fetched through Cloudflare DNS (DNS-01) with lego, and the ACME account e-mail. */
+  dnsCerts: { hosts: string[]; email: string } | null;
   /** The node has the station node role: the root helper installs and links the station runtime (phase 12). */
   station: boolean;
   /** The node makes converted mounts as an ingest: the root helper installs ffmpeg when it is missing (phase 13). */

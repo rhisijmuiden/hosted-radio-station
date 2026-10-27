@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import type { FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
@@ -10,9 +10,11 @@ import type { AppContext } from '../lib/context.js';
 import { randomToken } from '../lib/crypto.js';
 import { badRequest, conflict, forbidden, HttpError, notFound } from '../lib/errors.js';
 import { okOut } from '../lib/schemas.js';
+import { clientIp } from '../lib/cloudflare-ips.js';
 import { nodeEvent } from '../services/nodes/hub.js';
 import { hashCode, installCommand, newPairingCode, PAIRING_HOURS } from '../services/nodes/pairing.js';
-import { carried, nodeConfigPatch, nodeConfigSchema, nodeSettings, relayBaseUrl, relaysByStation, relaysOf, storedConfig, type Node } from '../services/nodes/plan.js';
+import { carried, nodeConfigPatch, nodeConfigSchema, type NodeConfigPatch, nodeSettings, relayBaseUrl, relaysByStation, relaysOf, storedConfig, type Node } from '../services/nodes/plan.js';
+import { scopeOf, serves } from '../services/nodes/dedication.js';
 import { ingestNodes, ingestsOf, localIngest, pushedRouting, stationRouting } from '../services/nodes/routing-rules.js';
 import { readStreamsStatus } from '../services/streaming/status.js';
 import { authenticateNode, reportSchema, storeReport } from '../services/nodes/report.js';
@@ -121,6 +123,8 @@ const nodeOut = z.object({
   update: updateInfoOut,
   /** Encoder names (src.<domain>) routed to this node. */
   ingestHosts: z.array(z.string()),
+  /** Shared or dedicated (1.1.1): who the node serves, from its settings and roles. "placed" = the stations on it. */
+  scope: z.object({ kind: z.enum(['shared', 'customer', 'station', 'placed', 'none']), tenantId: z.uuid().nullable(), stationId: z.uuid().nullable() }),
   createdAt: z.date(),
 });
 type NodeOut = z.infer<typeof nodeOut>;
@@ -172,7 +176,7 @@ const probeOut = z.object({
 });
 
 /** Who may see or change a node: administrators all of them, customers their own (owners change, managers look). */
-async function nodeAccess(ctx: AppContext, req: FastifyRequest, id: string, minRole: 'manager' | 'owner') {
+export async function nodeAccess(ctx: AppContext, req: FastifyRequest, id: string, minRole: 'manager' | 'owner') {
   const [node] = await ctx.db.select().from(schema.nodes).where(eq(schema.nodes.id, id));
   if (!node) throw notFound('Node');
   if (node.tenantId) await requireTenantRole(ctx, req, node.tenantId, minRole);
@@ -199,6 +203,11 @@ const uptimeOf = (buckets: [number, number, number][]) => {
 export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
   const { ctx } = app;
   const hub = app.nodes;
+
+  const scopeOut = (n: Node): NodeOut['scope'] => {
+    const sc = scopeOf(n);
+    return { kind: sc.kind, tenantId: sc.kind === 'customer' ? sc.tenantId : null, stationId: sc.kind === 'station' ? sc.stationId : null };
+  };
 
   async function toOut(nodes: Node[]): Promise<NodeOut[]> {
     if (!nodes.length) return [];
@@ -230,9 +239,49 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         updateAvailable: !!n.pairedAt && !!status.commit && !!v.commit && status.commit !== v.commit,
         update: nodeUpdateInfo(n, status, ov),
         ingestHosts: domains.filter((d) => d.nodeId === n.id).map((d) => d.host),
+        scope: scopeOut(n),
         createdAt: n.createdAt,
       };
     });
+  }
+
+  /**
+   * Shared or dedicated (1.1.1): the customer or station a node is dedicated to must exist, and the stations it carries,
+   * puts on air or takes encoders for must all be ones it serves. Stations that still use the node otherwise refuse
+   * the change, so nothing silently loses its relay or ingest.
+   */
+  async function checkDedication(node: Node, roles: NodeRole[], config: Node['config'], patch: NodeConfigPatch) {
+    const c = nodeSettings({ config });
+    if (patch.dedicatedTenantId) {
+      const [t] = await ctx.db.select({ id: schema.tenants.id }).from(schema.tenants).where(eq(schema.tenants.id, patch.dedicatedTenantId));
+      if (!t) throw badRequest('Unknown customer');
+    }
+    if (c.dedication === 'customer' && !node.tenantId && !c.dedicatedTenantId) throw badRequest('Choose the customer this node is dedicated to');
+    if (c.dedication === 'station' && !c.dedicatedStationId) throw badRequest('Choose the station this node is dedicated to');
+    const all = await ctx.db.select({ id: schema.stations.id, name: schema.stations.name, tenantId: schema.stations.tenantId, nodeId: schema.stations.nodeId, routing: schema.stations.routing }).from(schema.stations);
+    if (c.dedication === 'station') {
+      const st = all.find((x) => x.id === c.dedicatedStationId);
+      if (!st) throw badRequest('Unknown station');
+      if (node.tenantId && st.tenantId !== node.tenantId) throw badRequest('A node of a customer can only be dedicated to one of that customer\'s stations');
+    }
+    const next = { id: node.id, tenantId: node.tenantId, roles, config };
+    const byId = new Map(all.map((x) => [x.id, x]));
+    // Stations removed since keep their place in a stored list; a new list may only name stations the node serves.
+    const named = patch.relayStations && patch.relayStations !== 'all' ? new Set(patch.relayStations) : new Set<string>();
+    if (c.relayStations !== 'all' && c.relayStations.some((id) => (byId.has(id) ? !serves(next, byId.get(id)!) : named.has(id))))
+      throw badRequest(node.tenantId ? 'A node of a customer can only carry that customer\'s stations' : 'This node is dedicated: it can only carry the stations it is dedicated to');
+    if (c.fm.stationId) {
+      const st = byId.get(c.fm.stationId);
+      if (!st) throw badRequest('Unknown station');
+      if (!serves(next, st)) throw badRequest(node.tenantId ? 'A node of a customer can only put that customer\'s stations on air' : 'This node is dedicated: it can only put the stations it is dedicated to on air');
+    }
+    const users = all.filter((x) => {
+      if (serves(next, x)) return false;
+      if (x.nodeId === node.id) return true;
+      const r = stationRouting(x);
+      return ingestsOf(r).some((i) => i.ref === node.id) || (r.relays !== 'auto' && r.relays.includes(node.id));
+    });
+    if (users.length) throw conflict(`These stations still use this node: ${users.map((x) => x.name).sort().join(', ')}. Move them to another node first, or dedicate the node to them.`);
   }
 
   async function newPairing(node: Pick<Node, 'id' | 'roles'>) {
@@ -355,17 +404,11 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         if (b.config.updateGroup && !(await getSetting(ctx, 'nodes')).updates.groups.some((g) => g.id === b.config!.updateGroup)) throw badRequest('Unknown update group');
       }
       const config = b.config ? storedConfig(b.config, node.config) : node.config;
-      if (b.config?.relayStations && b.config.relayStations !== 'all' && node.tenantId) {
-        const own = await ctx.db.select({ id: schema.stations.id }).from(schema.stations).where(eq(schema.stations.tenantId, node.tenantId));
-        const ids = new Set(own.map((s) => s.id));
-        if (b.config.relayStations.some((id) => !ids.has(id))) throw badRequest('A node of a customer can only carry that customer\'s stations');
-      }
-      if (b.config?.fm?.stationId) {
-        const [st] = await ctx.db.select({ tenantId: schema.stations.tenantId }).from(schema.stations).where(eq(schema.stations.id, b.config.fm.stationId));
-        if (!st) throw badRequest('Unknown station');
-        if (node.tenantId && st.tenantId !== node.tenantId) throw badRequest('A node of a customer can only put that customer\'s stations on air');
-      }
+      // A customer or station is only kept while the node is dedicated to it (1.1.1).
+      if (config.dedication !== 'customer') config.dedicatedTenantId = null;
+      if (config.dedication !== 'station') config.dedicatedStationId = null;
       const roles = b.roles ? ([...new Set(b.roles)] as NodeRole[]) : node.roles;
+      await checkDedication(node, roles, config, b.config ?? {});
       if (roles.includes('station') && roles.length > 1) throw badRequest('A station node has no other roles; its streams go to relay nodes');
       if (node.roles.includes('station') && !roles.includes('station')) {
         const [running] = await ctx.db.select({ n: sql<number>`count(*)::int` }).from(schema.stations).where(eq(schema.stations.nodeId, node.id));
@@ -380,8 +423,14 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         .returning();
       if (b.roles && b.roles.join() !== node.roles.join()) await nodeEvent(ctx, node.id, 'roles', 'info', { roles: roles.join(', ') || null });
       Object.assign(req.auditInfo, { tenantId: node.tenantId, targetId: node.id, details: { name: updated!.name, roles, config: b.config ?? null } });
-      const carriageChanged = b.roles !== undefined || b.config?.relayStations !== undefined || b.config?.publicHost !== undefined || b.config?.listenPort !== undefined;
+      const carriageChanged = b.roles !== undefined || b.config?.relayStations !== undefined || b.config?.dedication !== undefined || b.config?.dedicatedTenantId !== undefined || b.config?.dedicatedStationId !== undefined || b.config?.publicHost !== undefined || b.config?.listenPort !== undefined;
       await replan(node.id, req.auth?.user.email, carriageChanged);
+      // Cloudflare DNS (phase 15): the node's record follows its name and address; an own host name is checked again.
+      const c0 = b.config ?? {};
+      if (b.name !== undefined || c0.dnsName !== undefined || c0.dnsRecord !== undefined || c0.publicAddress !== undefined || c0.publicHost !== undefined) {
+        app.dns?.nudge();
+        if (c0.publicHost !== undefined) void app.dns?.checkOwnNames(node.id).catch(() => undefined);
+      }
       return (await toOut([updated!]))[0]!;
     },
   );
@@ -592,13 +641,15 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   );
 
-  async function probesOut(where: ReturnType<typeof eq>) {
-    const rows = await ctx.db
-      .select({ p: schema.nodeProbes, stationName: schema.stations.name })
+  async function probesOut(where: ReturnType<typeof eq>, node?: Node) {
+    const all = await ctx.db
+      .select({ p: schema.nodeProbes, stationName: schema.stations.name, tenantId: schema.stations.tenantId, nodeId: schema.stations.nodeId })
       .from(schema.nodeProbes)
       .innerJoin(schema.stations, eq(schema.stations.id, schema.nodeProbes.stationId))
       .where(where)
       .orderBy(asc(schema.stations.name), asc(schema.nodeProbes.target));
+    // Only stations the node serves (1.1.1): older checks of a node that became dedicated are not shown.
+    const rows = node ? all.filter((r) => serves(node, { id: r.p.stationId, tenantId: r.tenantId, nodeId: r.nodeId })) : all;
     const relayIds = [...new Set(rows.map((r) => r.p.target.split('@')[1]!).filter((w) => w !== 'main'))];
     const names = relayIds.length ? await ctx.db.select({ id: schema.nodes.id, name: schema.nodes.name }).from(schema.nodes).where(inArray(schema.nodes.id, relayIds)) : [];
     const nameOf = new Map(names.map((n) => [n.id, n.name]));
@@ -624,7 +675,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
 
   app.get('/:id/probes', { schema: { tags: ['Nodes'], summary: 'Stream checks from this node (remote probes)', params: nodeParams, response: { 200: z.array(probeOut) } } }, async (req) => {
     const node = await nodeAccess(ctx, req, req.params.id, 'manager');
-    return probesOut(eq(schema.nodeProbes.nodeId, node.id));
+    return probesOut(eq(schema.nodeProbes.nodeId, node.id), node);
   });
 
   app.get(
@@ -658,6 +709,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       serverNames(ctx),
       getSetting(ctx, 'orchestrator'),
     ]);
+    const tenantRows = await ctx.db.select({ id: schema.tenants.id, stationNodeId: schema.tenants.stationNodeId }).from(schema.tenants).where(isNotNull(schema.tenants.stationNodeId));
     const stationIds = stations.map((s) => s.id);
     const scopeSet = scope ? new Set(scope) : null;
     const pairedRelayNodes = allNodes.filter((n) => n.pairedAt && n.roles.includes('relay')).map((n) => ({ ...n, status: hub.liveStatus(n.id) ?? { ...n.status, online: false } }));
@@ -697,6 +749,20 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
     for (const s of samples) latest.set(s.stationId, Math.max(latest.get(s.stationId) ?? 0, s.at.getTime()));
     const mainListeners = Math.round(samples.filter((s) => s.target.startsWith('mount:') && s.at.getTime() === latest.get(s.stationId)).reduce((n, s) => n + s.avg, 0));
 
+    const slugs = new Set(stations.map((s) => s.slug));
+    // The studio an FM/MPX node stands in: the station node of its station, else the station node of its customer
+    // (linked, or the only one it has), so it is drawn beside it even before a station is chosen.
+    const stationNodes = nodes.filter((x) => x.pairedAt && x.roles.includes('station'));
+    const tenantNode = new Map(tenantRows.map((x) => [x.id, x.stationNodeId]));
+    const fmHome = (n: Node): string | null => {
+      const id = stations.find((s) => s.id === nodeSettings(n).fm.stationId)?.nodeId;
+      if (id && stationNodes.some((x) => x.id === id)) return id;
+      if (!n.tenantId) return null;
+      const linked = tenantNode.get(n.tenantId);
+      if (linked && stationNodes.some((x) => x.id === linked)) return linked;
+      const own = stationNodes.filter((x) => x.tenantId === n.tenantId);
+      return own.length === 1 ? own[0]!.id : null;
+    };
     const statusOf = (id: string) => hub.liveStatus(id) ?? { ...(allNodes.find((n) => n.id === id)?.status ?? {}), online: false };
     const nodeOutList: z.infer<typeof topologyOut>['nodes'] = nodes.map((n) => {
       const status = statusOf(n.id);
@@ -704,6 +770,9 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       const fmError = !!status.fm && (status.fm.input === 'error' || status.fm.output === 'error' || status.fm.uecp === 'error');
       const degraded = status.online && ((status.rttMs ?? 0) > settings.latencyWarnMs || (status.loss ?? 0) > 0.05 || (status.problems?.length ?? 0) > 0 || !!status.relays?.some((r) => r.state === 'error') || fmError);
       const own = !!n.tenantId && !!scopeSet?.has(n.tenantId);
+      // A customer only sees its own streams on a shared node (1.1.1): not the other customers' streams, listeners or encoders.
+      const full = admin || own;
+      const relaysSeen = full ? status.relays : status.relays?.filter((r) => slugs.has(r.key.split('/')[0]!));
       return {
         id: n.id,
         // One name per server, the same for everyone (phase 18); host name and address only for who manages the node.
@@ -724,16 +793,17 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         timeouts24h: status.timeouts24h ?? null,
         cpu: status.cpu ?? null,
         txBps: status.txBps ?? null,
-        listeners: status.listeners ?? 0,
-        encoders: status.encoders ?? 0,
+        listeners: full ? (status.listeners ?? 0) : open.filter((o) => o.nodeId === n.id).reduce((x, o) => x + o.n, 0),
+        encoders: full ? (status.encoders ?? 0) : live.filter((l) => l.nodeId === n.id && l.onNode).length,
         country: status.country ?? null,
         city: status.city ?? null,
         stations: n.roles.includes('station') ? stations.filter((s) => s.nodeId === n.id).length : carriedIds.length,
         ingestStations: stations.filter((s) => ingestsOf(stationRouting(s)).some((i) => i.ref === n.id)).length,
         updateAvailable: !!status.commit && !!v.commit && status.commit !== v.commit,
-        relaysUp: status.relays?.filter((r) => r.state === 'connected').length ?? 0,
-        relaysTotal: status.relays?.length ?? 0,
+        relaysUp: relaysSeen?.filter((r) => r.state === 'connected').length ?? 0,
+        relaysTotal: relaysSeen?.length ?? 0,
         fmOnAir: !!status.online && !!status.fm && (status.fm.meters?.playing === true || (status.fm.output === 'off' && status.fm.uecp === 'connected')),
+        home: n.roles.includes('fm') ? fmHome(n) : null,
       };
     });
 
@@ -771,6 +841,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       relaysUp: 0,
       relaysTotal: 0,
       fmOnAir: false,
+      home: null,
       ...extra,
     });
     if (localStations.length)
@@ -995,6 +1066,8 @@ const topologyOut = z.object({
       relaysUp: z.number(),
       relaysTotal: z.number(),
       fmOnAir: z.boolean(),
+      /** FM/MPX node: the station node of its studio, drawn beside it. */
+      home: z.string().nullable(),
     }),
   ),
   studios: z.array(z.object({ id: z.string(), station: z.string(), stationId: z.string(), account: z.string(), mount: z.string(), via: z.string(), nodeId: z.string().nullable(), since: z.date() })),
@@ -1083,7 +1156,7 @@ export const nodeAgentRoutes: FastifyPluginAsyncZod = async (app) => {
   );
 
   app.get('/connect', { websocket: true, schema: { hide: true } }, (socket: WebSocket, req) => {
-    hub.attach(socket, req.ip ?? null);
+    hub.attach(socket, clientIp(req));
   });
 
   app.post(

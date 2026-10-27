@@ -6,10 +6,11 @@ import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { formatBps, formatMs, HealthBadge, nodeHealth, PairingPanel, RoleBadges } from '../components/nodes/common';
+import { ScopeBadge } from '../components/nodes/Dedication';
 import { NodeHierarchy } from '../components/nodes/Hierarchy';
 import { RolloutCard, UpdateBadge } from '../components/nodes/updates';
 import { Badge, Button, Card, Dialog, EmptyState, Field, Input, PageHeader, Select, Spinner, Switch, Table } from '../components/ui';
-import { api, ApiError, type NodeItem, type NodePairing, type NodeRole, type NodesSettings, type Tenant } from '../lib/api';
+import { api, ApiError, type NodeItem, type NodePairing, type NodeRole, type NodesSettings, type StationListItem, type Tenant } from '../lib/api';
 import { isAdmin, useMe } from '../lib/auth';
 import { OrchestratorOnlyCard } from '../components/nodes/OrchestratorOnly';
 
@@ -218,6 +219,7 @@ export function NodesPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const nodes = useQuery({ queryKey: ['nodes'], queryFn: () => api<NodeItem[]>('/nodes'), refetchInterval: 5000 });
   const settings = useQuery({ queryKey: ['nodes', 'settings'], queryFn: () => api<NodesSettings>('/nodes/settings'), enabled: admin });
+  const stationList = useQuery({ queryKey: ['stations', 'all'], queryFn: () => api<StationListItem[]>('/stations'), enabled: admin });
   const warnMs = settings.data?.latencyWarnMs ?? 150;
   const canAdd = admin || me.memberships.some((m) => m.role === 'owner');
   const list = nodes.data ?? [];
@@ -315,7 +317,12 @@ export function NodesPage() {
                     {(s.hostname || s.ip) && <div className="font-mono text-[11.5px] text-muted">{[s.hostname, s.ip].filter(Boolean).join(' · ')}</div>}
                     <div className="text-xs text-muted">{[n.location, s.city && s.country ? `${s.city}, ${s.country}` : s.country].filter(Boolean).join(' · ') || '—'}</div>
                   </td>
-                  {admin && <td className="text-[13px]">{n.tenantName ?? <span className="text-muted">{t('nodes.platform')}</span>}</td>}
+                  {admin && (
+                    <td className="text-[13px]">
+                      <div>{n.tenantName ?? <span className="text-muted">{t('nodes.platform')}</span>}</div>
+                      {!n.tenantId && <ScopeBadge scope={n.scope} stations={stationList.data} />}
+                    </td>
+                  )}
                   <td>
                     <RoleBadges roles={n.roles} />
                   </td>

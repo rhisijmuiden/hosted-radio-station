@@ -166,7 +166,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 12 | Station nodes | Done |
 | 13 | Orchestrator as control plane | Done |
 | 14 | Orchestrator redundancy | Planned (1.x) |
-| 15 | Cloudflare DNS integration | Done on test, ships with 1.1.1 |
+| 15 | Cloudflare DNS integration | Done (1.1.1) |
 | 16 | Installer menu and node enrollment | Planned (1.x) |
 | 17 | RHIS Studio 1.0 (Windows client) | Paused after step 3 (resumes after 16 and 14) |
 | 18 | Server names and topology views | Done (1.1.0) |
@@ -360,6 +360,20 @@ The orchestrator manages the DNS records of the platform's own domain through th
 - Optional extras through the API: cache rules for the public pages, artwork and on-demand files, and DNS-01 certificates so nodes behind a firewall still get HTTPS.
 - Dry run and a record overview in the panel (what exists, what the platform would change), and an audit log entry for every change.
 
+Built in two steps. Step 1 (everything above except the optional extras) is in *Administration › DNS (Cloudflare)*:
+modes Off, Dry run and On; records for this server (`origin.<domain>`), every node, the `listen.<domain>` relay pool
+and per customer domain `<customer>.stream.<domain>` and `<customer>.src.<domain>`; a run every 30 seconds and right
+after a node connects, drops out or is drained; only records the platform made itself (comment `hrs:<install>:…`) are
+ever changed. Step 2 adds the cache rules (done: two rules for the panel host, the public API and panel files, cached
+for as long as the server's Cache-Control allows) and DNS-01 certificates (done: per node, lego on the node asks the
+main server to set the TXT record, so the token stays on the main server). See [docs/dns.md](docs/dns.md).
+
+| Records and settings | Dark, Dutch |
+| --- | --- |
+| ![DNS page with the record overview](docs/screenshots/phase-15-dns.png) | ![DNS page, dark, Dutch](docs/screenshots/phase-15-dns-dark-nl.png) |
+| ![Customer domain with its two CNAME records and the Check button](docs/screenshots/phase-15-customer-domain.png) | ![Node without a public address, dark, Dutch](docs/screenshots/phase-15-node-no-address-dark-nl.png) |
+| ![Customer studio node with its platform name and own name checked](docs/screenshots/phase-15-node-studio.png) | |
+
 ### Phase 16: Installer menu and node enrollment
 
 One installer with a menu, for the standalone Debian 13 install and the Proxmox LXC install.
@@ -488,7 +502,7 @@ A step-by-step wizard for a new customer or a new station, so every station land
 
 Small fixes planned for a patch release, one at a time after the current phase.
 
-### 1.1.1: topology layout (next, ships together with phase 15)
+### 1.1.1: topology layout (done, shipped together with phase 15)
 
 - Station nodes are drawn in the Ingest layer, but they are studios: they move to the "Studios & encoders" layer, in all views (layers, per station, matrix, 3D skyline).
 - An FM/MPX node is linked directly to the station node (studio) it takes its audio from, and is drawn right next to it as one group, instead of on its own in the distribution layer.

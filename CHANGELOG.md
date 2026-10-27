@@ -3,6 +3,59 @@
 All notable changes to Hosted Radio Station. Versions follow [semantic versioning](https://semver.org). The
 [roadmap](ROADMAP.md) has the full description of each phase, with screenshots.
 
+## 1.1.1 (27 October 2026)
+
+Phase 15 (Cloudflare DNS) and the fixes found after 1.1.0.
+
+Topology fixes (found after 1.1.0):
+
+- Station nodes stand in the Studios & encoders layer, not under Ingest: a station node is the studio itself. In 3D
+  they are in the Studios lane too.
+- An FM/MPX node of a station on a station node stands right beside that node, framed together with it and its live
+  studios as one group (2D and 3D). Its audio line still comes from the relay it actually listens to.
+
+Shared or dedicated nodes (pulled forward from phase 19):
+
+- Every node is **Shared** (stations of every customer) or **Dedicated** to one customer or one station, under
+  *Node › Settings › Shared or dedicated*. Automatic: relay and ingest nodes of the platform are shared, a customer's
+  own node is dedicated to that customer, and a station node to the customer whose stations run on it.
+- A dedicated node only receives, shows and serves the streams of its customer or station. Automatic relays, spare
+  relays, ingests, encoder names and stream checks never put other stations on it, and the routing of other customers
+  does not offer it. A change that would cut off stations still using the node is refused with their names.
+- A customer only sees its own streams on a shared node: the topology no longer counts other customers' streams,
+  listeners or encoders on it. The node list shows Shared or who a platform node is dedicated to.
+
+Phase 15, step 1: Cloudflare DNS of the platform domain.
+
+- *Administration › DNS (Cloudflare)*: connect the zone with a scoped API token (tested in the panel), then Dry run
+  (shows what would change, writes nothing) or On. Every change goes into the audit log; a button removes every record
+  the platform made. Records of someone else are never touched and show as a conflict.
+- Records the platform keeps up to date: `origin.<domain>` (this server, its address set by hand, from Streaming or
+  found out every minute), one name per node such as `relay1.<domain>` with its public address, the `listen.<domain>`
+  pool of relays that are online and not being updated (TTL 60 s), and per customer domain
+  `<customer>.stream.<domain>` and `<customer>.src.<domain>`. Streams, pushes and encoders always stay DNS only; only
+  the optional panel record may go through the Cloudflare proxy.
+- Customer domains with Cloudflare DNS on show their two CNAME records with a **Check** button and a tick, a warning
+  (an A record or the old shared target still works) or what is wrong (missing, wrong target, orange cloud on).
+- Nodes get a *Names and address* card: the platform name, a manual public address for nodes behind NAT, and an own
+  host name (e.g. `studio.harder.fm`) that is checked and only used once it points to the node; until then the
+  platform name is handed out for RHIS Studio, encoders and uploads.
+
+Phase 15, step 2a: Cloudflare cache rules.
+
+- *Administration › DNS (Cloudflare) › Proxy*: **Cache rules for public pages** keeps two cache rules for the panel
+  host: the public API (now playing, schedules, artwork, logos, on-demand audio) and the panel files may be cached at
+  the edge, for as long as the server's Cache-Control allows. Live updates and listen links are excluded; rules of
+  others in the zone are kept as they are. Needs Zone › Cache Rules › Edit on the token.
+- Public API answers without a Cache-Control of their own are now sent with `no-store`.
+
+Phase 15, step 2b: certificates through DNS for nodes.
+
+- A node's *Names and address* card has **Certificates through Cloudflare DNS**: its names under the platform domain
+  get their certificate through DNS-01 (lego on the node, the TXT record set by the main server), so a node whose
+  port 80 cannot be reached still gets HTTPS. The Cloudflare token stays on the main server, and a node can only ask
+  for its own names.
+
 ## 1.1.0 (27 October 2026)
 
 Phase 18 (server names, topology views, orchestrator only, connection details and firewall checklist) and the

@@ -1,12 +1,15 @@
 import { createHash, createHmac } from 'node:crypto';
+import net from 'node:net';
 import { and, asc, count, eq, inArray, isNotNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '../../db/index.js';
 import { NODE_ROLES, type NodeConfig, type NodeRole } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
+import { dnsConfig } from '../dns/config.js';
 import { getSetting, UPDATE_POLICIES, updateWindowSchema } from '../settings.js';
 import { platformHost } from '../streaming/state.js';
 import { runningVersion } from '../system.js';
+import { DEDICATIONS, serves } from './dedication.js';
 import { buildFmPlan, fmConfigSchema } from './fm.js';
 import { ingestsOf, pushedRouting, stationRouting } from './routing-rules.js';
 import type { IngestStation, NodePlan, ProbeTarget, RelayMount } from './protocol.js';
@@ -43,6 +46,44 @@ export const nodeConfigSchema = z.object({
   updateGroup: z.string().regex(/^[a-z0-9-]{1,40}$/).nullable().default(null),
   /** Own maintenance window for policy "window"; null = the group's or the network's. */
   updateWindow: updateWindowSchema.nullable().default(null),
+  /** Cloudflare DNS (phase 15): the first part of the node's platform name, e.g. relay1. Empty = from the node's name. */
+  dnsName: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .max(63)
+    .regex(/^$|^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/, 'Use a-z, 0-9 and dashes')
+    .default(''),
+  /** Give this node a platform name (record) when Cloudflare DNS is on. */
+  dnsRecord: z.boolean().default(true),
+  /** Public address for the node's record, when the address it connects from is not the one the outside world uses. */
+  publicAddress: z
+    .string()
+    .trim()
+    .max(45)
+    .refine((v) => v === '' || net.isIP(v) !== 0, 'Use an IPv4 or IPv6 address')
+    .default(''),
+  /**
+   * Certificates for the node's names under the platform domain through Cloudflare DNS (DNS-01) instead of HTTP, so a
+   * node whose port 80 cannot be reached still gets HTTPS. The main server sets the TXT records; the token stays there.
+   */
+  certDns: z.boolean().default(false),
+  /**
+   * Shared or dedicated (1.1.1): auto = a customer's own node and a station node are dedicated, relay and ingest nodes
+   * of the platform are shared. See dedication.ts.
+   */
+  dedication: z.enum(DEDICATIONS).default('auto'),
+  /** Dedicated to this customer (a platform node with dedication "customer"). */
+  dedicatedTenantId: z.uuid().nullable().default(null),
+  /** Dedicated to this station (dedication "station"). */
+  dedicatedStationId: z.uuid().nullable().default(null),
+  /** Set by the DNS manager, not by hand: the node's platform name while its record exists. */
+  dnsHost: z.string().default(''),
+  /** Set by the DNS manager: the check of the node's own host name (publicHost) when it is not a platform name. */
+  publicHostCheck: z
+    .object({ ok: z.boolean(), found: z.array(z.string()), error: z.string().optional(), at: z.string() })
+    .nullable()
+    .default(null),
 });
 export type NodeSettings = z.infer<typeof nodeConfigSchema>;
 
@@ -52,10 +93,25 @@ function patchOf<T extends z.ZodRawShape>(shape: T) {
 }
 
 /** Body of a settings change from the panel or the API. */
-export const nodeConfigPatch = patchOf(nodeConfigSchema.shape).extend({ fm: patchOf(fmConfigSchema.shape).optional() });
+export const nodeConfigPatch = patchOf(nodeConfigSchema.shape)
+  .omit({ dnsHost: true, publicHostCheck: true })
+  .extend({ fm: patchOf(fmConfigSchema.shape).optional() });
 export type NodeConfigPatch = z.infer<typeof nodeConfigPatch>;
 
 export const nodeSettings = (node: Pick<Node, 'config'>): NodeSettings => nodeConfigSchema.parse(node.config ?? {});
+
+/**
+ * The host name the outside world uses for a node: its own name (publicHost), else its platform name from Cloudflare
+ * DNS (phase 15). An own name that does not check out (no CNAME to the platform name, no A record to the node) gives
+ * way to the platform name while there is one, so studios and encoders keep a name that works.
+ */
+export function nodeHost(node: Pick<Node, 'config'>): string {
+  const c = node.config ?? {};
+  const own = (c.publicHost ?? '').trim();
+  const platform = c.dnsHost ?? '';
+  if (own && platform && own !== platform && c.publicHostCheck && !c.publicHostCheck.ok) return platform;
+  return own || platform;
+}
 
 /** Default port listeners use: 80 behind the node's own web server, else Icecast's 8000. */
 export const defaultListenPort = (node: Pick<Node, 'status'>) => (node.status.caddy ? 80 : 8000);
@@ -67,9 +123,10 @@ export const defaultListenPort = (node: Pick<Node, 'status'>) => (node.status.ca
 export function relayBaseUrl(node: Pick<Node, 'config' | 'status'>): string | null {
   const c = nodeSettings(node);
   const port = c.listenPort ?? defaultListenPort(node);
-  const host = c.publicHost || node.status.ip;
+  const name = nodeHost(node);
+  const host = name || node.status.ip;
   if (!host) return null;
-  if (c.publicHost && node.status.caddy) return `https://${c.publicHost}`;
+  if (name && node.status.caddy) return `https://${name}`;
   const h = host.includes(':') ? `[${host}]` : host;
   return port === 80 ? `http://${h}` : `http://${h}:${port}`;
 }
@@ -99,8 +156,8 @@ export async function servableStations(ctx: AppContext, tenantId: string | null)
 type RelayNode = Pick<Node, 'id' | 'roles' | 'config' | 'tenantId' | 'status'>;
 type RoutedStation = { id: string; tenantId: string; routing?: Record<string, unknown> | null };
 
-/** A relay may carry a station of this customer (a customer's own relay only carries that customer's stations). */
-const mayCarry = (n: RelayNode, s: RoutedStation) => n.roles.includes('relay') && (!n.tenantId || n.tenantId === s.tenantId);
+/** A relay may carry a station: it serves it (shared, or dedicated to its customer or to the station itself). */
+const mayCarry = (n: RelayNode, s: RoutedStation) => n.roles.includes('relay') && serves(n, s);
 
 /** The relays that carry a station by their own settings ("all stations" or a chosen list). */
 const byOwnSettings = (n: RelayNode, s: RoutedStation) => {
@@ -161,7 +218,7 @@ const baseUrl = (ctx: AppContext) => ctx.config.PUBLIC_URL.replace(/\/$/, '');
 export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> {
   const c = nodeSettings(node);
   const roles = node.roles.filter((r): r is NodeRole => NODE_ROLES.includes(r));
-  const [settings, v, stations] = await Promise.all([getSetting(ctx, 'nodes'), runningVersion(ctx), servableStations(ctx, node.tenantId)]);
+  const [settings, v, stations] = await Promise.all([getSetting(ctx, 'nodes'), runningVersion(ctx), servableStations(ctx, node.tenantId).then((l) => l.filter((s) => serves(node, s)))]);
   const ids = stations.map((s) => s.id);
   const [allMounts, relays] = await Promise.all([
     ids.length
@@ -260,7 +317,7 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
     nodeId: node.id,
     name: node.name,
     roles,
-    web: { publicHost: c.publicHost || null, listenPort: c.listenPort },
+    web: { publicHost: nodeHost(node) || null, listenPort: c.listenPort, dnsCerts: await dnsCertsOf(ctx, node, source?.hosts ?? []) },
     relay,
     source,
     ingest,
@@ -272,6 +329,20 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
     update: { branch: v.branch, commit: v.commit, auto: false },
   };
   return { ...plan, revision: createHash('sha256').update(JSON.stringify(plan)).digest('hex').slice(0, 16) };
+}
+
+/**
+ * The names a node fetches its certificates for through Cloudflare DNS (DNS-01): those of its certificate names that
+ * lie under the platform domain, while Cloudflare DNS is on and the node asks for it. Null = HTTP as usual.
+ */
+export async function dnsCertsOf(ctx: AppContext, node: Node, sourceHosts: string[]): Promise<NodePlan['web']['dnsCerts']> {
+  if (!nodeSettings(node).certDns) return null;
+  const { base, active } = await dnsConfig(ctx);
+  if (!active) return null;
+  const hosts = [...new Set([nodeHost(node), ...sourceHosts])].filter((h) => !!h && (h === base || h.endsWith(`.${base}`))).sort();
+  if (!hosts.length) return null;
+  const proxy = await getSetting(ctx, 'proxy');
+  return { hosts, email: proxy.acmeEmail || `hostmaster@${base}` };
 }
 
 type MountRow = typeof schema.stationMounts.$inferSelect;

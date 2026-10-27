@@ -413,6 +413,10 @@ export interface DomainCheck {
   ok: boolean;
   found: string[];
   error?: string;
+  /** Works, but could be better: 'a_record' or 'old_target' (phase 15). */
+  warning?: string;
+  /** The CNAME target the record should have. */
+  expected?: string;
 }
 export interface TenantDomain {
   id: string;
@@ -425,6 +429,8 @@ export interface TenantDomain {
   checkedAt: string | null;
   verifiedAt: string | null;
   ingestNodeId: string | null;
+  /** Cloudflare DNS: this domain's own CNAME targets on the platform domain. */
+  targets: { panel: string; ingest: string } | null;
   createdAt: string;
 }
 export interface TenantUsage {
@@ -891,6 +897,25 @@ export interface NodeConfig {
   updatePolicy: 'inherit' | UpdatePolicy;
   updateGroup: string | null;
   updateWindow: UpdateWindow | null;
+  /** Cloudflare DNS (phase 15). */
+  dnsName: string;
+  dnsRecord: boolean;
+  certDns?: boolean;
+  publicAddress: string;
+  /** Set by the platform: the node's platform name while its record exists. */
+  dnsHost: string;
+  publicHostCheck: { ok: boolean; found: string[]; error?: string; at: string } | null;
+  /** Shared or dedicated (1.1.1). */
+  dedication: NodeDedication;
+  dedicatedTenantId: string | null;
+  dedicatedStationId: string | null;
+}
+export type NodeDedication = 'auto' | 'shared' | 'customer' | 'station';
+/** Who a node serves: everyone, one customer, one station, or the stations that run on it (a station node). */
+export interface NodeScope {
+  kind: 'shared' | 'customer' | 'station' | 'placed' | 'none';
+  tenantId: string | null;
+  stationId: string | null;
 }
 export type UpdatePolicy = 'rolling' | 'window' | 'manual';
 export interface UpdateWindow {
@@ -993,6 +1018,7 @@ export interface NodeItem {
   updateAvailable: boolean;
   update: NodeUpdateInfo;
   ingestHosts: string[];
+  scope: NodeScope;
   createdAt: string;
 }
 export interface NodePairing {
@@ -1093,6 +1119,8 @@ export interface NodeFirewall {
 export interface TopologyNode {
   id: string;
   name: string;
+  /** FM/MPX node: the station node of its studio, drawn beside it (null = none). */
+  home?: string | null;
   /** Host name and address, for who manages the node. */
   hostname: string | null;
   ip: string | null;
@@ -1438,3 +1466,59 @@ export const WEBHOOK_EVENTS = [
   'invoice.paid',
   'invoice.overdue',
 ] as const;
+
+// Phase 15: Cloudflare DNS
+
+export type DnsMode = 'off' | 'dryRun' | 'on';
+export interface CloudflareSettings {
+  mode: DnsMode;
+  apiToken: string;
+  zoneId: string;
+  zoneName: string;
+  domain: string;
+  originLabel: string;
+  poolLabel: string;
+  streamLabel: string;
+  srcLabel: string;
+  nodeLabel: string;
+  nodeRecords: boolean;
+  customerTargets: boolean;
+  ttl: number;
+  originAddresses: string[];
+  panelRecord: { manage: boolean; proxied: boolean };
+  cacheRules: boolean;
+  /** Read only: where records go, and this installation's id in record comments. */
+  platformDomain?: string;
+  install?: string;
+}
+export type DnsPurpose = 'origin' | 'panel' | 'node' | 'pool' | 'stream' | 'src';
+export interface DnsState {
+  at: string | null;
+  mode: DnsMode;
+  error: string | null;
+  origin: { addresses: string[]; source: 'settings' | 'streaming' | 'detected' | 'none' };
+  records: { name: string; type: string; content: string; proxied: boolean; ttl: number; purpose: DnsPurpose; ref: string | null; state: 'ok' | 'create' | 'update' | 'conflict' }[];
+  stale: { name: string; type: string; content: string }[];
+  problems: { kind: string; ref: string | null; name: string | null }[];
+  lastChanges: { action: 'create' | 'update' | 'delete'; name: string; type: string; content: string; proxied: boolean; before: string | null }[];
+  lastChangeAt: string | null;
+  cache: { state: 'off' | 'ok' | 'pending' | 'error'; host: string | null; rules: number; foreign: number; error: string | null; at: string | null };
+}
+export interface DnsTestResult {
+  ok: boolean;
+  zoneId: string | null;
+  zoneName: string | null;
+  records: number | null;
+  message: string | null;
+}
+export interface NodeDns {
+  active: boolean;
+  domain: string | null;
+  platformName: string | null;
+  live: boolean;
+  addresses: string[];
+  problem: 'noAddress' | 'nameTaken' | 'off' | null;
+  host: string | null;
+  ownHost: string | null;
+  check: { ok: boolean; found: string[]; error?: string; at: string } | null;
+}

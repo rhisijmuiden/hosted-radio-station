@@ -17,6 +17,7 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { registerAudit } from './lib/audit.js';
+import { DnsManager } from './services/dns/manager.js';
 import { registerAuth, API_KEY_PREFIX, SESSION_COOKIE } from './lib/auth.js';
 import type { AppContext } from './lib/context.js';
 import { HttpError } from './lib/errors.js';
@@ -28,6 +29,7 @@ import { billingRoutes, tenantBillingRoutes } from './routes/billing.js';
 import { billingPublicRoutes } from './routes/billing-public.js';
 import { provisioningRoutes } from './routes/provisioning.js';
 import { tenantStreamingRoutes } from './routes/domains.js';
+import { dnsRoutes, nodeDnsRoutes } from './routes/dns.js';
 import { healthRoutes } from './routes/health.js';
 import { internalRoutes } from './routes/internal.js';
 import { publicRoutes, renderPublicShell } from './routes/public.js';
@@ -62,6 +64,8 @@ declare module 'fastify' {
     nowPlaying: NowPlayingHub;
     nodes: NodeHub;
     nodeUpdates: NodeUpdater;
+    /** Cloudflare DNS of the platform domain (phase 15); null on a station node. */
+    dns: DnsManager | null;
     stationTunnels: StationTunnels;
     /** On a station node: the link with the main server (started by server.ts). */
     stationNode: StationNodeLink | null;
@@ -104,6 +108,13 @@ export async function buildApp(ctx: AppContext) {
   app.decorate('nodeUpdates', nodeUpdates);
   await nodeUpdates.start();
   app.addHook('onClose', async () => nodeUpdates.stop());
+  const dns = config.STATION_NODE ? null : new DnsManager(ctx, nodeHub, app.log);
+  app.decorate('dns', dns);
+  if (dns) {
+    nodeHub.onChange = () => dns.nudge();
+    if (config.NODE_ENV !== 'test') dns.start();
+    app.addHook('onClose', async () => dns.stop());
+  }
   const tunnels = new StationTunnels(app.log);
   app.decorate('stationTunnels', tunnels);
   // Before the server waits for its connections to end: tunnels stay open otherwise.
@@ -175,6 +186,10 @@ export async function buildApp(ctx: AppContext) {
 
   registerAuth(app);
   registerAudit(app);
+  // The public API may be cached by a CDN (Cloudflare cache rules, phase 15): only what a route marks as cacheable is.
+  app.addHook('onSend', async (req, reply) => {
+    if (req.url.startsWith('/api/public/') && !reply.hasHeader('cache-control')) reply.header('cache-control', 'no-store');
+  });
   // Requests for stations that run on a station node go to that node (phase 12).
   if (!config.STATION_NODE) registerStationProxy(app, tunnels);
   await app.register(healthRoutes, { prefix: '/api' });
@@ -205,11 +220,13 @@ export async function buildApp(ctx: AppContext) {
   await app.register(nodeAgentRoutes, { prefix: '/api/nodes' });
   await app.register(orchestratorRoutes, { prefix: '/api/nodes' });
   await app.register(nodeRoutes, { prefix: '/api/nodes' });
+  await app.register(nodeDnsRoutes, { prefix: '/api/nodes' });
   await app.register(stationNodeAgentRoutes, { prefix: '/api/nodes/agent/station' });
   await app.register(stationPlacementRoutes, { prefix: '/api/stations' });
   await app.register(stationRoutingRoutes, { prefix: '/api/stations' });
   await app.register(stationConnectionRoutes, { prefix: '/api/stations' });
   await app.register(tenantStationNodeRoutes, { prefix: '/api/tenants' });
+  await app.register(dnsRoutes, { prefix: '/api/dns' });
   await app.register(internalRoutes, { prefix: '/api/internal' });
   if (link) await app.register(stationNodeInternalRoutes, { prefix: '/api/internal/station-node', link });
 

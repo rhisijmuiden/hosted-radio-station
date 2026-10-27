@@ -19,6 +19,8 @@ export interface SceneNode {
   dim: boolean;
   /** Customer's own node: highlighted edge. */
   own?: boolean;
+  /** FM/MPX node: the station node it stands beside, in the studio. */
+  home?: string;
 }
 
 export interface SceneLink {
@@ -67,7 +69,7 @@ const FOOT = 1.9;
 const RING_Y = 9;
 
 const laneOf = (k: SceneKind): Lane | null =>
-  k === 'studio' ? 'studios' : k === 'source' || k === 'station' ? 'ingest' : k === 'relay' || k === 'node' ? 'relays' : k === 'fm' || k === 'country' ? 'listeners' : null;
+  k === 'studio' || k === 'station' ? 'studios' : k === 'source' ? 'ingest' : k === 'relay' || k === 'node' ? 'relays' : k === 'fm' || k === 'country' ? 'listeners' : null;
 
 /** Lucide-style icons (24×24 strokes) drawn on the top of each tower. */
 const ICONS: Record<SceneKind, string> = {
@@ -87,6 +89,8 @@ interface Placed {
   /** Footprint and height of the tower. */
   w: number;
   h: number;
+  /** The station node whose studio group this tower stands in. */
+  group?: string;
 }
 
 /**
@@ -109,18 +113,26 @@ export function layout(data: SceneData): Map<string, Placed> {
   const column = (list: SceneNode[], lane: Lane) => list.forEach((n, i) => put(n, LANE_X[lane], (i - (list.length - 1) / 2) * GAP));
   column(data.nodes.filter((n) => laneOf(n.kind) === 'ingest'), 'ingest');
   column(data.nodes.filter((n) => laneOf(n.kind) === 'relays'), 'relays');
-  column(data.nodes.filter((n) => laneOf(n.kind) === 'listeners'), 'listeners');
-  // Studios line up with the ingest they broadcast to; those without one fill the lane from the front.
-  const taken = new Set<number>();
-  const free = (z: number) => {
-    for (let k = 0; ; k++) for (const d of k ? [k, -k] : [0]) if (!taken.has(Math.round((z + d * 3.2) * 10))) return z + d * 3.2;
-  };
-  for (const s of data.nodes.filter((n) => n.kind === 'studio')) {
-    const target = out.get(data.links.find((l) => l.from === s.id)?.to ?? '');
-    const z = free(target ? target.pos.z : 0);
-    taken.add(Math.round(z * 10));
-    put(s, LANE_X.studios, z);
-  }
+  column(data.nodes.filter((n) => laneOf(n.kind) === 'listeners' && !n.home), 'listeners');
+  // The studios lane, front to back: each station node with its FM/MPX nodes and its live studios right beside it
+  // (one group), then the other live studios.
+  const target = (s: SceneNode) => data.links.find((l) => l.from === s.id)?.to;
+  const studios = data.nodes.filter((n) => n.kind === 'studio');
+  const rows: { main: SceneNode; side: SceneNode[] }[] = data.nodes
+    .filter((n) => n.kind === 'station')
+    .map((n) => ({ main: n, side: [...data.nodes.filter((x) => x.home === n.id), ...studios.filter((s) => target(s) === n.id)] }));
+  const placed = new Set(rows.flatMap((r) => r.side));
+  for (const s of studios) if (!placed.has(s)) rows.push({ main: s, side: [] });
+  // A group stands close together along the lane (labels sit side by side on screen, so not across it).
+  const items = rows.flatMap((r) => [r.main, ...r.side].map((n, j) => ({ n, group: r.side.length ? r.main.id : undefined, first: j === 0 })));
+  const gaps = items.map((x, i): number => (i === 0 ? 0 : x.first ? 4.6 : 3));
+  const total = gaps.reduce((a, b) => a + b, 0);
+  let z = -total / 2;
+  items.forEach((x, i) => {
+    z += gaps[i]!;
+    put(x.n, LANE_X.studios, z);
+    out.get(x.n.id)!.group = x.group;
+  });
   const main = data.nodes.find((n) => n.kind === 'main');
   if (main) out.set(main.id, { node: main, pos: new THREE.Vector3((LANE_X.ingest + LANE_X.relays) / 2, RING_Y, Math.min(0, ...[...out.values()].map((x) => x.pos.z)) - 3), w: 3.2, h: 0 });
   return out;
@@ -387,6 +399,16 @@ export class TopologyScene {
         obj.position.set(LANE_X[lane], 0, -depth / 2 - 0.8);
         this.content.add(obj);
       }
+    }
+    // A studio group: a station node with its FM/MPX nodes and live studios, on a plate of its own.
+    const groups = new Map<string, Placed[]>();
+    for (const x of this.placed.values()) if (x.group) groups.set(x.group, [...(groups.get(x.group) ?? []), x]);
+    for (const list of groups.values()) {
+      const zs = list.map((x) => x.pos.z);
+      const len = Math.max(...zs) - Math.min(...zs) + 2.8;
+      const plate = new THREE.Mesh(new RoundedBoxGeometry(LANE_W - 1.6, 0.04, len, 2, 0.02), new THREE.MeshBasicMaterial({ color: p.lucht, transparent: true, opacity: p.dark ? 0.12 : 0.2, depthWrite: false }));
+      plate.position.set(LANE_X.studios, 0.02, (Math.max(...zs) + Math.min(...zs)) / 2);
+      this.content.add(plate);
     }
     const shadowTex = this.texture('shadow', () => radialTexture('#000000', p.dark ? 0.5 : 0.22));
 

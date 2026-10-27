@@ -2,7 +2,7 @@ import { and, eq, isNotNull } from 'drizzle-orm';
 import { schema } from '../../db/index.js';
 import type { AppContext } from '../../lib/context.js';
 import { namesFrom } from '../nodes/names.js';
-import { nodeSettings } from '../nodes/plan.js';
+import { nodeHost, nodeSettings } from '../nodes/plan.js';
 import { externalAddress, inboundPorts, internalAddress, STATION_NODE_STREAMING, type PortService } from '../nodes/ports.js';
 import { ingestsOf, pushedRouting, stationRouting } from '../nodes/routing-rules.js';
 import { getSetting } from '../settings.js';
@@ -80,7 +80,7 @@ async function baseConnection(ctx: AppContext, station: Station, mounts: Mount[]
     const [sn] = await ctx.db.select().from(schema.nodes).where(and(eq(schema.nodes.id, station.nodeId), isNotNull(schema.nodes.pairedAt)));
     if (sn) {
       const c = nodeSettings(sn);
-      const host = c.lanAddress || c.publicHost || sn.status.ip || ingestHost;
+      const host = c.lanAddress || nodeHost(sn) || sn.status.ip || ingestHost;
       const d = STATION_NODE_STREAMING;
       return {
         ingestHost: host,
@@ -90,7 +90,7 @@ async function baseConnection(ctx: AppContext, station: Station, mounts: Mount[]
         uploadHost: externalAddress(sn) ?? host,
         // The node's own ingest gateway takes encoders, on the ports of a fresh install; TLS only with a name and a
         // certificate of its own.
-        tls: { port: d.ingestTlsPort, available: !!c.publicHost && !!sn.status.caddy },
+        tls: { port: d.ingestTlsPort, available: !!nodeHost(sn) && !!sn.status.caddy },
         plain: d.ingestPlainPort ? { port: d.ingestPlainPort } : null,
         legacy: station.legacyPort ? { port: station.legacyPort, sourcePort: station.legacyPort + 1, mount: legacyMount?.path ?? null } : null,
         listenBase,
@@ -106,8 +106,8 @@ async function baseConnection(ctx: AppContext, station: Station, mounts: Mount[]
     const n = await nodeRow(id);
     if (!n?.roles.includes('source')) return null;
     const c = nodeSettings(n);
-    const host = domain?.ingestNodeId === n.id ? domain.ingestHost : c.publicHost || n.status.ip || n.name;
-    return { host, node: { id: n.id, name: n.name }, tls: { port: c.sourceTlsPort ?? streaming.ingestTlsPort, available: !!c.sourceTlsPort && !!n.status.caddy && (domain?.ingestNodeId === n.id || !!c.publicHost) }, plain: c.sourcePlainPort ? { port: c.sourcePlainPort } : null };
+    const host = domain?.ingestNodeId === n.id ? domain.ingestHost : nodeHost(n) || n.status.ip || n.name;
+    return { host, node: { id: n.id, name: n.name }, tls: { port: c.sourceTlsPort ?? streaming.ingestTlsPort, available: !!c.sourceTlsPort && !!n.status.caddy && (domain?.ingestNodeId === n.id || !!nodeHost(n)) }, plain: c.sourcePlainPort ? { port: c.sourcePlainPort } : null };
   };
   const here = { host: ingestHost, node: null, tls: { port: streaming.ingestTlsPort, available: tlsHere }, plain: streaming.ingestPlainPort ? { port: streaming.ingestPlainPort } : null };
   const backup = routing.backupIngest && routing.backupIngest !== routing.ingest ? (routing.backupIngest === 'local' ? here : await nodeIngest(routing.backupIngest)) : null;
@@ -218,7 +218,7 @@ async function endpointsOf(ctx: AppContext, station: Station, conn: BaseConnecti
     const n = await nodeRow(i.ref);
     if (!n) continue;
     const c = nodeSettings(n);
-    const tlsOk = !!c.sourceTlsPort && !!n.status.caddy && (domain?.ingestNodeId === n.id || !!c.publicHost);
+    const tlsOk = !!c.sourceTlsPort && !!n.status.caddy && (domain?.ingestNodeId === n.id || !!nodeHost(n));
     endpoints.push({
       role,
       name: n.name,

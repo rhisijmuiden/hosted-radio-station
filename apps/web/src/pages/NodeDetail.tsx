@@ -7,6 +7,8 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import { formatBps, formatMs, formatPct, formatUptime, HealthBadge, nodeHealth, PairingPanel, RoleBadges } from '../components/nodes/common';
 import { FmOnAir, FmSettingsCards } from '../components/nodes/FmPanel';
+import { DedicationCard, scopeOf, serves } from '../components/nodes/Dedication';
+import { NodeDnsCard } from '../components/nodes/NodeDns';
 import { NodeUpdateCard, NodeUpdateSettings } from '../components/nodes/updates';
 import { AreaChart, ChartLegend } from '../components/stats/charts';
 import { Badge, Button, Card, CardHeader, Dialog, EmptyState, Fact, Field, Input, PageHeader, Spinner, Switch, Table, Tabs } from '../components/ui';
@@ -355,7 +357,11 @@ function SettingsForm({ node, admin }: { node: NodeItem; admin: boolean }) {
     // Only when another node is opened; refetches every few seconds would undo the edits.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node.id]);
-  const pick = useMemo(() => (stations.data ?? []).filter((s) => !node.tenantId || s.tenantId === node.tenantId), [stations.data, node.tenantId]);
+  // Only the stations this node serves with the settings in the form (shared or dedicated, 1.1.1).
+  const pick = useMemo(
+    () => (stations.data ?? []).filter((s) => (!node.tenantId || s.tenantId === node.tenantId) && serves({ id: node.id, tenantId: node.tenantId, roles, config: c }, s)),
+    [stations.data, node.id, node.tenantId, roles, c],
+  );
   const save = useMutation({
     mutationFn: () => api<NodeItem>(`/nodes/${node.id}`, { method: 'PATCH', body: { name, location, roles, config: c } }),
     onSuccess: (res) => {
@@ -393,14 +399,13 @@ function SettingsForm({ node, admin }: { node: NodeItem; admin: boolean }) {
           <Switch checked={c.probe} onChange={(probe) => set({ probe })} label={t('nodes.fields.probe')} description={t('nodes.fields.probeHint')} />
         </div>
       </Card>
+      <DedicationCard node={node} roles={roles} value={c} onChange={set} stations={stations.data ?? []} />
+      <NodeDnsCard node={node} value={c} onChange={set} />
       {roles.includes('relay') && (
         <Card>
           <CardHeader title={t('nodes.detail.relaySettings')} description={t('nodes.detail.relaySettingsHint')} />
           <div className="flex flex-col gap-4 p-5">
             <div className="grid gap-3 sm:grid-cols-3">
-              <Field label={t('nodes.fields.publicHost')} hint={caddy === false ? t('nodes.fields.publicHostDirect') : t('nodes.fields.publicHostHint')} className="sm:col-span-2">
-                <Input value={c.publicHost} onChange={(e) => set({ publicHost: e.target.value.trim().toLowerCase() })} placeholder="relay-ams.example.com" />
-              </Field>
               <Field label={t('nodes.fields.listenPort')} hint={t('nodes.fields.listenPortHint', { port: caddy ? 80 : 8000 })}>
                 <Input type="number" min={1} max={65535} value={c.listenPort ?? ''} placeholder={caddy ? '80' : '8000'} onChange={(e) => set({ listenPort: port(e.target.value) })} />
               </Field>
@@ -415,7 +420,7 @@ function SettingsForm({ node, admin }: { node: NodeItem; admin: boolean }) {
               <div className="mb-2 text-[13px] font-semibold">{t('nodes.fields.relayStations')}</div>
               <div className="mb-2 flex gap-2">
                 <Button size="sm" type="button" variant={selected ? 'secondary' : 'dark'} onClick={() => set({ relayStations: 'all' })}>
-                  {node.tenantId ? t('nodes.fields.allOwnStations') : t('nodes.fields.allStations')}
+                  {node.tenantId ? t('nodes.fields.allOwnStations') : scopeOf({ id: node.id, tenantId: null, roles, config: c }).kind === 'shared' ? t('nodes.fields.allStations') : t('nodes.dedication.allServed')}
                 </Button>
                 <Button size="sm" type="button" variant={selected ? 'dark' : 'secondary'} onClick={() => set({ relayStations: selected ? [...selected] : [] })}>
                   {t('nodes.fields.someStations')}

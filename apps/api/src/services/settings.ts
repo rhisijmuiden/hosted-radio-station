@@ -240,6 +240,111 @@ export const orchestratorSchema = z.object({
 });
 export type OrchestratorSettings = z.infer<typeof orchestratorSchema>;
 
+const dnsLabelRe = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
+const dnsLabel = (fallback: string) => z.string().trim().toLowerCase().regex(dnsLabelRe, 'Use a-z, 0-9 and dashes').default(fallback);
+
+/**
+ * Cloudflare DNS (phase 15): the platform domain's zone, managed through the Cloudflare API. Only the platform's own
+ * domain is touched; customers point CNAME records at the targets made here. Streams, pushes and encoders always stay
+ * "DNS only": the Cloudflare proxy is not meant for long-running audio and breaks non-HTTP ports.
+ */
+export const cloudflareSchema = z.object({
+  /** off = nothing is managed; dryRun = the panel shows what would change, nothing is written; on = records are kept up to date. */
+  mode: z.enum(['off', 'dryRun', 'on']).default('off'),
+  /** API token scoped to the zone, with Zone › DNS › Edit and Zone › Zone › Read. */
+  apiToken: z.string().trim().max(200).default(''),
+  /** Filled in by the connection test: the zone that holds the platform domain. */
+  zoneId: z.string().trim().max(64).default(''),
+  zoneName: z.string().trim().toLowerCase().max(253).default(''),
+  /** The platform domain records are made under. Empty = the domain under Web server. */
+  domain: z.string().trim().toLowerCase().refine((v) => v === '' || domainRe.test(v), 'Invalid domain name').default(''),
+  /** Name of this server's own record, e.g. origin.<domain>: customer targets point here. */
+  originLabel: dnsLabel('origin'),
+  /** Shared name of the healthy relays, e.g. listen.<domain>. Empty = no pool. */
+  poolLabel: z.string().trim().toLowerCase().refine((v) => v === '' || dnsLabelRe.test(v), 'Use a-z, 0-9 and dashes').default('listen'),
+  /** Customer targets: <customer>.stream.<domain> and <customer>.src.<domain>. */
+  streamLabel: dnsLabel('stream'),
+  srcLabel: dnsLabel('src'),
+  /** Nodes of customers get <customer>-<name>.node.<domain>. */
+  nodeLabel: dnsLabel('node'),
+  /** Give every node a record of its own (relay1.<domain>), kept up to date with its public address. */
+  nodeRecords: z.boolean().default(true),
+  /** Make a stream and a src target per customer domain. */
+  customerTargets: z.boolean().default(true),
+  /** Time to live of the records, in seconds. Short, so a relay that goes down or a new address is followed quickly. */
+  ttl: z.number().int().min(60).max(86400).default(60),
+  /** Public addresses of this server for its record. Empty = Streaming › public addresses, else found out by itself. */
+  originAddresses: z.array(z.string().trim().regex(ipOrCidrRe, 'Invalid IP address')).max(8).default([]),
+  /** The record of the platform domain itself (the panel): off by default, as it usually exists already. */
+  panelRecord: z
+    .object({
+      manage: z.boolean().default(false),
+      /** Panel and public pages may go through the Cloudflare proxy (caching, WAF, HTTPS). */
+      proxied: z.boolean().default(true),
+    })
+    .default({ manage: false, proxied: true }),
+  /**
+   * Cache rules for the panel host (only of use while it goes through the Cloudflare proxy): the public API and panel
+   * files are cached at the edge for as long as the server allows. Needs Zone › Cache Rules › Edit on the token.
+   */
+  cacheRules: z.boolean().default(false),
+});
+export type CloudflareSettings = z.infer<typeof cloudflareSchema>;
+
+const dnsChangeSchema = z.object({
+  action: z.enum(['create', 'update', 'delete']),
+  name: z.string(),
+  type: z.string(),
+  content: z.string(),
+  proxied: z.boolean(),
+  /** For an update: what it was. */
+  before: z.string().nullable().default(null),
+});
+
+/** The last DNS run. Written by the DNS manager only (services/dns/manager.ts), not a setting. */
+export const dnsStateSchema = z.object({
+  at: z.string().nullable().default(null),
+  mode: z.enum(['off', 'dryRun', 'on']).default('off'),
+  error: z.string().max(500).nullable().default(null),
+  /** This server's public addresses as used for its record, and where they came from. */
+  origin: z.object({ addresses: z.array(z.string()).max(8), source: z.enum(['settings', 'streaming', 'detected', 'none']) }).default({ addresses: [], source: 'none' }),
+  /** Records the platform wants, with what the zone has. */
+  records: z
+    .array(
+      z.object({
+        name: z.string(),
+        type: z.string(),
+        content: z.string(),
+        proxied: z.boolean(),
+        ttl: z.number(),
+        purpose: z.enum(['origin', 'panel', 'node', 'pool', 'stream', 'src']),
+        ref: z.string().nullable(),
+        state: z.enum(['ok', 'create', 'update', 'conflict']),
+      }),
+    )
+    .max(2000)
+    .default([]),
+  /** Managed records that are no longer wanted (deleted on the next run, or already). */
+  stale: z.array(z.object({ name: z.string(), type: z.string(), content: z.string() })).max(2000).default([]),
+  problems: z.array(z.object({ kind: z.string(), ref: z.string().nullable(), name: z.string().nullable() })).max(500).default([]),
+  /** The changes of the last run that wrote something. */
+  lastChanges: z.array(dnsChangeSchema).max(200).default([]),
+  lastChangeAt: z.string().nullable().default(null),
+  /** The cache rules: ok = in the zone as wanted, pending = would be written (dry run), off = none of this install. */
+  cache: z
+    .object({
+      state: z.enum(['off', 'ok', 'pending', 'error']),
+      host: z.string().nullable(),
+      /** Rules of this installation in the zone, and of others (kept untouched). */
+      rules: z.number(),
+      foreign: z.number(),
+      error: z.string().max(500).nullable(),
+      at: z.string().nullable(),
+    })
+    .default({ state: 'off', host: null, rules: 0, foreign: 0, error: null, at: null }),
+});
+export type DnsState = z.infer<typeof dnsStateSchema>;
+
 const commitRe = /^[0-9a-f]{7,40}$/;
 const versionRef = z.object({ commit: z.string().regex(commitRe).nullable(), branch: z.string().max(100).nullable() });
 
@@ -350,6 +455,8 @@ const registry = {
   orchestrator: { schema: orchestratorSchema, secrets: [] },
   nodeRollout: { schema: nodeRolloutSchema, secrets: [] },
   billing: { schema: billingSettingsSchema, secrets: ['mollie.apiKey'] },
+  cloudflare: { schema: cloudflareSchema, secrets: ['apiToken'] },
+  dnsState: { schema: dnsStateSchema, secrets: [] },
 } as const;
 type Registry = typeof registry;
 export type SettingKey = keyof Registry;
