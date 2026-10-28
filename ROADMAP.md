@@ -168,7 +168,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 14 | Orchestrator redundancy | Planned (1.x) |
 | 15 | Cloudflare DNS integration | Done (1.1.1) |
 | 16 | Installer menu and node enrollment | Done (1.2.0) |
-| 17 | RHIS Studio 1.0 (Windows client) | Paused after step 3 (resumes after 16 and 14) |
+| 17 | RHIS Studio 1.0 (Windows client) | In progress (steps 1–3 and 5 built; 6, 4 and 7 to go) |
 | 18 | Server names and topology views | Done (1.1.0) |
 | 19 | Clearer control panels and node assignment | Done (1.2.0) |
 | 20 | Monitoring node | Planned (1.x) |
@@ -519,6 +519,13 @@ Small fixes planned for a patch release, one at a time after the current phase.
 - Station nodes are drawn in the Ingest layer, but they are studios: they move to the "Studios & encoders" layer, in all views (layers, per station, matrix, 3D skyline).
 - An FM/MPX node is linked directly to the station node (studio) it takes its audio from, and is drawn right next to it as one group, instead of on its own in the distribution layer.
 - Shared or dedicated nodes (pulled forward from phase 19): every node is **Shared** or **Dedicated** to one customer or station. A dedicated node only carries and shows its own streams, and automatic and spare relay routing never put other stations on it. A customer's own node is dedicated by default.
+
+### Next after phase 17: UI fixes
+
+- **3D topology map**: server labels duplicate and come loose from their servers when you rotate or zoom the map. Labels stay attached to their server.
+- **Label toggle**: a switch on the 3D map to hide the server labels.
+- **Control traffic on by default**: the control traffic lines are shown when the map opens.
+- **Customer "Station node" dropdown**: shows "This server" instead of the node's real name. It shows the server names from phase 18.
 
 ## Future ideas
 
