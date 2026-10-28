@@ -15,7 +15,7 @@
 #   --orchestrator             Orchestrator only
 #   --all-in-one               Orchestrator with ingest and relay on this machine
 #   --node                     Node agent only; takes the options of install-node.sh: --server <url>, --code <code>,
-#                              --role relay|source|station|fm, --no-caddy, --no-setup-page, --fm
+#                              --role relay|source|station|fm|monitor, --no-caddy, --no-setup-page, --fm
 #
 # Options (all optional; you are asked interactively when they are missing and a terminal is attached):
 #   --domain <name>            Public host name, e.g. radio.example.com (empty = plain HTTP on the IP address)
@@ -158,7 +158,8 @@ if [[ "$MODE" == menu ]]; then
           relay   "Relay     serves listeners" \
           source  "Ingest    takes encoders and DJs" \
           station "Station   runs stations, AutoDJ and library" \
-          fm      "FM/MPX    stereo MPX with RDS for a transmitter"
+          fm      "FM/MPX    stereo MPX with RDS for a transmitter" \
+          monitor "Monitoring listens to the streams and checks ports from outside"
         [[ "$N_ROLE" == none ]] || NODE_ARGS+=(--role "$N_ROLE")
       fi
     fi

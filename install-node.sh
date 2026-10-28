@@ -15,7 +15,7 @@
 # Options:
 #   --server <url>     The orchestrator, e.g. https://radio.example.com
 #   --code <code>      One-time pairing code from the panel; without it the node registers and waits for acceptance
-#   --role <role>      Preferred role when registering: relay, source (ingest), station or fm; applied after acceptance
+#   --role <role>      Preferred role when registering: relay, source (ingest), station, fm or monitor; applied after acceptance
 #   --no-setup-page    Do not serve the setup page on port 8080 while the node is not paired
 #   --no-wait          Register, but do not wait here for the acceptance (the node keeps waiting by itself)
 #   --repair           Pair again with --code even though this machine already belongs to a node
@@ -73,7 +73,7 @@ SERVER=${SERVER%/}
 server_re='^https?://[][A-Za-z0-9.:-]+(/.*)?$'
 [[ -z "$SERVER" || "$SERVER" =~ $server_re ]] || fail "Invalid --server: use https://your-main-server"
 [[ -z "$CODE" || -n "$SERVER" ]] || fail "--code needs --server (the address of the orchestrator)."
-[[ -z "$ROLE" || "$ROLE" =~ ^(relay|source|station|fm)$ ]] || fail "--role must be relay, source, station or fm"
+[[ -z "$ROLE" || "$ROLE" =~ ^(relay|source|station|fm|monitor)$ ]] || fail "--role must be relay, source, station, fm or monitor"
 [[ "$ROLE" == fm ]] && FM=1
 
 printf '%s\n' "${C_CORAL}  ____  _   _ ___ ____  ${C_RESET}"

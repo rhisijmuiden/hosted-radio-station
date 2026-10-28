@@ -1126,12 +1126,15 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
     if (monitors.length && stationIds.length) {
       const fresh = new Date(Date.now() - (settings.probeIntervalSeconds * 3 + 30) * 1000);
       const rows = await ctx.db
-        .select({ nodeId: schema.nodeProbes.nodeId, target: schema.nodeProbes.target, ok: schema.nodeProbes.ok, silent: schema.nodeProbes.silent })
+        .select({ nodeId: schema.nodeProbes.nodeId, target: schema.nodeProbes.target, ok: schema.nodeProbes.ok, silent: schema.nodeProbes.silent, lastOkAt: schema.nodeProbes.lastOkAt })
         .from(schema.nodeProbes)
         .where(and(inArray(schema.nodeProbes.nodeId, monitors.map((m) => m.id)), inArray(schema.nodeProbes.stationId, stationIds), gt(schema.nodeProbes.checkedAt, fresh)));
       const pairs = new Map<string, boolean>();
       const heard = new Map<string, boolean>();
       for (const r of rows) {
+        // A stream that never played since it is checked (a station still waiting for its first encoder) says nothing
+        // about the server, as for the alerts.
+        if (!r.ok && !r.lastOkAt) continue;
         const where = r.target.slice(r.target.lastIndexOf('@') + 1);
         const to = where === 'main' ? (shown.has('local:relay') ? 'local:relay' : 'main') : where;
         const good = r.ok && r.silent !== true;
