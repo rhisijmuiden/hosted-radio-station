@@ -401,6 +401,7 @@ which features it has and says so when the server needs an update, instead of fa
    profile on the server, so they are the same on every studio PC; load them by drag and drop, also from a USB stick.
 4. **Fader start**: open a fader on the mixing desk and the player or a jingle starts, close it and it stops. Over
    MIDI or a USB GPIO interface, set up on its own settings page with a Learn button.
+   *Parked 2026-10-28: built later, once Reinder has a MIDI or GPIO device to test with.*
 5. **Cue point editor**: a waveform of the track with cue in, intro, the point where the next track starts, the fade
    out and cue out. Saved on the server, so the AutoDJ and every studio use them.
 6. **Locked format blocks**: parts of an hour clock (for example station ID, news, station ID) can be locked in the
@@ -409,6 +410,8 @@ which features it has and says so when the server needs an update, instead of fa
    runs; on a station node it then talks to the node directly (its LAN address in the studio, its public address from
    outside), so the studio keeps working when the internet connection drops. Settings › Connection shows the link and
    takes a manual address.
+   *Built 2026-10-28 for Go live (RHIS Studio 0.16). Talking to the node's API directly while the main server is
+   unreachable is a follow-up: the node has no web server of its own yet and its API is reached through the tunnel.*
 
 Added 2026-10-27, after step 3: **one playlist**. Q2 goes away everywhere (RHIS Studio, the panel and the server;
 playlists and queue rules move over), and Live assist gets the layout of the approved sketch: the next fixed block

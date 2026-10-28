@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, FolderOpen, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ConnectionCard } from '../components/Connection';
 import { StereoMeter } from '../components/Meter';
 import { Button, Card, CardHeader, Fact, Field, Input, Select, Switch } from '../components/ui';
 import { useEngine } from '../lib/engine';
@@ -235,6 +236,8 @@ export function SettingsPage() {
           <Fact label={t('settings.encoder')}>MP3 (LAME)</Fact>
         </div>
       </Card>
+
+      <ConnectionCard />
 
       <Card>
         <CardHeader title={t('settings.account')} />

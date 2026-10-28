@@ -78,7 +78,18 @@ export interface StationDetail extends StationListItem {
     tls: { port: number; available: boolean };
     plain: { port: number } | null;
     mounts: { id: string; path: string; encoderMount: string; listenUrl: string | null }[];
+    /** Where everything connects (server 1.2 and later): the station node with its internal and external address. */
+    endpoints?: Endpoint[];
   };
+}
+export interface Endpoint {
+  role: 'stationNode' | 'ingest' | 'backupIngest' | 'uploads';
+  name: string;
+  node: { id: string; name: string } | null;
+  online: boolean;
+  external: string | null;
+  internal: string | null;
+  ports: { service: string; port: number; to?: number; tls?: boolean }[];
 }
 export interface LiveSession {
   id: string;

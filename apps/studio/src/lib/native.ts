@@ -265,6 +265,9 @@ async function simInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Pr
       return sim.broadcast as T;
     case 'send_metadata':
       return undefined as T;
+    case 'probe_tcp':
+      // The simulation reaches a studio network address (10.x, 192.168.x) unless the URL says ?lan=off.
+      return (/^(10|192\.168)\./.test(args.host as string) && !location.search.includes('lan=off')) as T;
     case 'secret_get':
       try {
         return (localStorage.getItem(`sim-secret:${args.server as string}`) ?? null) as T;

@@ -9,26 +9,17 @@ import { Badge, Button, Card, CardHeader, EmptyState, Fact, Field, Input, Select
 import { api, type StationDetail } from '../lib/api';
 import { useEngine } from '../lib/engine';
 import { bytes, duration } from '../lib/format';
+import { chooseNow, linksOf, useLink, viaLabel } from '../lib/link';
 import { call, type Target } from '../lib/native';
 import { useAccounts, useStationDetail, useStatus } from '../lib/queries';
 import { useSession } from '../lib/session';
-import { updateSettings, useSettings } from '../lib/settings';
+import { getSettings, updateSettings, useSettings } from '../lib/settings';
 import type { Page } from '../components/Shell';
 
 const BITRATES = [64, 96, 128, 160, 192, 256, 320];
 
-/**
- * Where and how this PC connects: the server's ingest, TLS when it has a certificate. `plain` skips TLS, for an address
- * whose certificate Windows does not trust (the DJ chose so after the error).
- */
-function ingestOf(detail: StationDetail, mountId: string, plain = false) {
-  const c = detail.connection;
-  const mount = c.mounts.find((m) => m.id === mountId);
-  if (!mount) return null;
-  if (c.tls.available && !(plain && c.plain)) return { host: c.ingestHost, port: c.tls.port, tls: true, mount: mount.encoderMount };
-  if (c.plain) return { host: c.ingestHost, port: c.plain.port, tls: false, mount: mount.encoderMount };
-  return null;
-}
+/** The encoder mount of a station mount. */
+const encoderMount = (detail: StationDetail, mountId: string) => detail.connection.mounts.find((m) => m.id === mountId)?.encoderMount ?? null;
 
 // The target of the running broadcast, for title updates; it lives as long as the app.
 let activeTarget: Target | null = null;
@@ -60,13 +51,16 @@ export function LivePage({ onPage }: { onPage: (p: Page) => void }) {
   const bitrates = BITRATES.filter((b) => b <= maxBitrate);
   const bitrate = bitrates.includes(settings.live.bitrate) ? settings.live.bitrate : (bitrates.at(-1) ?? 128);
   const plainHosts = settings.live.plainHosts ?? [];
-  const host = detail.data?.connection.ingestHost ?? '';
-  const ingest = detail.data && mount ? ingestOf(detail.data, mount.id, plainHosts.includes(host)) : null;
+  const link = useLink(detail.data);
+  const ingest = detail.data && mount && encoderMount(detail.data, mount.id) ? (link.picked?.to ?? null) : null;
+  const host = ingest?.host ?? '';
+  // The plain port of the chosen address, for the certificate fallback below.
+  const plainPort = link.picked?.via === 'external' ? (detail.data?.connection.endpoints?.find((e) => e.role === 'stationNode')?.ports.find((p) => p.service === 'encoderPlain')?.port ?? null) : link.picked?.via === 'main' ? (detail.data?.connection.plain?.port ?? null) : null;
   // A TLS connection that fails on the certificate (e.g. no public certificate for the encoder address yet): offer the
   // plain port. Never on its own, because then the password goes over the network readable.
   const certError =
     !!ingest?.tls &&
-    !!detail.data?.connection.plain &&
+    !!plainPort &&
     (broadcast.state === 'reconnecting' || broadcast.state === 'failed') &&
     /certificate|certificaat|tls/i.test(broadcast.error);
   const onAir = broadcast.state !== 'off';
@@ -74,8 +68,13 @@ export function LivePage({ onPage }: { onPage: (p: Page) => void }) {
 
   const goLive = useMutation({
     mutationFn: async (opts: { plain?: boolean } = {}) => {
-      const to = opts.plain && detail.data && mount ? ingestOf(detail.data, mount.id, true) : ingest;
-      if (!station || !detail.data || !mount || !account || !to) throw new Error(t('live.notReady'));
+      const em = detail.data && mount ? encoderMount(detail.data, mount.id) : null;
+      if (!station || !detail.data || !mount || !account || !em) throw new Error(t('live.notReady'));
+      // Choose the address again now: the studio network may have come back or gone since the page opened.
+      const live = getSettings().live;
+      const chosen = await chooseNow(linksOf(detail.data, opts.plain ? [...(live.plainHosts ?? []), host] : live.plainHosts), live.link ?? 'auto', live.manual);
+      if (!chosen) throw new Error(t('live.notReady'));
+      const to = { ...chosen.to, mount: em };
       const token = await api<{ username: string; password: string }>(`/studio/stations/${station.id}/live-token`, { method: 'POST', body: { accountId: account.id } });
       const target: Target = { ...to, username: token.username, password: token.password, bitrate, sampleRate: info?.sampleRate ?? 48000, name: station.name };
       await call('start_broadcast', { target });
@@ -235,12 +234,29 @@ export function LivePage({ onPage }: { onPage: (p: Page) => void }) {
         </Card>
         <Card className="p-5">
           <div className="grid grid-cols-2 gap-4">
-            <Fact label={t('live.server')}>{ingest ? `${ingest.host}:${ingest.port}` : '–'}</Fact>
+            <div className="col-span-2">
+              <Fact label={t('live.server')}>
+                {ingest ? (
+                  <span className="flex flex-col gap-1">
+                    <span className="font-mono text-[13px]">
+                      {ingest.host}:{ingest.port}
+                    </span>
+                    {link.picked && link.picked.via !== 'main' && (
+                      <button className="w-fit text-left text-xs font-semibold text-accent-text hover:underline" onClick={() => onPage('settings')} title={t('link.change')}>
+                        {viaLabel(t, link.picked.via, link.mode)}
+                      </button>
+                    )}
+                  </span>
+                ) : (
+                  '–'
+                )}
+              </Fact>
+            </div>
             <Fact label={t('live.security')}>
               {ingest ? (
                 <span className="flex flex-wrap items-center gap-2">
                   {ingest.tls ? <Badge tone="online">TLS</Badge> : <Badge tone="warning">{t('live.plain')}</Badge>}
-                  {plainHosts.includes(host) && detail.data?.connection.tls.available && (
+                  {plainHosts.includes(host) && link.picked?.via !== 'internal' && link.picked?.via !== 'manual' && (
                     <button className="text-xs font-semibold text-accent-text hover:underline disabled:opacity-50" disabled={onAir} onClick={() => setPlain(false)}>
                       {t('live.tryTls')}
                     </button>
