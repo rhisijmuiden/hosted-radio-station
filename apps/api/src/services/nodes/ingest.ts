@@ -7,7 +7,7 @@ import { authenticateSource, type OutsideShow } from '../streaming/sources.js';
 import { autodjMount } from '../streaming/state.js';
 import type { AgentAuth, AgentLive, AuthResult } from './protocol.js';
 import { serves } from './dedication.js';
-import { STUDIO_USER, studioDelivery, studioToken } from './delivery.js';
+import { plannedIngests, STUDIO_USER, studioToken } from './delivery.js';
 import { ingestsOf, stationRouting } from './routing-rules.js';
 
 const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -27,7 +27,7 @@ async function routedStation(ctx: AppContext, node: { id: string; tenantId: stri
   if (row.s.nodeId) {
     // A station on a station node (1.3): only when the node sends its streams through this ingest.
     const paired = await ctx.db.select().from(schema.nodes).where(isNotNull(schema.nodes.pairedAt));
-    if (!studioDelivery(row.s, paired).ingests.some((i) => i.node.id === node.id)) return null;
+    if (!(plannedIngests(row.s, paired) ?? []).some((i) => i.node.id === node.id)) return null;
     return { ...row, studio: paired.find((n) => n.id === row.s.nodeId) ?? null };
   }
   if (!ingestsOf(stationRouting(row.s)).some((i) => i.ref === node.id)) return null;

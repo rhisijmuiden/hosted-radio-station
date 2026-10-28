@@ -1018,6 +1018,7 @@ export const en = {
       mainHint: 'The ingest the studio sends to.',
       backupHint: 'Optional. The studio then also sends its streams here, so the relays switch over without a gap. This doubles the upload.',
       and: 'and',
+      lastError: 'Last error: {{error}}',
       now: {
         ingest_one: 'Now: the studio sends to {{names}}, which feeds the relays.',
         ingest_other: 'Now: the studio sends to {{names}}, which feed the relays.',

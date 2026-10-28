@@ -1020,6 +1020,7 @@ export const nl: Translation = {
       mainHint: 'De ingest waar de studio naartoe stuurt.',
       backupHint: 'Optioneel. De studio stuurt zijn streams dan ook hierheen, zodat de relays zonder gat overschakelen. Dat verdubbelt de upload.',
       and: 'en',
+      lastError: 'Laatste fout: {{error}}',
       now: {
         ingest_one: 'Nu: de studio stuurt naar {{names}}, die de relays voedt.',
         ingest_other: 'Nu: de studio stuurt naar {{names}}, die de relays voeden.',
