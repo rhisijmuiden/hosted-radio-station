@@ -3,7 +3,10 @@
 All notable changes to Hosted Radio Station. Versions follow [semantic versioning](https://semver.org). The
 [roadmap](ROADMAP.md) has the full description of each phase, with screenshots.
 
-## Unreleased
+## 1.3.0 (28 October 2026)
+
+Phase 17 (RHIS Studio 1.0, fader start still parked), the port plan per role, station nodes sending through the
+ingest, and network map and control panel fixes.
 
 - Station nodes send through an ingest by default: the node uploads each source stream once to the station's ingest,
   which makes the other mounts and feeds every relay, so the studio's upload stays minimal. Choose per station under
@@ -16,7 +19,8 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   sends to the relays, so the first push after an update finds it; Routing shows the node's last push error. From another site a station node only sends
   to an ingest over TLS with a certificate it can check (nodes now report the names they hold a valid certificate
   for); without one it keeps to the relays and Routing says to turn on Certificates through Cloudflare DNS. The delivery path of
-  the customer shows the ingest a station node sends through, and node details list the node's certificates. The delivery path, the routing status and the network map show the route.
+  the customer shows the ingest a station node sends through, and node details list the node's certificates. The delivery path, the routing status and the network map show the route; the network map per station draws the
+  audio line from the station node to its ingest.
 - Streaming settings with *Orchestrator only*: the firewall line lists only 80 and 443.
 
 - Port plan: every role has its own incoming ports, so roles on one machine never clash. Ingest 8200 (plain), 8201
