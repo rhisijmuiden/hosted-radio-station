@@ -172,7 +172,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 18 | Server names and topology views | Done (1.1.0) |
 | 19 | Clearer control panels and node assignment | Done (1.2.0) |
 | 20 | Monitoring node | In progress |
-| 21 | Recorder node | Planned (step 5 in the order of work) |
+| 21 | Recorder node | Planned (step 6 in the order of work) |
 | 22 | Packaged installers and moving the orchestrator | Future (when the first customers come) |
 | 23 | Deployment wizard | Future (when the first customers come) |
 
@@ -189,7 +189,8 @@ One thing at a time; each item starts when the previous one is finished and test
    3. Library with columns for the station's own item code, ISRC, BPM and key (taken from the tags first, otherwise calculated on the server in the background; an admin can correct them).
    4. News player (source set per station: a file from a URL, a file over FTP/SFTP, or a live stream, at set times, with a spare jingle when the news is missing) and a log editor.
    - Free docking of panels comes later as a separate item.
-5. **Phase 21: Recorder node**: recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download.
+5. **Security hardening for external nodes**: see the queued item below. (For now the one external server was closed by hand.)
+6. **Phase 21: Recorder node**: recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download.
 
 Later: phase 14 (orchestrator redundancy) just before sales start; phases 22 and 23 when the first customers come.
 
@@ -563,7 +564,7 @@ Small fixes planned for a patch release, one at a time after the current phase.
 | ![3D network map with control lines](docs/screenshots/pr-128-129-3d-control-on.png) | ![2D layers with lines around servers](docs/screenshots/pr-128-129-2d-layers.png) |
 | ![Customer page, station node of this customer](docs/screenshots/pr-128-129-customer-station-node-harder-fm.png) | ![Customer page, the chosen station node shown after loading](docs/screenshots/pr-128-129-customer-station-node-radio-schermer.png) |
 
-### Security hardening for external nodes (queued, not scheduled yet)
+### Security hardening for external nodes (step 5 in the order of work)
 
 Nodes with a direct public IP address get a firewall that is closed by default.
 
