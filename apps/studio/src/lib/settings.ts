@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type { LinkMode, ManualLink } from './link';
+import type { StudioLayout } from './layout';
 import type { AudioConfig, OutputSel } from './native';
 
 export interface CartSlot {
@@ -26,6 +27,8 @@ export interface Settings {
   preview: { output: OutputSel | null };
   /** Network shares in the library panel, e.g. \\\\nas\\muziek. */
   shares: string[];
+  /** The layout of Assist; the DJ profile on the server has the say when it has one (see lib/layout.ts). */
+  layout: Partial<StudioLayout> | null;
 }
 
 const KEY = 'rhis-studio-settings';
@@ -40,12 +43,13 @@ const defaults: Settings = {
   cartPage: 0,
   preview: { output: null },
   shares: [],
+  layout: null,
 };
 
 function load(): Settings {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Settings>;
-    return { ...defaults, ...raw, audio: { ...defaults.audio, ...raw.audio }, live: { ...defaults.live, ...raw.live }, preview: { ...defaults.preview, ...raw.preview }, shares: Array.isArray(raw.shares) ? raw.shares : [], carts: raw.carts?.length === 48 ? raw.carts : defaults.carts };
+    return { ...defaults, ...raw, audio: { ...defaults.audio, ...raw.audio }, live: { ...defaults.live, ...raw.live }, preview: { ...defaults.preview, ...raw.preview }, shares: Array.isArray(raw.shares) ? raw.shares : [], layout: raw.layout && typeof raw.layout === 'object' ? raw.layout : null, carts: raw.carts?.length === 48 ? raw.carts : defaults.carts };
   } catch {
     return defaults;
   }

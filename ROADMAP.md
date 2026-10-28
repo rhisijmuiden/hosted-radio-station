@@ -184,7 +184,7 @@ One thing at a time; each item starts when the previous one is finished and test
 2. **Bug fix: two tracks "Cued" at once**: only one track can be cued at a time. This must be right before the Studio layout below, where player B is the cued track.
 3. **Phase 20: Monitoring node**: alerts when a node or relay goes down, instead of finding out from silence.
 4. **RHIS Studio: OmniPlayer-style layout**, in steps:
-   1. Players A and B, the log (playlist) and a dashboard.
+   1. Players A and B, the log (playlist) and a dashboard. *Built 2026-10-28 (RHIS Studio 0.17, on test).*
    2. Both jingle grids and a separate loose player.
    3. Library with columns for the station's own item code, ISRC, BPM and key (taken from the tags first, otherwise calculated on the server in the background; an admin can correct them).
    4. News player (source set per station: a file from a URL, a file over FTP/SFTP, or a live stream, at set times, with a spare jingle when the news is missing) and a log editor.

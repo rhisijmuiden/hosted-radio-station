@@ -31,6 +31,14 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   station has a line colour of its own from studio through ingest and relays to the listeners per country; several
   stations on one line run side by side. The legend and the matrix show the colours. In 2D and 3D; a customer only
   sees its own block.
+- RHIS Studio 0.17: a second layout for Live assist, **OmniPlayer**, chosen with the new **Layout** button in the top
+  bar (Classic stays the default). Players A and B side by side: one has the track on air, the other the cued track
+  that goes on air next, and they swap at every new track. Under them the **log**: the tracks that played last, the
+  track on air, the playlist with a header per hour (with the show or hour clock of that hour) and the cued track in
+  green. Next to it your jingles, a **dashboard** with a big clock and a red countdown to the next fixed block, the
+  end of the track or your own timer, and the library. Panels go on or off and the width of players A/B is dragged.
+  The layout is kept in your new **DJ profile** on the server, so it is the same on every studio PC. New API:
+  `GET`/`PUT /api/studio/profile` and `GET /api/stations/{id}/autodj/history`.
 
 ## 1.3.0 (28 October 2026)
 

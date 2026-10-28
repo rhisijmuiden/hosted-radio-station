@@ -162,6 +162,13 @@
       "when": 1793160000000,
       "tag": "0023_monitor_probes",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1793163600000,
+      "tag": "0024_studio_profiles",
+      "breakpoints": true
     }
   ]
 }

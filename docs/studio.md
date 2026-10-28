@@ -39,6 +39,32 @@ A block on the minute (*hard*) cuts the track that runs into it; another block w
 **backtimes** to the next block: how much the track that runs into it is too long, or how much the playlist is too
 short to reach it. The lengths of news and commercials are estimates (the average track of their playlist).
 
+### OmniPlayer layout
+
+**Layout** in the top bar (on the Assist page) switches between **Classic**, described above, and **OmniPlayer**, a
+layout like the OmniPlayer playout software. The choice is kept in your **DJ profile** on the server, so every studio
+PC you sign in on shows the same layout (an older server keeps it on this PC only).
+
+- **Players A and B** follow the playlist on the server: one has the track on air (time left, intro counter, ends
+  at, **Next**, and **Stop** in Manual), the other the cued track that goes on air next (length, intro, start time).
+  At every new track they swap roles, like two players on a desk. **Start now** on the cued player starts it at
+  once; in Manual, while the player waits, it is **Play**. Drop a track on the player on air to play it now, or on
+  the cued player to put it at the top of the playlist.
+- The **log** under the players: the last five tracks played (fold them away with the arrow), the track on air in
+  coral, then the playlist with a header for every hour, with the show (or else the hour clock) planned then. The
+  cued track has a green edge. Everything else works as in the playlist of Classic.
+- The **dashboard**: a big clock and a big red countdown to the **next fixed block**, the **end of the track** on air,
+  or your own **timer** (set it with − and + in steps of 30 seconds, start, pause, reset). Your choice and the length
+  of the timer stay in your profile.
+- Your **jingles** and the **library** sit next to the players.
+
+In the **Layout** menu each panel goes on or off (last played, jingles, dashboard, library). Drag the handle between
+the players and the panels to change their width (double-click it, or *Reset* in the menu, for the default). It
+needs a server that knows the DJ profile and the last played tracks; with an older one the log shows no last played
+tracks.
+
+![The OmniPlayer layout](screenshots/studio-omni-en.png)
+
 ### Locked blocks
 
 An item of the hour clock can be **locked** (panel: *Hour clocks*, the *Locked* box on a playlist or track item), for

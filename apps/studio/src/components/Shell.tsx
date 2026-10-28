@@ -12,6 +12,7 @@ import { useSettings } from '../lib/settings';
 import { blocksOf } from '../lib/timeline';
 import { liveTarget } from '../pages/Live';
 import { InfoButton } from './InfoDialog';
+import { LayoutMenu } from './LayoutMenu';
 import { StereoMeter } from './Meter';
 import { LanguageToggle, ThemeToggle } from './Toggles';
 import { Avatar } from './ui';
@@ -160,7 +161,7 @@ function NextBlock() {
 }
 
 /** The station, who is on air, the next fixed block, listeners and the clock: always in view. */
-function TopBar() {
+function TopBar({ page }: { page: Page }) {
   const { t } = useTranslation();
   const { station } = useSession();
   const status = useStatus(station?.id);
@@ -190,6 +191,7 @@ function TopBar() {
       </div>
       <NextBlock />
       <div className="flex-1" />
+      {page === 'assist' && station?.edition === 'station' && <LayoutMenu />}
       <div className="text-right">
         <div className="display text-[22px] leading-none tabular">{status.data?.listeners ?? '–'}</div>
         <div className="text-[11px] text-muted">{t('assist.listeners')}</div>
@@ -278,7 +280,7 @@ export function Shell({ page, onPage, children }: { page: Page; onPage: (p: Page
       <div className="flex min-h-0 flex-1">
         <NavRail page={page} onPage={onPage} />
         <div className="flex min-w-0 flex-1 flex-col">
-          <TopBar />
+          <TopBar page={page} />
           <main className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</main>
         </div>
         <MeterColumn />

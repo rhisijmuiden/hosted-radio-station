@@ -1,139 +1,22 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowUpToLine, Clock3, Eraser, GripVertical, ListMusic, Lock, Music2, Play, SkipForward, Square, Trash2 } from 'lucide-react';
-import { Fragment, useState, type DragEvent } from 'react';
+import { ListMusic, Lock, Music2, Play, SkipForward, Square } from 'lucide-react';
+import { useState, type DragEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { toast } from 'sonner';
-import { addLocalFile, DRAG_FILE, DRAG_MEDIA, LibraryPanel, useCanUpload, type QueueName } from '../components/Library';
+import { addLocalFile, DRAG_FILE, DRAG_MEDIA, LibraryPanel, useCanUpload } from '../components/Library';
 import { JingleBar } from '../components/Jingles';
+import { Dashboard } from '../components/Dashboard';
+import { Decks, ModeSwitch } from '../components/Decks';
+import { PlaylistCard, type LogView } from '../components/Playlist';
 import { Badge, Button, Card, EmptyState, Spinner } from '../components/ui';
-import { CueButton, CueEditor, hasCues, useCanCue } from '../components/CueEditor';
-import { api, ApiError, type AutoDj, type QueueRow } from '../lib/api';
+import type { AutoDj } from '../lib/api';
 import { introLeft, playLength, trackLength } from '../lib/cues';
 import { duration } from '../lib/format';
 import { useNow } from '../lib/now';
-import { useAutoDj, useRundown } from '../lib/queries';
+import { DECK_WIDTH, useLayout } from '../lib/layout';
+import { useAutoDj, useHistory, useRundown } from '../lib/queries';
+import { clock, DRAG, queueOf, useLineText, useQueueActions } from '../lib/queue';
 import { useSession } from '../lib/session';
-import { backtime, blocksOf, timeline, type Block, type Line } from '../lib/timeline';
-
-const DRAG = 'application/x-hrs-item';
-
-function useQueueActions(stationId: string) {
-  const qc = useQueryClient();
-  const { t } = useTranslation();
-  const done = (data: AutoDj) => qc.setQueryData(['autodj', stationId], data);
-  const fail = (err: unknown) => toast.error((err as Error).message);
-  // A locked item of the format is on air: managers and owners may go ahead after all.
-  const locked = (err: unknown) => err instanceof ApiError && err.code === 'locked' && confirm(err.message);
-  const skip = useMutation({
-    mutationFn: (force?: boolean) => api(`/stations/${stationId}/autodj/skip`, { method: 'POST', body: force ? { force } : {} }),
-    onSuccess: () => {
-      toast.success(t('assist.skipped'));
-      setTimeout(() => void qc.invalidateQueries({ queryKey: ['autodj', stationId] }), 800);
-    },
-    onError: (err): void => {
-      if (locked(err)) skip.mutate(true);
-      else fail(err);
-    },
-  });
-  const playNow = useMutation({
-    mutationFn: (v: ({ itemId: string } | { mediaId: string }) & { force?: boolean }) => api<AutoDj>(`/stations/${stationId}/autodj/play-now`, { method: 'POST', body: v }),
-    onSuccess: (d) => {
-      done(d);
-      toast.success(t('assist.playingNow'));
-      setTimeout(() => void qc.invalidateQueries({ queryKey: ['autodj', stationId] }), 1500);
-    },
-    onError: (err, v): void => {
-      if (locked(err)) playNow.mutate({ ...v, force: true });
-      else fail(err);
-    },
-  });
-  return {
-    add: useMutation({
-      mutationFn: (v: { mediaId: string; queue: QueueName; at: 'top' | 'bottom' }) => api<AutoDj>(`/stations/${stationId}/autodj/queue`, { method: 'POST', body: v }),
-      onSuccess: (d) => {
-        done(d);
-        toast.success(t('assist.added'));
-      },
-      onError: fail,
-    }),
-    move: useMutation({
-      mutationFn: (v: { itemId: string; queue: QueueName; beforeId: string | null }) =>
-        api<AutoDj>(`/stations/${stationId}/autodj/queue/${v.itemId}`, { method: 'PATCH', body: { queue: v.queue, beforeId: v.beforeId } }),
-      onSuccess: done,
-      onError: fail,
-    }),
-    remove: useMutation({
-      mutationFn: (itemId: string) => api<AutoDj>(`/stations/${stationId}/autodj/queue/${itemId}`, { method: 'DELETE' }),
-      onSuccess: done,
-      onError: fail,
-    }),
-    clear: useMutation({
-      mutationFn: (queue: QueueName) => api<AutoDj>(`/stations/${stationId}/autodj/queue/clear`, { method: 'POST', body: { queue, rotationOnly: true } }),
-      onSuccess: done,
-      onError: fail,
-    }),
-    skip,
-    playNow,
-    player: useMutation({
-      mutationFn: (command: 'play' | 'stop') => api(`/stations/${stationId}/autodj/${command}`, { method: 'POST' }),
-      onSuccess: () => setTimeout(() => void qc.invalidateQueries({ queryKey: ['autodj', stationId] }), 800),
-      onError: fail,
-    }),
-    mode: useMutation({
-      mutationFn: (manual: boolean) => api<AutoDj>(`/stations/${stationId}/autodj/mode`, { method: 'POST', body: { manual } }),
-      onSuccess: (d) => {
-        done(d);
-        toast.success(d.playout.manual ? t('playout.manualOn') : t('playout.autoOn'));
-      },
-      onError: fail,
-    }),
-  };
-}
-
-/** Auto: the player plays on from track to track. Manual: it stops after each track until Play. */
-function ModeSwitch({ data, stationId }: { data: AutoDj; stationId: string }) {
-  const { t } = useTranslation();
-  const { supports } = useSession();
-  const a = useQueueActions(stationId);
-  const manual = !!data.playout?.manual;
-  const can = supports('playout');
-  return (
-    <div role="group" aria-label={t('playout.label')} title={can ? undefined : t('server.needsUpdate')} className="flex rounded-md border border-line bg-surface p-0.5">
-      {([false, true] as const).map((m) => (
-        <button
-          key={String(m)}
-          type="button"
-          disabled={!can || a.mode.isPending}
-          aria-pressed={manual === m}
-          onClick={() => manual !== m && a.mode.mutate(m)}
-          className={clsx(
-            'h-8 rounded-[7px] px-3.5 text-[13px] font-bold transition-colors disabled:cursor-not-allowed',
-            manual === m ? 'bg-koraal text-nacht' : 'text-muted hover:text-ink',
-          )}
-        >
-          {m ? t('playout.manual') : t('playout.auto')}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/** The one queue (server 1.3); rows an older server still has in Q2 come after Q1. */
-const queueOf = (data: AutoDj) => [...data.queues.q1, ...(data.queues.q2 ?? [])];
-
-const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-
-/** A playlist line in a few words, for "Next:". */
-function useLineText() {
-  const { t } = useTranslation();
-  return (l: Line | undefined) => {
-    if (!l) return null;
-    if (l.kind === 'block') return `${l.block.items.map((i) => i.label || t('rundown.fixed')).join(', ')} (${t('assist.fixed')})`;
-    const m = l.row.media;
-    return `${l.row.label ? `${l.row.label}: ` : ''}${m.artist ? `${m.artist} – ` : ''}${m.title || m.path}`;
-  };
-}
+import { backtime, blocksOf, timeline, type Line } from '../lib/timeline';
 
 function NowPlaying({ data, stationId, lines, now }: { data: AutoDj; stationId: string; lines: Line[]; now: number }) {
   const { t } = useTranslation();
@@ -284,174 +167,48 @@ function NowPlaying({ data, stationId, lines, now }: { data: AutoDj; stationId: 
   );
 }
 
-/** The kind of a fixed item, in words. */
-function useItemKind() {
+/** The handle between the log column and the panels: drag to change the width, kept in the DJ profile. */
+function Splitter() {
   const { t } = useTranslation();
-  return (source: Block['items'][number]['source']) => (source === 'track' ? t('rundown.track') : t('rundown.playlist'));
-}
-
-/**
- * The playlist: what plays after the current track, with the time each line starts. The fixed blocks of the format
- * (news, commercials) sit inline at their minute with a lock; the header backtimes to the next one.
- */
-function PlaylistCard({ data, stationId, lines, until }: { data: AutoDj; stationId: string; lines: Line[]; until: number | null }) {
-  const { t } = useTranslation();
-  const a = useQueueActions(stationId);
-  const canUpload = useCanUpload();
-  const kind = useItemKind();
-  const canCue = useCanCue();
-  const [cue, setCue] = useState<QueueRow['media'] | null>(null);
-  const [over, setOver] = useState<string | 'end' | null>(null);
-  const rows = queueOf(data);
-  const total = rows.reduce((n, r) => n + (trackLength(r.media) ?? 0), 0);
-  const nextBlock = lines.find((l): l is Extract<Line, { kind: 'block' }> => l.kind === 'block')?.block;
-
-  const drop = (e: DragEvent, beforeId: string | null) => {
-    e.preventDefault();
-    setOver(null);
-    const itemId = e.dataTransfer.getData(DRAG);
-    const mediaId = e.dataTransfer.getData(DRAG_MEDIA);
-    const file = e.dataTransfer.getData(DRAG_FILE);
-    const at = beforeId && beforeId === rows[0]?.id ? 'top' : 'bottom';
-    if (itemId) a.move.mutate({ itemId, queue: 'q1', beforeId });
-    else if (mediaId) a.add.mutate({ mediaId, queue: 'q1', at });
-    else if (file && canUpload) void addLocalFile(stationId, file, 'q1', at, (v) => a.add.mutate(v), t);
-  };
-  const allow = (e: DragEvent, id: string | 'end') => {
-    if ([DRAG, DRAG_MEDIA, DRAG_FILE].some((k) => e.dataTransfer.types.includes(k))) {
-      e.preventDefault();
-      setOver(id);
-    }
-  };
-  const GRID = 'grid grid-cols-[20px_64px_minmax(0,1fr)_52px_80px] items-center gap-2';
-
+  const [layout, setLayout] = useLayout();
+  const [drag, setDrag] = useState<{ x: number; width: number } | null>(null);
+  const [width, setWidth] = useState<number | null>(null);
+  const clamp = (w: number) => Math.min(DECK_WIDTH.max, Math.max(DECK_WIDTH.min, Math.round(w)));
   return (
-    <Card className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
-        <div className="flex min-w-0 items-baseline gap-3">
-          <h2 className="display text-[17px]">{t('assist.playlist')}</h2>
-          <span className="text-xs whitespace-nowrap text-muted tabular">
-            {t('assist.tracks', { count: rows.length })} · {duration(total)}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          {nextBlock && until != null && (
-            <span
-              className={clsx(
-                'rounded-full px-2.5 py-1 text-xs font-bold whitespace-nowrap tabular',
-                Math.abs(until) < 5 ? 'bg-online/15 text-online' : until > 0 ? 'bg-koraal/15 text-accent-text' : 'bg-chip text-muted',
-              )}
-              title={nextBlock.hard ? t('assist.backtimeHard') : t('assist.backtimeSoft')}
-            >
-              {t('assist.until', { label: nextBlock.items[0]?.label || t('rundown.fixed') })}:{' '}
-              {Math.abs(until) < 5 ? t('assist.onTime') : until > 0 ? t('assist.tooLong', { time: duration(until) }) : t('assist.tooShort', { time: duration(-until) })}
-            </span>
-          )}
-          <Button size="sm" variant="ghost" title={t('assist.clear')} onClick={() => confirm(t('assist.clearConfirm')) && a.clear.mutate('q1')}>
-            <Eraser className="size-4" />
-          </Button>
-        </div>
-      </div>
-      <div className={clsx(GRID, 'bg-surface px-2 py-1.5 text-[10px] font-bold tracking-[0.06em] text-muted uppercase')}>
-        <span />
-        <span>{t('assist.start')}</span>
-        <span>{t('assist.title')}</span>
-        <span className="text-right">{t('assist.length')}</span>
-        <span />
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto" onDragOver={(e) => allow(e, 'end')} onDragLeave={() => setOver(null)} onDrop={(e) => drop(e, null)}>
-        {rows.length === 0 && <p className="px-4 py-10 text-center text-[13px] text-muted">{t('assist.emptyQueue')}</p>}
-        {lines.map((l) => {
-          if (l.kind === 'block') {
-            let at = l.start;
-            return (
-              <Fragment key={`block-${l.block.at}`}>
-                <div className="flex items-center gap-2 border-b border-koraal/30 bg-koraal/10 px-3 py-1.5 text-[11px] font-bold text-accent-text">
-                  {l.block.locked ? <Lock className="size-3.5" /> : <Clock3 className="size-3.5" />}
-                  <span className="tabular">{clock(l.block.at).slice(0, 5)}</span>
-                  <span className="font-semibold">{l.block.locked ? t('assist.lockedBlock') : t('assist.fixedBlock')}</span>
-                  {l.block.hard && <span className="font-semibold text-muted">· {t('rundown.onTheMinute')}</span>}
-                </div>
-                {l.block.items.map((i, n) => {
-                  const start = at;
-                  at += (i.seconds ?? 0) * 1000;
-                  return (
-                    <div key={n} className={clsx(GRID, 'border-b border-line border-l-[3px] border-l-koraal bg-koraal/5 py-2 pr-2 pl-[5px]')}>
-                      {i.locked ? <Lock className="size-3.5 text-accent-text" aria-label={t('assist.locked')} /> : <Clock3 className="size-3.5 text-accent-text" aria-label={t('assist.fixed')} />}
-                      <span className="text-[13px] font-semibold text-muted tabular">{clock(start)}</span>
-                      <div className="min-w-0">
-                        <div className="truncate text-[13px] font-semibold">{i.label || t('rundown.fixed')}</div>
-                        <div className="truncate text-[11px] text-muted">
-                          {kind(i.source)} · {i.locked ? t('assist.locked') : t('assist.fixed')}
-                        </div>
-                      </div>
-                      <span className="text-right text-xs text-muted tabular">{i.seconds != null ? `±${duration(i.seconds)}` : '–'}</span>
-                      <span />
-                    </div>
-                  );
-                })}
-              </Fragment>
-            );
-          }
-          const r = l.row;
-          return (
-            <div
-              key={r.id}
-              draggable={r.state === 'queued'}
-              onDragStart={(e) => {
-                e.dataTransfer.setData(DRAG, r.id);
-                e.dataTransfer.effectAllowed = 'move';
-              }}
-              onDragOver={(e) => {
-                e.stopPropagation();
-                allow(e, r.id);
-              }}
-              onDrop={(e) => {
-                e.stopPropagation();
-                drop(e, r.id);
-              }}
-              className={clsx('group border-b border-line px-2 py-2', GRID, over === r.id && 'border-t-2 border-t-koraal', r.state !== 'queued' && 'bg-chip/50')}
-            >
-              <GripVertical className={clsx('size-4', r.state === 'queued' ? 'cursor-grab text-muted' : 'text-transparent')} />
-              <span className="text-[13px] font-semibold tabular">{clock(l.start)}</span>
-              <div className="min-w-0">
-                <div className="truncate text-[13px] font-semibold">
-                  {r.label ? `${r.label}: ` : ''}
-                  {r.media.title || r.media.path}
-                </div>
-                <div className="flex items-center gap-1.5 truncate text-[11px] text-muted">
-                  {r.media.artist}
-                  {r.requestId && <Badge tone="accent">{t('assist.request')}</Badge>}
-                  {r.origin === 'manual' && r.addedBy && <span>· {r.addedBy}</span>}
-                  {r.origin !== 'manual' && r.playlistName && <span>· {r.playlistName}</span>}
-                  {r.state === 'cued' && <Badge tone="online">{t('assist.cued')}</Badge>}
-                </div>
-              </div>
-              <span className="text-right text-xs text-muted tabular">{duration(trackLength(r.media))}</span>
-              {r.state === 'queued' ? (
-                <div className="flex justify-end opacity-0 transition-opacity group-hover:opacity-100">
-                  {canCue && <CueButton onClick={() => setCue(r.media)} set={hasCues(r.media)} />}
-                  <button className="rounded p-1 text-muted hover:bg-hover hover:text-ink" title={t('assist.toTop')} onClick={() => rows[0]!.id !== r.id && a.move.mutate({ itemId: r.id, queue: 'q1', beforeId: rows[0]!.id })}>
-                    <ArrowUpToLine className="size-3.5" />
-                  </button>
-                  <button className="rounded p-1 text-muted hover:bg-hover hover:text-offline" title={t('assist.remove')} onClick={() => a.remove.mutate(r.id)}>
-                    <Trash2 className="size-3.5" />
-                  </button>
-                </div>
-              ) : canCue ? (
-                <div className="flex justify-end opacity-0 transition-opacity group-hover:opacity-100">
-                  <CueButton onClick={() => setCue(r.media)} set={hasCues(r.media)} />
-                </div>
-              ) : (
-                <span />
-              )}
-            </div>
-          );
-        })}
-        <div className={clsx('h-8', over === 'end' && 'border-t-2 border-koraal')} />
-      </div>
-      {cue && <CueEditor stationId={stationId} track={cue} onClose={() => setCue(null)} />}
-    </Card>
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={t('layout.resize')}
+      aria-valuenow={width ?? layout.deckWidth}
+      aria-valuemin={DECK_WIDTH.min}
+      aria-valuemax={DECK_WIDTH.max}
+      tabIndex={0}
+      title={t('layout.resize')}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') setLayout({ deckWidth: clamp(layout.deckWidth + (e.key === 'ArrowLeft' ? -20 : 20)) });
+      }}
+      onPointerDown={(e) => {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        setDrag({ x: e.clientX, width: layout.deckWidth });
+      }}
+      onPointerMove={(e) => {
+        if (!drag) return;
+        const w = clamp(drag.width + e.clientX - drag.x);
+        setWidth(w);
+        // Live while dragging: on this PC only; the profile is saved once, when let go.
+        const col = e.currentTarget.previousElementSibling as HTMLElement | null;
+        if (col) col.style.width = `${w}px`;
+      }}
+      onPointerUp={() => {
+        if (drag && width != null) setLayout({ deckWidth: width });
+        setDrag(null);
+        setWidth(null);
+      }}
+      onDoubleClick={() => setLayout({ deckWidth: DECK_WIDTH.default })}
+      className="group flex w-3 shrink-0 cursor-col-resize items-center justify-center outline-none"
+    >
+      <span className={clsx('h-12 w-1 rounded-full transition-colors', drag ? 'bg-koraal' : 'bg-line group-hover:bg-muted group-focus-visible:bg-koraal')} />
+    </div>
   );
 }
 
@@ -462,6 +219,9 @@ export function AssistPage() {
   const rundown = useRundown(station?.id, !!station && station.edition === 'station' && supports('rundown'));
   const queueActions = useQueueActions(station?.id ?? '');
   const now = useNow();
+  const [layout] = useLayout();
+  const omni = layout.assist === 'omni';
+  const history = useHistory(station?.id, autodj.data?.nowPlaying?.id, omni && layout.panels.history && station?.edition === 'station' && supports('history'));
   if (!station) return <EmptyState icon={<ListMusic className="size-6" />} title={t('station.none')} description={t('station.noneText')} />;
   if (autodj.isPending) {
     return (
@@ -489,6 +249,43 @@ export function AssistPage() {
   const blocks = rundown.data?.enabled ? blocksOf(rundown.data.rows, now) : [];
   const lines = timeline(queue, blocks, from, fade);
   const until = backtime(queue, blocks[0], from, fade);
+  if (omni) {
+    const p = layout.panels;
+    const jingles = p.jingles && supports('jingles');
+    const right = jingles || p.dashboard || p.library;
+    const log: LogView = { history: history.data?.items ?? [], showHistory: p.history, hours: rundown.data?.enabled ? rundown.data.rows : [], onAir: holding ? null : np, now };
+    return (
+      <div className="flex h-full min-h-[600px] gap-0">
+        <div className="flex min-h-0 shrink-0 flex-col gap-3" style={right ? { width: layout.deckWidth } : { flex: 1 }}>
+          <Decks data={data} stationId={station.id} lines={lines} now={now} />
+          <PlaylistCard data={data} stationId={station.id} lines={lines} until={until} log={log} />
+        </div>
+        {right && (
+          <>
+            <Splitter />
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+              {(jingles || p.dashboard) && (
+                <div className="flex shrink-0 items-stretch gap-3">
+                  {jingles && (
+                    <Card className="flex min-w-0 flex-1 flex-col p-3">
+                      <div className="mb-2 text-[10px] font-bold tracking-[0.08em] text-muted uppercase">{t('layout.panel.jingles')}</div>
+                      <JingleBar stationId={station.id} rows={2} />
+                    </Card>
+                  )}
+                  {p.dashboard && <Dashboard data={data} stationId={station.id} blocks={blocks} />}
+                </div>
+              )}
+              {p.library && (
+                <div className="flex min-h-0 flex-1 flex-col">
+                  <LibraryPanel stationId={station.id} add={(v) => queueActions.add.mutate(v)} />
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
   return (
     <div className="grid h-full min-h-[600px] grid-cols-[minmax(0,1fr)_minmax(300px,360px)] gap-4">
       <div className="flex min-h-0 flex-col gap-4">

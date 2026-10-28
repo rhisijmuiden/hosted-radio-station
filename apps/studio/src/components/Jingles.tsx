@@ -149,7 +149,8 @@ function EditDialog({ stationId, jingle, onClose }: { stationId: string; jingle:
  * The DJ's own jingle buttons above the playlist: six on a page, more pages with +. They play here, in the client,
  * and go into the broadcast like the cart wall; station jingles come with the format from the server.
  */
-export function JingleBar({ stationId }: { stationId: string }) {
+/** `rows`: the six buttons in one row (Classic) or in two rows of three (the narrower panel of OmniPlayer). */
+export function JingleBar({ stationId, rows = 1 }: { stationId: string; rows?: 1 | 2 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const jingles = useQuery({ queryKey: ['jingles', stationId], queryFn: () => api<Jingle[]>(base(stationId)) });
@@ -196,8 +197,8 @@ export function JingleBar({ stationId }: { stationId: string }) {
   const accepts = (e: DragEvent) => e.dataTransfer.types.includes(DRAG_FILE) || e.dataTransfer.types.includes(DRAG_MEDIA);
 
   return (
-    <div className="flex items-stretch gap-2">
-      <div className="grid flex-1 grid-cols-6 gap-2">
+    <div className={clsx('flex items-stretch gap-2', rows === 2 && 'flex-1')}>
+      <div className={clsx('grid flex-1 gap-2', rows === 2 ? 'grid-cols-3' : 'grid-cols-6')}>
         {Array.from({ length: PER_PAGE }, (_, i) => {
           const position = page * PER_PAGE + i;
           const j = list.find((x) => x.position === position);
