@@ -88,8 +88,9 @@ describe('stations', () => {
 
   it('turns on a legacy Shoutcast port pair', async () => {
     const res = await t.app.inject({ method: 'PATCH', url: `/api/stations/${stationId}`, headers: owner, payload: { legacy: { enabled: true } } });
-    expect(res.json().legacyPort).toBe(8100);
-    expect(res.json().connection.legacy).toMatchObject({ port: 8100, sourcePort: 8101, mount: '/live' });
+    // Port plan (1.3): Shoutcast v1 pairs come from 8210-8299.
+    expect(res.json().legacyPort).toBe(8210);
+    expect(res.json().connection.legacy).toMatchObject({ port: 8210, sourcePort: 8211, mount: '/live' });
   });
 });
 
@@ -256,9 +257,9 @@ describe('limits and public status', () => {
 
   it('validates streaming ports', async () => {
     const current = (await t.app.inject({ url: '/api/settings/streaming', headers: admin })).json();
-    const clash = await t.app.inject({ method: 'PUT', url: '/api/settings/streaming', headers: admin, payload: { ...current, ingestPlainPort: 8443 } });
-    expect(clash.json().error.message).toMatch(/share port 8443/);
-    const inRange = await t.app.inject({ method: 'PUT', url: '/api/settings/streaming', headers: admin, payload: { ...current, ingestTlsPort: 8150 } });
+    const clash = await t.app.inject({ method: 'PUT', url: '/api/settings/streaming', headers: admin, payload: { ...current, ingestPlainPort: 8201 } });
+    expect(clash.json().error.message).toMatch(/share port 8201/);
+    const inRange = await t.app.inject({ method: 'PUT', url: '/api/settings/streaming', headers: admin, payload: { ...current, ingestTlsPort: 8250 } });
     expect(inRange.json().error.message).toMatch(/inside the Legacy/);
     const ok = await t.app.inject({ method: 'PUT', url: '/api/settings/streaming', headers: admin, payload: { ...current, cnameTarget: 'radio.example.com' } });
     expect(ok.statusCode).toBe(200);

@@ -4,21 +4,21 @@ import { Clock3, Folder, HardDrive, ListMusic, Pencil, Plus, Trash2 } from 'luci
 import { useEffect, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { api, type Playlist, type PlaylistFolder, type QueueName, type StationDetail } from '../../lib/api';
+import { api, type Playlist, type PlaylistFolder, type StationDetail } from '../../lib/api';
 import { Badge, Button, Card, CardHeader, Dialog, EmptyState, Field, Input, Segmented, Spinner, Switch } from '../ui';
 import { folderTree, useFolders, usePlaylists } from './Library';
 
 type Draft = Omit<Playlist, 'id' | 'trackCount' | 'averageSeconds' | 'createdAt'>;
 /** Where a playlist plays: one of the queues, or only where an hour clock asks for it. */
-type Feed = QueueName | 'clock';
-const blank = (feed: Feed): Draft => ({ name: '', queue: feed === 'clock' ? 'q1' : feed, weight: 5, order: 'shuffle', folders: [], enabled: true, rotation: feed !== 'clock' });
+type Feed = 'rotation' | 'clock';
+const blank = (feed: Feed): Draft => ({ name: '', queue: 'q1', weight: 5, order: 'shuffle', folders: [], enabled: true, rotation: feed !== 'clock' });
 const sameFolder = (a: PlaylistFolder, b: PlaylistFolder) => a.location === b.location && a.path === b.path;
 
 function PlaylistDialog({ station, open, editing, onClose }: { station: StationDetail; open: boolean; editing: Playlist | Draft | null; onClose: () => void }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const folders = useFolders(station.id);
-  const [draft, setDraft] = useState<Draft>(blank('q1'));
+  const [draft, setDraft] = useState<Draft>(blank('rotation'));
   useEffect(() => {
     if (editing) setDraft({ name: editing.name, queue: editing.queue, weight: editing.weight, order: editing.order, folders: editing.folders, enabled: editing.enabled, rotation: editing.rotation });
   }, [editing]);
@@ -73,11 +73,11 @@ function PlaylistDialog({ station, open, editing, onClose }: { station: StationD
         <div>
           <div className="mb-2 text-[13px] font-semibold">{t('playlists.queue')}</div>
           <Segmented<Feed>
-            value={draft.rotation ? draft.queue : 'clock'}
-            onChange={(feed) => setDraft({ ...draft, queue: feed === 'clock' ? draft.queue : feed, rotation: feed !== 'clock' })}
-            options={(['q1', 'q2', 'clock'] as const).map((q) => ({
+            value={draft.rotation ? 'rotation' : 'clock'}
+            onChange={(feed) => setDraft({ ...draft, queue: 'q1', rotation: feed !== 'clock' })}
+            options={(['rotation', 'clock'] as const).map((q) => ({
               value: q,
-              label: q === 'clock' ? t('playlists.clockOnly') : t(`autodj.queue.${q}`),
+              label: q === 'clock' ? t('playlists.clockOnly') : t('playlists.rotation'),
               description: t(`playlists.queueHint.${q}`),
             }))}
           />
@@ -216,22 +216,22 @@ export function PlaylistsTab({ station, canEdit }: { station: StationDetail; can
   return (
     <>
       <div className="grid items-start gap-4 lg:grid-cols-2">
-        {(['q1', 'q2'] as const).map((q) => {
-          const mine = lists.filter((p) => p.rotation && p.queue === q);
+        {(['rotation'] as const).map((q) => {
+          const mine = lists.filter((p) => p.rotation);
           return (
-            <Card key={q}>
+            <Card key={q} className="lg:col-span-2">
               <CardHeader
-                title={t(`autodj.queue.${q}`)}
-                description={t(`playlists.queueHint.${q}`)}
+                title={t('playlists.rotation')}
+                description={t('playlists.queueHint.rotation')}
                 actions={
                   canEdit && (
-                    <Button size="sm" onClick={() => setEditing(blank(q))}>
+                    <Button size="sm" onClick={() => setEditing(blank('rotation'))}>
                       <Plus className="size-4" /> {t('playlists.add')}
                     </Button>
                   )
                 }
               />
-              <div className="flex flex-col gap-3 p-5">
+              <div className="grid gap-3 p-5 md:grid-cols-2">
                 {mine.map((p) => (
                   <PlaylistCard key={p.id} playlist={p} station={station} canEdit={canEdit} onEdit={() => setEditing(p)} />
                 ))}

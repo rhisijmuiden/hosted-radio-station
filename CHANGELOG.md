@@ -3,6 +3,92 @@
 All notable changes to Hosted Radio Station. Versions follow [semantic versioning](https://semver.org). The
 [roadmap](ROADMAP.md) has the full description of each phase, with screenshots.
 
+## 1.3.0 (28 October 2026)
+
+Phase 17 (RHIS Studio 1.0, fader start still parked), the port plan per role, station nodes sending through the
+ingest, and network map and control panel fixes.
+
+- Station nodes send through an ingest by default: the node uploads each source stream once to the station's ingest,
+  which makes the other mounts and feeds every relay, so the studio's upload stays minimal. Choose per station under
+  **Routing**: main ingest (automatic or a chosen node), an optional backup ingest (hot standby, doubles the upload),
+  or **Straight to the relays** as before. Without an ingest online the node falls back to the relays by itself.
+  A station node only sends through an ingest once its own software is updated to this version (until then it keeps
+  sending straight to the relays), and when its pushes to the ingest fail it sends straight to the relays for 10
+  minutes before it tries the ingest again. A station node behind the same public address as its ingest sends to the ingest's
+  address on the local network. The chosen ingest always has the station ready, also while the node still
+  sends to the relays, so the first push after an update finds it; Routing shows the node's last push error. From another site a station node only sends
+  to an ingest over TLS with a certificate it can check (nodes now report the names they hold a valid certificate
+  for); without one it keeps to the relays and Routing says to turn on Certificates through Cloudflare DNS. The delivery path of
+  the customer shows the ingest a station node sends through, and node details list the node's certificates. The delivery path, the routing status and the network map show the route; the network map per station draws the
+  audio line from the station node to its ingest.
+- Streaming settings with *Orchestrator only*: the firewall line lists only 80 and 443.
+
+- Port plan: every role has its own incoming ports, so roles on one machine never clash. Ingest 8200 (plain), 8201
+  (TLS) and 8210–8299 (Shoutcast v1); relay push port 8301; station node 8400 (plain), 8401 (TLS) and 8402 (SFTP);
+  the orchestrator itself only needs 443 (+80). Every port can still be changed per node.
+- Old ports: servers and nodes from before the port plan keep 8010, 8443, 8001 (and 2022 and 8100–8199 where they
+  apply) open next to the new ones, and pushes keep going to 8001, until you switch them off under **Nodes → Port
+  plan**, per server or everywhere at once. Each node also has the switch in its settings. Nodes with ports of their
+  own keep them (migration `0020_port_plan`).
+- Firewall tab of a node: old ports are marked, and a ready-made list of `ufw` rules can be copied.
+- RHIS Studio: Go Live falls back to the old port when a firewall does not let the new one in yet.
+- Node agent: listens on several encoder and push ports at once (needs this version on the node; older agents keep
+  the old ports until they are updated).
+
+- Network map, 3D: server labels no longer stay behind (doubled, loose from their tower) when the map refreshes while
+  you rotate or zoom. New **Server labels** switch in the legend (the selected server keeps its label).
+- Network map: control lines to every node are on by default, in 3D too (and drawn stronger there); the legend switch turns them off and the
+  choice is remembered per user in the browser.
+- Network map: audio lines no longer run through servers. A line that skips a lane (a station node straight to its
+  relays, a relay back to an FM node in the studio) passes through the gap between the servers of that lane, in 3D
+  and in both 2D views.
+- Distribution only never has a studio: the *Station node of this customer* card and the station's *Where it runs*
+  card are hidden for Distribution customers and stations (unless one already runs on a station node).
+- Customer page, *Station node of this customer*: the choice shows the chosen node after loading (it showed "This
+  server"), and this server is listed by its own name; with *Orchestrator only* it is no longer offered.
+- One queue: Q2 is gone. Waiting Q2 tracks move to the end of the queue and Q2 playlists feed the one queue, by
+  weight (migration `0017_one_queue`). The pick rule, "Fill Queue 2" and "Requests go to" are gone from the panel.
+  The API still takes `queue: "q2"` from older clients and treats it as the one queue; `PUT /queue-rule` has no
+  effect any more.
+- RHIS Studio 0.13: one playlist in Live assist with the time each track starts, instead of Q1, Q2 and the take-turns
+  control. **+** in the library adds a track (Shift = at the top).
+- RHIS Studio 0.13, the new DJ screen: a narrow icon menu on the left and a status bar (connection, server and
+  quality, sound card, version). The top bar shows the station, who is on air, the next fixed block of the format
+  with a countdown, listeners and the clock. The player shows the remaining time large, when the track ends, what
+  comes next and one big **Next** button. The fixed blocks of the format (news, commercials) sit in the playlist at
+  their minute with a lock, and the playlist header backtimes to the next one ("Until News: 0:42 too long"). The
+  schedule list in the old sidebar is gone; its blocks are in the playlist now.
+- Cue points per track (migration `0018_cue_points`): cue in, intro, next track (segue), fade out and cue out, set
+  with `PATCH /api/stations/:id/library/:mediaId` (`cues`). The AutoDJ starts and stops tracks there, starts the
+  next track at the segue and fades from the fade-out point; start times of fixed blocks and the backtiming count
+  with them.
+- RHIS Studio 0.14: the cue editor, with the waveform of the track, a zoomed view, keys 1 to 5 and listening on the
+  preview output. The player counts down the intro of the track on air. Lengths in the playlist go from cue in to
+  cue out.
+- Locked items in the hour clock (migration `0019_locked_blocks`): a *Locked* box on playlist and track items. While a
+  locked item is on air, DJs cannot skip it or play something else over it (`POST /autodj/skip` and `/play-now`
+  answer 403); managers and owners get a 409 `locked` and go ahead with `force: true` after a question, in the
+  panel and in RHIS Studio.
+- RHIS Studio 0.15: locked blocks have a lock in the playlist and the top bar, the player says *Locked* and **Next**
+  is off for DJs while one is on air. Other fixed blocks have a clock icon.
+- RHIS Studio 0.16: Go live reaches a station on a station node over the studio network when the node answers there,
+  and over its public address otherwise, checked at every Go live. **Settings › Connection** shows both addresses,
+  whether the studio network answers and which one is in use, and takes *Studio network*, *Internet* or a manual
+  address instead.
+- A station node takes encoders on the bare mount (`/live`), as the panel and RHIS Studio give it, when one station
+  there has that mount. Before, it answered "Unknown mount /live".
+- A station node waits up to 8 seconds for a Go Live password RHIS Studio just got from the main server. The
+  password comes with the next station package, and Studio was quicker: "wrong user name or password".
+- The streams service logs every refused encoder with its reason (`journalctl -u hosted-radio-streams`).
+- Encoders get TLS only on a public name: a station node or ingest node whose name is internal (for example
+  `.loc`, `.lan`) or an IP address, or a station node reached on its LAN address, only has a self-signed
+  certificate. RHIS Studio and encoders now connect plain there instead of failing on the certificate.
+- RHIS Studio: when the encrypted connection fails because Windows does not trust the certificate of the encoder
+  address, Go live offers **Connect without encryption** (when the server has a plain port). The choice is kept per
+  address and can be undone under *Connection*; the client never drops TLS on its own.
+- `GET /autodj/rundown` gives each format item its expected length (`seconds`): its track, or the number of tracks
+  times the average track of its playlist.
+
 ## 1.2.0 (27 October 2026)
 
 Phase 16 (installer menu and node enrollment), phase 19 (clearer control panels) and the firewall and public

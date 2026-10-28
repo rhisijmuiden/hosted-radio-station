@@ -72,8 +72,8 @@ async function selfSigned(): Promise<{ cert: Buffer; key: Buffer }> {
  * on the node's own Icecast, where listeners hear it. Titles come in through /admin/metadata as on Icecast.
  */
 export class PushReceiver {
-  private server: tls.Server | null = null;
-  private port: number | null = null;
+  /** One TLS server per push port: the node's own and, while it keeps them, the old one (port plan, 1.3). */
+  private servers = new Map<number, tls.Server>();
   private slots = new Map<string, Slot>();
   problems: string[] = [];
 
@@ -91,7 +91,7 @@ export class PushReceiver {
    * `handBack`: a stream that is pulled again (its station moved back from a station node) gets the open source
    * connection of its slot, so listeners stay connected.
    */
-  async apply(port: number | null, mounts: RelayMount[], handBack?: (key: string, local: net.Socket) => void) {
+  async apply(port: number | number[] | null, mounts: RelayMount[], handBack?: (key: string, local: net.Socket) => void) {
     const wanted = new Map(mounts.filter((m) => m.push).map((m) => [m.key, m]));
     const pulled = new Set(mounts.filter((m) => m.url).map((m) => m.key));
     for (const [key, s] of this.slots) {
@@ -107,23 +107,28 @@ export class PushReceiver {
       } else s.mount = want;
     }
     for (const [key, m] of wanted) if (!this.slots.has(key)) this.slots.set(key, { mount: m, feeds: [], client: null, local: null, opening: null, titles: new Map(), linger: null, since: 0, state: { key, state: 'idle', message: 'Waiting for the ingest' } });
-    const listen = wanted.size ? port : null;
-    if (listen === this.port) return;
-    this.server?.close();
-    this.server = null;
-    this.port = listen;
+    const listen = new Set(wanted.size ? (Array.isArray(port) ? port : port ? [port] : []) : []);
+    if (listen.size === this.servers.size && [...listen].every((p) => this.servers.has(p))) return;
+    for (const [p, server] of this.servers) {
+      if (listen.has(p)) continue;
+      server.close();
+      this.servers.delete(p);
+    }
     this.problems = [];
-    if (!listen) return;
+    if (!listen.size) return;
     const certs = await this.certificates();
-    const server = tls.createServer({ ...certs.default, SNICallback: (name, cb) => cb(null, certs.byName.get(name.toLowerCase())) }, (socket) => this.accept(socket));
-    server.on('tlsClientError', () => undefined);
-    server.on('error', (err) => {
-      const msg = (err as NodeJS.ErrnoException).code === 'EADDRINUSE' ? `Push port ${listen} is already in use` : err.message;
-      this.problems.push(msg);
-      log.error('push port failed', { port: listen, err: msg });
-    });
-    server.listen(listen, () => log.info('taking streams from station nodes', { port: listen }));
-    this.server = server;
+    for (const p of listen) {
+      if (this.servers.has(p)) continue;
+      const server = tls.createServer({ ...certs.default, SNICallback: (name, cb) => cb(null, certs.byName.get(name.toLowerCase())) }, (socket) => this.accept(socket));
+      server.on('tlsClientError', () => undefined);
+      server.on('error', (err) => {
+        const msg = (err as NodeJS.ErrnoException).code === 'EADDRINUSE' ? `Push port ${p} is already in use` : err.message;
+        this.problems.push(msg);
+        log.error('push port failed', { port: p, err: msg });
+      });
+      server.listen(p, () => log.info('taking streams from station nodes', { port: p }));
+      this.servers.set(p, server);
+    }
   }
 
   stop() {

@@ -103,7 +103,7 @@ export function CommandBox({ value }: { value: string }) {
   const { t } = useTranslation();
   return (
     <div className="relative rounded-md bg-nacht p-3 pr-11 dark:bg-chip">
-      <code className="block font-mono text-[12px] leading-relaxed break-all text-white select-all">{value}</code>
+      <code className="block font-mono text-[12px] leading-relaxed break-all whitespace-pre-wrap text-white select-all">{value}</code>
       <button
         type="button"
         className="absolute top-2 right-2 rounded-md p-1.5 text-white/70 hover:bg-white/10 hover:text-white"

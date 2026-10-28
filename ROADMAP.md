@@ -168,7 +168,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 14 | Orchestrator redundancy | Planned (just before sales start) |
 | 15 | Cloudflare DNS integration | Done (1.1.1) |
 | 16 | Installer menu and node enrollment | Done (1.2.0) |
-| 17 | RHIS Studio 1.0 (Windows client) | Done on test (fader start, step 4, parked until MIDI/GPIO hardware is available) |
+| 17 | RHIS Studio 1.0 (Windows client) | Done (1.3.0) (fader start, step 4, parked until MIDI/GPIO hardware is available) |
 | 18 | Server names and topology views | Done (1.1.0) |
 | 19 | Clearer control panels and node assignment | Done (1.2.0) |
 | 20 | Monitoring node | Next (step 3 in the order of work) |
@@ -180,7 +180,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 
 One thing at a time; each item starts when the previous one is finished and tested.
 
-1. **Release to production**: everything on `test` (phase 17, the UI fixes, the port plan per role and routing via ingest) goes to `main` as one release.
+1. **Release to production** (done, 1.3.0): everything on `test` (phase 17, the UI fixes, the port plan per role and routing via ingest) goes to `main` as one release.
 2. **Bug fix: two tracks "Cued" at once**: only one track can be cued at a time. This must be right before the Studio layout below, where player B is the cued track.
 3. **Phase 20: Monitoring node**: alerts when a node or relay goes down, instead of finding out from silence.
 4. **RHIS Studio: OmniPlayer-style layout**, in steps:
@@ -418,6 +418,7 @@ which features it has and says so when the server needs an update, instead of fa
    profile on the server, so they are the same on every studio PC; load them by drag and drop, also from a USB stick.
 4. **Fader start**: open a fader on the mixing desk and the player or a jingle starts, close it and it stops. Over
    MIDI or a USB GPIO interface, set up on its own settings page with a Learn button.
+   *Parked 2026-10-28: built later, once Reinder has a MIDI or GPIO device to test with.*
 5. **Cue point editor**: a waveform of the track with cue in, intro, the point where the next track starts, the fade
    out and cue out. Saved on the server, so the AutoDJ and every studio use them.
 6. **Locked format blocks**: parts of an hour clock (for example station ID, news, station ID) can be locked in the
@@ -426,6 +427,8 @@ which features it has and says so when the server needs an update, instead of fa
    runs; on a station node it then talks to the node directly (its LAN address in the studio, its public address from
    outside), so the studio keeps working when the internet connection drops. Settings › Connection shows the link and
    takes a manual address.
+   *Built 2026-10-28 for Go live (RHIS Studio 0.16). Talking to the node's API directly while the main server is
+   unreachable is a follow-up: the node has no web server of its own yet and its API is reached through the tunnel.*
 
 Added 2026-10-27, after step 3: **one playlist**. Q2 goes away everywhere (RHIS Studio, the panel and the server;
 playlists and queue rules move over), and Live assist gets the layout of the approved sketch: the next fixed block
@@ -538,17 +541,9 @@ Small fixes planned for a patch release, one at a time after the current phase.
 - An FM/MPX node is linked directly to the station node (studio) it takes its audio from, and is drawn right next to it as one group, instead of on its own in the distribution layer.
 - Shared or dedicated nodes (pulled forward from phase 19): every node is **Shared** or **Dedicated** to one customer or station. A dedicated node only carries and shows its own streams, and automatic and spare relay routing never put other stations on it. A customer's own node is dedicated by default.
 
-### UI fixes (done on test)
+### 1.3.0: port plan, studio through the ingest, network map fixes (done)
 
-- **3D topology map**: server labels duplicate and come loose from their servers when you rotate or zoom the map. Labels stay attached to their server.
-- **Lines around nodes**: connection lines on the 3D map no longer run straight through other nodes (for example studio lines cutting through the ingest nodes); they route around or over them.
-- **Label toggle**: a switch on the 3D map to hide the server labels.
-- **Control traffic on by default**: the control traffic lines are shown when the map opens.
-- **Customer "Station node" dropdown**: shows "This server" instead of the node's real name. It shows the server names from phase 18.
-
-### Port plan per role (done on test)
-
-Every role gets its own default ports, so nodes are easy to put behind a DMZ or firewall and roles on one machine never clash. Every port can be overridden per node.
+- **Port plan**: every role has its own incoming ports (ingest 8200/8201 and 8210–8299, relay push 8301, station node 8400/8401/8402, orchestrator 443 and 80). Old ports stay open next to the new ones until they are switched off under **Nodes → Port plan**; each node's Firewall tab lists them and gives ready-made `ufw` rules.
 
 | Role | Incoming ports |
 |---|---|
@@ -558,18 +553,15 @@ Every role gets its own default ports, so nodes are easy to put behind a DMZ or 
 | Station node | 8400 plain / 8401 TLS for RHIS Studio and Go Live, 8402 SFTP |
 | FM/MPX, monitoring, recorder | none, outbound only |
 
-- The orchestrator hands out the ports in its lookup answers, so clients and encoders follow a change by themselves.
-- The panel shows per node exactly which firewall or DMZ rules to open, and the firewall check tests them.
-- The old encoder ports 8010/8443 stay on as "legacy" until the admin switches them off, so existing encoders keep working.
+- **Studio through the ingest**: a station node sends each source stream once to an ingest, which makes the other mounts and feeds every relay; straight to the relays stays a choice per station. A main and a backup ingest are possible; from another site the node only sends over TLS with a real certificate (Certificates through Cloudflare DNS).
+- **Network map**: 3D labels no longer stay behind, a **Server labels** switch, control lines on by default, audio lines run around servers instead of through them. Distribution only customers never get a studio.
 
-### Route station nodes via ingest (done on test)
-
-A routing choice per station, set in the station's routing settings: how the audio of a station node reaches the relays.
-
-- **Via ingest** (default for a station node at the customer's site): the station node uploads once, optionally as a single high-quality stream, to a main and a backup ingest node in the datacenter. The ingest makes the mounts (transcodes) and pushes them to all relays over datacenter bandwidth. The customer's upload and the station node's CPU stay low, and adding relays does not touch the studio.
-- **Direct to relays** (today's behaviour, for station nodes already in a datacenter): the station node pushes every mount to every relay itself.
-- Failover: main and backup ingest use the existing priority system; when both are down, the station node pushes directly to the relays as an emergency route.
-- The delivery path, the topology views and the firewall checklist follow the chosen route.
+| Nodes → Port plan | Show ports, dark, Dutch |
+| --- | --- |
+| ![Port plan card on the Nodes page](docs/screenshots/port-plan-nodes-port-plan-light-en.png) | ![Ports per role, dark, Dutch](docs/screenshots/port-plan-show-ports-dark-nl.png) |
+| ![Firewall tab of a node with old ports and ufw rules](docs/screenshots/port-plan-node-firewall-light-en.png) | ![Streaming defaults, dark, Dutch](docs/screenshots/port-plan-streaming-dark-nl.png) |
+| ![3D network map with control lines](docs/screenshots/pr-128-129-3d-control-on.png) | ![2D layers with lines around servers](docs/screenshots/pr-128-129-2d-layers.png) |
+| ![Customer page, station node of this customer](docs/screenshots/pr-128-129-customer-station-node-harder-fm.png) | ![Customer page, the chosen station node shown after loading](docs/screenshots/pr-128-129-customer-station-node-radio-schermer.png) |
 
 ## Future ideas
 

@@ -360,8 +360,8 @@ export class StreamsWorker {
     for (const view of snap.stations.values()) {
       if (!view.active) continue;
       for (const o of view.outputs) {
-        // Relay nodes fed by a station node report their listeners to the main server themselves.
-        if (o.type === 'local' || !o.enabled || o.config.relayNodeId) continue;
+        // Relay nodes fed by a station node (directly or through an ingest) report their listeners to the main server themselves.
+        if (o.type === 'local' || !o.enabled || o.config.relayNodeId || o.config.ingestNodeId) continue;
         try {
           const r = await externalListeners(this.ctx, o);
           const patch: Partial<OutputStatus> = { listeners: r.listeners };

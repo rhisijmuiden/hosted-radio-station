@@ -3,7 +3,8 @@ import net from 'node:net';
 import { eq } from 'drizzle-orm';
 import { schema } from '../../db/index.js';
 import type { AppContext } from '../../lib/context.js';
-import { streamingSchema } from '../settings.js';
+import { streamingSchema, withStationNodePorts } from '../settings.js';
+import { OLD_PORTS } from './portplan.js';
 import { defaultListenPort, nodeHost, nodeSettings, type Node } from './plan.js';
 
 /** What a port is for, shown translated in the panel and in e-mails. */
@@ -18,13 +19,15 @@ export interface InboundPort {
   for: ('studio' | 'encoders' | 'uploads' | 'listeners' | 'ingests')[];
   /** The station it belongs to (legacy Shoutcast ports). */
   station?: string;
+  /** A port from before the port plan, open while the node keeps its old ports (1.3). */
+  old?: true;
 }
 
 /**
- * A station node keeps the default ports of a fresh install: the package from the orchestrator carries stations, not
- * settings (phase 12). Its encoder TLS port needs a certificate of its own.
+ * A station node keeps the default ports of a station node (port plan): the package from the orchestrator carries
+ * stations, not settings (phase 12). Its encoder TLS port needs a certificate of its own.
  */
-export const STATION_NODE_STREAMING = streamingSchema.parse({});
+export const STATION_NODE_STREAMING = streamingSchema.parse(withStationNodePorts({}));
 
 /** The address the outside world reaches a node on: its own name, else the address it connects to us from. */
 export const externalAddress = (n: Pick<Node, 'config' | 'status'>) => nodeHost(n) || n.status.ip || null;
@@ -39,14 +42,20 @@ export const internalAddress = (n: Pick<Node, 'config' | 'status'>) => nodeSetti
 export async function inboundPorts(ctx: AppContext, node: Node): Promise<InboundPort[]> {
   const c = nodeSettings(node);
   const out: InboundPort[] = [];
+  const old: InboundPort[] = [];
   if (node.roles.includes('station')) {
     const s = STATION_NODE_STREAMING;
     const tls = !!nodeHost(node) && !!node.status.caddy;
     if (tls) out.push({ service: 'encoderTls', port: s.ingestTlsPort, for: ['studio', 'encoders'] });
     if (s.ingestPlainPort) out.push({ service: 'encoderPlain', port: s.ingestPlainPort, for: ['studio', 'encoders'] });
+    if (s.sftp.enabled) out.push({ service: 'sftp', port: s.sftp.port, for: ['uploads'] });
+    if (c.oldPorts) {
+      if (tls) old.push({ service: 'encoderTls', port: OLD_PORTS.tls, for: ['studio', 'encoders'], old: true });
+      if (s.ingestPlainPort) old.push({ service: 'encoderPlain', port: OLD_PORTS.plain, for: ['studio', 'encoders'], old: true });
+      if (s.sftp.enabled) old.push({ service: 'sftp', port: OLD_PORTS.sftp, for: ['uploads'], old: true });
+    }
     const stations = await ctx.db.select({ slug: schema.stations.slug, legacyPort: schema.stations.legacyPort }).from(schema.stations).where(eq(schema.stations.nodeId, node.id));
     for (const st of stations) if (st.legacyPort) out.push({ service: 'legacy', port: st.legacyPort, to: st.legacyPort + 1, for: ['encoders'], station: st.slug });
-    if (s.sftp.enabled) out.push({ service: 'sftp', port: s.sftp.port, for: ['uploads'] });
     if (s.ftp.enabled) {
       out.push({ service: 'ftp', port: s.ftp.port, for: ['uploads'] });
       out.push({ service: 'ftpPassive', port: s.ftp.passivePortFrom, to: s.ftp.passivePortTo, for: ['uploads'] });
@@ -55,13 +64,18 @@ export async function inboundPorts(ctx: AppContext, node: Node): Promise<Inbound
   if (node.roles.includes('source')) {
     if (c.sourceTlsPort) out.push({ service: 'encoderTls', port: c.sourceTlsPort, for: ['studio', 'encoders'] });
     if (c.sourcePlainPort) out.push({ service: 'encoderPlain', port: c.sourcePlainPort, for: ['studio', 'encoders'] });
+    if (c.oldPorts && c.sourceTlsPort) old.push({ service: 'encoderTls', port: OLD_PORTS.tls, for: ['studio', 'encoders'], old: true });
+    if (c.oldPorts && c.sourcePlainPort) old.push({ service: 'encoderPlain', port: OLD_PORTS.plain, for: ['studio', 'encoders'], old: true });
   }
   if (node.roles.includes('relay')) {
     const port = c.listenPort ?? defaultListenPort(node);
     out.push({ service: 'listeners', port, for: ['listeners'] });
     if (node.status.caddy && nodeHost(node)) out.push({ service: 'listenersTls', port: 443, for: ['listeners'] });
     if (c.pushPort) out.push({ service: 'push', port: c.pushPort, for: ['ingests'] });
+    if (c.pushPort && c.oldPorts) old.push({ service: 'push', port: OLD_PORTS.push, for: ['ingests'], old: true });
   }
+  // The old ports last, so a client that takes the first port of a kind gets the new one.
+  out.push(...old);
   // One entry per port: a source and a station role can share the encoder ports.
   const seen = new Set<string>();
   return out.filter((p) => {

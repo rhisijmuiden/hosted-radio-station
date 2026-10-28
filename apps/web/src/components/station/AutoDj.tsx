@@ -4,10 +4,10 @@ import { GripVertical, ListPlus, Music2, Pause, Plus, Radio, RefreshCw, Search, 
 import { useEffect, useState, type DragEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { api, type AutodjSettings, type AutodjView, type MediaFile, type QueueName, type QueueRow, type StationDetail } from '../../lib/api';
+import { api, ApiError, type AutodjSettings, type AutodjView, type MediaFile, type QueueName, type QueueRow, type StationDetail } from '../../lib/api';
 import { formatSeconds } from '../../lib/format';
 import { paint } from './Clocks';
-import { Badge, Button, Card, CardHeader, Dialog, EmptyState, Field, Input, Segmented, Select, Spinner, Switch } from '../ui';
+import { Badge, Button, Card, CardHeader, Dialog, EmptyState, Field, Input, Select, Spinner, Switch } from '../ui';
 
 export function useAutodj(stationId: string) {
   return useQuery({ queryKey: ['autodj', stationId], queryFn: () => api<AutodjView>(`/stations/${stationId}/autodj`), refetchInterval: 5000 });
@@ -41,12 +41,17 @@ function NowPlaying({ station, view, canSkip }: { station: StationDetail; view: 
   const duration = np?.media.durationSeconds ?? null;
   const pct = duration ? Math.min(100, (elapsed / duration) * 100) : 0;
   const skip = useMutation({
-    mutationFn: () => api(`/stations/${station.id}/autodj/skip`, { method: 'POST' }),
+    mutationFn: (force?: boolean) => api(`/stations/${station.id}/autodj/skip`, { method: 'POST', body: force ? { force } : {} }),
     onSuccess: () => {
       toast.success(t('autodj.skipped'));
       setTimeout(() => void qc.invalidateQueries({ queryKey: ['autodj', station.id] }), 1500);
     },
-    onError: (err) => toast.error((err as Error).message),
+    // A locked item of the format: managers may skip it after all.
+    onError: (err) => {
+      if (err instanceof ApiError && err.code === 'locked') {
+        if (confirm(err.message)) skip.mutate(true);
+      } else toast.error((err as Error).message);
+    },
   });
   const p = view.player;
   const state = !view.settings.enabled ? (
@@ -77,7 +82,7 @@ function NowPlaying({ station, view, canSkip }: { station: StationDetail; view: 
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">{t('autodj.nowPlaying')}</span>
             {state}
-            {np && (np.origin === 'clock' ? <OriginBadge row={np} /> : <Badge tone="neutral">{np.queue.toUpperCase()}</Badge>)}
+            {np?.origin === 'clock' && <OriginBadge row={np} />}
             {view.schedule.enabled && (view.schedule.entry || view.schedule.clock) && (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-chip px-2.5 py-0.5 text-[11px] font-semibold">
                 <i className="size-2 rounded-full" style={{ background: view.schedule.clock ? paint(view.schedule.clock.color) : 'var(--koraal)' }} />
@@ -117,39 +122,33 @@ function NowPlaying({ station, view, canSkip }: { station: StationDetail; view: 
   );
 }
 
-function AddTrackDialog({ station, open, onClose, initialQueue }: { station: StationDetail; open: boolean; onClose: () => void; initialQueue: QueueName }) {
+function AddTrackDialog({ station, open, onClose }: { station: StationDetail; open: boolean; onClose: () => void }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [q, setQ] = useState('');
-  const [queue, setQueue] = useState<QueueName>(initialQueue);
   const [at, setAt] = useState<'top' | 'bottom'>('top');
-  useEffect(() => setQueue(initialQueue), [initialQueue]);
   const results = useQuery({
     queryKey: ['library-search', station.id, q],
     queryFn: () => api<{ items: MediaFile[]; total: number }>(`/stations/${station.id}/library?${new URLSearchParams({ q, limit: '40', enabled: 'yes' })}`),
     enabled: open,
   });
   const add = useMutation({
-    mutationFn: (mediaId: string) => api<AutodjView>(`/stations/${station.id}/autodj/queue`, { method: 'POST', body: { mediaId, queue, at } }),
+    mutationFn: (mediaId: string) => api<AutodjView>(`/stations/${station.id}/autodj/queue`, { method: 'POST', body: { mediaId, at } }),
     onSuccess: (view, mediaId) => {
       qc.setQueryData(['autodj', station.id], view);
       const m = results.data?.items.find((i) => i.id === mediaId);
-      toast.success(t('autodj.added', { title: m?.title ?? '', queue: queue.toUpperCase() }));
+      toast.success(t('autodj.added', { title: m?.title ?? '' }));
     },
     onError: (err) => toast.error((err as Error).message),
   });
   return (
     <Dialog open={open} onClose={onClose} title={t('autodj.addTitle')} description={t('autodj.addHint')} wide>
       <div className="flex flex-col gap-3">
-        <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
           <div className="relative">
             <Search className="pointer-events-none absolute top-3 left-3 size-4 text-muted" />
             <Input autoFocus className="pl-9" placeholder={t('library.search')} value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
-          <Select value={queue} onChange={(e) => setQueue(e.target.value as QueueName)}>
-            <option value="q1">Q1</option>
-            <option value="q2">Q2</option>
-          </Select>
           <Select value={at} onChange={(e) => setAt(e.target.value as 'top' | 'bottom')}>
             <option value="top">{t('autodj.atTop')}</option>
             <option value="bottom">{t('autodj.atBottom')}</option>
@@ -171,7 +170,7 @@ function AddTrackDialog({ station, open, onClose, initialQueue }: { station: Sta
                 </div>
                 <span className="text-xs text-muted tabular-nums">{formatSeconds(m.durationSeconds)}</span>
                 <Button size="sm" variant="secondary" loading={add.isPending && add.variables === m.id} onClick={() => add.mutate(m.id)}>
-                  <Plus className="size-4" /> {queue.toUpperCase()}
+                  <Plus className="size-4" /> {t('autodj.addShort')}
                 </Button>
               </li>
             ))
@@ -226,8 +225,7 @@ function QueueColumn({
       <CardHeader
         title={
           <span className="inline-flex items-center gap-2.5">
-            <span className={clsx('grid size-8 place-items-center rounded-md text-sm font-black', name === 'q1' ? 'bg-koraal text-nacht' : 'bg-nacht text-white dark:bg-chip')}>{name.toUpperCase()}</span>
-            {t(`autodj.queue.${name}`)}
+            {t('autodj.queueTitle')}
           </span>
         }
         description={weight}
@@ -327,22 +325,6 @@ function SettingsCard({ station, view }: { station: StationDetail; view: AutodjV
       <CardHeader title={t('autodj.settings')} description={t('autodj.settingsHint')} />
       <div className="flex flex-col gap-5 p-5">
         <Switch checked={draft.enabled} onChange={(enabled) => setDraft({ ...draft, enabled })} label={t('autodj.enabled')} description={t('autodj.enabledHint')} />
-        <div>
-          <div className="mb-2 text-[13px] font-semibold">{t('autodj.rule')}</div>
-          <Segmented
-            value={draft.rule.mode}
-            onChange={(mode) => setDraft({ ...draft, rule: { ...draft.rule, mode } })}
-            options={(['ratio', 'alternate', 'q1_first', 'q2_first'] as const).map((m) => ({ value: m, label: t(`autodj.rules.${m}`), description: t(`autodj.rules.${m}Hint`) }))}
-          />
-          {draft.rule.mode === 'ratio' && (
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-              <Input type="number" min={1} max={20} className="w-20" value={draft.rule.q1} onChange={(e) => setDraft({ ...draft, rule: { ...draft.rule, q1: num(e.target.value, 1, 20) } })} />
-              <span>{t('autodj.fromQ1')}</span>
-              <Input type="number" min={1} max={20} className="w-20" value={draft.rule.q2} onChange={(e) => setDraft({ ...draft, rule: { ...draft.rule, q2: num(e.target.value, 1, 20) } })} />
-              <span>{t('autodj.fromQ2')}</span>
-            </div>
-          )}
-        </div>
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label={t('autodj.depth')} hint={t('autodj.depthHint')}>
             <Input type="number" min={1} max={50} value={draft.queueDepth} onChange={(e) => setDraft({ ...draft, queueDepth: num(e.target.value, 1, 50) })} />
@@ -354,10 +336,7 @@ function SettingsCard({ station, view }: { station: StationDetail; view: AutodjV
             <Input type="number" min={0} max={10080} value={draft.trackSeparationMinutes} onChange={(e) => setDraft({ ...draft, trackSeparationMinutes: num(e.target.value, 0, 10080) })} />
           </Field>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Switch checked={draft.fill.q1} onChange={(q1) => setDraft({ ...draft, fill: { ...draft.fill, q1 } })} label={t('autodj.fillQ1')} description={t('autodj.fillHint')} />
-          <Switch checked={draft.fill.q2} onChange={(q2) => setDraft({ ...draft, fill: { ...draft.fill, q2 } })} label={t('autodj.fillQ2')} description={t('autodj.fillHint')} />
-        </div>
+        <Switch checked={draft.fill.q1} onChange={(q1) => setDraft({ ...draft, fill: { ...draft.fill, q1 } })} label={t('autodj.fill')} description={t('autodj.fillHint')} />
         <div className="border-t border-line pt-4">
           <div className="mb-3 text-[13px] font-semibold">{t('autodj.sound')}</div>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -396,12 +375,6 @@ function SettingsCard({ station, view }: { station: StationDetail; view: AutodjV
               description={t('autodj.autoQueueHint')}
             />
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label={t('autodj.requestQueue')}>
-                <Select value={draft.requests.queue} onChange={(e) => setDraft({ ...draft, requests: { ...draft.requests, queue: e.target.value as QueueName } })}>
-                  <option value="q1">Q1</option>
-                  <option value="q2">Q2</option>
-                </Select>
-              </Field>
               <Field label={t('autodj.repeatMinutes')} hint={t('autodj.repeatMinutesHint')}>
                 <Input type="number" min={0} max={1440} value={draft.requests.repeatMinutes} onChange={(e) => setDraft({ ...draft, requests: { ...draft.requests, repeatMinutes: num(e.target.value, 0, 1440) } })} />
               </Field>
@@ -419,17 +392,10 @@ function SettingsCard({ station, view }: { station: StationDetail; view: AutodjV
   );
 }
 
-const ruleText = (t: (k: string, o?: Record<string, unknown>) => string, s: AutodjSettings, q: QueueName) => {
-  const r = s.rule;
-  if (r.mode === 'ratio') return t('autodj.ruleRatio', { count: q === 'q1' ? r.q1 : r.q2 });
-  if (r.mode === 'alternate') return t('autodj.ruleAlternate');
-  return (r.mode === 'q1_first') === (q === 'q1') ? t('autodj.rulePriority') : t('autodj.ruleWhenEmpty');
-};
-
 export function AutodjTab({ station, canEdit }: { station: StationDetail; canEdit: boolean }) {
   const { t } = useTranslation();
   const query = useAutodj(station.id);
-  const [adding, setAdding] = useState<QueueName | null>(null);
+  const [adding, setAdding] = useState(false);
   if (query.isPending) {
     return (
       <div className="grid place-items-center py-16">
@@ -447,12 +413,9 @@ export function AutodjTab({ station, canEdit }: { station: StationDetail; canEdi
           <EmptyState icon={<Music2 className="size-5" />} title={t('autodj.noMusic')} description={t('autodj.noMusicHint')} />
         </Card>
       )}
-      <div className="grid items-start gap-4 lg:grid-cols-2">
-        <QueueColumn station={station} name="q1" rows={view.queues.q1} weight={ruleText(t, view.settings, 'q1')} onAdd={() => setAdding('q1')} />
-        <QueueColumn station={station} name="q2" rows={view.queues.q2} weight={ruleText(t, view.settings, 'q2')} onAdd={() => setAdding('q2')} />
-      </div>
+      <QueueColumn station={station} name="q1" rows={[...view.queues.q1, ...view.queues.q2]} weight={t('autodj.queueHint')} onAdd={() => setAdding(true)} />
       {canEdit && <SettingsCard station={station} view={view} />}
-      <AddTrackDialog station={station} open={!!adding} initialQueue={adding ?? 'q1'} onClose={() => setAdding(null)} />
+      <AddTrackDialog station={station} open={adding} onClose={() => setAdding(false)} />
     </div>
   );
 }

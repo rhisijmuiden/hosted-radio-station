@@ -78,7 +78,18 @@ export interface StationDetail extends StationListItem {
     tls: { port: number; available: boolean };
     plain: { port: number } | null;
     mounts: { id: string; path: string; encoderMount: string; listenUrl: string | null }[];
+    /** Where everything connects (server 1.2 and later): the station node with its internal and external address. */
+    endpoints?: Endpoint[];
   };
+}
+export interface Endpoint {
+  role: 'stationNode' | 'ingest' | 'backupIngest' | 'uploads';
+  name: string;
+  node: { id: string; name: string } | null;
+  online: boolean;
+  external: string | null;
+  internal: string | null;
+  ports: { service: string; port: number; to?: number; tls?: boolean; old?: boolean }[];
 }
 export interface LiveSession {
   id: string;
@@ -102,7 +113,15 @@ export interface Account {
   mountIds: string[];
   enabled: boolean;
 }
-export interface Media {
+/** Cue points in seconds from the start of the file; null = not set. Missing on servers before 1.3. */
+export interface Cues {
+  cueIn?: number | null;
+  cueIntro?: number | null;
+  cueSegue?: number | null;
+  cueFadeOut?: number | null;
+  cueOut?: number | null;
+}
+export interface Media extends Cues {
   id: string;
   title: string;
   artist: string;
@@ -121,23 +140,20 @@ export interface QueueRow {
   requestId: string | null;
   playlistName: string | null;
   label: string | null;
+  /** From a locked item of the format (server 1.3): DJs cannot skip it or play something over it. */
+  locked?: boolean;
   startedAt: string | null;
-  media: Pick<Media, 'id' | 'title' | 'artist' | 'album' | 'durationSeconds' | 'location' | 'path'>;
-}
-export type QueueRuleMode = 'alternate' | 'ratio' | 'q1_first' | 'q2_first';
-export interface QueueRule {
-  mode: QueueRuleMode;
-  q1: number;
-  q2: number;
+  media: Pick<Media, 'id' | 'title' | 'artist' | 'album' | 'durationSeconds' | 'location' | 'path'> & Cues;
 }
 export interface AutoDj {
   edition: 'distribution' | 'station';
-  settings: { enabled: boolean; rule: QueueRule };
+  settings: { enabled: boolean; crossfadeSeconds?: number };
   player: { expected: boolean; connected: boolean; paused: boolean };
   /** Manual playout: every track waits for Play; holding = the track ended and the player waits. */
   playout: { manual: boolean; holding: boolean; until: string | null };
   nowPlaying: QueueRow | null;
-  queues: { q1: QueueRow[]; q2: QueueRow[] };
+  /** One queue since server 1.3 (`q1`); an older server may still have tracks in `q2`. */
+  queues: { q1: QueueRow[]; q2?: QueueRow[] };
   schedule: { enabled: boolean; clock: { name: string; color: string } | null; entry: { name: string; live: boolean } | null };
 }
 /** One item of the format of the coming hours (an hour clock item), from /autodj/rundown. */
@@ -146,10 +162,14 @@ export interface RundownRow {
   startsAt: string;
   timed: boolean;
   hard: boolean;
+  /** DJs cannot skip it or play something over it (server 1.3). */
+  locked?: boolean;
   kind: 'music' | 'item';
   source: 'queues' | 'playlist' | 'track';
   label: string;
   count: number;
+  /** Expected length of a format item in seconds (server 1.3; null = unknown). */
+  seconds?: number | null;
   clock: { id: string; name: string; color: string } | null;
   show: { id: string; name: string; live: boolean } | null;
   current: boolean;

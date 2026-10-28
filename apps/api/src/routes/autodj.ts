@@ -9,7 +9,7 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { schema } from '../db/index.js';
 import type { MediaSourceConfig } from '../db/schema.js';
-import { badRequest, forbidden, notFound } from '../lib/errors.js';
+import { badRequest, forbidden, HttpError, notFound } from '../lib/errors.js';
 import { okOut } from '../lib/schemas.js';
 import { downgradeStation, upgradeStation } from '../services/autodj/edition.js';
 import {
@@ -36,11 +36,23 @@ import { scanStationStorage, tenantStorageUsage } from '../services/streaming/st
 import { AUTODJ_CHANNEL } from '../streams/autodj.js';
 import { sendFile } from './public.js';
 import { stationAccess } from './stations.js';
+import { cueProblem, playSeconds } from '../services/autodj/cues.js';
 import { assertAudioAllowedHere } from '../services/nodes/orchestrator.js';
 
 const stationParams = z.object({ id: z.uuid() });
 const queueSchema = z.enum(['q1', 'q2']);
+/** Since 1.3 there is one queue, `q1`; `q2` from older clients means the same queue. */
+const queueIn = queueSchema.transform(() => 'q1' as const).default('q1');
 
+/** Cue points in seconds from the start of the file (RHIS Studio cue editor); null = not set. */
+const cuesOut = z.object({
+  cueIn: z.number().nullable(),
+  cueIntro: z.number().nullable(),
+  cueSegue: z.number().nullable(),
+  cueFadeOut: z.number().nullable(),
+  cueOut: z.number().nullable(),
+});
+const cueSecond = z.number().min(0).max(86_400).nullable();
 const mediaOut = z.object({
   id: z.uuid(),
   location: z.string(),
@@ -53,6 +65,7 @@ const mediaOut = z.object({
   durationSeconds: z.number().nullable(),
   bitrateKbps: z.number().int().nullable(),
   gainDb: z.number().nullable(),
+  ...cuesOut.shape,
   sizeBytes: z.number(),
   enabled: z.boolean(),
   edited: z.boolean(),
@@ -65,7 +78,8 @@ const mediaOut = z.object({
 const folderSchema = z.object({ location: z.string().max(64), path: z.string().max(500) });
 const playlistBody = z.object({
   name: z.string().trim().min(1).max(80),
-  queue: queueSchema.default('q1'),
+  /** Always `q1` since 1.3 (one queue); kept for older clients. */
+  queue: queueIn,
   weight: z.number().int().min(1).max(10).default(5),
   order: z.enum(['shuffle', 'random', 'sequential']).default('shuffle'),
   folders: z.array(folderSchema).max(50).default([]),
@@ -73,7 +87,7 @@ const playlistBody = z.object({
   /** Feeds its queue; off = only played where an hour clock asks for it (news, commercials, jingles). */
   rotation: z.boolean().default(true),
 });
-const playlistOut = playlistBody.extend({ id: z.uuid(), trackCount: z.number().int(), averageSeconds: z.number().nullable(), createdAt: z.date() });
+const playlistOut = playlistBody.extend({ queue: queueSchema, id: z.uuid(), trackCount: z.number().int(), averageSeconds: z.number().nullable(), createdAt: z.date() });
 const sourceStatusOut = z.object({ state: z.enum(['pending', 'ok', 'error']), message: z.string().optional(), checkedAt: z.string().optional() }).nullable();
 const sourceBody = z.object({
   name: z.string().trim().min(1).max(80),
@@ -151,8 +165,10 @@ const queueRowOut = z.object({
   requestId: z.uuid().nullable(),
   playlistName: z.string().nullable(),
   label: z.string().nullable(),
+  /** From a locked clock item: DJs cannot skip it or play something else over it. */
+  locked: z.boolean(),
   startedAt: z.date().nullable(),
-  media: z.object({ id: z.uuid(), title: z.string(), artist: z.string(), album: z.string(), durationSeconds: z.number().nullable(), location: z.string(), path: z.string() }),
+  media: z.object({ id: z.uuid(), title: z.string(), artist: z.string(), album: z.string(), durationSeconds: z.number().nullable(), location: z.string(), path: z.string() }).extend(cuesOut.shape),
 });
 const autodjOut = z.object({
   edition: z.enum(['distribution', 'station']),
@@ -192,11 +208,15 @@ const rundownRowOut = z.object({
   /** The item has its own minute (timed); otherwise it follows the item before it. */
   timed: z.boolean(),
   hard: z.boolean(),
+  /** DJs cannot skip the item or play something else over it. */
+  locked: z.boolean(),
   /** music = from the queues or a playlist until the next timed item; item = tracks the format puts in. */
   kind: z.enum(['music', 'item']),
   source: z.enum(['queues', 'playlist', 'track']),
   label: z.string(),
   count: z.number().int(),
+  /** Expected length of a format item in seconds: its track, or count × the average of its playlist (null = unknown). */
+  seconds: z.number().nullable(),
   clock: z.object({ id: z.uuid(), name: z.string(), color: z.string() }).nullable(),
   show: z.object({ id: z.uuid(), name: z.string(), live: z.boolean() }).nullable(),
   /** The item the player is at now. */
@@ -382,11 +402,37 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   );
 
+  /**
+   * A locked item of the format is on air: DJs cannot skip it or play something over it; managers and owners only with
+   * `force` (the client asks first).
+   */
+  async function guardLocked(stationId: string, role: string, force: boolean | undefined) {
+    const [onAir] = await ctx.db
+      .select({ locked: schema.queueItems.locked, label: schema.queueItems.label })
+      .from(schema.queueItems)
+      .where(and(eq(schema.queueItems.stationId, stationId), eq(schema.queueItems.state, 'playing')));
+    if (!onAir?.locked) return;
+    const what = onAir.label ? `"${onAir.label}" is a locked part of the format` : 'A locked part of the format is on air';
+    if (role === 'dj') throw forbidden(`${what}: it cannot be skipped or interrupted`);
+    if (!force) throw new HttpError(409, 'locked', `${what}. Skip it anyway?`);
+  }
+
   app.post(
     '/:id/autodj/skip',
-    { config: { audit: 'autodj.skip' }, schema: { tags: ['AutoDJ'], summary: 'Skip the track on air (DJs too)', params: stationParams, response: { 200: okOut } } },
+    {
+      config: { audit: 'autodj.skip' },
+      schema: {
+        tags: ['AutoDJ'],
+        summary: 'Skip the track on air (DJs too, unless a locked item of the format plays: then managers with force)',
+        params: stationParams,
+        // Older clients send no body.
+        body: z.object({ force: z.boolean().optional() }).nullish(),
+        response: { 200: okOut },
+      },
+    },
     async (req) => {
-      const { station } = await radio(req, req.params.id, 'dj');
+      const { station, access } = await radio(req, req.params.id, 'dj');
+      await guardLocked(station.id, access.role, req.body?.force);
       await ctx.db.execute(sql`select pg_notify(${AUTODJ_CHANNEL}, ${JSON.stringify({ stationId: station.id, command: 'skip' })})`);
       return { ok: true as const };
     },
@@ -400,13 +446,15 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
         tags: ['AutoDJ'],
         summary: 'Play a waiting track (itemId) or a library track (mediaId) now: the track on air fades out (DJs too)',
         params: stationParams,
-        body: z.union([z.object({ itemId: z.uuid() }), z.object({ mediaId: z.uuid() })]),
+        body: z.union([z.object({ itemId: z.uuid(), force: z.boolean().optional() }), z.object({ mediaId: z.uuid(), force: z.boolean().optional() })]),
         response: { 200: autodjOut },
       },
     },
     async (req) => {
       const { station, access } = await radio(req, req.params.id, 'dj');
-      const itemId = await playNow(ctx, station.id, req.body, access.user.name);
+      await guardLocked(station.id, access.role, req.body.force);
+      const { force: _, ...what } = req.body;
+      const itemId = await playNow(ctx, station.id, what, access.user.name);
       await ctx.db.execute(sql`select pg_notify(${AUTODJ_CHANNEL}, ${JSON.stringify({ stationId: station.id, command: 'playnow', itemId })})`);
       return describe(station);
     },
@@ -459,7 +507,8 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
       config: { audit: 'autodj.rule' },
       schema: {
         tags: ['AutoDJ'],
-        summary: 'How the AutoDJ takes turns between Q1 and Q2 (DJs too, from RHIS Studio). Takes effect at the next track.',
+        summary: 'Kept for RHIS Studio before 0.13: how Q1 and Q2 took turns. No effect since 1.3, which has one queue.',
+        deprecated: true,
         params: stationParams,
         body: queueRuleSchema,
         response: { 200: autodjOut },
@@ -502,13 +551,43 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
     const playlistIds = new Set(clocks.flatMap((c) => c.items.map((i) => i.playlistId).filter((x): x is string => !!x)));
     const mediaIds = new Set(clocks.flatMap((c) => c.items.map((i) => i.mediaId).filter((x): x is string => !!x)));
     const [lists, tracks] = await Promise.all([
-      playlistIds.size ? ctx.db.select({ id: schema.playlists.id, name: schema.playlists.name }).from(schema.playlists).where(inArray(schema.playlists.id, [...playlistIds])) : [],
+      playlistIds.size
+        ? ctx.db.select({ id: schema.playlists.id, name: schema.playlists.name, folders: schema.playlists.folders }).from(schema.playlists).where(inArray(schema.playlists.id, [...playlistIds]))
+        : [],
       mediaIds.size
-        ? ctx.db.select({ id: schema.mediaFiles.id, title: schema.mediaFiles.title, artist: schema.mediaFiles.artist, path: schema.mediaFiles.path }).from(schema.mediaFiles).where(inArray(schema.mediaFiles.id, [...mediaIds]))
+        ? ctx.db
+            .select({
+              id: schema.mediaFiles.id,
+              title: schema.mediaFiles.title,
+              artist: schema.mediaFiles.artist,
+              path: schema.mediaFiles.path,
+              durationSeconds: schema.mediaFiles.durationSeconds,
+              cueIn: schema.mediaFiles.cueIn,
+              cueSegue: schema.mediaFiles.cueSegue,
+              cueOut: schema.mediaFiles.cueOut,
+            })
+            .from(schema.mediaFiles)
+            .where(inArray(schema.mediaFiles.id, [...mediaIds]))
         : [],
     ]);
     const listName = new Map(lists.map((l) => [l.id, l.name]));
     const trackName = new Map(tracks.map((t) => [t.id, t.title ? (t.artist ? `${t.artist} – ${t.title}` : t.title) : t.path]));
+    // Until the next item starts: from cue in to the segue or cue out.
+    const trackSeconds = new Map(tracks.map((t) => [t.id, playSeconds(t, 0)]));
+    // The average track of each playlist the clocks use, for the expected length of its items (backtiming in RHIS Studio).
+    const listSeconds = new Map(
+      await Promise.all(
+        lists.map(async (l) => {
+          const [row] = await ctx.db
+            .select({
+              avg: sql<number | null>`avg(coalesce(${schema.mediaFiles.cueSegue}, ${schema.mediaFiles.cueOut}, ${schema.mediaFiles.durationSeconds}) - coalesce(${schema.mediaFiles.cueIn}, 0))::float`,
+            })
+            .from(schema.mediaFiles)
+            .where(and(eq(schema.mediaFiles.stationId, station.id), eq(schema.mediaFiles.enabled, true), inPlaylist(l)));
+          return [l.id, row?.avg ?? null] as const;
+        }),
+      ),
+    );
     const rows: z.infer<typeof rundownRowOut>[] = [];
     const first = hourStart(now, tz);
     for (let h = 0; h < hours; h++) {
@@ -522,7 +601,7 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
         past: false,
       };
       if (!clock?.items.length) {
-        rows.push({ ...base, startsAt: new Date(hour), timed: true, hard: false, kind: 'music', source: 'queues', label: '', count: 0, current: false });
+        rows.push({ ...base, startsAt: new Date(hour), timed: true, hard: false, locked: false, kind: 'music', source: 'queues', label: '', count: 0, seconds: null, current: false });
         continue;
       }
       let start = hour;
@@ -532,7 +611,11 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
         const source = item.kind === 'rotation' ? 'queues' : item.kind;
         const label = item.label || (item.kind === 'playlist' ? (listName.get(item.playlistId ?? '') ?? '') : item.kind === 'track' ? (trackName.get(item.mediaId ?? '') ?? '') : '');
         const current = !!st?.clockHour && st.clockHour.getTime() === hour && st.clockId === clock.id && st.clockStep === i;
-        rows.push({ ...base, startsAt: new Date(start), timed: a !== null, hard: item.hard, kind: isFill(item) ? 'music' : 'item', source, label, count: item.kind === 'track' ? 1 : item.count, current });
+        const count = item.kind === 'track' ? 1 : item.count;
+        const each = item.kind === 'track' ? trackSeconds.get(item.mediaId ?? '') : item.kind === 'playlist' ? listSeconds.get(item.playlistId ?? '') : null;
+        const kind = isFill(item) ? 'music' : 'item';
+        const seconds = kind === 'item' && each != null ? Math.round(each * count) : null;
+        rows.push({ ...base, startsAt: new Date(start), timed: a !== null, hard: item.hard, locked: kind === 'item' && !!item.locked, kind, source, label, count, seconds, current });
       });
     }
     // Rows before the one the player is at are past; without that, the ones a later row has started after.
@@ -548,9 +631,9 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
     {
       schema: {
         tags: ['AutoDJ'],
-        summary: 'Put a library track in Q1 or Q2, at the top or the bottom (DJs too)',
+        summary: 'Put a library track in the queue, at the top or the bottom (DJs too)',
         params: stationParams,
-        body: z.object({ mediaId: z.uuid(), queue: queueSchema, at: z.enum(['top', 'bottom']).default('bottom') }),
+        body: z.object({ mediaId: z.uuid(), queue: queueIn, at: z.enum(['top', 'bottom']).default('bottom') }),
         response: { 200: autodjOut },
       },
     },
@@ -568,7 +651,7 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
         tags: ['AutoDJ'],
         summary: 'Move a waiting track: to the other queue and/or before another track (null = to the end)',
         params: stationParams.extend({ itemId: z.uuid() }),
-        body: z.object({ queue: queueSchema, beforeId: z.uuid().nullable().default(null) }),
+        body: z.object({ queue: queueIn, beforeId: z.uuid().nullable().default(null) }),
         response: { 200: autodjOut },
       },
     },
@@ -602,7 +685,7 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
         tags: ['AutoDJ'],
         summary: 'Empty a queue. `rotationOnly` keeps requests and tracks added by hand; the playlists fill it again.',
         params: stationParams,
-        body: z.object({ queue: queueSchema, rotationOnly: z.boolean().default(true) }),
+        body: z.object({ queue: queueIn, rotationOnly: z.boolean().default(true) }),
         response: { 200: autodjOut },
       },
     },
@@ -823,17 +906,28 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
           genre: z.string().trim().max(100).optional(),
           year: z.number().int().min(1000).max(2999).nullable().optional(),
           enabled: z.boolean().optional(),
+          /** All five cue points at once; null clears one. */
+          cues: z.object({ cueIn: cueSecond, cueIntro: cueSecond, cueSegue: cueSecond, cueFadeOut: cueSecond, cueOut: cueSecond }).optional(),
         }),
         response: { 200: mediaOut },
       },
     },
     async (req) => {
       const { station } = await radio(req, req.params.id, 'manager');
-      const { enabled, ...tags } = req.body;
+      const { enabled, cues, ...tags } = req.body;
       const tagged = Object.values(tags).some((v) => v !== undefined);
+      if (cues) {
+        const [m] = await ctx.db
+          .select({ durationSeconds: schema.mediaFiles.durationSeconds })
+          .from(schema.mediaFiles)
+          .where(and(eq(schema.mediaFiles.id, req.params.mediaId), eq(schema.mediaFiles.stationId, station.id)));
+        if (!m) throw notFound('Track');
+        const problem = cueProblem(cues, m.durationSeconds);
+        if (problem) throw badRequest(problem);
+      }
       const [row] = await ctx.db
         .update(schema.mediaFiles)
-        .set({ ...tags, ...(enabled !== undefined ? { enabled } : {}), ...(tagged ? { edited: true } : {}), updatedAt: new Date() })
+        .set({ ...tags, ...cues, ...(enabled !== undefined ? { enabled } : {}), ...(tagged ? { edited: true } : {}), updatedAt: new Date() })
         .where(and(eq(schema.mediaFiles.id, req.params.mediaId), eq(schema.mediaFiles.stationId, station.id)))
         .returning();
       if (!row) throw notFound('Track');

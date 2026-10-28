@@ -3,7 +3,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Badge, Button, Card, CardHeader, Field, Input, PageHeader, Spinner, Switch, Table } from '../components/ui';
-import { api, type StreamingSettings, type StreamsStatus } from '../lib/api';
+import { api, type PortPlan, type StreamingSettings, type StreamsStatus } from '../lib/api';
 import { formatRelative } from '../lib/format';
 
 function PortInput({ value, onChange, allowOff }: { value: number; onChange: (v: number) => void; allowOff?: boolean }) {
@@ -96,6 +96,8 @@ export function StreamingPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const settings = useQuery({ queryKey: ['settings', 'streaming'], queryFn: () => api<StreamingSettings>('/settings/streaming') });
+  const plan = useQuery({ queryKey: ['nodes', 'port-plan'], queryFn: () => api<PortPlan>('/nodes/port-plan') });
+  const old = plan.data?.thisServer ? plan.data.old : null;
   const [draft, setDraft] = useState<StreamingSettings | null>(null);
   const [ips, setIps] = useState('');
   useEffect(() => {
@@ -224,16 +226,29 @@ export function StreamingPage() {
             <p className="mt-1 text-[13px] text-muted">{t('streaming.firewallHint')}</p>
             <ul className="mt-3 flex flex-col gap-1 font-mono text-[13px]">
               <li>80, 443/tcp · {t('streaming.fwWeb')}</li>
-              <li>{draft.ingestTlsPort}/tcp · {t('streaming.fwTls')}</li>
-              {draft.ingestPlainPort > 0 && <li>{draft.ingestPlainPort}/tcp · {t('streaming.fwPlain')}</li>}
-              <li>
-                {draft.legacyPortFrom}–{draft.legacyPortTo}/tcp · {t('streaming.fwLegacy')}
-              </li>
-              {draft.sftp.enabled && <li>{draft.sftp.port}/tcp · SFTP/SCP</li>}
-              {draft.ftp.enabled && (
-                <li>
-                  {draft.ftp.port}, {draft.ftp.passivePortFrom}–{draft.ftp.passivePortTo}/tcp · FTP(S)
-                </li>
+              {/* Orchestrator only: no encoder or upload port is open here at all. */}
+              {plan.data?.orchestratorOnly ? (
+                <li className="font-sans text-muted">{t('streaming.fwOnly')}</li>
+              ) : (
+                <>
+                  <li>{draft.ingestTlsPort}/tcp · {t('streaming.fwTls')}</li>
+                  {draft.ingestPlainPort > 0 && <li>{draft.ingestPlainPort}/tcp · {t('streaming.fwPlain')}</li>}
+                  {old && (
+                    <li className="text-muted">
+                      {old.tls}
+                      {draft.ingestPlainPort > 0 && `, ${old.plain}`}/tcp · {t('streaming.fwOld')}
+                    </li>
+                  )}
+                  <li>
+                    {draft.legacyPortFrom}–{draft.legacyPortTo}/tcp · {t('streaming.fwLegacy')}
+                  </li>
+                  {draft.sftp.enabled && <li>{draft.sftp.port}/tcp · SFTP/SCP</li>}
+                  {draft.ftp.enabled && (
+                    <li>
+                      {draft.ftp.port}, {draft.ftp.passivePortFrom}–{draft.ftp.passivePortTo}/tcp · FTP(S)
+                    </li>
+                  )}
+                </>
               )}
             </ul>
           </Card>

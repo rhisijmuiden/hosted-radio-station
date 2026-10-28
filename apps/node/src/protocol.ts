@@ -56,12 +56,17 @@ export interface NodePlan {
   relay: {
     maxListeners: number;
     mounts: RelayMount[];
-    /** Where station nodes deliver their streams (TLS). */
+    /** Where station nodes deliver their streams (TLS). Agents before 1.3 listen on this one only. */
     pushPort: number | null;
+    /** Every push port to listen on (port plan, 1.3): the node's own and, while it keeps them, the old one. */
+    pushPorts?: number[];
   } | null;
   source: {
+    /** Agents before 1.3 listen on these two only. */
     plainPort: number | null;
     tlsPort: number | null;
+    /** Every encoder port to listen on (port plan, 1.3): the node's own and, while it keeps them, the old ones. */
+    ports?: { plain: number[]; tls: number[] };
     /** The ingest gateway of the main server, where the node forwards encoders to. */
     upstream: { host: string; port: number; tls: boolean };
     /** Customer encoder names (src.<domain>) that point to this node; the node gets certificates for them. */
@@ -241,7 +246,7 @@ export interface AgentHello {
   version: string;
   commit: string | null;
   hostname: string;
-  facts: { cores: number; memoryMb: number; os: string; caddy: boolean; addresses: string[]; ffmpeg?: boolean; soundcards?: { device: string; name: string }[] };
+  facts: { cores: number; memoryMb: number; os: string; caddy: boolean; addresses: string[]; ffmpeg?: boolean; soundcards?: { device: string; name: string }[]; features?: string[] };
 }
 
 export interface AgentStats {
@@ -262,6 +267,8 @@ export interface AgentStats {
   revision: string | null;
   /** The node's public IPv4 address as the internet sees it, looked up by the node itself (phase 19). */
   publicIp?: string | null;
+  /** Names the node has a valid certificate from an authority for (1.3), so others can reach it over checked TLS. */
+  certs?: string[];
   /** Ingest: mounts on air on this node. */
   ingest?: IngestMountStatus[];
   fm?: FmStatus | null;

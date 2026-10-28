@@ -36,13 +36,13 @@ There are two editions per station. A station can move from Distribution to Radi
 | Edition | What you get |
 | --- | --- |
 | **Distribution** | Streaming only: live input from your encoders, transcoded mounts, a local Icecast or your own external Icecast/Shoutcast, statistics and public pages |
-| **Radio station** | Everything in Distribution, plus the AutoDJ (Liquidsoap), dual queues Q1/Q2, the music library and the hour-clock scheduler |
+| **Radio station** | Everything in Distribution, plus the AutoDJ (Liquidsoap) with its queue, the music library and the hour-clock scheduler |
 
 Highlights:
 
 - **Native install** in a Proxmox Debian 13 LXC (or any Debian 13 machine), with systemd services and a single `hrs` command.
 - **Multi-tenant.** Customers have their own users, roles, domains (`stream.<domain>`, `src.<domain>`), limits and optional single sign-on (OIDC/SAML).
-- **Live and AutoDJ.** Encoders connect over HTTPS (8443) or plain (8010). The AutoDJ plays playlists, hour clocks with news, commercials and jingles, and requests.
+- **Live and AutoDJ.** Encoders connect over HTTPS (8201) or plain (8200). The AutoDJ plays playlists, hour clocks with news, commercials and jingles, and requests.
 - **Statistics with GeoIP**: listeners, sessions, countries, devices and song history.
 - **Public pages and embeds**: a station page, a player, history, requests and on-demand.
 - **Distribution network.** Relay, ingest, station and FM nodes are steered by the orchestrator, with a 3D or 2D topology view.
@@ -86,8 +86,8 @@ roles from the panel. A node can have more than one role.
 
 | Role | What it does |
 | --- | --- |
-| **Relay** | Serves listeners. It pulls the station's public mounts from the main server, or receives them pushed by an ingest or station node on its push port (8001, TLS). With a main and a backup feed, it plays the main feed and switches to the backup without dropping listeners. |
-| **Source (ingest)** | Takes encoders on `src.<domain>` (8443 TLS / 8010), checks log-ins with the orchestrator, makes the transcoded mounts with ffmpeg and pushes every public mount to the relays. It can be a station's main or backup ingest. |
+| **Relay** | Serves listeners. It pulls the station's public mounts from the main server, or receives them pushed by an ingest or station node on its push port (8301, TLS). With a main and a backup feed, it plays the main feed and switches to the backup without dropping listeners. |
+| **Source (ingest)** | Takes encoders on `src.<domain>` (8201 TLS / 8200), checks log-ins with the orchestrator, makes the transcoded mounts with ffmpeg and pushes every public mount to the relays. It can be a station's main or backup ingest. |
 | **Station node** | Runs complete stations at the customer's site: the music library, AutoDJ, hour clocks, scheduler and live assist stay in the building. It pushes its audio to relays, so listeners never connect to the studio. If the internet drops, it keeps playing. See [station-nodes.md](docs/station-nodes.md). |
 | **FM/MPX** | Takes a station's stream and makes the complete FM multiplex: stereo encoder, RDS with RadioText+, pre-emphasis and a limiter. It outputs to a 192 kHz sound card, MPX over IP, or UECP to an existing RDS encoder. See [fm.md](docs/fm.md). |
 | **Remote probe** (every node) | Checks its stations' streams on the main server and the relays, and reports availability and time to first byte. |
@@ -108,7 +108,7 @@ can add nodes later without reinstalling.
 | Control channel | node → orchestrator | WebSocket `wss://<server>/api/nodes/connect`. It carries the node's plan (roles, stations, mounts, relay targets), encoder log-in checks, and update and apply commands. A ping goes out every 5 seconds; the round trip and lost pings are shown in the panel. |
 | Reports | node → orchestrator | `POST /api/nodes/agent/report` every 30 seconds with `Authorization: Node <id>.<secret>`: CPU, memory, traffic, listeners per mount and probe results. |
 | Audio, pull | relay → main server | The relay pulls a mount from the main server's listen route over HTTPS. This is the classic single-ingest setup. |
-| Audio, push | ingest/station node → relay | An Icecast `PUT` over TLS to the relay's push port (8001), with a token per mount. `X-Hrs-Priority: 0` marks the main feed and `1` the backup. Titles go with `/admin/metadata`. |
+| Audio, push | ingest/station node → relay | An Icecast `PUT` over TLS to the relay's push port (8301), with a token per mount. `X-Hrs-Priority: 0` marks the main feed and `1` the backup. Titles go with `/admin/metadata`. |
 | Station package | station node ↔ orchestrator | The node long-polls `GET /api/nodes/agent/station/package` for settings, mounts, DJs and relay targets. It posts its own changes and state to `POST /api/nodes/agent/station/mirror` every few seconds. |
 | Panel tunnel | orchestrator → station node | A WebSocket at `/api/nodes/agent/station/tunnel` passes panel and public-page requests for the node's stations (library, playlists, clocks, queue) to the node. |
 | Listeners | player → orchestrator → relay | `/api/public/stations/<slug>/listen/<mount>` redirects the player to the nearest healthy relay. |
@@ -123,10 +123,10 @@ sequenceDiagram
     participant RL as Relay
     participant LS as Listener
     IN->>OR: Control WebSocket (plan, ping every 5 s)
-    DJ->>IN: Connect to src.domain:8443, mount /station/live
+    DJ->>IN: Connect to src.domain:8201, mount /station/live
     IN->>OR: Check log-in over the control channel
     OR-->>IN: Allowed
-    IN->>RL: Push each mount (TLS, port 8001, token, priority 0)
+    IN->>RL: Push each mount (TLS, port 8301, token, priority 0)
     LS->>OR: GET /api/public/stations/slug/listen/mount
     OR-->>LS: Redirect to the nearest healthy relay
     LS->>RL: Listen over HTTPS
@@ -172,14 +172,17 @@ For an FM node, use `install-fm.sh` with the same options. See [nodes.md](docs/n
 
 ### Ports
 
-| Port | Used for |
+Every role has its own incoming ports (the port plan, 1.3), so roles on one machine never clash and a server is easy to put behind a firewall or in a DMZ. Every port of a node can be changed in its settings; the panel shows the firewall rules per node under **Nodes → node → Firewall**.
+
+| Role | Incoming ports (TCP) |
 | --- | --- |
-| 80, 443 | Panel, public pages, API, listener streams |
-| 8443 (TLS), 8010 | Encoders |
-| 8100–8199 | Old Shoutcast v1 encoders (only when switched on) |
-| 2022 | SFTP/SCP upload |
-| 21, 50000–50100 | FTP/FTPS upload |
-| 8001 (TLS) | Push port on relay nodes |
+| Orchestrator | 443 (+80 for certificates); with its own ingest also 8200/8201, 2022 (SFTP), 21 and 50000–50100 (FTP) |
+| Ingest | 8200 plain, 8201 TLS, 8210–8299 Shoutcast v1 (only when switched on per station) |
+| Relay | 80/443 for listeners, 8301 (TLS) for pushes from ingests and station nodes |
+| Station node | 8400 plain and 8401 TLS (RHIS Studio and Go Live), 8402 SFTP |
+| FM/MPX | none, outgoing only |
+
+**Old ports.** Servers and nodes installed before 1.3 keep the ports they used (8010 and 8443 for encoders, 8001 for pushes, 2022 for SFTP on station nodes, 8100–8199 for Shoutcast v1) open next to the new ones, and pushes keep going to 8001, until the administrator switches them off under **Nodes → Port plan** (everywhere, or per server). Open the new ports in the firewalls first; the firewall check on each node shows whether they are reachable.
 
 ### Commands and paths
 

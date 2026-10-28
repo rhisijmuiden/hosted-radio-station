@@ -401,6 +401,8 @@ export interface OutputConfig {
   publicUrl?: string;
   /** A relay node a station node pushes to (made by the main server, phase 12); its certificate may be self-signed. */
   relayNodeId?: string;
+  /** An ingest node a station node sends its source streams to (1.3), which feeds the relays in its place. */
+  ingestNodeId?: string;
   insecureTls?: boolean;
   /** Pushes to relay nodes (phase 13), in memory only: the push token itself and the ingest priority (0 = main). */
   token?: string;
@@ -756,6 +758,13 @@ export const mediaFiles = pgTable(
     bitrateKbps: integer('bitrate_kbps'),
     /** ReplayGain of the track in dB, from the file's tags; evens out loudness between tracks. */
     gainDb: doublePrecision('gain_db'),
+    // Cue points, in seconds from the start of the file (null = not set): where the track starts and stops playing,
+    // where the intro ends (the DJ talks up to it), where the next track starts and where the fade-out begins.
+    cueIn: doublePrecision('cue_in'),
+    cueIntro: doublePrecision('cue_intro'),
+    cueSegue: doublePrecision('cue_segue'),
+    cueFadeOut: doublePrecision('cue_fade_out'),
+    cueOut: doublePrecision('cue_out'),
     /** Tags changed in the panel are kept when the file is scanned again. */
     edited: boolean('edited').notNull().default(false),
     /** false = the AutoDJ never picks it. */
@@ -835,6 +844,8 @@ export const queueItems = pgTable(
     origin: text('origin').notNull(),
     /** Name of the hour clock item it came from (clock items). */
     label: text('label'),
+    /** From a locked clock item: DJs cannot skip it or play something else over it. */
+    locked: boolean('locked').notNull().default(false),
     playlistId: uuid('playlist_id').references(() => playlists.id, { onDelete: 'set null' }),
     requestId: uuid('request_id').references(() => songRequests.id, { onDelete: 'set null' }),
     addedBy: text('added_by'),
@@ -883,6 +894,8 @@ export interface ClockItem {
   at: number | null;
   /** Timed items: cut the track that is playing at the minute instead of waiting for its end. */
   hard: boolean;
+  /** DJs cannot skip it or play something else over it (missing in clocks saved before 1.3 = false). */
+  locked?: boolean;
 }
 
 /**
@@ -1021,6 +1034,10 @@ export interface NodeStatus {
   /** The end of the log of the last configuration run on the node, when it failed. */
   applyLog?: string[];
   update?: { state: 'idle' | 'running' | 'succeeded' | 'failed'; message?: string; at?: string } | null;
+  /** Names the node has a valid certificate from an authority for (1.3): reachable over checked TLS by these names. */
+  certs?: string[];
+  /** What the node's software can do beyond its protocol version, such as "studio-ingest" (1.3). */
+  features?: string[];
   /** FM/MPX: ffmpeg is installed, the playback devices of the node, and what it has on air (phase 11). */
   ffmpeg?: boolean;
   soundcards?: { device: string; name: string }[];

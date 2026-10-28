@@ -9,12 +9,13 @@ import { mailConfigured, sendMail } from '../services/mail.js';
 import { nameKey, namesFrom, serverNames } from '../services/nodes/names.js';
 import { stationsUsingThisServer } from '../services/nodes/orchestrator.js';
 import { checkTarget, externalAddress, inboundPorts, internalAddress, probePort, type InboundPort } from '../services/nodes/ports.js';
-import { buildPlan, nodeSettings } from '../services/nodes/plan.js';
+import { buildPlan, nodeSettings, storedConfig } from '../services/nodes/plan.js';
+import { OLD_PORTS, PORTS } from '../services/nodes/portplan.js';
 import { isPublicAddress, nodeAddresses } from '../services/dns/records.js';
 import { forgetRelays } from '../services/nodes/routing.js';
 import { getSetting, putSetting, serverNameSchema } from '../services/settings.js';
 import { connectionInfo } from '../services/streaming/info.js';
-import { applyAllStreams, loadStation, platformHost } from '../services/streaming/state.js';
+import { allocatePort, applyAllStreams, loadStation, platformHost } from '../services/streaming/state.js';
 import { endpointOut, stationAccess } from './stations.js';
 
 const nameOrDefault = serverNameSchema.or(z.literal(''));
@@ -54,6 +55,7 @@ const portOut = z.object({
   to: z.number().optional(),
   for: z.array(z.enum(['studio', 'encoders', 'uploads', 'listeners', 'ingests'])),
   station: z.string().optional(),
+  old: z.boolean().optional(),
 });
 const firewallOut = z.object({
   /** A node of a customer, in the customer's own network. */
@@ -194,6 +196,101 @@ export const orchestratorRoutes: FastifyPluginAsyncZod = async (app) => {
         void hub.refreshAll();
       }
       return orchestratorView();
+    },
+  );
+
+  // Port plan (1.3): the ports per role, and where the old ports from before it are still open.
+
+  const portPlanOut = z.object({
+    ports: z.object({
+      orchestrator: z.object({ https: z.number(), http: z.number() }),
+      ingest: z.object({ plain: z.number(), tls: z.number(), shoutcastFrom: z.number(), shoutcastTo: z.number() }),
+      relay: z.object({ push: z.number() }),
+      stationNode: z.object({ plain: z.number(), tls: z.number(), sftp: z.number() }),
+    }),
+    old: z.object({ plain: z.number(), tls: z.number(), push: z.number(), sftp: z.number(), shoutcastFrom: z.number(), shoutcastTo: z.number() }),
+    /** This server keeps the old encoder ports open. */
+    thisServer: z.boolean(),
+    /** Orchestrator only: this server opens no encoder or upload ports at all, old or new. */
+    orchestratorOnly: z.boolean(),
+    /** Stations whose Shoutcast v1 ports still lie in the old range; they move when this server's old ports go off. */
+    oldShoutcast: z.number(),
+    nodes: z.array(z.object({ id: z.uuid(), name: z.string(), roles: z.array(z.string()), online: z.boolean(), oldPorts: z.boolean() })),
+  });
+
+  async function portPlanView(): Promise<z.infer<typeof portPlanOut>> {
+    const [o, streaming, nodes, stations] = await Promise.all([
+      getSetting(ctx, 'orchestrator'),
+      getSetting(ctx, 'streaming'),
+      ctx.db.select().from(schema.nodes).orderBy(asc(schema.nodes.name)),
+      ctx.db.select({ legacyPort: schema.stations.legacyPort }).from(schema.stations),
+    ]);
+    return {
+      ports: PORTS,
+      old: OLD_PORTS,
+      thisServer: o.oldPorts,
+      orchestratorOnly: o.only,
+      oldShoutcast: stations.filter((s) => s.legacyPort && (s.legacyPort < streaming.legacyPortFrom || s.legacyPort > streaming.legacyPortTo)).length,
+      nodes: nodes
+        .filter((n) => n.pairedAt)
+        .map((n) => ({ id: n.id, name: n.name, roles: n.roles, online: !!(hub.liveStatus(n.id) ?? n.status).online, oldPorts: nodeSettings(n).oldPorts })),
+    };
+  }
+
+  app.get('/port-plan', { schema: { tags: ['Nodes'], summary: 'The ports per role (port plan) and where the old ports are still open', response: { 200: portPlanOut } } }, async (req) => {
+    requireSuperadmin(req);
+    return portPlanView();
+  });
+
+  app.put(
+    '/port-plan',
+    {
+      config: { audit: 'nodes.oldPorts' },
+      schema: {
+        tags: ['Nodes'],
+        summary:
+          'Switch the old ports (8010, 8443, 8001 and 2022 on station nodes) on or off for this server and for nodes. Off for this server also moves Shoutcast v1 ports into the new range.',
+        body: z.object({ thisServer: z.boolean().optional(), nodes: z.array(z.object({ id: z.uuid(), oldPorts: z.boolean() })).max(1000).default([]) }),
+        response: { 200: portPlanOut },
+      },
+    },
+    async (req) => {
+      requireSuperadmin(req);
+      const b = req.body;
+      const current = await getSetting(ctx, 'orchestrator');
+      let streams = false;
+      if (b.thisServer !== undefined && b.thisServer !== current.oldPorts) {
+        await putSetting(ctx, 'orchestrator', { ...current, oldPorts: b.thisServer });
+        streams = true;
+      }
+      let moved = 0;
+      if (b.thisServer === false) {
+        // Shoutcast v1 ports from the old range (8100-8199) move to the new one; the DJ gets the new port in the panel.
+        const s = await getSetting(ctx, 'streaming');
+        const rows = await ctx.db.select({ id: schema.stations.id, legacyPort: schema.stations.legacyPort }).from(schema.stations);
+        for (const r of rows.filter((x) => x.legacyPort && (x.legacyPort < s.legacyPortFrom || x.legacyPort > s.legacyPortTo))) {
+          await ctx.db.update(schema.stations).set({ legacyPort: null }).where(eq(schema.stations.id, r.id));
+          const port = await allocatePort(ctx, 'legacyPort', s.legacyPortFrom, s.legacyPortTo, 2);
+          await ctx.db.update(schema.stations).set({ legacyPort: port }).where(eq(schema.stations.id, r.id));
+          moved++;
+        }
+        streams ||= moved > 0;
+      }
+      const changed: string[] = [];
+      for (const n of b.nodes) {
+        const [row] = await ctx.db.select().from(schema.nodes).where(eq(schema.nodes.id, n.id));
+        if (!row) throw badRequest('Unknown node');
+        if (nodeSettings(row).oldPorts === n.oldPorts) continue;
+        await ctx.db.update(schema.nodes).set({ config: storedConfig({ oldPorts: n.oldPorts }, row.config), updatedAt: new Date() }).where(eq(schema.nodes.id, n.id));
+        changed.push(row.name);
+      }
+      req.auditInfo.details = { thisServer: b.thisServer ?? null, nodes: b.nodes, movedShoutcast: moved };
+      // Pushes to a relay follow its switch, so every plan and station package is made again.
+      if (streams || changed.length) {
+        await applyAllStreams(ctx, req.auth?.user.email).catch((err) => req.log.error({ err }, 'applying stream configuration failed'));
+        void hub.refreshAll();
+      }
+      return portPlanView();
     },
   );
 

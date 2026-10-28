@@ -3,7 +3,8 @@
 A station node runs complete stations where the studio is: the music library, the AutoDJ, the hour clocks, the
 scheduler and live assist all live on that machine. The main server stays the orchestrator: it keeps the settings, the
 panel, the customers and the statistics, and it tells the node which stations it runs. The node sends its audio
-outwards to the relay nodes that carry the station, so listeners never connect to the studio.
+outwards, by default once to an ingest node that feeds the relays (see [Sending through an ingest](#sending-through-an-ingest)),
+so listeners never connect to the studio.
 
 Why: a studio with its own machine keeps playing when its internet connection drops (listeners then hear the relays'
 last state or the station's own fallback), the music library stays in the building, and the main server only passes
@@ -29,13 +30,38 @@ control traffic. The same role also works in a datacenter, for a customer that w
 3. The node installs the station software by itself (`install.sh --station-node`, a few minutes). It then opens a
    control connection to the main server and waits for stations.
 4. Make sure at least one **relay node** carries the station: a station node has no listeners of its own. Open the
-   relay's push port (default 8001/TCP, TLS) to the station node.
+   relay's push port (default 8301/TCP, TLS) to the station node.
 5. Optionally fill in **Address on the studio network** so encoders and RHIS Studio in the studio see the node's own
    address.
 6. When the node runs in the customer's own network, open the ports from its **Firewall** tab in the router or
    firewall and press **Check from outside** for a green tick per port. The station's **Connection** tab then shows the
    node's external and internal address with the ports for RHIS Studio, encoders and uploads (see
    [nodes.md](nodes.md#connection-details)).
+
+## Sending through an ingest
+
+By default (1.3) a station node uploads each source stream **once**, to an ingest node, instead of every public mount
+to every relay. The ingest makes the other mounts (transcodes, fallbacks) and feeds all relays, so the studio's upload
+stays as small as possible however many relays and mounts the station has. Set it per station under **Routing**:
+
+- **Through an ingest** (default). *Main ingest* is *Automatic* (one ingest node that may carry the station, online
+  ones first, the customer's own before the platform's) or a chosen node. A *backup ingest* is optional: the node then
+  uploads its streams to both, and the backup takes over on its own when the main one drops (this doubles the upload).
+- **Straight to the relays**: the node pushes each public mount to every relay itself, as before 1.3. Use it when you
+  do not want to run an ingest.
+
+The node feeds the relays itself, and Routing says why, while:
+
+- its software is from before 1.3: update the node (agent and station software are updated together);
+- none of the chosen ingests is online: it goes back to the ingest once one is online again;
+- the ingest is on another site and has no valid certificate for its name: turn on **Certificates through Cloudflare
+  DNS** in the ingest node's settings (or give it a name its web server can fetch a certificate for). From another site
+  the node only sends over TLS it can check; nodes report which names they hold a certificate for;
+- its pushes to every chosen ingest fail (address or firewall): it tries the ingest again after 10 minutes. The node signs in on the ingest as `hrs-studio` with a token derived from its own
+secret; the ingest checks it with the orchestrator, so no DJ account is needed and nobody else can send as the studio.
+Open the ingest's encoder port (8200, or 8201 with TLS) to the station node. When the station node and the ingest sit behind the same public
+address (one site), the node uses the ingest's address on the local network (its *Address on the studio network*, or
+the first IPv4 address it reports).
 
 ## Moving a station there (and back)
 
@@ -78,7 +104,9 @@ its relays still have.
   stations (library, playlists, clocks, schedule, requests, on-demand, live, status) are passed through it as the
   signed-in user; the node only believes that identity from its own tunnel. The station's own settings (AutoDJ and
   scheduler) are edited on the main server and travel with the package.
-- **Audio.** The node pushes each public mount to every relay that carries the station: an Icecast `PUT` to the
+- **Audio.** Through an ingest, the node pushes its source mounts to the ingest's encoder port as `/<station>/<mount>`
+  (Icecast `PUT`), and the ingest takes it from there like any live broadcast. Straight to the relays (or while no
+  ingest is online), the node pushes each public mount to every relay that carries the station: an Icecast `PUT` to the
   relay's push port over TLS, signing in as `source` with a token derived from the relay's secret. The relay feeds it
   into its own Icecast on the same `/listen/<station>/<mount>` path, so listen URLs look the same everywhere. Titles
   travel with `/admin/metadata` on the same port.
@@ -100,7 +128,8 @@ their services restart, so updating during a maintenance window is wise.
 
 ## Limits
 
-- A station node needs at least one relay node; without one it has no listeners.
+- A station node needs at least one relay node; without one it has no listeners. Sending through an ingest also needs
+  an ingest node that may carry the station; without one the node sends straight to the relays.
 - A station cannot hop straight from one node to another: move it back to the main server first.
 - A node that still runs stations cannot be removed, and cannot lose its station node role.
 - The main server itself cannot be a station node; a station node needs a container of its own.

@@ -89,7 +89,7 @@ describe('orchestrator as control plane (phase 13)', () => {
 
   it('starts with this server as ingest and the relays pulling from it', async () => {
     const got = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/routing`, headers: owner })).json();
-    expect(got.routing).toEqual({ ingest: 'local', backupIngest: null, relays: 'auto', spareRelays: true });
+    expect(got.routing).toEqual({ ingest: 'local', backupIngest: null, relays: 'auto', spareRelays: true, delivery: 'ingest' });
     expect(got.canEdit).toBe(true);
   });
 
@@ -104,7 +104,7 @@ describe('orchestrator as control plane (phase 13)', () => {
     expect((await routing({ ingest: ingest.id }, owner)).statusCode).toBe(403);
     const ok = await routing({ ingest: ingest.id, backupIngest: backup.id, relays: [relay.id] });
     expect(ok.statusCode).toBe(200);
-    expect(ok.json().routing).toEqual({ ingest: ingest.id, backupIngest: backup.id, relays: [relay.id], spareRelays: true });
+    expect(ok.json().routing).toEqual({ ingest: ingest.id, backupIngest: backup.id, relays: [relay.id], spareRelays: true, delivery: 'ingest' });
     // Encoders now go to the ingest node; the backup is shown for the encoder's backup server.
     const detail = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}`, headers: owner })).json();
     expect(detail.connection.node).toMatchObject({ id: ingest.id, name: 'ingest-ams' });
@@ -124,7 +124,7 @@ describe('orchestrator as control plane (phase 13)', () => {
     const plan = await a.planWhere((p) => p.ingest?.stations?.[0]?.targets?.length > 0);
     const s = plan.ingest.stations[0];
     expect(s).toMatchObject({ stationId, slug: 'schermer-fm', priority: 0, mounts: [expect.objectContaining({ path: '/live', kind: 'source' })] });
-    expect(s.targets[0]).toMatchObject({ nodeId: relay.id, host: 'relay-ams.example.com', port: 8001, insecureTls: false });
+    expect(s.targets[0]).toMatchObject({ nodeId: relay.id, host: 'relay-ams.example.com', port: 8301, insecureTls: false });
     // The relay checks the same token on its push port.
     expect(s.targets[0].tokens['schermer-fm/live']).toBe(relayPlan.relay.mounts[0].push.token);
 
@@ -207,8 +207,9 @@ describe('relays of a station on a station node (phase 19)', () => {
       const got = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/routing`, headers: admin })).json();
       expect(got.locked).toBe('station_node');
       expect(got.canEdit).toBe(true);
-      // The ingest fields are ignored on a station node; only the relays change.
-      const r = await routing({ ingest: randomUUID(), relays: [relay2.id], spareRelays: false });
+      // On a station node the ingest fields choose the ingests the node sends through (1.3); an unknown one is refused.
+      expect((await routing({ ingest: randomUUID(), relays: [relay2.id], spareRelays: false })).statusCode).toBe(400);
+      const r = await routing({ ...before.routing, relays: [relay2.id], spareRelays: false });
       expect(r.statusCode).toBe(200);
       expect(r.json().routing).toEqual({ ...before.routing, relays: [relay2.id], spareRelays: false });
       // A chosen relay that lost its relay role is listed as stale, so the panel can say why it carries nothing.
@@ -219,6 +220,16 @@ describe('relays of a station on a station node (phase 19)', () => {
       // the station does not play) redirects too instead of ending on the panel's "Page not found".
       const detail = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}`, headers: admin })).json();
       expect(detail.connection.mounts[0].listenUrl).toContain('/api/public/stations/schermer-fm/listen/live');
+      // TLS for encoders only on a public name with the node's web server: an internal name or a LAN address only ever
+      // has a self-signed certificate, which RHIS Studio and encoders refuse.
+      const tlsFor = async (config: Record<string, unknown>) => {
+        const [row] = await t.db.select().from(schema.nodes).where(eq(schema.nodes.id, node.id));
+        await t.db.update(schema.nodes).set({ config: { ...row!.config, ...config }, status: { ...row!.status, caddy: true } }).where(eq(schema.nodes.id, node.id));
+        return (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}`, headers: admin })).json().connection as { ingestHost: string; tls: { available: boolean } };
+      };
+      expect((await tlsFor({ publicHost: 'radionode3.mngt.onzehut.loc', lanAddress: '' })).tls.available).toBe(false);
+      expect(await tlsFor({ publicHost: 'studio.radio.example.com', lanAddress: '' })).toMatchObject({ ingestHost: 'studio.radio.example.com', tls: { available: true } });
+      expect(await tlsFor({ lanAddress: '10.0.0.9' })).toMatchObject({ ingestHost: '10.0.0.9', tls: { available: false } });
       const direct = await t.app.inject({ method: 'GET', url: '/listen/schermer-fm/live' });
       expect(direct.statusCode).toBe(503);
       expect(direct.json().error.code).toBe('no_relay');

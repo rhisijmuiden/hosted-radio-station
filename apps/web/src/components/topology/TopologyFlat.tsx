@@ -263,6 +263,12 @@ export default function TopologyFlat({
     if (focus) {
       const studios = new Set(data.studios.filter((s) => s.stationId === focus.id).map((s) => s.id));
       for (const l of data.links.filter((x) => x.kind === 'stream' && studios.has(x.from))) edges.push({ from: l.from, to: card(l.to, 'in'), kind: 'stream', state: 'ok', label: null, dim: false });
+      // A station node that sends through its ingest(s): the studio's single upload to each of them.
+      if (focus.stationNode)
+        for (const id of [focus.ingest, focus.backup]) {
+          if (!id || id === focus.stationNode || !data.links.some((x) => x.kind === 'stream' && x.from === focus.stationNode && x.to === id)) continue;
+          edges.push({ from: card(focus.stationNode, 'in'), to: card(id, 'in'), kind: 'stream', state: cellState(focus.cells[id]), label: null, dim: false });
+        }
       if (focus.active)
         for (const r of focus.relays) {
           const l = data.links.find((x) => x.kind === 'stream' && !x.standby && x.from === focus.active && x.to === r);
@@ -310,9 +316,9 @@ export default function TopologyFlat({
   const mainPos = lr ? { x: cardW / 2 + 24, y: 46 } : { x: BAND / 2 + 4, y: 46 };
   pos.set('main', mainPos);
   const bus = lr ? `M${mainPos.x + cardW / 2} ${mainPos.y} H${W - 24}` : `M${mainPos.x} ${mainPos.y + CARD_H / 2} V${H - 24}`;
+  const [from, to] = lr ? [BAND + 52, H - 92] : [BAND + 24, W - 24];
   perLane.forEach((list, i) => {
     const a = along(i);
-    const [from, to] = lr ? [BAND + 52, H - 92] : [BAND + 24, W - 24];
     list.forEach((c, j) => {
       const b = from + ((j + 0.5) * (to - from)) / list.length;
       pos.set(c.key, lr ? { x: a, y: b } : { x: b, y: a });
@@ -336,6 +342,44 @@ export default function TopologyFlat({
     }
   }
 
+  const laneIndex = new Map(perLane.flatMap((list, i) => list.map((c) => [c.key, i] as const)));
+  // A line over more than one lane passes each lane in between through the gap between two cards, never through one.
+  // Worked out along the flow (u) and across it (v), so it serves both directions.
+  const route = (fromKey: string, toKey: string, A: { x: number; y: number }, B: { x: number; y: number }, k: number) => {
+    const halfU = lr ? cardW / 2 : CARD_H / 2;
+    const uv = (p: { x: number; y: number }) => (lr ? [p.x, p.y] : [p.y, p.x]) as [number, number];
+    const xy = (u: number, v: number) => (lr ? `${u} ${v}` : `${v} ${u}`);
+    const [au, av] = uv(A);
+    const [bu, bv] = uv(B);
+    const ia = laneIndex.get(fromKey);
+    const ib = laneIndex.get(toKey);
+    // Stretches of the path: from a point leaving a lane to a point entering the next.
+    const hops: [number, number][] = [[au + k * halfU, av]];
+    if (ia != null && ib != null)
+      for (let i = ia + k; i !== ib && Math.abs(ib - ia) > 1; i += k) {
+        const list = perLane[i]!;
+        if (!list.length) continue;
+        const lu = along(i);
+        const [pu, pv] = hops[hops.length - 1]!;
+        const v = pv + ((lu - pu) / (bu - pu)) * (bv - pv);
+        // Always through a gap, even when the straight line would miss the cards: the bends between lanes then stay in
+        // the open space between them. The nearest boundary between two cards (or beyond the first or the last).
+        const step = (to - from) / list.length;
+        const gv = from + clamp(Math.round((v - from) / step), 0, list.length) * step;
+        hops.push([lu - k * (halfU + 12), gv], [lu + k * (halfU + 12), gv]);
+      }
+    hops.push([bu - k * halfU, bv]);
+    let d = `M${xy(hops[0]![0], hops[0]![1])}`;
+    for (let i = 1; i < hops.length; i++) {
+      const [pu, pv] = hops[i - 1]!;
+      const [qu, qv] = hops[i]!;
+      // Inside a lane the line runs straight through the gap; between lanes it bends.
+      if (i % 2 === 0) d += ` L${xy(qu, qv)}`;
+      else d += ` C${xy((pu + qu) / 2, pv)} ${xy((pu + qu) / 2, qv)} ${xy(qu, qv)}`;
+    }
+    return d;
+  };
+
   const shown = (e: Edge) => e.kind !== 'control' || showControl || selected === 'main' || (!!selected && e.to.startsWith(`${selected}#`));
   const paths = edges.filter(shown).flatMap((e) => {
     const A = pos.get(e.from);
@@ -352,9 +396,7 @@ export default function TopologyFlat({
       // Within one lane (a studio and its station node): a short straight line between the two cards.
       if (lr ? A.x === B.x : A.y === B.y)
         d = lr ? `M${A.x} ${A.y + (B.y > A.y ? 1 : -1) * (CARD_H / 2)} V${B.y - (B.y > A.y ? 1 : -1) * (CARD_H / 2)}` : `M${A.x + (B.x > A.x ? 1 : -1) * (cardW / 2)} ${A.y} H${B.x - (B.x > A.x ? 1 : -1) * (cardW / 2)}`;
-      else d = lr
-        ? `M${A.x + (k * cardW) / 2} ${A.y} C${(A.x + B.x) / 2} ${A.y} ${(A.x + B.x) / 2} ${B.y} ${B.x - (k * cardW) / 2} ${B.y}`
-        : `M${A.x} ${A.y + (k * CARD_H) / 2} C${A.x} ${(A.y + B.y) / 2} ${B.x} ${(A.y + B.y) / 2} ${B.x} ${B.y - (k * CARD_H) / 2}`;
+      else d = route(e.from, e.to, A, B, k);
     }
     // A control pill sits just above its node, clear of the neighbouring cards.
     const mid = e.kind === 'control' ? { x: B.x, y: B.y - CARD_H / 2 - (lr ? 16 : 10) } : { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };

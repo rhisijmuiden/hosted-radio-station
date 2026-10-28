@@ -12,13 +12,25 @@ import { readStreamsStatus } from '../services/streaming/status.js';
 import { stationAccess } from './stations.js';
 import { getSetting } from '../services/settings.js';
 import { serves } from '../services/nodes/dedication.js';
+import { studioDelivery } from '../services/nodes/delivery.js';
 
 const params = z.object({ id: z.uuid() });
 const ref = z.union([z.literal('local'), z.uuid()]);
 
 const choiceOut = z.object({ id: z.uuid(), name: z.string(), location: z.string(), online: z.boolean(), own: z.boolean() });
 const routingOut = z.object({
-  routing: z.object({ ingest: ref, backupIngest: ref.nullable(), relays: z.union([z.literal('auto'), z.array(z.uuid())]), spareRelays: z.boolean() }),
+  routing: z.object({ ingest: ref, backupIngest: ref.nullable(), relays: z.union([z.literal('auto'), z.array(z.uuid())]), spareRelays: z.boolean(), delivery: z.enum(['ingest', 'direct']) }),
+  /**
+   * A station on a station node (1.3): where the node sends its streams now. Through the ingests (it uploads once per
+   * ingest), or straight to every relay: chosen so, no ingest node can carry the station, or none is online.
+   */
+  studio: z
+    .object({
+      ingests: z.array(z.object({ id: z.uuid(), name: z.string(), online: z.boolean(), priority: z.number() })),
+      direct: z.enum(['chosen', 'update', 'none', 'offline', 'nocert', 'failing']).nullable(),
+      error: z.string().nullable(),
+    })
+    .nullable(),
   /** Why the routing cannot be changed here: the station runs on a station node, or its AutoDJ runs on this server. */
   locked: z.enum(['station_node']).nullable(),
   /** This server carries no audio (phase 18): it cannot be the ingest. */
@@ -49,7 +61,8 @@ export const stationRoutingRoutes: FastifyPluginAsyncZod = async (app) => {
   async function view(stationId: string, canEdit: boolean, tenantId: string, superadmin: boolean): Promise<z.infer<typeof routingOut>> {
     const [station] = await ctx.db.select().from(schema.stations).where(eq(schema.stations.id, stationId));
     if (!station) throw badRequest('Unknown station');
-    const nodes = (await ctx.db.select().from(schema.nodes).where(isNotNull(schema.nodes.pairedAt)).orderBy(asc(schema.nodes.name))).map((n) => ({ ...n, status: hub.liveStatus(n.id) ?? { ...n.status, online: false } }));
+    const rows = await ctx.db.select().from(schema.nodes).where(isNotNull(schema.nodes.pairedAt)).orderBy(asc(schema.nodes.name));
+    const nodes = rows.map((n) => ({ ...n, status: hub.liveStatus(n.id) ?? { ...n.status, online: false } }));
     const r = stationRouting(station);
     // Customers choose among their own nodes; platform nodes are the administrator's to hand out.
     // A dedicated node (1.1.1) is only offered to the customer or station it is dedicated to.
@@ -60,12 +73,17 @@ export const stationRoutingRoutes: FastifyPluginAsyncZod = async (app) => {
     const only = (await getSetting(ctx, 'orchestrator')).only;
     const onAir = (x: string) => (x === 'local' ? !!worker?.onAir[station.id]?.length : !!nodes.find((n) => n.id === x)?.status.ingest?.some((m) => m.stationId === station.id));
     const name = (x: string) => (x === 'local' ? 'local' : (nodes.find((n) => n.id === x)?.name ?? '?'));
-    const ingests = ingestsOf(r).map((i) => ({ ref: i.ref, priority: i.priority, name: name(i.ref), online: i.ref === 'local' ? !!worker?.alive : !!nodes.find((n) => n.id === i.ref)?.status.online, onAir: onAir(i.ref) }));
+    // The stored status, as the station node's package is built from it: the view shows the route the node gets.
+    const studio = station.nodeId ? studioDelivery(station, rows) : null;
+    // On a station node the ingests are the ones its streams go through (1.3), else the chosen ones.
+    const refs = studio ? studio.ingests.map((i) => ({ ref: i.node.id, priority: i.priority })) : ingestsOf(r);
+    const ingests = refs.map((i) => ({ ref: i.ref, priority: i.priority, name: name(i.ref), online: i.ref === 'local' ? !!worker?.alive : !!nodes.find((n) => n.id === i.ref)?.status.online, onAir: onAir(i.ref) }));
     const active = ingests.find((i) => i.onAir)?.ref ?? null;
     const carrying = relaysOf(station, relays);
     const chosen = r.relays === 'auto' ? null : new Set(r.relays);
     return {
       routing: r,
+      studio: studio && { ingests: studio.ingests.map((i) => ({ id: i.node.id, name: i.node.name, online: !!i.node.status.online, priority: i.priority })), direct: studio.direct, error: studio.error ?? null },
       locked: station.nodeId ? 'station_node' : null,
       orchestratorOnly: only,
       autodjHere: station.edition === 'station',
@@ -109,8 +127,10 @@ export const stationRoutingRoutes: FastifyPluginAsyncZod = async (app) => {
       const auth = requireUser(req);
       const superadmin = auth.user.isSuperadmin && !auth.keyTenantId;
       const current = stationRouting(station);
-      // A station node is its own ingest: only the relays it feeds can be chosen.
-      const body: StationRouting = station.nodeId ? { ...current, relays: req.body.relays, spareRelays: req.body.spareRelays } : { ...req.body };
+      // A station node takes its own encoders: its streams go through the chosen ingests ("local" = pick one) or
+      // straight to the relays (1.3).
+      const body: StationRouting = { ...req.body };
+      if (!station.nodeId) body.delivery = current.delivery;
       if (body.backupIngest === body.ingest) body.backupIngest = null;
       // Orchestrator only (phase 18): this server takes no encoders, also not as a backup.
       if (!station.nodeId && (body.ingest === 'local' || body.backupIngest === 'local') && (await getSetting(ctx, 'orchestrator')).only) throw badRequest('This server is set to orchestrator only and takes no encoders; choose an ingest node');
@@ -126,7 +146,8 @@ export const stationRoutingRoutes: FastifyPluginAsyncZod = async (app) => {
         if (!serves(n, station)) throw forbidden(`${n.name} is dedicated to another customer or station`);
         if (!n.tenantId && !superadmin && !kept(n.id)) throw forbidden('Only an administrator can assign the platform nodes');
       };
-      if (!station.nodeId) for (const i of [body.ingest, body.backupIngest]) if (i && i !== 'local') check(i, 'source');
+      for (const i of [body.ingest, body.backupIngest]) if (i && i !== 'local') check(i, 'source');
+      if (station.nodeId && body.backupIngest === 'local') body.backupIngest = null;
       if (body.relays !== 'auto') {
         body.relays = [...new Set(body.relays)];
         for (const id of body.relays) check(id, 'relay');

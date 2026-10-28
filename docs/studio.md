@@ -19,11 +19,35 @@ page, where you can unlink them; **Sign out** in the client revokes its key too.
 
 ## Live assist
 
-For stations with the Radio station edition. The top shows what is on air with the time left, and **Skip**. Below are
-**Q1** and **Q2** side by side: drag tracks to reorder them or move them to the other queue, or use the buttons that
-appear on hover (to the top, to the other queue, remove). The eraser empties the rotation of a queue; requests and
-tracks added by hand stay. Search the library on the right and drag a track onto a queue, or use the Q1/Q2 buttons
-(Shift = at the top); see *Library and preview* below.
+For stations with the Radio station edition. The screen has a narrow menu on the left (Assist, Live, Carts,
+Settings, and your account at the bottom) and a status bar at the bottom: the connection of your broadcast, the
+server and quality, the sound card input, the language, the theme and **Info**.
+
+The **top bar** shows the station (click it to switch), who is on air (you, another DJ, or the AutoDJ in Auto or
+Manual), the **next fixed block** of the format (news, commercials) with a countdown, the listeners and the clock.
+
+The **player** shows what is on air, when it ends and the time left in large figures, and on the line below it what
+comes next. **Next** starts the next line of the playlist at once (in Auto it skips the track on air).
+
+Below the jingle buttons is the **playlist**: one queue (server 1.3 and later), with the time each line starts.
+Drag tracks to reorder them, or use the buttons that appear on hover (to the top, remove). The eraser empties the
+rotation; requests and tracks added by hand stay. Search the library on the right and drag a track onto the
+playlist, or use **+** (Shift = at the top); see *Library and preview* below.
+
+The fixed blocks of the hour clock sit in the playlist at their minute, with a clock icon and their expected length.
+A block on the minute (*hard*) cuts the track that runs into it; another block waits for that track to end. The header
+**backtimes** to the next block: how much the track that runs into it is too long, or how much the playlist is too
+short to reach it. The lengths of news and commercials are estimates (the average track of their playlist).
+
+### Locked blocks
+
+An item of the hour clock can be **locked** (panel: *Hour clocks*, the *Locked* box on a playlist or track item), for
+example jingle, news, jingle. In the playlist a locked block has a lock. While a locked item is on air the player
+says *Locked*, and DJs cannot skip it (**Next** is off) or play something else over it (dropping on the player). The
+music the DJ adds waits in the playlist until the block is over. Managers and owners can still skip it after a
+question, in Studio and in the panel. It needs server 1.3.
+
+![A locked block in the playlist](screenshots/phase-17-locked-block-en.png)
 
 ### Auto and Manual
 
@@ -36,28 +60,16 @@ Manual stays on only while a studio PC is connected: the client checks in every 
 its connection, the server goes back to Auto by itself after 30 seconds and plays on with what is in the queues.
 Hard timed items of the hour clock (news on the hour) still start on their minute in Manual.
 
-### Taking turns
-
-Between the queues you choose how the AutoDJ takes turns: a ratio (**3 : 1**, change it with − and +), **Alternate**
-or one queue **first** (the other one only plays when it is empty). The arrow button swaps which queue leads
-(**Q1 → Q2** or **Q2 → Q1**). Below it the client shows from which queue the next track comes. It is the same setting
-as *Pick rule* on the station's AutoDJ page in the panel.
-
-### Schedule
-
-The left menu shows the format of the coming hours, from the hour clocks and schedule set in the panel. Items of the
-format (station ID, news, commercials) have a lock and their own colour; the stretches where your queues play are
-blue. The item the player is at has a frame, and what already played is dimmed.
-
 The level meter at the right edge shows the stream this PC sends while you are live.
 
-These features need server version 1.1 or newer; on an older server the client says the server needs an update.
+The countdown, the fixed blocks and backtiming need server 1.1 or newer (expected lengths: 1.3); on an older server
+the client says the server needs an update.
 
 ### Library and preview
 
 The panel on the right has three sources:
 
-- **Server**: the station library. Search, drag a track onto a queue or use Q1/Q2.
+- **Server**: the station library. Search, drag a track onto the playlist or use +.
 - **Network**: the network shares you added under *Settings › Network shares* (for example `\\nas\music`). They
   open with the Windows sign-in of the PC, like in Explorer.
 - **This PC**: the drives of the PC, including a USB stick and mapped network drives.
@@ -66,12 +78,36 @@ The headphones button plays a track on the **preview output** (*Settings › Pre
 and not on the output of the cart wall unless you choose the same sound card. The bar at the bottom of the panel has
 pause, stop and a position slider.
 
-Drag a track onto the **player** (the Now playing card) to play it now: from Q1/Q2, the library or this PC. The track
+Drag a track onto the **player** (the Now playing card) to play it now: from the playlist, the library or this PC. The track
 on air fades out and the dropped track starts at once, in Auto and in Manual. It needs server 1.1.
 
-A file from the network or this PC goes on air through the station library: Q1/Q2 or dragging it onto a queue uploads
-it to the library, waits until the server has read its tags and then puts it in the queue. This needs the manager or
+A file from the network or this PC goes on air through the station library: + or dragging it onto the playlist uploads
+it to the library, waits until the server has read its tags and then puts it in the playlist. This needs the manager or
 owner role (it counts towards the storage of the station); DJs can preview local files.
+
+### Cue points
+
+The waveform button on a track (in the playlist and in the server library) opens the **cue editor**. It shows the
+whole track and, below it, a zoomed view around the point you work on. Five cue points, stored on the server per
+track so the AutoDJ and every studio use them:
+
+| Point | Key | What it does |
+| --- | --- | --- |
+| Cue in | 1 | The AutoDJ starts the track here (silence or a long count-in is skipped). |
+| Intro | 2 | Where the vocals start. The player counts down to it, so the DJ can talk up the intro. |
+| Next track | 3 | The segue: the next track starts here, mixed over the end of this one (with crossfade). Without crossfade the track stops here. At most 30 seconds before cue out. |
+| Fade out | 4 | With crossfade: the track fades from here to cue out. |
+| Cue out | 5 | The track stops here. |
+
+Click the waveform to move the playhead, Space plays and pauses (on the preview output, off air), keys 1 to 5 put a
+point on the playhead, and a line can be dragged. **Listen from here** plays from a point (a few seconds before the
+segue, fade and cue out); **Hear the transition** plays the last seconds before the segue. Save stores the points; the
+AutoDJ uses them from the next time the track plays. Lengths and start times in the playlist count from cue in to the
+segue (or cue out), and the player shows the seconds left of the intro next to the remaining time.
+
+Cue points need server 1.3 and the manager or owner role, like adding tracks to the library.
+
+![The cue editor](screenshots/phase-17-cue-editor-en.png)
 
 ### Jingle buttons
 
@@ -95,6 +131,32 @@ It needs server 1.1 (`/api/studio/stations/:id/jingles`, at most 25 MB per file)
 3. Press **Go live**. The client asks the server for a temporary encoder password for your DJ account (valid 12
    hours), so you never type it. It connects over TLS when the server has a certificate, and reconnects by itself when
    the connection drops. A refusal (outside your show, wrong mount) is shown and not retried.
+
+When Windows does not trust the certificate of the encoder address (for example a name without a public
+certificate yet), the client shows the error with **Connect without encryption**, if the server has a plain port.
+The temporary password then goes over the network readable. The choice is kept for that address; *Try encrypted
+again* under *Connection* undoes it.
+
+### Connection to a station node
+
+When the station runs on a [station node](station-nodes.md) in the studio, the node has two addresses: its address
+on the studio network and its public address. **Settings › Connection** shows both, whether the node answers on the
+studio network, and which one Go live uses. *Connect via*:
+
+- **Automatic** (default): the studio network when the node answers there, otherwise the internet. The client checks
+  again at every Go live, so a studio PC goes live over the LAN in the studio and over the internet at home, and a
+  studio keeps broadcasting when its internet connection drops.
+- **Studio network** or **Internet**: always that address.
+- **Manual address**: an address and port of your own (for example another LAN address or a port forward), with or
+  without TLS.
+
+The studio network address is the node's *Address on the studio network* from the panel, or else the first address
+the node reports. It is always plain (a LAN address has no public certificate). The public address uses TLS when it
+is a public name with a certificate. The Go live page shows the address in use and how it was chosen.
+
+![Settings › Connection](screenshots/phase-17-connection-en.png)
+
+![Go live over the internet, chosen automatically](screenshots/phase-17-live-internet-en.png)
 
 DJs can only broadcast with the DJ account linked to their own user; managers and owners can use any account of the
 station. The server's normal rules apply: show times, mount limits and bitrate limits.

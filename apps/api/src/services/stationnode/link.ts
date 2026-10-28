@@ -9,6 +9,7 @@ import { schema } from '../../db/index.js';
 import { TUNNEL_CALL_TOKEN } from '../../lib/auth.js';
 import type { AppContext } from '../../lib/context.js';
 import { mediaDir } from '../streaming/icecast.js';
+import { getSetting, putSetting } from '../settings.js';
 import { applyStreams, stationStats } from '../streaming/state.js';
 import { scanStationStorage } from '../streaming/storage.js';
 import { workerStatusPath, workerStatusSchema } from '../streaming/status.js';
@@ -162,6 +163,9 @@ export class StationNodeLink {
     }
     this.active = r.active.filter((id) => this.seeded.has(id));
     for (const id of r.moving) if (!this.preparing.has(id)) this.prepare(id);
+    // Old ports (port plan, 1.3): switched on or off for this node on the main server.
+    const o = await getSetting(this.ctx, 'orchestrator');
+    if (pkg.oldPorts !== undefined && o.oldPorts !== pkg.oldPorts) await putSetting(this.ctx, 'orchestrator', { ...o, oldPorts: pkg.oldPorts });
     await applyStreams(this.ctx, { stationIds: [...r.stationIds], by: 'main server' });
     this.log.info({ revision: pkg.revision, active: r.active.length, moving: r.moving.length, removed: r.removed.length }, 'station package applied');
   }
@@ -331,11 +335,12 @@ export class StationNodeLink {
       const [stats, encoders, outputs] = await Promise.all([
         stationStats(this.ctx, station),
         this.ctx.db.select({ n: sql<number>`count(*)::int` }).from(schema.liveSessions).where(and(eq(schema.liveSessions.stationId, id), isNull(schema.liveSessions.endedAt))),
-        this.ctx.db.select().from(schema.stationOutputs).where(and(eq(schema.stationOutputs.stationId, id), isNotNull(sql`${schema.stationOutputs.config}->>'relayNodeId'`))),
+        this.ctx.db.select().from(schema.stationOutputs).where(and(eq(schema.stationOutputs.stationId, id), sql`coalesce(${schema.stationOutputs.config}->>'relayNodeId', ${schema.stationOutputs.config}->>'ingestNodeId') is not null`)),
       ]);
       const relays: MirrorBatch['runtime'][string]['relays'] = {};
       for (const o of outputs) {
-        const relayId = o.config.relayNodeId!;
+        // Pushes to an ingest (1.3) show under the ingest node.
+        const relayId = (o.config.relayNodeId ?? o.config.ingestNodeId)!;
         const state = o.status?.state ?? 'idle';
         // One relay can take several mounts: the worst state counts.
         const rank = { error: 3, connecting: 2, idle: 1, connected: 0 } as const;

@@ -1,16 +1,18 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowUp, Folder, HardDrive, Headphones, ListMusic, Network, Pause, Play, Search, Server, Square, X } from 'lucide-react';
+import { ArrowUp, Folder, HardDrive, Headphones, ListMusic, Network, Pause, Play, Plus, Search, Server, Square, X } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { api, getApiKey, type Media } from '../lib/api';
 import { duration } from '../lib/format';
 import { call, type Folder as FolderData, type FolderEntry, type PreviewState } from '../lib/native';
-import { useSession } from '../lib/session';
+import { useCanUpload } from '../lib/session';
 import { getSettings, useSettings } from '../lib/settings';
+import { CueButton, CueEditor, hasCues, useCanCue } from './CueEditor';
 import { Card, EmptyState, Input, Spinner } from './ui';
 
+/** Since server 1.3 there is one queue; the API still names it `q1`. */
 export type QueueName = 'q1' | 'q2';
 export type AddToQueue = (v: { mediaId: string; queue: QueueName; at: 'top' | 'bottom' }) => void;
 export const DRAG_MEDIA = 'application/x-hrs-media';
@@ -22,12 +24,7 @@ export const DRAG_FILE = 'application/x-hrs-file';
 const baseName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 const extOf = (path: string) => (/\.([a-z0-9]{1,5})$/i.exec(path)?.[1] ?? '').toLowerCase();
 
-/** Managers and owners may add tracks to the station library; DJs can only listen to local files. */
-export function useCanUpload() {
-  const { me, station } = useSession();
-  if (!me || !station) return false;
-  return me.user.isSuperadmin || me.memberships.some((m) => m.tenantName === station.tenantName && (m.role === 'owner' || m.role === 'manager'));
-}
+export { useCanUpload };
 
 /**
  * A local file into a queue: uploaded to the station library, then queued once the server has scanned it (a few
@@ -97,21 +94,18 @@ function PreviewButton({ onClick, active, label }: { onClick: () => void; active
   );
 }
 
+/** Into the playlist: at the bottom, or at the top with Shift. */
 function QueueButtons({ onAdd }: { onAdd: (queue: QueueName, top: boolean) => void }) {
   const { t } = useTranslation();
   return (
-    <div className="flex gap-1">
-      {(['q1', 'q2'] as const).map((qn) => (
-        <button
-          key={qn}
-          onClick={(e) => onAdd(qn, e.shiftKey)}
-          title={t('assist.addTo', { queue: qn.toUpperCase() })}
-          className="rounded border border-line px-1.5 py-0.5 text-[10px] font-bold text-muted hover:border-koraal hover:text-ink"
-        >
-          {qn.toUpperCase()}
-        </button>
-      ))}
-    </div>
+    <button
+      onClick={(e) => onAdd('q1', e.shiftKey)}
+      title={t('assist.addToPlaylist')}
+      aria-label={t('assist.addToPlaylist')}
+      className="grid size-6 place-items-center rounded bg-koraal text-nacht hover:brightness-95"
+    >
+      <Plus className="size-3.5" />
+    </button>
   );
 }
 
@@ -133,6 +127,8 @@ function SearchBox({ value, onChange, placeholder }: { value: string; onChange: 
 function ServerList({ stationId, add, preview, playing }: { stationId: string; add: AddToQueue; preview: (m: Media) => void; playing: string | null }) {
   const { t } = useTranslation();
   const [q, setQ] = useState('');
+  const canCue = useCanCue();
+  const [cue, setCue] = useState<Media | null>(null);
   const search = useQuery({
     queryKey: ['library', stationId, q],
     queryFn: () => api<{ items: Media[]; total: number }>(`/stations/${stationId}/library?enabled=yes&limit=60&sort=artist&q=${encodeURIComponent(q)}`),
@@ -169,11 +165,13 @@ function ServerList({ stationId, add, preview, playing }: { stationId: string; a
               </div>
               <span className="text-xs text-muted tabular">{duration(m.durationSeconds)}</span>
               <PreviewButton onClick={() => preview(m)} active={playing === m.id} label={t('library.preview')} />
+              {canCue && <CueButton onClick={() => setCue(m)} set={hasCues(m)} />}
               <QueueButtons onAdd={(queue, top) => add({ mediaId: m.id, queue, at: top ? 'top' : 'bottom' })} />
             </div>
           ))
         )}
       </div>
+      {cue && <CueEditor stationId={stationId} track={cue} onClose={() => setCue(null)} />}
     </>
   );
 }

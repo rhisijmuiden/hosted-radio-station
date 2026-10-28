@@ -275,7 +275,7 @@ export class RelayManager {
     this.push = new PushReceiver({ ...ctx, inherit: (key) => this.takeHandover(key) });
   }
 
-  apply(mounts: RelayMount[], pushPort: number | null = null) {
+  apply(mounts: RelayMount[], pushPort: number | number[] | null = null) {
     this.mounts = mounts;
     const handedBack = new Map<string, net.Socket>();
     void this.push.apply(pushPort, mounts, (key, local) => handedBack.set(key, local)).catch((err) => log.error('push port failed', { err }));

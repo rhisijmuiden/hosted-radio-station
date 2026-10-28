@@ -217,6 +217,7 @@ export class NodeHub {
       cores: Number(msg.facts?.cores) || undefined,
       addresses: Array.isArray(msg.facts?.addresses) ? msg.facts.addresses.slice(0, 10).map(String) : [],
       ffmpeg: !!msg.facts?.ffmpeg,
+      features: Array.isArray(msg.facts?.features) ? msg.facts.features.slice(0, 20).map((x) => String(x).slice(0, 40)) : [],
       soundcards: Array.isArray(msg.facts?.soundcards) ? msg.facts.soundcards.slice(0, 16).map((c) => ({ device: String(c?.device ?? '').slice(0, 100), name: String(c?.name ?? '').slice(0, 120) })) : [],
       ip,
       country: geo?.country ?? null,
@@ -323,6 +324,7 @@ export class NodeHub {
       s.latitude = geo?.latitude ?? null;
       s.longitude = geo?.longitude ?? null;
     }
+    if (Array.isArray(m.certs)) s.certs = m.certs.slice(0, 50).map((x) => String(x).slice(0, 253).toLowerCase());
     s.icmp = m.icmp && typeof m.icmp === 'object' ? { rttMs: num(m.icmp.rttMs) ?? null, loss: num(m.icmp.loss, 1) ?? 0 } : null;
     if (Array.isArray(m.ingest)) {
       const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : null);

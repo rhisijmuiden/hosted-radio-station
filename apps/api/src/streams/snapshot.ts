@@ -43,6 +43,8 @@ export interface Snapshot {
   sourceNodes: Map<string, { id: string; tenantId: string | null; roles: string[]; config: NodeConfig; secret: string }>;
   /** Orchestrator only (phase 18): no encoders, no audio on this server. */
   orchestratorOnly: boolean;
+  /** The encoder ports from before the port plan (8010 and 8443) stay open next to the configured ones (1.3). */
+  oldPorts: boolean;
 }
 
 export async function loadSnapshot(ctx: AppContext): Promise<Snapshot> {
@@ -128,6 +130,7 @@ export async function loadSnapshot(ctx: AppContext): Promise<Snapshot> {
     hostTenant,
     sourceNodes,
     orchestratorOnly: orchestrator.only,
+    oldPorts: orchestrator.oldPorts,
   };
 }
 
@@ -153,6 +156,12 @@ export function resolveMount(snap: Snapshot, host: string | null, path: string):
       .filter((v) => v.tenantId === tenantId)
       .map((v) => ok(v, `/${parts.join('/')}`))
       .filter((x): x is NonNullable<typeof x> => !!x);
+    if (matches.length === 1) return matches[0]!;
+  }
+  // A bare mount (/live) when one station here takes it: a station node runs the stations of one customer, and RHIS
+  // Studio and the panel give its encoders the mount without the station in front.
+  if (parts.length >= 1) {
+    const matches = [...snap.stations.values()].map((v) => ok(v, `/${parts.join('/')}`)).filter((x): x is NonNullable<typeof x> => !!x);
     if (matches.length === 1) return matches[0]!;
   }
   return null;

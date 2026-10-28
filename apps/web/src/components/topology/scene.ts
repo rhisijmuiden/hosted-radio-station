@@ -203,6 +203,8 @@ export class TopologyScene {
   private raycaster = new THREE.Raycaster();
   private reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   private fitted = false;
+  /** Every control line, or only those of the selected block. */
+  private control = true;
 
   constructor(
     private readonly host: HTMLElement,
@@ -274,6 +276,19 @@ export class TopologyScene {
     this.setData(this.data);
   }
 
+  /** Draw the control line to every node, not only to the selected one. */
+  setControl(on: boolean) {
+    if (on === this.control) return;
+    this.control = on;
+    this.structure = '';
+    this.setData(this.data);
+  }
+
+  /** Server labels on or off; the label of the selected block always stays. */
+  setLabels(on: boolean) {
+    this.labels.domElement.classList.toggle('topo-labels-off', !on);
+  }
+
   setData(data: SceneData) {
     this.data = data;
     const bucket = (n: number) => (n <= 0 ? 0 : Math.ceil(Math.log2(1 + n) * 2));
@@ -313,6 +328,11 @@ export class TopologyScene {
   // Building
 
   private clear() {
+    // Labels are HTML on top of the canvas: take them out by hand, or the old ones stay behind where they last stood
+    // (three only removes the element of a label that is removed itself, not one inside a removed group).
+    this.content.traverse((o) => {
+      if (o instanceof CSS2DObject) o.element.remove();
+    });
     this.content.traverse((o) => {
       const m = o as THREE.Mesh;
       m.geometry?.dispose();
@@ -476,7 +496,8 @@ export class TopologyScene {
 
   private label(node: SceneNode, at: THREE.Vector3) {
     const el = document.createElement('div');
-    el.className = 'topo-label';
+    // With nothing selected the side panel shows the orchestrator, so its label counts as the selected one.
+    el.className = node.id === this.selected || (!this.selected && node.kind === 'main') ? 'topo-label selected' : 'topo-label';
     el.style.opacity = node.dim ? '0.45' : '1';
     el.innerHTML = this.labelHtml(node);
     el.dataset.id = node.id;
@@ -532,19 +553,21 @@ export class TopologyScene {
       const end = other.pos.clone().setY(other.h + 0.05);
       const curve = new THREE.LineCurve3(start, end);
       const focus = this.selected === l.from || this.selected === l.to;
-      const opacity = l.dim ? 0.06 : l.state === 'down' ? 0.15 : focus ? 0.6 : 0.22;
-      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([start, end]), new THREE.LineDashedMaterial({ color: l.state === 'down' ? p.muted : color, dashSize: 0.3, gapSize: 0.3, transparent: true, opacity, depthWrite: false }));
+      if (!this.control && !focus) return;
+      const opacity = l.dim ? 0.06 : l.state === 'down' ? 0.2 : focus ? 0.75 : 0.5;
+      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([start, end]), new THREE.LineDashedMaterial({ color: l.state === 'down' ? p.muted : color, dashSize: 0.35, gapSize: 0.25, transparent: true, opacity, depthWrite: false }));
       line.computeLineDistances();
       this.content.add(line);
       if (focus && l.state !== 'down' && !l.dim) this.addDots(curve, 1, 0.09, color, 0.3, true);
       if (l.label && focus && !l.dim) this.addPill(l, curve.getPointAt(0.85));
       return;
     }
-    // Audio: a light trail over the floor, from the front of one tower to the back of the next.
-    const start = a.pos.clone().setY(0.12).add(new THREE.Vector3(a.w / 2, 0, 0));
-    const end = b.pos.clone().setY(0.12).sub(new THREE.Vector3(b.w / 2, 0, 0));
-    const mid = start.clone().lerp(end, 0.5).setY(0.12 + 0.25 + start.distanceTo(end) * 0.02);
-    const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
+    // Audio: a light trail over the floor, from the facing side of one tower to the facing side of the other, around
+    // every tower in between.
+    const k = b.pos.x < a.pos.x ? -1 : 1;
+    const start = a.pos.clone().setY(0.12).add(new THREE.Vector3((k * a.w) / 2, 0, 0));
+    const end = b.pos.clone().setY(0.12).sub(new THREE.Vector3((k * b.w) / 2, 0, 0));
+    const curve = this.route(start, end, [a, b]);
     const radius = 0.02 + (l.width ?? 2.5) * 0.012;
     const opacity = l.dim ? 0.1 : l.state === 'down' ? 0.25 : l.standby ? 0.35 : 0.8;
     if (l.standby) {
@@ -560,6 +583,33 @@ export class TopologyScene {
       if (l.state !== 'down' && !l.dim) this.addDots(curve, 4, 0.11, color, 0.32, false);
     }
     if (l.label && !l.dim) this.addPill(l, curve.getPointAt(0.5).setY(0.6));
+  }
+
+  /**
+   * The path of a trail over the floor. A straight arc when nothing stands in the way; otherwise it passes each tower in
+   * between through the gap beside it (towers in a lane stand GAP apart, so halfway is free).
+   */
+  private route(start: THREE.Vector3, end: THREE.Vector3, skip: Placed[]): THREE.Curve<THREE.Vector3> {
+    const k = end.x < start.x ? -1 : 1;
+    const towers = [...this.placed.values()]
+      .filter((x) => x.node.kind !== 'main' && !skip.includes(x) && (x.pos.x - start.x) * k > 0 && (end.x - x.pos.x) * k > 0)
+      .sort((x, y) => (x.pos.x - y.pos.x) * k);
+    const points = [start];
+    for (const o of towers) {
+      const from = points[points.length - 1]!;
+      const z = from.z + ((o.pos.x - from.x) / (end.x - from.x)) * (end.z - from.z);
+      if (Math.abs(z - o.pos.z) >= o.w / 2 + 0.6) continue;
+      const side = Math.sign(z - o.pos.z) || Math.sign(end.z - o.pos.z) || 1;
+      const gz = o.pos.z + side * Math.max(GAP / 2, o.w / 2 + 1);
+      const reach = o.w / 2 + 0.5;
+      points.push(new THREE.Vector3(o.pos.x - k * reach, 0.3, gz), new THREE.Vector3(o.pos.x + k * reach, 0.3, gz));
+    }
+    if (points.length === 1) {
+      const mid = start.clone().lerp(end, 0.5).setY(0.12 + 0.25 + start.distanceTo(end) * 0.02);
+      return new THREE.QuadraticBezierCurve3(start, mid, end);
+    }
+    points.push(end);
+    return new THREE.CatmullRomCurve3(points, false, 'centripetal');
   }
 
   private addDots(curve: THREE.Curve<THREE.Vector3>, n: number, size: number, color: string, speed: number, pingPong: boolean) {

@@ -15,6 +15,7 @@ import { nodeEvent } from '../services/nodes/hub.js';
 import { hashCode, installCommand, MAX_PENDING, nameFromHostname, newPairingCode, newRegistrationCode, PAIRING_HOURS } from '../services/nodes/pairing.js';
 import { carried, nodeConfigPatch, nodeConfigSchema, type NodeConfigPatch, nodeSettings, relayBaseUrl, relaysByStation, relaysOf, storedConfig, type Node } from '../services/nodes/plan.js';
 import { scopeOf, serves } from '../services/nodes/dedication.js';
+import { plannedIngests, studioDelivery } from '../services/nodes/delivery.js';
 import { ingestNodes, ingestsOf, localIngest, pushedRouting, stationRouting } from '../services/nodes/routing-rules.js';
 import { readStreamsStatus } from '../services/streaming/status.js';
 import { authenticateNode, reportSchema, storeReport } from '../services/nodes/report.js';
@@ -61,6 +62,9 @@ const statusOut = z
     update: z.object({ state: z.enum(['idle', 'running', 'succeeded', 'failed']), message: z.string().optional(), at: z.string().optional() }).nullish(),
     ffmpeg: z.boolean().optional(),
     soundcards: z.array(z.object({ device: z.string(), name: z.string() })).optional(),
+    /** Names the node holds a valid certificate for, and what its software can do (1.3). */
+    certs: z.array(z.string()).optional(),
+    features: z.array(z.string()).optional(),
     fm: z
       .object({
         input: z.enum(['idle', 'connecting', 'connected', 'error']),
@@ -815,7 +819,8 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
     const scopeSet = scope ? new Set(scope) : null;
     const pairedRelayNodes = allNodes.filter((n) => n.pairedAt && n.roles.includes('relay')).map((n) => ({ ...n, status: hub.liveStatus(n.id) ?? { ...n.status, online: false } }));
     // A customer sees its own nodes, the relays that carry its stations and the ingest nodes they use.
-    const usedIngest = new Set(stations.flatMap((s) => ingestNodes(stationRouting(s)).map((i) => i.ref)));
+    // A station on a station node uses the ingests it is routed through (1.3).
+    const usedIngest = new Set(stations.flatMap((s) => (s.nodeId ? (plannedIngests(s, allNodes) ?? []).map((i) => i.node.id) : ingestNodes(stationRouting(s)).map((i) => i.ref))));
     const nodes = allNodes.filter((n) => {
       if (!scopeSet) return true;
       if (n.tenantId && scopeSet.has(n.tenantId)) return true;
@@ -1049,8 +1054,9 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       const from = s.nodeId || pushedRouting(stationRouting(s)) ? relaysOf(s, pairedRelayNodes).find((r) => byId.get(r.id)?.online)?.id : 'local:relay';
       if (from) link({ from, to: n.id, kind: 'stream', active: n.online, degraded: n.degraded, rttMs: null, loss: null });
     }
-    // A station node pushes the streams of its stations straight to the relays that carry them.
+    // A station node sends the streams of its stations through its ingest(s) (1.3), or straight to the relays.
     const relayMap = await relaysByStation(ctx);
+    const liveNodes = allNodes.map((x) => ({ ...x, status: statusOf(x.id) }));
     for (const n of nodeOutList) {
       if (!n.paired || !n.roles.includes('station')) continue;
       const mine = stations.filter((s) => s.nodeId === n.id);
@@ -1059,11 +1065,32 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         const rt = runtime.find((x) => x.id === s.id)?.runtime ?? null;
         const relayIds = (relayMap.get(s.id) ?? []).map((r: Node) => r.id).filter((id) => byId.has(id));
         const cells: Record<string, Cell> = { [n.id]: !n.online ? 'down' : rt?.mounts.length ? 'onAir' : 'idle' };
-        for (const relayId of relayIds) {
-          const state = rt?.relays[relayId]?.state;
-          const c = carriedOn(relayId, s.slug);
-          cells[relayId] = !byId.get(relayId)?.online ? 'down' : state === 'error' ? 'degraded' : c.streams ? 'onAir' : 'idle';
-          link({ from: n.id, to: relayId, kind: 'stream', active: n.online && state === 'connected', degraded: state === 'error', rttMs: null, loss: null, streams: Math.max(1, c.streams), kbps: c.kbps });
+        const via = studioDelivery({ ...s, nodeRuntime: rt }, liveNodes).ingests.map((i) => i.node.id).filter((id) => byId.has(id));
+        let from: string | null = n.online && rt?.mounts.length ? n.id : null;
+        if (via.length) {
+          for (const [i, id] of via.entries()) {
+            const state = rt?.relays[id]?.state;
+            cells[id] = !byId.get(id)?.online ? 'down' : state === 'error' ? 'degraded' : state === 'connected' ? (i === 0 ? 'onAir' : 'standby') : 'idle';
+            link({ from: n.id, to: id, kind: 'stream', active: n.online && state === 'connected', degraded: state === 'error', rttMs: null, loss: null, standby: i > 0 });
+          }
+          // The relays hear the first ingest that has the station on air; the other one feeds them on standby.
+          const onAir = (id: string) => !!statusOf(id).online && !!statusOf(id).ingest?.some((m) => m.stationId === s.id);
+          from = via.find(onAir) ?? null;
+          for (const relayId of relayIds) cells[relayId] = relayCell(relayId, s.slug);
+          for (const id of via.filter(onAir)) {
+            for (const relay of relayIds) {
+              const c = carriedOn(relay, s.slug);
+              if (id === from && c.streams) link({ from: id, to: relay, kind: 'stream', active: !!byId.get(relay)?.online, degraded: false, rttMs: null, loss: null, streams: c.streams, kbps: c.kbps });
+              else if (id !== from && (statusOf(id).ingest ?? []).some((m) => m.stationId === s.id && m.pushing.includes(relay))) link({ from: id, to: relay, kind: 'stream', active: true, degraded: false, rttMs: null, loss: null, standby: true });
+            }
+          }
+        } else {
+          for (const relayId of relayIds) {
+            const state = rt?.relays[relayId]?.state;
+            const c = carriedOn(relayId, s.slug);
+            cells[relayId] = !byId.get(relayId)?.online ? 'down' : state === 'error' ? 'degraded' : c.streams ? 'onAir' : 'idle';
+            link({ from: n.id, to: relayId, kind: 'stream', active: n.online && state === 'connected', degraded: state === 'error', rttMs: null, loss: null, streams: Math.max(1, c.streams), kbps: c.kbps });
+          }
         }
         stationsOut.push({
           id: s.id,
@@ -1071,9 +1098,9 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
           tenantId: admin ? s.tenantId : null,
           edition: s.edition,
           stationNode: n.id,
-          ingest: n.id,
-          backup: null,
-          active: n.online && rt?.mounts.length ? n.id : null,
+          ingest: via[0] ?? n.id,
+          backup: via[1] ?? null,
+          active: from,
           relays: relayIds,
           listeners: listenersOf(s.id),
           cells,

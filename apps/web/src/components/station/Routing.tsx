@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import clsx from 'clsx';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -63,6 +64,13 @@ export function RoutingCard({ station }: { station: StationDetail }) {
       ))}
     </>
   );
+  const ingestNodeOptions = v.options.ingests.map((n) => (
+    <option key={n.id} value={n.id}>
+      {n.name}
+      {n.location ? ` · ${n.location}` : ''}
+      {n.online ? '' : ` (${t('nodes.health.offline')})`}
+    </option>
+  ));
   const statusText = (ref: string) => {
     const s = ingestStatus(ref);
     if (!s) return '';
@@ -88,6 +96,44 @@ export function RoutingCard({ station }: { station: StationDetail }) {
                   {ingestOptions}
                 </Select>
               </Field>
+            </div>
+          )}
+          {/* A station node sends its streams through the ingests by default, or straight to the relays (1.3). */}
+          {v.locked && (
+            <div className="flex flex-col gap-3">
+              <div className="text-sm font-semibold">{t('routing.delivery.title')}</div>
+              <Segmented
+                value={form.delivery}
+                onChange={(x) => edit && setForm({ ...form, delivery: x as StationRouting['delivery'] })}
+                options={[
+                  { value: 'ingest', label: t('routing.delivery.ingest'), description: t('routing.delivery.ingestHint') },
+                  { value: 'direct', label: t('routing.delivery.direct'), description: t('routing.delivery.directHint') },
+                ]}
+              />
+              {form.delivery === 'ingest' && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label={t('routing.mainIngest')} hint={t('routing.delivery.mainHint')}>
+                    <Select value={form.ingest} disabled={!edit} onChange={(e) => setForm({ ...form, ingest: e.target.value, backupIngest: form.backupIngest === e.target.value ? null : form.backupIngest })}>
+                      <option value="local">{t('routing.delivery.auto')}</option>
+                      {ingestNodeOptions}
+                    </Select>
+                  </Field>
+                  <Field label={t('routing.backupIngest')} hint={t('routing.delivery.backupHint')}>
+                    <Select value={form.backupIngest ?? ''} disabled={!edit} onChange={(e) => setForm({ ...form, backupIngest: e.target.value || null })}>
+                      <option value="">{t('routing.noBackup')}</option>
+                      {ingestNodeOptions}
+                    </Select>
+                  </Field>
+                </div>
+              )}
+              {v.studio && (
+                <p className={clsx('rounded-md border px-3 py-2 text-[13px]', v.studio.direct && v.studio.direct !== 'chosen' ? 'border-warning/40 bg-warning/10' : 'border-line')}>
+                  {v.studio.direct
+                    ? t(`routing.delivery.now.${v.studio.direct}`)
+                    : t('routing.delivery.now.ingest', { names: v.studio.ingests.map((i) => i.name).join(` ${t('routing.delivery.and')} `), count: v.studio.ingests.length })}
+                  {v.studio.error && <span className="mt-1 block font-mono text-xs text-muted">{t('routing.delivery.lastError', { error: v.studio.error })}</span>}
+                </p>
+              )}
             </div>
           )}
           {!!v.stale.length && (
@@ -137,6 +183,17 @@ export function RoutingCard({ station }: { station: StationDetail }) {
       <Card>
         <CardHeader title={t('routing.live')} description={t('routing.liveHint')} />
         <Table head={[t('routing.col.part'), t('routing.col.name'), t('routing.col.state')]}>
+          {(v.studio?.ingests ?? []).map((i) => (
+            <tr key={i.id}>
+              <td className="text-[13px] text-muted">{i.priority === 0 ? t('routing.main') : t('routing.backup')}</td>
+              <td className="text-[13px] font-semibold">{i.name}</td>
+              <td>
+                <Badge tone={i.online ? 'online' : 'offline'} dot>
+                  {t(i.online ? 'nodes.health.online' : 'nodes.health.offline')}
+                </Badge>
+              </td>
+            </tr>
+          ))}
           {(v.locked ? [] : v.status.ingests).map((i) => (
             <tr key={i.ref}>
               <td className="text-[13px] text-muted">{i.priority === 0 ? t('routing.main') : t('routing.backup')}</td>

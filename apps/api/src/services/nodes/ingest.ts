@@ -1,4 +1,5 @@
-import { and, eq, isNull, notInArray, sql } from 'drizzle-orm';
+import { timingSafeEqual } from 'node:crypto';
+import { and, eq, isNotNull, isNull, notInArray, sql } from 'drizzle-orm';
 import { schema } from '../../db/index.js';
 import type { AppContext } from '../../lib/context.js';
 import { NOWPLAYING_CHANNEL } from '../public/hub.js';
@@ -6,6 +7,7 @@ import { authenticateSource, type OutsideShow } from '../streaming/sources.js';
 import { autodjMount } from '../streaming/state.js';
 import type { AgentAuth, AgentLive, AuthResult } from './protocol.js';
 import { serves } from './dedication.js';
+import { plannedIngests, STUDIO_USER, studioToken } from './delivery.js';
 import { ingestsOf, stationRouting } from './routing-rules.js';
 
 const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -18,12 +20,18 @@ async function routedStation(ctx: AppContext, node: { id: string; tenantId: stri
     .from(schema.stations)
     .innerJoin(schema.tenants, eq(schema.tenants.id, schema.stations.tenantId))
     .where(eq(schema.stations.id, stationId));
-  if (!row || !row.s.enabled || !row.active || row.s.nodeId) return null;
+  if (!row || !row.s.enabled || !row.active) return null;
   // A dedicated node (1.1.1) only takes encoders of its customer or station; its settings may have changed since it connected.
   const [own] = await ctx.db.select({ id: schema.nodes.id, tenantId: schema.nodes.tenantId, roles: schema.nodes.roles, config: schema.nodes.config }).from(schema.nodes).where(eq(schema.nodes.id, node.id));
   if (!own || !serves(own, row.s)) return null;
+  if (row.s.nodeId) {
+    // A station on a station node (1.3): only when the node sends its streams through this ingest.
+    const paired = await ctx.db.select().from(schema.nodes).where(isNotNull(schema.nodes.pairedAt));
+    if (!(plannedIngests(row.s, paired) ?? []).some((i) => i.node.id === node.id)) return null;
+    return { ...row, studio: paired.find((n) => n.id === row.s.nodeId) ?? null };
+  }
   if (!ingestsOf(stationRouting(row.s)).some((i) => i.ref === node.id)) return null;
-  return row;
+  return { ...row, studio: null };
 }
 
 /**
@@ -36,6 +44,16 @@ export async function authorizeIngest(ctx: AppContext, node: { id: string; tenan
   if (!row) return no('This node does not take encoders for this station.');
   const mounts = await ctx.db.select().from(schema.stationMounts).where(eq(schema.stationMounts.stationId, row.s.id));
   const auto = autodjMount(row.s, mounts);
+  if (row.s.nodeId) {
+    // The station node itself, with the token of its station (DJs connect to the station node, never here). Its AutoDJ
+    // mount comes along too.
+    const mount = mounts.find((x) => x.path === m.mount && x.kind === 'source');
+    if (!mount) return no(`Unknown mount ${String(m.mount).slice(0, 64)}`);
+    const want = row.studio ? studioToken(ctx, row.studio, row.s.id) : '';
+    const pass = String(m.pass ?? '');
+    if (m.user !== STUDIO_USER || !want || pass.length !== want.length || !timingSafeEqual(Buffer.from(pass), Buffer.from(want))) return no('Invalid user name or password');
+    return { t: 'auth_result', id: m.id, ok: true, accountName: row.studio!.name, limitKbps: 0 };
+  }
   const mount = mounts.find((x) => x.path === m.mount && x.kind === 'source' && x.id !== auto?.id);
   if (!mount) return no(`Unknown mount ${String(m.mount).slice(0, 64)}`);
   let outside: OutsideShow | null = null;
@@ -66,7 +84,8 @@ export async function recordLive(ctx: AppContext, node: { id: string; tenantId: 
     return;
   }
   const row = await routedStation(ctx, node, String(m.stationId ?? ''));
-  if (!row) return;
+  // The streams of a station node are not broadcasts: the node logs its own DJs.
+  if (!row || row.s.nodeId) return;
   const [mount] = await ctx.db.select({ id: schema.stationMounts.id }).from(schema.stationMounts).where(and(eq(schema.stationMounts.stationId, row.s.id), eq(schema.stationMounts.path, String(m.mount))));
   const started = m.startedAt ? new Date(m.startedAt) : new Date();
   await ctx.db

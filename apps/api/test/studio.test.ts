@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
+import { sha256 } from '../src/lib/crypto.js';
 import { authenticateSource } from '../src/services/streaming/sources.js';
 import { clearStudioReleaseCache, compareVersions, studioReleases } from '../src/services/studio.js';
 import { login, setup } from './helpers.js';
@@ -78,7 +80,7 @@ describe('linking a studio PC', () => {
 
     const hello = await t.app.inject({ method: 'POST', url: '/api/studio/hello', headers: { authorization: `Bearer ${key}` }, payload: { clientVersion: '0.9.1' } });
     // The client switches features off when an older server does not list them.
-    expect(hello.json()).toMatchObject({ ok: true, features: expect.arrayContaining(['playout', 'rundown', 'queue-rule']) });
+    expect(hello.json()).toMatchObject({ ok: true, features: expect.arrayContaining(['playout', 'rundown', 'one-queue']) });
     expect(hello.json().serverVersion).toMatch(/^\d+\.\d+\.\d+/);
     const devices = await t.app.inject({ url: '/api/studio/devices', headers: dj });
     expect(devices.json()).toHaveLength(1);
@@ -120,6 +122,22 @@ describe('live broadcasts from the studio client', () => {
     expect(await authenticateSource(t.ctx, stationId, mountId, 'someone', token)).toBeNull();
     expect(await authenticateSource(t.ctx, stationId, mountId, 'djstudio', `${token}x`)).toBeNull();
     expect((await authenticateSource(t.ctx, stationId, mountId, 'someone', 'someone-password'))?.id).toBe(otherAccountId);
+  });
+
+  it('waits on a station node for a password that is still on its way', async () => {
+    const { schema } = await import('../src/db/index.js');
+    const own = (await t.app.inject({ method: 'POST', url: `/api/studio/stations/${stationId}/live-token`, headers: dj, payload: { accountId: djAccountId } })).json();
+    const [row] = await t.db.select().from(schema.studioLiveTokens).where(eq(schema.studioLiveTokens.hash, sha256(own.password)));
+    await t.db.delete(schema.studioLiveTokens).where(eq(schema.studioLiveTokens.accountId, djAccountId));
+    const node = { ...t.ctx, config: { ...t.ctx.config, STATION_NODE: '/etc/hosted-radio/station-node.json' } };
+    // The package brings the password a second later.
+    setTimeout(() => void t.db.insert(schema.studioLiveTokens).values(row!).execute(), 1000);
+    expect((await authenticateSource(node, stationId, mountId, 'djstudio', own.password))?.id).toBe(djAccountId);
+    // The main server itself does not wait.
+    await t.db.delete(schema.studioLiveTokens).where(eq(schema.studioLiveTokens.id, row!.id));
+    const started = Date.now();
+    expect(await authenticateSource(t.ctx, stationId, mountId, 'djstudio', own.password)).toBeNull();
+    expect(Date.now() - started).toBeLessThan(1000);
   });
 
   it('refuses accounts that may not broadcast and expired passwords', async () => {

@@ -165,7 +165,7 @@ export const endpointOut = z.object({
   online: z.boolean(),
   external: z.string().nullable(),
   internal: z.string().nullable(),
-  ports: z.array(z.object({ service: z.enum(PORT_SERVICES), port: z.number(), to: z.number().optional(), tls: z.boolean().optional() })),
+  ports: z.array(z.object({ service: z.enum(PORT_SERVICES), port: z.number(), to: z.number().optional(), tls: z.boolean().optional(), old: z.boolean().optional() })),
 });
 const connectionOut = z.object({
   ingestHost: z.string(),
@@ -258,6 +258,8 @@ function toOutputOut(o: Output): z.infer<typeof outputOut> {
 
 /** Loads the station and checks the caller's role in its customer. */
 export async function stationAccess(ctx: AppContext, req: FastifyRequest, stationId: string, minRole: Role) {
+  // Signed in first, so a stranger cannot tell which station ids exist.
+  requireUser(req);
   const [row] = await ctx.db
     .select({ station: schema.stations, tenant: schema.tenants })
     .from(schema.stations)

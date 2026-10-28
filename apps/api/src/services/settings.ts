@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '../db/index.js';
 import type { AppContext } from '../lib/context.js';
+import { OLD_PORTS, PORTS } from './nodes/portplan.js';
 
 /** Masked value returned by the API instead of a stored secret. */
 export const SECRET_MASK = '••••••••';
@@ -77,10 +78,10 @@ const portSchema = z.number().int().min(1024).max(65535);
 /** Encoder ingest, port ranges and file upload (SFTP/FTP). */
 export const streamingSchema = z
   .object({
-    /** Encoders deliver with TLS here (Icecast protocol), e.g. src.example.com:8443. */
-    ingestTlsPort: portSchema.default(8443),
+    /** Encoders deliver with TLS here (Icecast protocol), e.g. src.example.com:8201 (port plan, portplan.ts). */
+    ingestTlsPort: portSchema.default(PORTS.ingest.tls),
     /** Encoders without TLS (Icecast protocol). 0 = off. */
-    ingestPlainPort: z.union([z.literal(0), portSchema]).default(8010),
+    ingestPlainPort: z.union([z.literal(0), portSchema]).default(PORTS.ingest.plain),
     /**
      * Host name or IP address encoders and RHIS Studio connect to, when the public name does not carry raw TCP (e.g.
      * behind the Cloudflare proxy). Empty = the domain under Web server. Customer src. names still take precedence.
@@ -96,8 +97,8 @@ export const streamingSchema = z
     icecastPortFrom: portSchema.default(18000),
     icecastPortTo: portSchema.default(18999),
     /** Public ports for legacy Shoutcast v1 encoders: each station that uses it gets port and port + 1. */
-    legacyPortFrom: portSchema.default(8100),
-    legacyPortTo: portSchema.default(8199),
+    legacyPortFrom: portSchema.default(PORTS.ingest.shoutcastFrom),
+    legacyPortTo: portSchema.default(PORTS.ingest.shoutcastTo),
     /** Host name customers point their CNAME records at. Empty = the domain under Web server. */
     cnameTarget: z.string().trim().toLowerCase().refine((v) => v === '' || domainRe.test(v), 'Invalid domain name').default(''),
     /** Public IP addresses of this server, accepted as A/AAAA records instead of a CNAME. */
@@ -242,6 +243,12 @@ export const orchestratorSchema = z.object({
    * Icecast, no uploads; it cannot be chosen as ingest or relay, and listeners are never sent to it.
    */
   only: z.boolean().default(false),
+  /**
+   * Old ports (port plan, 1.3): the encoder ports from before the port plan (8010 and 8443) stay open next to the new
+   * ones. On for servers installed before 1.3, until the administrator switches them off; off on a fresh install. Nodes
+   * have the same switch in their own settings.
+   */
+  oldPorts: z.boolean().default(false),
 });
 export type OrchestratorSettings = z.infer<typeof orchestratorSchema>;
 
@@ -480,7 +487,22 @@ export async function getSetting<K extends SettingKey>(ctx: AppContext, key: K):
   const [row] = await ctx.db.select().from(schema.settings).where(eq(schema.settings.key, key));
   const value = structuredClone((row?.value ?? {}) as Record<string, unknown>);
   for (const path of registry[key].secrets) mapPath(value, path, (v) => ctx.box.decrypt(v));
+  if (key === 'streaming' && ctx.config.STATION_NODE) withStationNodePorts(value);
   return registry[key].schema.parse(value) as Value<K>;
+}
+
+/**
+ * A station node has its own ports (port plan): 8400 plain and 8401 TLS for RHIS Studio and encoders, 8402 SFTP. A
+ * value that is one of the ingest defaults (or the old ones) was never chosen for the node and gives way to them.
+ */
+export function withStationNodePorts(value: Record<string, unknown>) {
+  const pick = (v: unknown, defaults: number[], own: number) => (v === undefined || defaults.includes(v as number) ? own : v);
+  value.ingestPlainPort = pick(value.ingestPlainPort, [PORTS.ingest.plain, OLD_PORTS.plain], PORTS.stationNode.plain);
+  value.ingestTlsPort = pick(value.ingestTlsPort, [PORTS.ingest.tls, OLD_PORTS.tls], PORTS.stationNode.tls);
+  const sftp = { ...((value.sftp ?? {}) as Record<string, unknown>) };
+  sftp.port = pick(sftp.port, [OLD_PORTS.sftp], PORTS.stationNode.sftp);
+  value.sftp = sftp;
+  return value;
 }
 
 /** Same as getSetting, with secrets replaced by a mask, for API responses. */

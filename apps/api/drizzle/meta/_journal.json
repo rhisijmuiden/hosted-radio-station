@@ -113,6 +113,34 @@
       "when": 1793140000000,
       "tag": "0016_phase16",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1793140100000,
+      "tag": "0017_one_queue",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1793142000000,
+      "tag": "0018_cue_points",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793145600000,
+      "tag": "0019_locked_blocks",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793149200000,
+      "tag": "0020_port_plan",
+      "breakpoints": true
     }
   ]
 }
