@@ -563,6 +563,16 @@ Small fixes planned for a patch release, one at a time after the current phase.
 | ![3D network map with control lines](docs/screenshots/pr-128-129-3d-control-on.png) | ![2D layers with lines around servers](docs/screenshots/pr-128-129-2d-layers.png) |
 | ![Customer page, station node of this customer](docs/screenshots/pr-128-129-customer-station-node-harder-fm.png) | ![Customer page, the chosen station node shown after loading](docs/screenshots/pr-128-129-customer-station-node-radio-schermer.png) |
 
+### Security hardening for external nodes (queued, not scheduled yet)
+
+Nodes with a direct public IP address get a firewall that is closed by default.
+
+- The node agent manages an nftables firewall: all incoming traffic is dropped except the ports of the node's own roles (from the port plan per role), SSH, and replies to connections the node opened itself (to the orchestrator, relays and ingests).
+- The rules follow the node: when a role or port changes in the panel, the agent updates the firewall by itself.
+- SSH stays open, optionally limited to set admin IP addresses, with protection against password guessing (fail2ban or rate limits).
+- Safe apply: new rules roll back by themselves when the node loses its connection to the orchestrator within a minute, so a mistake never locks a node out.
+- Hardening is on by default for nodes that detect a public IP, and can be turned on for nodes behind NAT as well. The panel shows the firewall state per node, and the external port check confirms that only the expected ports answer.
+
 ## Future ideas
 
 Not scheduled in a phase yet.
