@@ -532,6 +532,14 @@ Small fixes planned for a patch release, one at a time after the current phase.
 
 Not scheduled in a phase yet.
 
+### Phone calls in RHIS Studio (SIP)
+
+A SIP client built into RHIS Studio, so a DJ can take listener calls and interviews on air without a separate phone hybrid.
+
+- Register with any SIP provider or PBX (account settings per DJ profile or per studio PC).
+- A small call menu in the client: incoming calls, answer, hold, hang up, and a dial pad; a caller can wait off air (pre-listen on the preview output) and then be put on air.
+- The call is mixed into the live broadcast like a jingle, with its own level on the meter; the DJ's microphone goes back to the caller (mix-minus).
+
 ### Open source edition
 
 A community edition on its own branch.
