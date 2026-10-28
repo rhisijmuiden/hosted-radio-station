@@ -61,6 +61,19 @@ function useView(userId: string) {
   };
 }
 
+/** An on/off choice, on by default, remembered in this browser. */
+function useToggle(key: string) {
+  const [on, setOn] = useState(() => load(key, ['on', 'off'], 'on') === 'on');
+  return [
+    on,
+    () =>
+      setOn((x) => {
+        save(key, x ? 'off' : 'on');
+        return !x;
+      }),
+  ] as const;
+}
+
 /** A row of rounded toggle buttons. */
 function Segmented<T extends string>({ value, options, label, onChange, text, title }: { value: T; options: T[]; label: string; onChange: (v: T) => void; text: (v: T) => ReactNode; title?: (v: T) => string }) {
   return (
@@ -291,8 +304,10 @@ export function TopologyPage() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
-  // Control lines stay hidden unless asked for, or for the selected block: the audio paths stay readable.
-  const [showControl, setShowControl] = useState(false);
+  // Control lines to every node are on unless switched off (then only the selected block keeps its line); server labels
+  // in 3D likewise. Both are remembered per user in this browser.
+  const [showControl, setShowControl] = useToggle(`hrs-topology-control:${me.user.id}`);
+  const [showLabels, setShowLabels] = useToggle(`hrs-topology-labels:${me.user.id}`);
   const { view, flow, setView, setFlow } = useView(me.user.id);
   const topo = useQuery({ queryKey: ['topology', tenantId], queryFn: () => api<Topology>(`/nodes/topology${tenantId ? `?tenantId=${tenantId}` : ''}`), refetchInterval: 5000 });
   const tenants = useQuery({ queryKey: ['tenants'], queryFn: () => api<Tenant[]>('/tenants'), enabled: admin });
@@ -523,7 +538,7 @@ export function TopologyPage() {
                     </div>
                   }
                 >
-                  <TopologyCanvas data={scene} selected={selected ?? ownSel?.id ?? null} onSelect={setSelected} dark={theme === 'dark'} />
+                  <TopologyCanvas data={scene} selected={selected ?? ownSel?.id ?? null} onSelect={setSelected} dark={theme === 'dark'} showControl={showControl} showLabels={showLabels} />
                 </Suspense>
               ) : view === 'matrix' ? (
                 <TopologyMatrix data={data} customer={!!customer} selected={selected} onSelect={setSelected} />
@@ -541,22 +556,27 @@ export function TopologyPage() {
                     <i className="inline-block w-4 border-t-2 border-dashed border-lucht" /> {t('topology.legend.standby')}
                   </span>
                   {/* The control legend doubles as the switch for the control lines. */}
-                  {view !== '3d' && (
+                  <button
+                    type="button"
+                    aria-pressed={showControl}
+                    title={t(showControl ? 'topology.controlLinesHide' : 'topology.controlLinesShow')}
+                    onClick={setShowControl}
+                    className={clsx('pointer-events-auto -my-1 flex items-center gap-1.5 rounded-full border px-2 py-0.5 transition-colors', showControl ? 'border-lucht bg-lucht/15 text-ink' : 'border-line hover:text-ink')}
+                  >
+                    <i className="inline-block w-4 border-t-2 border-dotted border-lucht" /> {t('topology.legend.control')}
+                    {showControl ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+                  </button>
+                  {view === '3d' && (
                     <button
                       type="button"
-                      aria-pressed={showControl}
-                      title={t(showControl ? 'topology.controlLinesHide' : 'topology.controlLinesShow')}
-                      onClick={() => setShowControl((x) => !x)}
-                      className={clsx('pointer-events-auto -my-1 flex items-center gap-1.5 rounded-full border px-2 py-0.5 transition-colors', showControl ? 'border-lucht bg-lucht/15 text-ink' : 'border-line hover:text-ink')}
+                      aria-pressed={showLabels}
+                      title={t(showLabels ? 'topology.labelsHide' : 'topology.labelsShow')}
+                      onClick={setShowLabels}
+                      className={clsx('pointer-events-auto -my-1 flex items-center gap-1.5 rounded-full border px-2 py-0.5 transition-colors', showLabels ? 'border-lucht bg-lucht/15 text-ink' : 'border-line hover:text-ink')}
                     >
-                      <i className="inline-block w-4 border-t-2 border-dotted border-lucht" /> {t('topology.legend.control')}
-                      {showControl ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+                      {t('topology.legend.labels')}
+                      {showLabels ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
                     </button>
-                  )}
-                  {view === '3d' && (
-                    <span className="flex items-center gap-1.5">
-                      <i className="inline-block w-4 border-t-2 border-dotted border-lucht" /> {t('topology.legend.control')}
-                    </span>
                   )}
                   <span className="flex items-center gap-1.5">
                     <i className="inline-block h-[3px] w-4 rounded bg-warning" /> {t('topology.legend.degraded')}

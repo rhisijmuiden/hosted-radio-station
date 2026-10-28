@@ -5,6 +5,15 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 
 ## Unreleased
 
+- Network map, 3D: server labels no longer stay behind (doubled, loose from their tower) when the map refreshes while
+  you rotate or zoom. New **Server labels** switch in the legend (the selected server keeps its label).
+- Network map: control lines to every node are on by default, in 3D too; the legend switch turns them off and the
+  choice is remembered per user in the browser.
+- Network map: audio lines no longer run through servers. A line that skips a lane (a station node straight to its
+  relays, a relay back to an FM node in the studio) passes through the gap between the servers of that lane, in 3D
+  and in both 2D views.
+- Customer page, *Station node of this customer*: the choice shows the chosen node after loading (it showed "This
+  server"), and this server is listed by its own name; with *Orchestrator only* it is no longer offered.
 - One queue: Q2 is gone. Waiting Q2 tracks move to the end of the queue and Q2 playlists feed the one queue, by
   weight (migration `0017_one_queue`). The pick rule, "Fill Queue 2" and "Requests go to" are gone from the panel.
   The API still takes `queue: "q2"` from older clients and treats it as the one queue; `PUT /queue-rule` has no
