@@ -6,7 +6,7 @@ import { getSettings, updateSettings, useSettings } from './settings';
 
 /** What the big countdown of the dashboard counts down to. */
 export type Countdown = 'block' | 'track' | 'timer';
-export type OmniPanel = 'history' | 'jingles' | 'dashboard' | 'library';
+export type OmniPanel = 'history' | 'single' | 'jingles' | 'stationCarts' | 'dashboard' | 'library';
 
 /**
  * The layout of Assist in the DJ profile: the same on every studio PC. Classic is the layout Studio had so far; OmniPlayer
@@ -27,7 +27,7 @@ export const DECK_WIDTH = { min: 440, max: 900, default: 560 };
 
 export const defaultLayout: StudioLayout = {
   assist: 'classic',
-  panels: { history: true, jingles: true, dashboard: true, library: true },
+  panels: { history: true, single: true, jingles: true, stationCarts: true, dashboard: true, library: true },
   deckWidth: DECK_WIDTH.default,
   countdown: 'block',
   timerSeconds: 180,

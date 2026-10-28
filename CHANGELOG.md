@@ -39,6 +39,12 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   end of the track or your own timer, and the library. Panels go on or off and the width of players A/B is dragged.
   The layout is kept in your new **DJ profile** on the server, so it is the same on every studio PC. New API:
   `GET`/`PUT /api/studio/profile` and `GET /api/stations/{id}/autodj/history`.
+- RHIS Studio 0.18, OmniPlayer layout step 2: two jingle grids of seven buttons with pages, **My jingles** (the same
+  buttons as in Classic, from your profile) and **Station carts**, and a **single player**. Station carts are new in
+  the panel under *Programme > Station carts*: managers put station IDs, traffic and beds on them, and every DJ of the
+  station gets the same buttons. The single player plays a short list of its own on the studio PC (tracks from the
+  library, a share or a USB stick), goes into the broadcast like the jingles, and goes 12 dB down while the microphone
+  has sound (*Settings > Audio*); with **Auto** it plays the list on by itself. New API: `/api/studio/stations/{id}/carts`.
 
 ## 1.3.0 (28 October 2026)
 

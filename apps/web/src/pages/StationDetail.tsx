@@ -6,6 +6,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import { AccountsCard } from '../components/station/Accounts';
 import { AutodjTab } from '../components/station/AutoDj';
+import { StationCartsTab } from '../components/station/Carts';
 import { ClocksTab } from '../components/station/Clocks';
 import { LibraryTab } from '../components/station/Library';
 import { PlaylistsTab } from '../components/station/Playlists';
@@ -566,6 +567,7 @@ export function StationDetailPage() {
       {tab === 'playlists' && <PlaylistsTab station={s} canEdit={manager} />}
       {tab === 'clocks' && <ClocksTab station={s} canEdit={manager} />}
       {tab === 'schedule' && <ScheduleTab station={s} canEdit={manager} />}
+      {tab === 'carts' && <StationCartsTab station={s} canEdit={manager} />}
       {tab === 'statistics' && (
         <StatisticsView scope={{ stationId: s.id }} mounts={s.mounts.map((m) => m.path)} outputs={s.outputs.filter((o) => o.type !== 'local').map((o) => ({ id: o.id, name: o.name }))} showStation={false} />
       )}

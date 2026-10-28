@@ -42,6 +42,8 @@ export interface AudioConfig {
   cartsToStream: boolean;
   cartsToOutput: boolean;
   monitorInput: boolean;
+  /** The single player goes down while the sound card input (the microphone) has sound. */
+  duckSingle: boolean;
 }
 export interface EngineInfo {
   sampleRate: number;
@@ -148,7 +150,7 @@ const simParent = (p: string) => {
 type Listener = (e: EngineEvent) => void;
 const sim = {
   listeners: new Set<Listener>(),
-  carts: Array.from({ length: 96 }, (_, slot): CartState & { started: number } => ({ slot, loaded: false, playing: false, position: 0, duration: 0, started: 0 })),
+  carts: Array.from({ length: 146 }, (_, slot): CartState & { started: number } => ({ slot, loaded: false, playing: false, position: 0, duration: 0, started: 0 })),
   broadcast: { state: 'off' } as BroadcastStatus,
   config: null as AudioConfig | null,
   previewOutput: null as string | null,
@@ -240,6 +242,7 @@ async function simInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Pr
     }
     case 'clear_cart':
       Object.assign(sim.carts[args.slot as number]!, { loaded: false, playing: false });
+      sim.emit({ kind: 'carts', data: sim.carts });
       return undefined as T;
     case 'play_cart': {
       const c = sim.carts[args.slot as number]!;

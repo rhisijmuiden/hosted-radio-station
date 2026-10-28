@@ -169,6 +169,13 @@
       "when": 1793163600000,
       "tag": "0024_studio_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1793167200000,
+      "tag": "0025_station_carts",
+      "breakpoints": true
     }
   ]
 }
