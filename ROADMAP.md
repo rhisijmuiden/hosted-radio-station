@@ -536,7 +536,7 @@ Not scheduled in a phase yet.
 
 A SIP client built into RHIS Studio, so a DJ can take listener calls and interviews on air without a separate phone hybrid.
 
-- Register with any SIP provider or PBX (account settings per DJ profile or per studio PC).
+- Client only: it registers with the existing SIP server (account settings per DJ profile or per studio PC). The platform does not run its own SIP server.
 - A small call menu in the client: incoming calls, answer, hold, hang up, and a dial pad.
 - **Talk off air first**: the DJ answers a caller privately (on the preview output, with their own microphone) before putting them live in the broadcast.
 - **Waiting indicator**: a clear signal in the top bar (flashing, with the number of callers waiting and how long) when someone is on hold.
