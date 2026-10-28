@@ -858,6 +858,8 @@ export const nl: Translation = {
     hint: 'Nieuwe zenders van deze klant starten op deze node, met hun bibliotheek en AutoDJ in de studio.',
     node: 'Station node',
     current: 'Nu: {{name}}.',
+    noNode: 'Geen station node (alleen distributie, via een ingest)',
+    noneYet: 'Alleen distributie: de encoders sturen naar een ingest-node, er is geen studio gekoppeld.',
     none: 'De zenders draaien op {{name}}.',
     moveStations: 'Bestaande zenders ook verhuizen',
     moveStationsHint: 'Hun muziekbibliotheek wordt eerst gekopieerd; elke zender schakelt over zodra zijn kopie compleet is.',

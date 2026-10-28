@@ -856,6 +856,8 @@ export const en = {
     hint: 'New stations of this customer start on this node, with their library and AutoDJ in the studio.',
     node: 'Station node',
     current: 'Now: {{name}}.',
+    noNode: 'No station node (distribution only, via an ingest)',
+    noneYet: 'Distribution only: its encoders send to an ingest node, no studio is linked.',
     none: 'Its stations run on {{name}}.',
     moveStations: 'Move existing stations too',
     moveStationsHint: 'Their music library is copied first; each station switches over when its copy is complete.',
