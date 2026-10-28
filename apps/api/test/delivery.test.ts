@@ -146,6 +146,18 @@ describe('station node through the ingest (1.3)', () => {
     }
   });
 
+  it('sends to the ingest on the local network when both sit behind the same public address', async () => {
+    const n = await nodeRow(ingest);
+    await t.db.update(schema.nodes).set({ status: { ...n.status, ip: '198.51.100.7', addresses: ['10.10.4.121', 'fd00::1'] } }).where(eq(schema.nodes.id, ingest));
+    const s = await nodeRow(studio);
+    await t.db.update(schema.nodes).set({ status: { ...s.status, ip: '198.51.100.7' } }).where(eq(schema.nodes.id, studio));
+    await routing({ ingest, backupIngest: null, relays: 'auto', spareRelays: true, delivery: 'ingest' });
+    expect(await pushes()).toEqual([expect.objectContaining({ host: '10.10.4.121', port: 8200, ingestNodeId: ingest })]);
+    // From elsewhere the public address.
+    await t.db.update(schema.nodes).set({ status: { ...s.status, ip: '203.0.113.5' } }).where(eq(schema.nodes.id, studio));
+    expect(await pushes()).toEqual([expect.objectContaining({ host: '198.51.100.7', ingestNodeId: ingest })]);
+  });
+
   // Last: the station then stays on the relays for a while.
   it('feeds the relays itself while its pushes to the ingest fail', async () => {
     // Automatic: one of the two ingests.

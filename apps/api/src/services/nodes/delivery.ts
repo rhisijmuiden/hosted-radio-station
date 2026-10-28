@@ -4,6 +4,7 @@ import type { AppContext } from '../../lib/context.js';
 import { serves } from './dedication.js';
 import { nodeHost, nodeSettings, type Node } from './plan.js';
 import { OLD_PORTS } from './portplan.js';
+import { internalAddress } from './ports.js';
 import { stationRouting } from './routing-rules.js';
 
 type IngestNode = Pick<Node, 'id' | 'name' | 'roles' | 'tenantId' | 'config' | 'status' | 'pairedAt'>;
@@ -81,10 +82,13 @@ const certName = (h: string) => !!h && !net.isIP(h) && h.includes('.') && !INTER
 /**
  * Where a station node sends its streams on an ingest node: its encoder port, with TLS when the ingest has a name with
  * a certificate. While the ingest keeps its old ports (port plan) the old port is used, which agents of every version
- * listen on.
+ * listen on. A station node behind the same public address (the same site) uses the ingest's address on that network:
+ * routers seldom loop a connection to their own public address back inside.
  */
-export function ingestTarget(n: Pick<Node, 'config' | 'status'>): { host: string; port: number; tls: boolean } | null {
+export function ingestTarget(n: Pick<Node, 'config' | 'status'>, from?: Pick<Node, 'status'>): { host: string; port: number; tls: boolean } | null {
   const c = nodeSettings(n);
+  const lan = from?.status.ip && from.status.ip === n.status.ip ? internalAddress(n) : null;
+  if (lan && c.sourcePlainPort) return { host: lan, port: c.oldPorts ? OLD_PORTS.plain : c.sourcePlainPort, tls: false };
   const name = nodeHost(n);
   const host = name || n.status.ip;
   if (!host) return null;

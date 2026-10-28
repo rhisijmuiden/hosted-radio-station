@@ -116,7 +116,7 @@ export async function buildPackage(ctx: AppContext, node: Node): Promise<Station
     // feed the relays (1.3); chosen so, or without an ingest online, it delivers each public stream to every relay.
     const via = studioDelivery(s, paired);
     for (const { node: ingest, priority } of via.ingests) {
-      const t = ingestTarget(ingest);
+      const t = ingestTarget(ingest, node);
       if (!t) continue;
       const pub = own.filter((x) => x.isPublic);
       const needed = new Set([...pub.map((m) => m.id), ...pub.map((m) => m.sourceMountId), ...pub.map((m) => m.fallbackMountId)].filter((id): id is string => !!id));
