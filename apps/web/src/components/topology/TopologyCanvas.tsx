@@ -22,7 +22,23 @@ function readPalette(dark: boolean): ScenePalette {
 }
 
 /** The WebGL view; loaded on its own so the rest of the panel stays light. */
-export default function TopologyCanvas({ data, selected, onSelect, dark }: { data: SceneData; selected: string | null; onSelect: (id: string | null) => void; dark: boolean }) {
+export default function TopologyCanvas({
+  data,
+  selected,
+  onSelect,
+  dark,
+  showControl,
+  showLabels,
+}: {
+  data: SceneData;
+  selected: string | null;
+  onSelect: (id: string | null) => void;
+  dark: boolean;
+  /** Every control line, or only those of the selected block. */
+  showControl: boolean;
+  /** Server labels on the towers (the selected one always keeps its label). */
+  showLabels: boolean;
+}) {
   const { t } = useTranslation();
   const host = useRef<HTMLDivElement>(null);
   const scene = useRef<TopologyScene | null>(null);
@@ -40,6 +56,8 @@ export default function TopologyCanvas({ data, selected, onSelect, dark }: { dat
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => scene.current?.setPalette(readPalette(dark)), [dark]);
+  useEffect(() => scene.current?.setControl(showControl), [showControl]);
+  useEffect(() => scene.current?.setLabels(showLabels), [showLabels]);
   useEffect(() => scene.current?.setData(data), [data]);
   useEffect(() => scene.current?.setSelected(selected), [selected]);
 

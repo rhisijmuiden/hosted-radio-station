@@ -326,3 +326,7 @@ body {
   color: var(--ink-muted);
   white-space: nowrap;
 }
+/* Server labels switched off in the 3D view: only the selected block keeps its label. */
+.topo-labels-off .topo-label:not(.selected) {
+  display: none;
+}
