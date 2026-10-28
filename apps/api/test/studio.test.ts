@@ -227,3 +227,20 @@ describe('jingle buttons', () => {
     expect((await t.app.inject({ url: `/api/studio/stations/${stationId}/jingles`, headers: dj })).json()).toHaveLength(1);
   });
 });
+
+describe('DJ profile', () => {
+  it('keeps the layout per user, the same for every studio PC', async () => {
+    expect((await t.app.inject({ url: '/api/studio/profile', headers: dj })).json()).toEqual({ layout: {}, updatedAt: null });
+    const layout = { assist: 'omni', panels: { dashboard: true, library: false }, widths: { left: 520 }, countdown: 'track' };
+    const saved = await t.app.inject({ method: 'PUT', url: '/api/studio/profile', headers: dj, payload: { layout } });
+    expect(saved.statusCode).toBe(200);
+    expect((await t.app.inject({ url: '/api/studio/profile', headers: dj })).json().layout).toEqual(layout);
+    // Saved again: replaced, not merged. Another user has their own.
+    await t.app.inject({ method: 'PUT', url: '/api/studio/profile', headers: dj, payload: { layout: { assist: 'classic' } } });
+    expect((await t.app.inject({ url: '/api/studio/profile', headers: dj })).json().layout).toEqual({ assist: 'classic' });
+    expect((await t.app.inject({ url: '/api/studio/profile', headers: owner })).json().layout).toEqual({});
+    const big = await t.app.inject({ method: 'PUT', url: '/api/studio/profile', headers: dj, payload: { layout: { x: 'a'.repeat(20_000) } } });
+    expect(big.statusCode).toBe(400);
+    expect((await t.app.inject({ url: '/api/studio/profile' })).statusCode).toBe(401);
+  });
+});

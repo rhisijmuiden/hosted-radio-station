@@ -344,6 +344,11 @@ describe.runIf(hasFfmpeg)('library and AutoDJ', () => {
     expect(view.nowPlaying.media.title).toBe(played.at(-1)!.title);
     const [one] = await t.db.select().from(schema.mediaFiles).where(eq(schema.mediaFiles.title, 'One'));
     expect(one!.playCount).toBeGreaterThan(0);
+    // Last played for RHIS Studio: newest first, the track on air on top, only tracks that played.
+    const history = (await api('GET', '/autodj/history?limit=3')).json().items as { title: string; playedAt: string }[];
+    expect(history[0]!.title).toBe(played.at(-1)!.title);
+    expect(history.length).toBeLessThanOrEqual(3);
+    expect(history.map((h) => h.playedAt)).toEqual([...history.map((h) => h.playedAt)].sort().reverse());
   });
 
   it('puts tracks back when the player restarts, and skips missing files', async () => {

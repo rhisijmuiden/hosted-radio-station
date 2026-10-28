@@ -3,7 +3,7 @@ import { mkdir, rename, rm, stat } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import fastifyMultipart from '@fastify/multipart';
-import { and, asc, count, desc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, inArray, isNotNull, or, sql, type SQL } from 'drizzle-orm';
 import type { FastifyRequest } from 'fastify';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -521,6 +521,34 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
       req.auditInfo.details = { rule: req.body };
       await apply(req, station.id);
       return describe(row!);
+    },
+  );
+
+  app.get(
+    '/:id/autodj/history',
+    {
+      schema: {
+        tags: ['AutoDJ'],
+        summary: 'The tracks the AutoDJ played last, newest first (the track on air is the first one)',
+        params: stationParams,
+        querystring: z.object({ limit: z.coerce.number().int().min(1).max(50).default(10) }),
+        response: {
+          200: z.object({
+            items: z.array(z.object({ mediaId: z.uuid(), title: z.string(), artist: z.string(), path: z.string(), durationSeconds: z.number().nullable(), playedAt: z.date() })),
+          }),
+        },
+      },
+    },
+    async (req) => {
+      const { station } = await radio(req, req.params.id, 'dj');
+      const mf = schema.mediaFiles;
+      const rows = await ctx.db
+        .select({ mediaId: mf.id, title: mf.title, artist: mf.artist, path: mf.path, durationSeconds: mf.durationSeconds, playedAt: mf.lastPlayedAt })
+        .from(mf)
+        .where(and(eq(mf.stationId, station.id), isNotNull(mf.lastPlayedAt)))
+        .orderBy(desc(mf.lastPlayedAt))
+        .limit(req.query.limit);
+      return { items: rows.map((r) => ({ ...r, playedAt: r.playedAt! })) };
     },
   );
 

@@ -1255,6 +1255,18 @@ export const studioJingles = pgTable(
   (t) => [uniqueIndex('studio_jingles_button_idx').on(t.stationId, t.userId, t.position)],
 );
 
+/**
+ * The DJ profile of RHIS Studio: the layout of the Assist screen (which layout, panels on or off, their widths, the
+ * countdown of the dashboard). The client owns its shape; it follows the DJ to every studio PC.
+ */
+export const studioProfiles = pgTable('studio_profiles', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  layout: jsonb('layout').$type<Record<string, unknown>>().notNull().default({}),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Phase 10: hosted service (packages, subscriptions, invoices, webhooks)
 
 /**

@@ -180,6 +180,15 @@ export interface Rundown {
   enabled: boolean;
   rows: RundownRow[];
 }
+/** A track the AutoDJ played, newest first (servers with the `history` feature). */
+export interface Played {
+  mediaId: string;
+  title: string;
+  artist: string;
+  path: string;
+  durationSeconds: number | null;
+  playedAt: string;
+}
 /** The answer to /studio/hello: servers before 1.1 answer only { ok }. */
 export interface Hello {
   ok: true;
