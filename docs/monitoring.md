@@ -1,6 +1,6 @@
 # Monitoring and alerts
 
-Phase 20, steps 1 and 2. The orchestrator watches the platform and tells you when something goes down, so you hear about an
+Phase 20. The orchestrator watches the platform and tells you when something goes down, so you hear about an
 outage before your listeners hear the silence. Open **Network → Monitoring** in the panel (administrators only).
 
 ## What is checked
@@ -18,6 +18,9 @@ Every 15 seconds the orchestrator works out what is wrong from what it already k
 | Node reports a problem | Warning | A node cannot apply its configuration (web server, ports). |
 | Node updates are paused | Warning | A node update failed and the update planner stopped. |
 | Cloudflare DNS fails | Warning | The Cloudflare sync is on and reports an error. |
+| Ports cannot be reached from outside | Warning | The monitoring node cannot reach a port the node needs (encoders, studios, listeners or pushes cannot get in). An idle push port is fine. |
+| Old ports are still open | Warning | A port from before the port plan still answers while the old ports are switched off for the node: close it in the firewall. |
+| Name resolves wrong in public DNS | Warning | The Cloudflare sync is on and, for 15 minutes or longer, public DNS (1.1.1.1, 8.8.8.8) gives another address than the record it made, or none. |
 
 Stream checks are the remote probes the nodes already run (on by default per node). Without any
 node doing stream checks, only the node, feed, update and DNS alerts work. A monitoring node (below) checks from
@@ -49,6 +52,18 @@ On the **network map** the monitoring node stands in a green band of its own, op
 lines run to every server it listens to, and each of those servers gets a badge: green while every check there plays,
 red when one fails or hears silence. The **Checks** button in the legend hides the lines (those of the selected block
 stay); the badges always show. The node page shows the measurements per check under *Stream checks*.
+
+## From outside: ports and DNS
+
+Every 10 minutes the monitoring node tries the ports of every node from outside, the ones in its firewall checklist
+and, while a node has its old ports switched off, the old ones too. **Check from outside** on the *Firewall* tab of a
+node does the same on demand, and says where it checked from: the monitoring node, or this server when no monitoring
+node is online (a server in the same network can reach more than the outside world can). The periodic check only runs
+through a monitoring node, so an alert about ports always comes from really outside.
+
+Every 5 minutes, while the Cloudflare sync is on, the names it made are looked up in public DNS. A name behind the
+Cloudflare proxy should show Cloudflare's addresses, any other name exactly the addresses of its records. A wrong
+answer only gives an alert once it lasts 15 minutes, because DNS takes a while to follow a change.
 
 ## One outage, one message
 

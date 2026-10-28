@@ -204,6 +204,12 @@ export function FirewallTab({ node }: { node: NodeItem }) {
               );
             })}
           </Table>
+          {data.oldOpen.length > 0 && (
+            <p className="mx-5 mb-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[13px]">{t('firewall.oldStillOpen', { ports: data.oldOpen.join(', ') })}</p>
+          )}
+          {data.checkedFrom && (
+            <p className="px-5 pb-2 text-xs text-muted">{data.checkedFrom.kind === 'monitor' ? t('firewall.fromMonitor', { name: data.checkedFrom.name }) : t('firewall.fromServer')}</p>
+          )}
           {data.ports.some((p) => p.old) && <p className="px-5 pb-4 text-xs text-muted">{t('firewall.oldHint')}</p>}
           </>
         )}

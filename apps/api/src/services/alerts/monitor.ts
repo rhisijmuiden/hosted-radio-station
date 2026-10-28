@@ -6,6 +6,7 @@ import type { NodeHub } from '../nodes/hub.js';
 import { serverNames } from '../nodes/names.js';
 import { getSetting, type AlertKind, type AlertSettings } from '../settings.js';
 import { deliver, type AlertNotice, type DeliveryResult } from './notify.js';
+import { OutsideChecks } from './outside.js';
 import { evaluate, type Condition } from './rules.js';
 
 const TICK_MS = 15_000;
@@ -32,16 +33,23 @@ export class AlertMonitor {
   private readonly startedAt = Date.now();
   /** The outcome of the last message per channel, for the panel. */
   lastDelivery: (DeliveryResult & { at: string })[] = [];
+  /** Ports and public DNS, checked from outside every few minutes. */
+  readonly outside: OutsideChecks;
 
   constructor(
     private readonly ctx: AppContext,
     private readonly hub: NodeHub,
     private readonly log: FastifyBaseLogger,
     private readonly startGraceMs = START_GRACE_MS,
-  ) {}
+  ) {
+    this.outside = new OutsideChecks(ctx, hub, log);
+  }
 
   start() {
-    this.timer = setInterval(() => void this.tick().catch((err) => this.log.warn({ err }, 'monitoring round failed')), TICK_MS);
+    this.timer = setInterval(() => {
+      this.outside.due();
+      void this.tick().catch((err) => this.log.warn({ err }, 'monitoring round failed'));
+    }, TICK_MS);
     this.timer.unref();
   }
 
@@ -89,6 +97,8 @@ export class AlertMonitor {
       dns,
       settings,
       orchestratorName: names.orchestrator,
+      firewall: this.outside.firewallResults(now),
+      dnsWrong: this.outside.dnsResults(now),
     });
   }
 

@@ -32,8 +32,10 @@ function SeverityIcon({ alert, className }: { alert: Pick<Alert, 'severity' | 'r
 function Subject({ alert }: { alert: Alert }) {
   const { t } = useTranslation();
   if (alert.stationId) return <Link className="font-semibold text-accent-text hover:underline" to={`/stations/${alert.stationId}`}>{t('monitoring.openStation')}</Link>;
+  if (alert.nodeId && (alert.kind === 'port_closed' || alert.kind === 'old_port_open'))
+    return <Link className="font-semibold text-accent-text hover:underline" to={`/nodes/${alert.nodeId}?tab=firewall`}>{t('firewall.title')}</Link>;
   if (alert.nodeId) return <Link className="font-semibold text-accent-text hover:underline" to={`/nodes/${alert.nodeId}`}>{t('monitoring.openNode')}</Link>;
-  if (alert.kind === 'dns_error') return <Link className="font-semibold text-accent-text hover:underline" to="/settings/dns">{t('nav.dns')}</Link>;
+  if (alert.kind === 'dns_error' || alert.kind === 'dns_wrong') return <Link className="font-semibold text-accent-text hover:underline" to="/settings/dns">{t('nav.dns')}</Link>;
   if (alert.kind === 'updates_paused') return <Link className="font-semibold text-accent-text hover:underline" to="/nodes">{t('monitoring.openUpdates')}</Link>;
   return null;
 }

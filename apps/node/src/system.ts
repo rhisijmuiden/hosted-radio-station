@@ -5,9 +5,10 @@ import { soundCards } from './fm/manager.js';
 
 /**
  * What this version can do beyond its protocol version. "studio-ingest" (1.3): on a station node, the station software
- * of this version sends its streams through an ingest node (it is updated together with the agent).
+ * of this version sends its streams through an ingest node (it is updated together with the agent). "portcheck"
+ * (phase 20): as a monitoring node it tries the ports of other nodes from outside for the server.
  */
-const FEATURES = ['studio-ingest'];
+const FEATURES = ['studio-ingest', 'portcheck'];
 
 /** Facts the main server shows about the node. */
 export function facts(web: 'caddy' | 'direct') {

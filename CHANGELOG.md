@@ -17,6 +17,10 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   checks (red when a check fails), and a **Checks** switch in the legend, in 2D and 3D.
 - A station that never played since it is checked (a distribution station without an encoder yet) no longer gives a
   *Station is off air* alert.
+- Checks from outside (phase 20, step 3): **Check from outside** on the Firewall tab runs through the monitoring node
+  when one is online and also tries the old ports while they are switched off. Every 10 minutes the monitoring node
+  checks the ports of every node, and every 5 minutes the names of the Cloudflare sync are looked up in public DNS. New
+  alerts *Ports cannot be reached from outside*, *Old ports are still open* and *Name resolves wrong in public DNS*.
 - AutoDJ queue: only one track is *Cued* at a time, the one that goes on air next. When the player already loaded the
   track after it (in Manual playout while it waits for Play, or when a track is played now), that one shows as loaded
   right behind it and becomes cued once the track before it is on air. The panel and RHIS Studio list the cued track
