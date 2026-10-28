@@ -81,11 +81,18 @@ export async function checkFirewall(ctx: AppContext, hub: NodeHub | null, node: 
   const checks: Record<string, PortCheck> = {};
   for (const p of ports) {
     const r = results.get(p.port) ?? { ok: false, message: 'timeout', ms: null };
-    checks[portKey(p)] = { ok: r.ok, message: p.service === 'push' && !r.ok && r.message === 'refused' && !pushing ? 'idle' : r.message, ms: r.ms, at };
+    // FTP passive ports only listen during a transfer, so a closed one is no fault; only a filtered one (timeout) is.
+    const idle = !r.ok && r.message === 'refused' && ((p.service === 'push' && !pushing) || p.service === 'ftpPassive');
+    checks[portKey(p)] = { ok: r.ok, message: idle ? 'idle' : r.message, ms: r.ms, at };
   }
-  const closed = Object.entries(checks)
-    .filter(([, c]) => !c.ok && c.message !== 'idle')
-    .map(([key]) => key);
+  // The FTP passive ports only matter when FTP itself can be reached from outside: otherwise nobody uses FTP there.
+  const ftpReachable = ports.some((p) => p.service === 'ftp' && checks[portKey(p)]?.ok);
+  const closed = ports
+    .filter((p) => {
+      const c = checks[portKey(p)]!;
+      return !c.ok && c.message !== 'idle' && (p.service !== 'ftpPassive' || ftpReachable);
+    })
+    .map(portKey);
   const check: FirewallCheck = { at, from, dns, checks, oldOpen: old.filter((port) => results.get(port)?.ok), closed };
   last.set(node.id, check);
   return check;

@@ -77,6 +77,24 @@ describe('monitoring node', () => {
     const [row] = await t.db.select().from(schema.nodeProbes).where(eq(schema.nodeProbes.nodeId, monitor));
     expect(row).toMatchObject({ bitrateKbps: 127, contentType: 'audio/mpeg', title: 'Artist - Song', levelDb: -3.5, silent: false });
   });
+
+  it('leaves a stream that never played out of the check status on the map', async () => {
+    const at = new Date().toISOString();
+    const report = (ok: boolean) =>
+      t.app.inject({
+        method: 'POST',
+        url: '/api/nodes/agent/report',
+        headers: { authorization: `Node ${monitor}.${monitorSecret}` },
+        payload: { relays: [], clients: [], probes: [{ target: `harder-fm/low@${relay}`, stationId, url: 'http://x/low', ok, httpStatus: ok ? 200 : 404, ttfbMs: 50, at, ...(ok ? {} : { message: 'HTTP 404' }) }] },
+      });
+    expect((await report(false)).statusCode).toBe(200);
+    const check = async () => (await t.app.inject({ method: 'GET', url: '/api/nodes/topology', headers: admin })).json().nodes.find((n: { id: string }) => n.id === relay)?.check;
+    expect(await check()).toBeNull();
+    // Once it played, a failure counts.
+    await report(true);
+    await report(false);
+    expect(await check()).toBe('failed');
+  });
 });
 
 describe('deep check rules', () => {
