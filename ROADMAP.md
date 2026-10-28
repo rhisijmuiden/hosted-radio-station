@@ -171,7 +171,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 17 | RHIS Studio 1.0 (Windows client) | Done (1.3.0) (fader start, step 4, parked until MIDI/GPIO hardware is available) |
 | 18 | Server names and topology views | Done (1.1.0) |
 | 19 | Clearer control panels and node assignment | Done (1.2.0) |
-| 20 | Monitoring node | In progress |
+| 20 | Monitoring node | Done on test (PRs #142–#145) |
 | 21 | Recorder node | Planned (step 7 in the order of work) |
 | 22 | Packaged installers and moving the orchestrator | Future (when the first customers come) |
 | 23 | Deployment wizard | Future (when the first customers come) |
@@ -182,9 +182,9 @@ One thing at a time; each item starts when the previous one is finished and test
 
 1. **Release to production** (done, 1.3.0): everything on `test` (phase 17, the UI fixes, the port plan per role and routing via ingest) goes to `main` as one release.
 2. **Bug fix: two tracks "Cued" at once** (done on test, PRs #140 and #141; goes out with the next release): only one track can be cued at a time. This must be right before the Studio layout below, where player B is the cued track.
-3. **Phase 20: Monitoring node** (in progress): the monitoring node shows on the network map in bright green in its own lane, with moving check lines to the nodes it checks (red when a check fails) and a Checks switch; alerts when a node or relay goes down, instead of finding out from silence.
-4. **Network map: customer blocks**: in the 2D and 3D map every customer becomes its own block, set apart from the shared infrastructure (station node, MPX, FM transmitter with its FM listeners, local recorder inside it), and every station gets its own line colour from studio through the shared ingests and relays to its listeners. Sketch: https://claude.ai/artifact/SmrKM7omutgpzMm5TWpa2w (approved 28 October 2026).
-5. **RHIS Studio: OmniPlayer-style layout**, in steps:
+3. **Phase 20: Monitoring node** (done on test, PRs #142–#145, tested with a real monitoring node): the monitoring node shows on the network map in bright green in its own lane, with moving check lines to the nodes it checks (red when a check fails) and a Checks switch; alerts when a node or relay goes down, instead of finding out from silence.
+4. **Network map: customer blocks** (done on test, PR #146): in the 2D and 3D map every customer becomes its own block, set apart from the shared infrastructure (station node, MPX, FM transmitter with its FM listeners, local recorder inside it), and every station gets its own line colour from studio through the shared ingests and relays to its listeners. Sketch: https://claude.ai/artifact/SmrKM7omutgpzMm5TWpa2w (approved 28 October 2026).
+5. **RHIS Studio: OmniPlayer-style layout** (in progress), in steps:
    1. Players A and B, the log (playlist) and a dashboard.
    2. Both jingle grids and a separate loose player.
    3. Library with columns for the station's own item code, ISRC, BPM and key (taken from the tags first, otherwise calculated on the server in the background; an admin can correct them).
@@ -574,6 +574,12 @@ Nodes with a direct public IP address get a firewall that is closed by default.
 - SSH stays open, optionally limited to set admin IP addresses, with protection against password guessing (fail2ban or rate limits).
 - Safe apply: new rules roll back by themselves when the node loses its connection to the orchestrator within a minute, so a mistake never locks a node out.
 - Hardening is on by default for nodes that detect a public IP, and can be turned on for nodes behind NAT as well. The panel shows the firewall state per node, and the external port check confirms that only the expected ports answer.
+
+### Small follow-ups (backlog, not started)
+
+- **Direct fallback visible**: when a station node bypasses the ingest and pushes directly to the relays (fallback), the network map and the Monitoring page say so.
+- **Failing check by name**: the check badge on a relay names the check that failed in its tooltip.
+- **Quiet during updates**: the "old port open" check no longer flaps while a node is being updated.
 
 ## Future ideas
 
