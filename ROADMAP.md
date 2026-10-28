@@ -165,16 +165,33 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 11 | FM/MPX and RDS module | Done |
 | 12 | Station nodes | Done |
 | 13 | Orchestrator as control plane | Done |
-| 14 | Orchestrator redundancy | Planned (1.x) |
+| 14 | Orchestrator redundancy | Planned (just before sales start) |
 | 15 | Cloudflare DNS integration | Done (1.1.1) |
 | 16 | Installer menu and node enrollment | Done (1.2.0) |
-| 17 | RHIS Studio 1.0 (Windows client) | Paused after step 3 (resumes after 16 and 14) |
+| 17 | RHIS Studio 1.0 (Windows client) | Done (1.3.0) (fader start, step 4, parked until MIDI/GPIO hardware is available) |
 | 18 | Server names and topology views | Done (1.1.0) |
 | 19 | Clearer control panels and node assignment | Done (1.2.0) |
-| 20 | Monitoring node | Planned (1.x) |
-| 21 | Recorder node | Future |
-| 22 | Packaged installers and moving the orchestrator | Future |
-| 23 | Deployment wizard | Future |
+| 20 | Monitoring node | Next (step 3 in the order of work) |
+| 21 | Recorder node | Planned (step 5 in the order of work) |
+| 22 | Packaged installers and moving the orchestrator | Future (when the first customers come) |
+| 23 | Deployment wizard | Future (when the first customers come) |
+
+## Order of work
+
+One thing at a time; each item starts when the previous one is finished and tested.
+
+1. **Release to production** (done, 1.3.0): everything on `test` (phase 17, the UI fixes, the port plan per role and routing via ingest) goes to `main` as one release.
+2. **Bug fix: two tracks "Cued" at once**: only one track can be cued at a time. This must be right before the Studio layout below, where player B is the cued track.
+3. **Phase 20: Monitoring node**: alerts when a node or relay goes down, instead of finding out from silence.
+4. **RHIS Studio: OmniPlayer-style layout**, in steps:
+   1. Players A and B, the log (playlist) and a dashboard.
+   2. Both jingle grids and a separate loose player.
+   3. Library with columns for the station's own item code, ISRC, BPM and key (taken from the tags first, otherwise calculated on the server in the background; an admin can correct them).
+   4. News player (source set per station: a file from a URL, a file over FTP/SFTP, or a live stream, at set times, with a spare jingle when the news is missing) and a log editor.
+   - Free docking of panels comes later as a separate item.
+5. **Phase 21: Recorder node**: recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download.
+
+Later: phase 14 (orchestrator redundancy) just before sales start; phases 22 and 23 when the first customers come.
 
 ## Phases
 
@@ -488,9 +505,10 @@ A node role that watches the whole platform from the outside, as a listener and 
 
 A node role that only records: radio logging and recordings of live shows, dedicated to the stations that subscribe to it.
 
-- Placement: at a customer's site, or central in a datacenter recording many stations. Linked to customers and stations in the panel, like other dedicated nodes.
+- Placement: at a customer's site (on their own LXC or PC next to the studio, installed like any other node), or central in a datacenter recording many stations. Linked to customers and stations in the panel, like other dedicated nodes.
 - Logging: a continuous recording of each subscribed stream at a lower bitrate (for example 64 kbps), kept for a set number of days, with a play log of every song (start, end, title, artist, live or AutoDJ).
-- Live shows: when a DJ goes live, the recorder records the show in full quality and offers it as an on-demand item (listen again) on the station's public page, after the customer approves it or automatically.
+- Live shows: the station node (or ingest node) tells the recorder when a live broadcast starts and stops (Go Live in RHIS Studio or an encoder going live). The recorder then records the show in high quality, taken straight from the station node rather than from a relay, and saves it as one file per show. It offers it as an on-demand item (listen again) on the station's public page, after the customer approves it or automatically.
+- Upload targets: finished recordings (and optionally the logging files) are sent on to **OneDrive** or an **FTP/FTPS/SFTP** server, per station, with retries when the target is unreachable and an option to delete the local copy after a confirmed upload.
 - Reports: a CSV export per period for auditing and rights reporting (Buma/Stemra, SENA): how often each song played, when, and for how long. Also in the API.
 - The customer listens back, downloads and cuts recordings in their own panel; storage and retention are set per package.
 
@@ -523,10 +541,19 @@ Small fixes planned for a patch release, one at a time after the current phase.
 - An FM/MPX node is linked directly to the station node (studio) it takes its audio from, and is drawn right next to it as one group, instead of on its own in the distribution layer.
 - Shared or dedicated nodes (pulled forward from phase 19): every node is **Shared** or **Dedicated** to one customer or station. A dedicated node only carries and shows its own streams, and automatic and spare relay routing never put other stations on it. A customer's own node is dedicated by default.
 
-### 1.3: port plan, studio through the ingest, network map fixes (on test)
+### 1.3.0: port plan, studio through the ingest, network map fixes (done)
 
 - **Port plan**: every role has its own incoming ports (ingest 8200/8201 and 8210–8299, relay push 8301, station node 8400/8401/8402, orchestrator 443 and 80). Old ports stay open next to the new ones until they are switched off under **Nodes → Port plan**; each node's Firewall tab lists them and gives ready-made `ufw` rules.
-- **Studio through the ingest**: a station node sends each source stream once to an ingest, which makes the other mounts and feeds every relay; straight to the relays stays a choice per station.
+
+| Role | Incoming ports |
+|---|---|
+| Orchestrator | 443 only (+80 for certificates) |
+| Ingest (encoders) | 8200 plain, 8201 TLS, 8210–8299 Shoutcast v1 |
+| Relay | 443/80 for listeners, 8301 TLS for pushes from ingest and station nodes |
+| Station node | 8400 plain / 8401 TLS for RHIS Studio and Go Live, 8402 SFTP |
+| FM/MPX, monitoring, recorder | none, outbound only |
+
+- **Studio through the ingest**: a station node sends each source stream once to an ingest, which makes the other mounts and feeds every relay; straight to the relays stays a choice per station. A main and a backup ingest are possible; from another site the node only sends over TLS with a real certificate (Certificates through Cloudflare DNS).
 - **Network map**: 3D labels no longer stay behind, a **Server labels** switch, control lines on by default, audio lines run around servers instead of through them. Distribution only customers never get a studio.
 
 | Nodes → Port plan | Show ports, dark, Dutch |
@@ -539,6 +566,38 @@ Small fixes planned for a patch release, one at a time after the current phase.
 ## Future ideas
 
 Not scheduled in a phase yet.
+
+### Sound processor per station
+
+Audio processing for the station's output, set per radio station (not per studio PC).
+
+- **Built-in, light**: a basic chain (EQ, multiband compressor, AGC, limiter) with presets, low on CPU, available to every station.
+- **Stereo Tool**: load Thimeo Stereo Tool (Linux command-line version, the station's own licence key), upload or import a preset (`.sts`) and tweak it from the panel.
+- Processing runs **once per station**, where the audio is made (the station node, or the server running its AutoDJ), before the encoders, so every mount and relay gets the same processed sound.
+- **System resources first**: off by default; a CPU limit per processor (systemd quota), live CPU and RAM use shown in the panel, and a warning before turning it on when the node does not have enough headroom. The plan or node limits decide who may use the heavy processor.
+- Live DJs and AutoDJ both go through it; an FM/MPX node with its own processing can skip it.
+
+### Format builder for non-stop
+
+A format builder next to the hour clock, to make the non-stop rotation easier to build.
+
+- Music **categories** (for example Hits, Recurrents, Gold, New), filled from playlists, folders or tags.
+- A **pattern** of steps: "3 tracks from category A, jingle, 3 tracks from category B, jingle, …". The pattern repeats until the hour is full.
+- The pattern is **clicked together** in a visual editor: add a step, pick the category (not single tracks), set the number of tracks (1, 2, 3, 4, …), drag steps to reorder.
+- **Jingle over the music**: an option to mix a jingle over the playing track at set times (for example every half hour) without stopping the track, with the music ducked under the jingle. Useful for stations with very long tracks, such as Harder.FM.
+- Separation rules (artist, title) and how often each category may repeat, per format.
+- The **hour clock stays** for fixed times: news blocks, ads and locked items run at their set minutes, and the format fills the time in between.
+- A format can be set as the station's default, per hour clock, or per show in the weekly schedule.
+
+### Phone calls in RHIS Studio (SIP)
+
+A SIP client built into RHIS Studio, so a DJ can take listener calls and interviews on air without a separate phone hybrid.
+
+- Client only: it registers with the existing SIP server (account settings per DJ profile or per studio PC). The platform does not run its own SIP server.
+- A small call menu in the client: incoming calls, answer, hold, hang up, and a dial pad.
+- **Talk off air first**: the DJ answers a caller privately (on the preview output, with their own microphone) before putting them live in the broadcast.
+- **Waiting indicator**: a clear signal in the top bar (flashing, with the number of callers waiting and how long) when someone is on hold.
+- The call is mixed into the live broadcast like a jingle, with its own level on the meter; the DJ's microphone goes back to the caller (mix-minus).
 
 ### Open source edition
 
