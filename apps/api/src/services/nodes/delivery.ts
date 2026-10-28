@@ -93,6 +93,22 @@ export function studioToken(ctx: AppContext, stationNode: Pick<Node, 'secret'>, 
 const INTERNAL_TLDS = new Set(['loc', 'local', 'lan', 'home', 'internal', 'intranet', 'corp', 'localdomain', 'test', 'invalid', 'localhost', 'arpa']);
 const certName = (h: string) => !!h && !net.isIP(h) && h.includes('.') && !INTERNAL_TLDS.has(h.slice(h.lastIndexOf('.') + 1).toLowerCase());
 
+/** Private IPv4 address (RFC 1918). */
+const privateV4 = (a: string) => net.isIPv4(a) && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a);
+const net24 = (a: string) => a.split('.').slice(0, 3).join('.');
+
+/**
+ * The ingest's address on the local network when the station node sits on the same site: its private address in the
+ * same /24 as one of the station node's, or (behind the same public address) its studio network address or first IPv4
+ * address. Null from another site.
+ */
+function siteAddress(from: Pick<Node, 'status'>, n: Pick<Node, 'config' | 'status'>): string | null {
+  const mine = new Set((from.status.addresses ?? []).filter(privateV4).map(net24));
+  const near = (n.status.addresses ?? []).find((x) => privateV4(x) && mine.has(net24(x)));
+  if (near) return nodeSettings(n).lanAddress || near;
+  return from.status.ip && from.status.ip === n.status.ip ? internalAddress(n) : null;
+}
+
 /**
  * Where a station node sends its streams on an ingest node: its encoder port, with TLS when the ingest has a name with
  * a certificate. While the ingest keeps its old ports (port plan) the old port is used, which agents of every version
@@ -101,7 +117,7 @@ const certName = (h: string) => !!h && !net.isIP(h) && h.includes('.') && !INTER
  */
 export function ingestTarget(n: Pick<Node, 'config' | 'status'>, from?: Pick<Node, 'status'>): { host: string; port: number; tls: boolean } | null {
   const c = nodeSettings(n);
-  const lan = from?.status.ip && from.status.ip === n.status.ip ? internalAddress(n) : null;
+  const lan = from ? siteAddress(from, n) : null;
   if (lan && c.sourcePlainPort) return { host: lan, port: c.oldPorts ? OLD_PORTS.plain : c.sourcePlainPort, tls: false };
   const name = nodeHost(n);
   const host = name || n.status.ip;

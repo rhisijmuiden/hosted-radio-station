@@ -155,8 +155,11 @@ describe('station node through the ingest (1.3)', () => {
     await t.db.update(schema.nodes).set({ status: { ...s.status, ip: '198.51.100.7' } }).where(eq(schema.nodes.id, studio));
     await routing({ ingest, backupIngest: null, relays: 'auto', spareRelays: true, delivery: 'ingest' });
     expect(await pushes()).toEqual([expect.objectContaining({ host: '10.10.4.121', port: 8200, ingestNodeId: ingest })]);
+    // Seen from different public addresses (a proxy), but on the same local network.
+    await t.db.update(schema.nodes).set({ status: { ...s.status, ip: '203.0.113.9', addresses: ['10.10.4.123'] } }).where(eq(schema.nodes.id, studio));
+    expect(await pushes()).toEqual([expect.objectContaining({ host: '10.10.4.121', port: 8200, tls: false })]);
     // From elsewhere the public address.
-    await t.db.update(schema.nodes).set({ status: { ...s.status, ip: '203.0.113.5' } }).where(eq(schema.nodes.id, studio));
+    await t.db.update(schema.nodes).set({ status: { ...s.status, ip: '203.0.113.5', addresses: ['192.168.1.20'] } }).where(eq(schema.nodes.id, studio));
     expect(await pushes()).toEqual([expect.objectContaining({ host: '198.51.100.7', ingestNodeId: ingest })]);
   });
 
