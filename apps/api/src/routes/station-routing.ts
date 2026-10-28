@@ -73,12 +73,14 @@ export const stationRoutingRoutes: FastifyPluginAsyncZod = async (app) => {
     const only = (await getSetting(ctx, 'orchestrator')).only;
     const onAir = (x: string) => (x === 'local' ? !!worker?.onAir[station.id]?.length : !!nodes.find((n) => n.id === x)?.status.ingest?.some((m) => m.stationId === station.id));
     const name = (x: string) => (x === 'local' ? 'local' : (nodes.find((n) => n.id === x)?.name ?? '?'));
-    const ingests = ingestsOf(r).map((i) => ({ ref: i.ref, priority: i.priority, name: name(i.ref), online: i.ref === 'local' ? !!worker?.alive : !!nodes.find((n) => n.id === i.ref)?.status.online, onAir: onAir(i.ref) }));
+    // The stored status, as the station node's package is built from it: the view shows the route the node gets.
+    const studio = station.nodeId ? studioDelivery(station, rows) : null;
+    // On a station node the ingests are the ones its streams go through (1.3), else the chosen ones.
+    const refs = studio ? studio.ingests.map((i) => ({ ref: i.node.id, priority: i.priority })) : ingestsOf(r);
+    const ingests = refs.map((i) => ({ ref: i.ref, priority: i.priority, name: name(i.ref), online: i.ref === 'local' ? !!worker?.alive : !!nodes.find((n) => n.id === i.ref)?.status.online, onAir: onAir(i.ref) }));
     const active = ingests.find((i) => i.onAir)?.ref ?? null;
     const carrying = relaysOf(station, relays);
     const chosen = r.relays === 'auto' ? null : new Set(r.relays);
-    // The stored status, as the station node's package is built from it: the view shows the route the node gets.
-    const studio = station.nodeId ? studioDelivery(station, rows) : null;
     return {
       routing: r,
       studio: studio && { ingests: studio.ingests.map((i) => ({ id: i.node.id, name: i.node.name, online: !!i.node.status.online, priority: i.priority })), direct: studio.direct, error: studio.error ?? null },

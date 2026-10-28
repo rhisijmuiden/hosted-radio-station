@@ -76,6 +76,18 @@ describe('station node through the ingest (1.3)', () => {
     expect(out).toEqual([expect.objectContaining({ host: 'ingest1.example.com', port: 8201, tls: true, mount: '/harder-fm/live', username: STUDIO_USER, ingestNodeId: ingest })]);
   });
 
+  it('shows the route in the routing status, the delivery path of the customer and the node list', async () => {
+    const view = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/routing`, headers: admin })).json();
+    expect(view.status.ingests).toEqual([expect.objectContaining({ ref: ingest, priority: 0 })]);
+    const [station] = await t.db.select({ tenantId: schema.stations.tenantId }).from(schema.stations).where(eq(schema.stations.id, stationId));
+    const topo = (await t.app.inject({ method: 'GET', url: `/api/nodes/topology?tenantId=${station!.tenantId}`, headers: admin })).json();
+    // The map follows the live connections (none in tests); the ingest it routes through is in the customer's picture.
+    expect(topo.stations.find((x: { id: string }) => x.id === stationId)).toMatchObject({ stationNode: studio });
+    expect(topo.nodes.map((n: { id: string }) => n.id)).toContain(ingest);
+    const list = (await t.app.inject({ method: 'GET', url: '/api/nodes', headers: admin })).json();
+    expect(list.find((n: { id: string }) => n.id === ingest).status).toMatchObject({ certs: ['*.example.com'], features: [STUDIO_INGEST] });
+  });
+
   it('plans the ingest to take the station, make its mounts and feed the relays', async () => {
     const plan = await buildPlan(t.ctx, await nodeRow(ingest));
     const s = plan.ingest!.stations.find((x) => x.stationId === stationId)!;

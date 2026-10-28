@@ -15,7 +15,7 @@ import { nodeEvent } from '../services/nodes/hub.js';
 import { hashCode, installCommand, MAX_PENDING, nameFromHostname, newPairingCode, newRegistrationCode, PAIRING_HOURS } from '../services/nodes/pairing.js';
 import { carried, nodeConfigPatch, nodeConfigSchema, type NodeConfigPatch, nodeSettings, relayBaseUrl, relaysByStation, relaysOf, storedConfig, type Node } from '../services/nodes/plan.js';
 import { scopeOf, serves } from '../services/nodes/dedication.js';
-import { studioDelivery } from '../services/nodes/delivery.js';
+import { plannedIngests, studioDelivery } from '../services/nodes/delivery.js';
 import { ingestNodes, ingestsOf, localIngest, pushedRouting, stationRouting } from '../services/nodes/routing-rules.js';
 import { readStreamsStatus } from '../services/streaming/status.js';
 import { authenticateNode, reportSchema, storeReport } from '../services/nodes/report.js';
@@ -62,6 +62,9 @@ const statusOut = z
     update: z.object({ state: z.enum(['idle', 'running', 'succeeded', 'failed']), message: z.string().optional(), at: z.string().optional() }).nullish(),
     ffmpeg: z.boolean().optional(),
     soundcards: z.array(z.object({ device: z.string(), name: z.string() })).optional(),
+    /** Names the node holds a valid certificate for, and what its software can do (1.3). */
+    certs: z.array(z.string()).optional(),
+    features: z.array(z.string()).optional(),
     fm: z
       .object({
         input: z.enum(['idle', 'connecting', 'connected', 'error']),
@@ -816,7 +819,8 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
     const scopeSet = scope ? new Set(scope) : null;
     const pairedRelayNodes = allNodes.filter((n) => n.pairedAt && n.roles.includes('relay')).map((n) => ({ ...n, status: hub.liveStatus(n.id) ?? { ...n.status, online: false } }));
     // A customer sees its own nodes, the relays that carry its stations and the ingest nodes they use.
-    const usedIngest = new Set(stations.flatMap((s) => ingestNodes(stationRouting(s)).map((i) => i.ref)));
+    // A station on a station node uses the ingests it is routed through (1.3).
+    const usedIngest = new Set(stations.flatMap((s) => (s.nodeId ? (plannedIngests(s, allNodes) ?? []).map((i) => i.node.id) : ingestNodes(stationRouting(s)).map((i) => i.ref))));
     const nodes = allNodes.filter((n) => {
       if (!scopeSet) return true;
       if (n.tenantId && scopeSet.has(n.tenantId)) return true;
