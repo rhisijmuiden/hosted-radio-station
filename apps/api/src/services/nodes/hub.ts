@@ -13,7 +13,7 @@ import { GeoIp } from '../stats/geoip.js';
 import { fmContext } from './fm.js';
 import { authorizeIngest, recordLive, syncLive } from './ingest.js';
 import { buildPlan, type Node } from './plan.js';
-import { CLOSE, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, type AgentMessage, type AgentStats, type FmStatus, type ServerMessage } from './protocol.js';
+import { CLOSE, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, type AgentMessage, type AgentStats, type FmStatus, type PortCheckResult, type ServerMessage } from './protocol.js';
 
 const PING_MS = 5000;
 /** A ping without an answer after this long counts as a timeout. */
@@ -102,6 +102,9 @@ export class NodeHub {
   readonly geo: GeoIp;
   /** Called when nodes come, go or are drained: Cloudflare DNS follows (phase 15). */
   onChange: (() => void) | null = null;
+  /** Port checks a monitoring node is busy with (phase 20), by id. */
+  private portChecks = new Map<number, { nodeId: string; done: (r: { address: string | null; results: PortCheckResult[] } | null) => void }>();
+  private portCheckSeq = 0;
 
   constructor(
     private readonly ctx: AppContext,
@@ -292,6 +295,14 @@ export class NodeHub {
       void recordLive(this.ctx, { id: c.nodeId, tenantId: c.tenantId }, msg).catch((err) => this.log.warn({ err }, 'logging a broadcast on a node failed'));
     } else if (msg.t === 'live_sync') {
       void syncLive(this.ctx, c.nodeId, Array.isArray(msg.sessionIds) ? msg.sessionIds.map(String) : []).catch((err) => this.log.warn({ err }, 'syncing broadcasts of a node failed'));
+    } else if (msg.t === 'portcheck_result') {
+      const job = this.portChecks.get(Number(msg.id));
+      if (!job || job.nodeId !== c.nodeId) return;
+      const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+      job.done({
+        address: typeof msg.address === 'string' ? msg.address.slice(0, 100) : null,
+        results: (Array.isArray(msg.results) ? msg.results : []).slice(0, 200).map((r) => ({ port: Number(r.port), ok: r.ok === true, message: r.message == null ? null : String(r.message).slice(0, 60), ms: num(r.ms) })),
+      });
     } else if (msg.t === 'event' && typeof msg.kind === 'string' && /^[a-z_]{1,40}$/.test(msg.kind)) {
       const level = msg.level === 'warning' || msg.level === 'error' ? msg.level : 'info';
       const details: Record<string, string | number | null> = {};
@@ -519,6 +530,31 @@ export class NodeHub {
     this.send(c, { t: 'drain', seconds });
     this.onChange?.();
     return true;
+  }
+
+  /** Whether a connected node can check ports for the server (a monitoring node with port checks, phase 20). */
+  canCheckPorts(nodeId: string) {
+    return !!this.conns.get(nodeId)?.status.features?.includes('portcheck');
+  }
+
+  /**
+   * Asks a monitoring node to try these ports of a host from outside (phase 20). Null when it is not connected or does
+   * not answer in time.
+   */
+  portCheck(nodeId: string, host: string, ports: number[], timeoutMs = 60_000): Promise<{ address: string | null; results: PortCheckResult[] } | null> {
+    const c = this.conns.get(nodeId);
+    if (!c) return Promise.resolve(null);
+    const id = ++this.portCheckSeq;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => finish(null), timeoutMs);
+      const finish = (r: { address: string | null; results: PortCheckResult[] } | null) => {
+        clearTimeout(timer);
+        this.portChecks.delete(id);
+        resolve(r);
+      };
+      this.portChecks.set(id, { nodeId, done: finish });
+      this.send(c, { t: 'portcheck', id, host, ports });
+    });
   }
 
   /** Closes the connection of a node that was unpaired or removed; the agent stops trying. */

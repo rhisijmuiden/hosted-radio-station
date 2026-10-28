@@ -30,6 +30,9 @@ const TITLES: Record<Lang, Record<AlertKind, string>> = {
     feed_lost: '{node} lost the feed of {station}',
     updates_paused: 'Node updates are paused',
     dns_error: 'Cloudflare DNS fails',
+    port_closed: 'Ports {ports} of {node} cannot be reached from outside',
+    old_port_open: 'Old ports {ports} of {node} are still open',
+    dns_wrong: '{name} resolves wrong in public DNS',
   },
   nl: {
     node_offline: 'Node {node} is offline',
@@ -41,6 +44,9 @@ const TITLES: Record<Lang, Record<AlertKind, string>> = {
     feed_lost: '{node} heeft de feed van {station} verloren',
     updates_paused: 'Node-updates staan op pauze',
     dns_error: 'Cloudflare DNS geeft een fout',
+    port_closed: 'Poorten {ports} van {node} zijn van buitenaf niet bereikbaar',
+    old_port_open: 'Oude poorten {ports} van {node} staan nog open',
+    dns_wrong: '{name} wijst in de publieke DNS naar het verkeerde adres',
   },
 };
 

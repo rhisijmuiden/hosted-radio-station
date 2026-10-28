@@ -1162,6 +1162,10 @@ export interface NodeFirewall {
   dns: { host: string; state: 'ok' | 'stale' | 'missing'; checkedOn: string } | null;
   ports: FirewallPort[];
   checks: Record<string, { ok: boolean; message: string | null; ms: number | null; at: string }>;
+  /** Who ran the last check: a monitoring node outside (phase 20), or this server. */
+  checkedFrom: { kind: 'monitor'; nodeId: string; name: string } | { kind: 'server' } | null;
+  /** Old ports that still answer while they are switched off for the node. */
+  oldOpen: number[];
 }
 export interface TopologyNode {
   id: string;
@@ -1583,7 +1587,7 @@ export interface NodeDns {
 
 // Phase 20: monitoring
 
-export type AlertKind = 'node_offline' | 'node_problem' | 'station_off_air' | 'station_silent' | 'stream_down' | 'stream_quality' | 'feed_lost' | 'updates_paused' | 'dns_error';
+export type AlertKind = 'node_offline' | 'node_problem' | 'station_off_air' | 'station_silent' | 'stream_down' | 'stream_quality' | 'feed_lost' | 'updates_paused' | 'dns_error' | 'port_closed' | 'old_port_open' | 'dns_wrong';
 export interface Alert {
   id: string;
   key: string;

@@ -8,10 +8,11 @@ import { endpointLines, fill, portLines, renderTemplate, emailWords, emailLocale
 import { mailConfigured, sendMail } from '../services/mail.js';
 import { nameKey, namesFrom, serverNames } from '../services/nodes/names.js';
 import { stationsUsingThisServer } from '../services/nodes/orchestrator.js';
-import { checkTarget, externalAddress, inboundPorts, internalAddress, probePort, type InboundPort } from '../services/nodes/ports.js';
-import { buildPlan, nodeSettings, storedConfig } from '../services/nodes/plan.js';
+import { checkFirewall, lastFirewallCheck } from '../services/nodes/firewall.js';
+import { externalAddress, inboundPorts, internalAddress } from '../services/nodes/ports.js';
+import { nodeSettings, storedConfig } from '../services/nodes/plan.js';
 import { OLD_PORTS, PORTS } from '../services/nodes/portplan.js';
-import { isPublicAddress, nodeAddresses } from '../services/dns/records.js';
+import { isPublicAddress } from '../services/dns/records.js';
 import { forgetRelays } from '../services/nodes/routing.js';
 import { getSetting, putSetting, serverNameSchema } from '../services/settings.js';
 import { connectionInfo } from '../services/streaming/info.js';
@@ -69,12 +70,11 @@ const firewallOut = z.object({
   ports: z.array(portOut),
   /** The last check from outside, per port ("port" or "port-to"). */
   checks: z.record(z.string(), z.object({ ok: z.boolean(), message: z.string().nullable(), ms: z.number().nullable(), at: z.string() })),
+  /** Who ran the last check (phase 20): a monitoring node outside, or this server. Null before the first check. */
+  checkedFrom: z.discriminatedUnion('kind', [z.object({ kind: z.literal('monitor'), nodeId: z.string(), name: z.string() }), z.object({ kind: z.literal('server') })]).nullable(),
+  /** Old ports (from before the port plan) that still answer while they are switched off: close them in the firewall. */
+  oldOpen: z.array(z.number()),
 });
-
-/** The last outside check per node, kept in memory (it is quick to run again). */
-const lastChecks = new Map<string, z.infer<typeof firewallOut>['checks']>();
-const lastDns = new Map<string, z.infer<typeof firewallOut>['dns']>();
-const portKey = (p: Pick<InboundPort, 'port' | 'to'>) => (p.to ? `${p.port}-${p.to}` : String(p.port));
 
 /**
  * Phase 18: server names, the "orchestrator only" switch, the firewall checklist of a node and the connection details
@@ -306,15 +306,18 @@ export const orchestratorRoutes: FastifyPluginAsyncZod = async (app) => {
 
   async function firewallView(node: Awaited<ReturnType<typeof nodeFor>>): Promise<z.infer<typeof firewallOut>> {
     const internal = internalAddress(node);
+    const last = lastFirewallCheck(node.id);
     const publicInterface = !!internal && isPublicAddress(internal);
     return {
       selfHosted: !!node.tenantId,
       external: externalAddress(node),
       internal: publicInterface ? null : internal,
       publicInterface,
-      dns: lastDns.get(node.id) ?? null,
+      dns: last?.dns ?? null,
       ports: await inboundPorts(ctx, node),
-      checks: lastChecks.get(node.id) ?? {},
+      checks: last?.checks ?? {},
+      checkedFrom: last?.from ?? null,
+      oldOpen: last?.oldOpen ?? [],
     };
   }
 
@@ -327,25 +330,17 @@ export const orchestratorRoutes: FastifyPluginAsyncZod = async (app) => {
     '/:id/firewall/check',
     {
       config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
-      schema: { tags: ['Nodes'], summary: 'Check from outside (this server) whether each port of the node can be reached', params: nodeParams, response: { 200: firewallOut } },
+      schema: {
+        tags: ['Nodes'],
+        summary: 'Check from outside whether each port of the node can be reached: through a monitoring node when one is online, else from this server',
+        params: nodeParams,
+        response: { 200: firewallOut },
+      },
     },
     async (req) => {
       const node = await nodeFor(req, req.params.id);
-      const host = externalAddress(node);
-      if (!host) throw badRequest('The node has no known address yet; pair it or set its host name');
-      const ports = await inboundPorts(ctx, node);
-      const at = new Date().toISOString();
-      const target = await checkTarget(host, nodeAddresses({ publicAddress: nodeSettings(node).publicAddress, ip: node.status.ip ?? null, addresses: node.status.addresses ?? [] }));
-      lastDns.set(node.id, target.dns ? { host, state: target.dns, checkedOn: target.address } : null);
-      // A relay only listens on its push port while an ingest or station node pushes a stream to it.
-      const pushing = ports.some((p) => p.service === 'push') && !!(await buildPlan(ctx, node)).relay?.mounts.some((m) => m.push);
-      const results = await Promise.all(
-        ports.map(async (p) => {
-          const res = await probePort(target.address, p.port);
-          return [portKey(p), { ...res, message: p.service === 'push' && !res.ok && res.message === 'refused' && !pushing ? 'idle' : res.message, at }] as const;
-        }),
-      );
-      lastChecks.set(node.id, Object.fromEntries(results));
+      if (!externalAddress(node)) throw badRequest('The node has no known address yet; pair it or set its host name');
+      await checkFirewall(ctx, hub, node);
       return firewallView(node);
     },
   );

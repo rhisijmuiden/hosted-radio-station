@@ -34,6 +34,10 @@ export interface RulesInput {
   settings: Pick<AlertSettings, 'quietStations' | 'maintenance'>;
   /** The name of this server, for checks of the streams it serves itself ("@main"). */
   orchestratorName: string;
+  /** Ports tried from outside by a monitoring node (phase 20, step 3). */
+  firewall?: { nodeId: string; closed: string[]; oldOpen: number[] }[];
+  /** Names that resolve wrong in public DNS for a while. */
+  dnsWrong?: { name: string; message: string }[];
 }
 
 /** The content types a player gets per stream format. */
@@ -171,6 +175,17 @@ export function evaluate(input: RulesInput): Condition[] {
   if (input.rollout.paused) {
     const n = input.rollout.paused.nodeId ? nodes.get(input.rollout.paused.nodeId) : undefined;
     out.push({ key: 'updates_paused', kind: 'updates_paused', severity: 'warning', nodeId: n?.id ?? null, stationId: null, params: { node: n?.name ?? '' }, message: input.rollout.paused.reason });
+  }
+  // From outside: ports a node needs that the world cannot reach (encoders or listeners cannot get in), and old ports
+  // that are still open after they were switched off.
+  for (const f of input.firewall ?? []) {
+    const n = nodes.get(f.nodeId);
+    if (!n || !n.online || !watchedNode(n.id)) continue;
+    if (f.closed.length) out.push({ key: `port_closed:${n.id}`, kind: 'port_closed', severity: 'warning', nodeId: n.id, stationId: null, params: { node: n.name, ports: f.closed.join(', ') }, message: null });
+    if (f.oldOpen.length) out.push({ key: `old_port_open:${n.id}`, kind: 'old_port_open', severity: 'warning', nodeId: n.id, stationId: null, params: { node: n.name, ports: f.oldOpen.join(', ') }, message: null });
+  }
+  if (input.dns.mode === 'on') {
+    for (const d of input.dnsWrong ?? []) out.push({ key: `dns_wrong:${d.name}`, kind: 'dns_wrong', severity: 'warning', nodeId: null, stationId: null, params: { name: d.name }, message: d.message });
   }
   if (input.dns.mode === 'on' && input.dns.error) {
     out.push({ key: 'dns_error', kind: 'dns_error', severity: 'warning', nodeId: null, stationId: null, params: {}, message: input.dns.error });

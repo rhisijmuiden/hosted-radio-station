@@ -303,7 +303,25 @@ export interface AgentEvent {
   details?: Record<string, string | number | null>;
 }
 
-export type AgentMessage = AgentHello | AgentStats | AgentEvent | AgentAuth | AgentLive | AgentLiveSync | { t: 'pong'; seq: number };
+/** A port the server asked a monitoring node to try from outside (phase 20), with the outcome. */
+export interface PortCheckResult {
+  port: number;
+  ok: boolean;
+  /** refused, timeout, unreachable, dns or another error code. */
+  message: string | null;
+  ms: number | null;
+}
+
+/** The answer of a monitoring node to a port check. */
+export interface AgentPortCheckResult {
+  t: 'portcheck_result';
+  id: number;
+  /** The address it connected to (the name looked up there, or the address it was given). */
+  address: string | null;
+  results: PortCheckResult[];
+}
+
+export type AgentMessage = AgentHello | AgentStats | AgentEvent | AgentAuth | AgentLive | AgentLiveSync | AgentPortCheckResult | { t: 'pong'; seq: number };
 
 export type ServerMessage =
   | { t: 'welcome'; nodeId: string; name: string; serverTime: string }
@@ -318,6 +336,8 @@ export type ServerMessage =
    */
   | { t: 'drain'; seconds: number }
   | AuthResult
+  /** Monitoring node (phase 20): try these TCP ports of a node from outside and answer with portcheck_result. */
+  | { t: 'portcheck'; id: number; host: string; ports: number[] }
   /** FM/MPX: who is live and which show runs, for the RadioText (the song comes from the stream itself). */
   | { t: 'fm'; dj: string | null; show: string | null };
 
