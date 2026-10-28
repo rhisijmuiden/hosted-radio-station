@@ -25,6 +25,12 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   track after it (in Manual playout while it waits for Play, or when a track is played now), that one shows as loaded
   right behind it and becomes cued once the track before it is on air. The panel and RHIS Studio list the cued track
   first.
+- Network map: every customer is a block of its own, apart from the shared servers (ingest and relays, now framed as
+  *Shared infrastructure*). The block holds the customer's live studios, its station node and its FM/MPX node, with
+  the FM transmitter and the FM listeners right beside the MPX instead of a long line to the audience lane. Every
+  station has a line colour of its own from studio through ingest and relays to the listeners per country; several
+  stations on one line run side by side. The legend and the matrix show the colours. In 2D and 3D; a customer only
+  sees its own block.
 
 ## 1.3.0 (28 October 2026)
 

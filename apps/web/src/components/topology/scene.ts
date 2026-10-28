@@ -3,7 +3,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 
-export type SceneKind = 'main' | 'relay' | 'source' | 'station' | 'fm' | 'node' | 'studio' | 'country' | 'monitor';
+/** transmitter: the FM transmitter of an MPX node in a customer block, a mast with its FM listeners around it. */
+export type SceneKind = 'main' | 'relay' | 'source' | 'station' | 'fm' | 'node' | 'studio' | 'country' | 'monitor' | 'transmitter';
 export type SceneHealth = 'online' | 'degraded' | 'offline' | 'unpaired';
 
 export interface SceneNode {
@@ -23,6 +24,10 @@ export interface SceneNode {
   home?: string;
   /** What the monitoring node heard here: a light on the tower (phase 20). */
   check?: 'ok' | 'failed' | null;
+  /** The customer whose block (plate) it stands on. */
+  block?: string;
+  /** What a click selects, when not the block itself (a transmitter selects its MPX node). */
+  select?: string;
 }
 
 export interface SceneLink {
@@ -38,13 +43,18 @@ export interface SceneLink {
   width?: number;
   /** The backup path: dashed and quiet until it takes over. */
   standby?: boolean;
+  /** The colour of the station on the line, and its shift across it when several stations run side by side. */
+  color?: string;
+  offset?: number;
 }
 
 export interface SceneData {
   nodes: SceneNode[];
   links: SceneLink[];
   /** Titles of the four lanes on the floor. */
-  lanes?: Record<Lane, string> & { monitor?: string };
+  lanes?: Record<Lane, string> & { monitor?: string; shared?: string };
+  /** Customer blocks: a plate in the customer's colour under its studio side. */
+  blocks?: { id: string; name: string; color: string }[];
 }
 
 export interface ScenePalette {
@@ -92,7 +102,13 @@ const ICONS: Record<SceneKind, string> = {
   studio: '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/>',
   country: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
   monitor: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+  transmitter: '<path d="M4.9 16.1C1 12.2 1 5.8 4.9 1.9M19.1 1.9a9.96 9.96 0 0 1 0 14.1"/><circle cx="12" cy="9" r="2"/><path d="M8 22l4-11 4 11"/>',
 };
+/** In a customer block: the MPX and station nodes stand towards the shared servers, the transmitters outside them. */
+const BLOCK_IN = 1.3;
+const BLOCK_OUT = -2.3;
+/** Room between two lines of stations side by side, in scene units per px of 2D offset. */
+export const OFFSET_SCALE = 0.05;
 
 interface Placed {
   node: SceneNode;
@@ -120,6 +136,8 @@ export function layout(data: SceneData): Map<string, Placed> {
         ? 0.5 + 3.2 * Math.min(1, Math.max(0, n.load ?? 0))
         : n.kind === 'node' || n.kind === 'monitor'
           ? 0.4
+          : n.kind === 'transmitter'
+            ? 2.6
           : 0.5 + 5.5 * Math.sqrt(Math.max(0, n.listeners) / reach);
   const put = (n: SceneNode, x: number, z: number) => out.set(n.id, { node: n, pos: new THREE.Vector3(x, 0, z), w: n.kind === 'studio' ? 1.6 : FOOT, h: height(n) });
   const column = (list: SceneNode[], lane: Lane) => list.forEach((n, i) => put(n, LANE_X[lane], (i - (list.length - 1) / 2) * GAP));
@@ -130,21 +148,39 @@ export function layout(data: SceneData): Map<string, Placed> {
   // (one group), then the other live studios.
   const target = (s: SceneNode) => data.links.find((l) => l.from === s.id)?.to;
   const studios = data.nodes.filter((n) => n.kind === 'studio');
-  const rows: { main: SceneNode; side: SceneNode[] }[] = data.nodes
-    .filter((n) => n.kind === 'station')
-    .map((n) => ({ main: n, side: [...data.nodes.filter((x) => x.home === n.id), ...studios.filter((s) => target(s) === n.id)] }));
-  const placed = new Set(rows.flatMap((r) => r.side));
+  // A customer block first: its live studios, its station node(s) and its FM/MPX nodes on one plate.
+  const rows: { main: SceneNode; side: SceneNode[]; block?: string }[] = [];
+  for (const b of data.blocks ?? []) {
+    const mine = data.nodes.filter((n) => n.block === b.id && n.kind !== 'transmitter');
+    const order = (n: SceneNode) => (n.kind === 'studio' ? 0 : n.kind === 'station' ? 1 : 2);
+    const [main, ...side] = mine.sort((x, y) => order(x) - order(y));
+    if (main) rows.push({ main, side, block: b.id });
+  }
+  const inBlock = new Set(rows.flatMap((r) => [r.main, ...r.side]));
+  for (const n of data.nodes.filter((x) => x.kind === 'station' && !inBlock.has(x)))
+    rows.push({ main: n, side: [...data.nodes.filter((x) => x.home === n.id && !inBlock.has(x)), ...studios.filter((s) => target(s) === n.id && !inBlock.has(s))] });
+  const placed = new Set(rows.flatMap((r) => [r.main, ...r.side]));
   for (const s of studios) if (!placed.has(s)) rows.push({ main: s, side: [] });
   // A group stands close together along the lane (labels sit side by side on screen, so not across it).
-  const items = rows.flatMap((r) => [r.main, ...r.side].map((n, j) => ({ n, group: r.side.length ? r.main.id : undefined, first: j === 0 })));
+  const items = rows.flatMap((r) => [r.main, ...r.side].map((n, j) => ({ n, group: r.block ?? (r.side.length ? r.main.id : undefined), block: !!r.block, first: j === 0 })));
   const gaps = items.map((x, i): number => (i === 0 ? 0 : x.first ? 4.6 : 3));
   const total = gaps.reduce((a, b) => a + b, 0);
   let z = -total / 2;
+  const transmitters = data.nodes.filter((n) => n.kind === 'transmitter');
   items.forEach((x, i) => {
     z += gaps[i]!;
-    put(x.n, LANE_X.studios, z);
+    // In a block with a transmitter the towers stand towards the shared servers, the masts outside them.
+    const wide = x.block && transmitters.some((t) => t.block === x.group);
+    put(x.n, LANE_X.studios + (wide ? BLOCK_IN : 0), z);
     out.get(x.n.id)!.group = x.group;
   });
+  // A transmitter stands level with its MPX node, its FM listeners around it.
+  for (const t of transmitters) {
+    const mpx = t.home ? out.get(t.home) : undefined;
+    if (!mpx) continue;
+    put(t, LANE_X.studios + BLOCK_OUT, mpx.pos.z);
+    out.get(t.id)!.group = mpx.group;
+  }
   const monitors = data.nodes.filter((n) => n.kind === 'monitor');
   if (monitors.length) {
     const front = Math.max(0, ...[...out.values()].map((x) => x.pos.z)) + MONITOR_GAP;
@@ -321,9 +357,10 @@ export class TopologyScene {
     this.data = data;
     const bucket = (n: number) => (n <= 0 ? 0 : Math.ceil(Math.log2(1 + n) * 2));
     const key = JSON.stringify([
-      data.nodes.map((n) => [n.id, n.kind, n.health, n.dim, n.own, n.check, bucket(n.listeners), Math.round((n.load ?? 0) * 10)]),
-      data.links.map((l) => [l.from, l.to, l.kind, l.state, l.dim, l.standby, Math.round((l.width ?? 0) * 2)]),
+      data.nodes.map((n) => [n.id, n.kind, n.health, n.dim, n.own, n.check, n.block, bucket(n.listeners), Math.round((n.load ?? 0) * 10)]),
+      data.links.map((l) => [l.from, l.to, l.kind, l.state, l.dim, l.standby, Math.round((l.width ?? 0) * 2), l.color, l.offset]),
       data.lanes,
+      data.blocks,
       this.selected,
     ]);
     if (key === this.structure) {
@@ -448,15 +485,58 @@ export class TopologyScene {
         this.content.add(obj);
       }
     }
-    // A studio group: a station node with its FM/MPX nodes and live studios, on a plate of its own.
+    // A studio group: a station node with its FM/MPX nodes and live studios, on a plate of its own. A customer block
+    // gets a plate in the customer's colour, with its name at the front.
     const groups = new Map<string, Placed[]>();
     for (const x of this.placed.values()) if (x.group) groups.set(x.group, [...(groups.get(x.group) ?? []), x]);
-    for (const list of groups.values()) {
+    for (const [key, list] of groups) {
       const zs = list.map((x) => x.pos.z);
       const len = Math.max(...zs) - Math.min(...zs) + 2.8;
-      const plate = new THREE.Mesh(new RoundedBoxGeometry(LANE_W - 1.6, 0.04, len, 2, 0.02), new THREE.MeshBasicMaterial({ color: p.lucht, transparent: true, opacity: p.dark ? 0.12 : 0.2, depthWrite: false }));
-      plate.position.set(LANE_X.studios, 0.02, (Math.max(...zs) + Math.min(...zs)) / 2);
+      const block = this.data.blocks?.find((b) => b.id === key);
+      const z0 = (Math.max(...zs) + Math.min(...zs)) / 2;
+      const plate = new THREE.Mesh(
+        new RoundedBoxGeometry(LANE_W - (block ? 0.6 : 1.6), 0.04, len, 2, 0.02),
+        new THREE.MeshBasicMaterial({ color: block?.color ?? p.lucht, transparent: true, opacity: block ? (p.dark ? 0.16 : 0.18) : p.dark ? 0.12 : 0.2, depthWrite: false }),
+      );
+      plate.position.set(LANE_X.studios, 0.02, z0);
       this.content.add(plate);
+      if (!block) continue;
+      // An edge in the customer's colour around the plate.
+      const half = [(LANE_W - 0.6) / 2, len / 2];
+      const corners = [
+        [-half[0]!, -half[1]!],
+        [half[0]!, -half[1]!],
+        [half[0]!, half[1]!],
+        [-half[0]!, half[1]!],
+        [-half[0]!, -half[1]!],
+      ].map(([x, z]) => new THREE.Vector3(LANE_X.studios + x!, 0.05, z0 + z!));
+      this.content.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(corners), new THREE.LineBasicMaterial({ color: block.color, transparent: true, opacity: 0.8 })));
+      const title = document.createElement('div');
+      title.className = 'topo-block-title';
+      title.style.setProperty('--block', block.color);
+      title.textContent = block.name;
+      const obj = new CSS2DObject(title);
+      // Beside the plate, on the side away from the shared servers: clear of the labels of the towers on it.
+      obj.position.set(LANE_X.studios - half[0]! - 0.3, 0, z0);
+      obj.center.set(1, 0.5);
+      this.content.add(obj);
+    }
+    // The shared servers (ingest and relays) on one plate of their own, apart from the customer blocks.
+    if (this.data.blocks?.length) {
+      const x0 = LANE_X.ingest - LANE_W / 2 - 0.5;
+      const x1 = LANE_X.relays + LANE_W / 2 + 0.5;
+      const shared = new THREE.Mesh(new RoundedBoxGeometry(x1 - x0, 0.02, depth + 1.6, 2, 0.01), new THREE.MeshBasicMaterial({ color: p.coreTile, transparent: true, opacity: p.dark ? 0.35 : 0.06, depthWrite: false }));
+      shared.position.set((x0 + x1) / 2, 0.004, 0);
+      this.content.add(shared);
+      if (this.data.lanes?.shared) {
+        const title = document.createElement('div');
+        title.className = 'topo-lane-title';
+        title.textContent = this.data.lanes.shared;
+        const obj = new CSS2DObject(title);
+        obj.position.set(x0 + 0.4, 0, depth / 2 + 0.8);
+        obj.center.set(0, 0);
+        this.content.add(obj);
+      }
     }
     // The monitoring strip, in front of the lanes.
     const monitors = [...this.placed.values()].filter((x) => x.node.kind === 'monitor');
@@ -486,6 +566,10 @@ export class TopologyScene {
       const { node, pos, w, h } = placed;
       if (node.kind === 'main') {
         this.addRing(placed);
+        continue;
+      }
+      if (node.kind === 'transmitter') {
+        this.addMast(placed);
         continue;
       }
       const g = new THREE.Group();
@@ -573,6 +657,57 @@ export class TopologyScene {
     return `<b>${esc(n.label)}</b><small>${n.kind === 'country' || n.kind === 'studio' ? '' : `<i class="topo-dot ${n.health}"></i>`}${esc(n.meta)}</small>`;
   }
 
+  /** An FM transmitter: a lattice mast, its top lit while it is on air, and a ring of FM listeners on the floor. */
+  private addMast({ node, pos, h }: Placed) {
+    const p = this.palette;
+    const g = new THREE.Group();
+    g.position.copy(pos);
+    const onAir = node.health === 'online';
+    const opacity = node.dim ? 0.25 : onAir ? 1 : 0.55;
+    const color = p.dark ? '#C79BFF' : '#7A4FD0';
+    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
+    const base = 0.45;
+    const pts: THREE.Vector3[] = [];
+    // Three legs to the top, with cross braces.
+    const legs = [0, (2 * Math.PI) / 3, (4 * Math.PI) / 3].map((a) => new THREE.Vector3(Math.cos(a) * base, 0, Math.sin(a) * base));
+    const top = new THREE.Vector3(0, h, 0);
+    for (const l of legs) pts.push(l, top);
+    for (let i = 1; i < 4; i++) {
+      const f = i / 4;
+      for (let j = 0; j < 3; j++) pts.push(legs[j]!.clone().lerp(top, f), legs[(j + 1) % 3]!.clone().lerp(top, f));
+    }
+    g.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), mat));
+    const light = new THREE.Mesh(new THREE.SphereGeometry(0.14, 14, 10), new THREE.MeshBasicMaterial({ color: onAir ? p.koraal : p.muted, transparent: opacity < 1, opacity }));
+    light.position.y = h;
+    if (onAir) {
+      const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.texture(`halo:${p.koraal}`, () => radialTexture(p.koraal, 0.9)), transparent: true, depthWrite: false, opacity: 0.8 * opacity }));
+      halo.scale.setScalar(0.9);
+      light.add(halo);
+    }
+    g.add(light);
+    // The FM listeners: a ring on the floor around the mast, pulsing while it is on air.
+    const ring = new THREE.Mesh(new THREE.RingGeometry(1.15, 1.25, 64), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55 * opacity, side: THREE.DoubleSide, depthWrite: false }));
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.03;
+    g.add(ring);
+    const fill = new THREE.Mesh(new THREE.CircleGeometry(1.15, 48), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: (p.dark ? 0.1 : 0.12) * opacity, depthWrite: false }));
+    fill.rotation.x = -Math.PI / 2;
+    fill.position.y = 0.025;
+    g.add(fill);
+    if (onAir && !node.dim) this.pulses.push({ mesh: ring, phase: 0 });
+    // A clear column, so a click on the mast selects its MPX node.
+    const hit = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, h, 8), new THREE.MeshBasicMaterial({ visible: false }));
+    hit.position.y = h / 2;
+    hit.userData.id = node.select ?? node.id;
+    g.add(hit);
+    if (!node.dim) this.pickables.push(hit);
+    // The label on the floor in front of the ring, clear of the MPX node's label beside it.
+    const label = this.label(node, new THREE.Vector3(0, 0, 1.35));
+    label.center.set(0.5, 0);
+    g.add(label);
+    this.content.add(g);
+  }
+
   /** The orchestrator: a ring hovering over the floor, with a glow below it. */
   private addRing({ node, pos, w }: Placed) {
     const p = this.palette;
@@ -606,7 +741,7 @@ export class TopologyScene {
     if (!a || !b) return;
     const p = this.palette;
     if (l.kind === 'check') return this.addCheck(l, a, b);
-    const color = l.state === 'degraded' ? p.warning : l.state === 'down' ? p.offline : l.kind === 'stream' ? (l.standby ? p.lucht : p.koraal) : p.lucht;
+    const color = l.state === 'degraded' ? p.warning : l.state === 'down' ? p.offline : l.kind === 'stream' ? (l.color ?? (l.standby ? p.lucht : p.koraal)) : p.lucht;
     if (l.kind === 'control') {
       // From the ring straight down to the top of the tower: faint and dashed, so it never reads as audio.
       const ringSide = a.node.kind === 'main' ? a : b;
@@ -626,9 +761,11 @@ export class TopologyScene {
     }
     // Audio: a light trail over the floor, from the facing side of one tower to the facing side of the other, around
     // every tower in between.
+    // Several stations side by side: each line shifted across the flow.
     const k = b.pos.x < a.pos.x ? -1 : 1;
-    const start = a.pos.clone().setY(0.12).add(new THREE.Vector3((k * a.w) / 2, 0, 0));
-    const end = b.pos.clone().setY(0.12).sub(new THREE.Vector3((k * b.w) / 2, 0, 0));
+    const shift = new THREE.Vector3(0, 0, (l.offset ?? 0) * OFFSET_SCALE);
+    const start = a.pos.clone().setY(0.12).add(new THREE.Vector3((k * a.w) / 2, 0, 0)).add(shift);
+    const end = b.pos.clone().setY(0.12).sub(new THREE.Vector3((k * b.w) / 2, 0, 0)).add(shift);
     const curve = this.route(start, end, [a, b]);
     const radius = 0.02 + (l.width ?? 2.5) * 0.012;
     const opacity = l.dim ? 0.1 : l.state === 'down' ? 0.25 : l.standby ? 0.35 : 0.8;
@@ -726,7 +863,8 @@ export class TopologyScene {
   private fit() {
     const pts = [...this.placed.values()].map((x) => x.pos.clone().setY(Math.min(x.pos.y, 4)));
     if (!pts.length) return;
-    pts.push(new THREE.Vector3(LANE_X.studios - LANE_W / 2, 0, 0), new THREE.Vector3(LANE_X.listeners + LANE_W / 2, 0, 0));
+    // Room on the left for the names beside the customer plates.
+    pts.push(new THREE.Vector3(LANE_X.studios - LANE_W / 2 - (this.data.blocks?.length ? 4.5 : 0), 0, 0), new THREE.Vector3(LANE_X.listeners + LANE_W / 2, 0, 0));
     const box = new THREE.Box3().setFromPoints(pts).expandByScalar(1);
     const center = box.getCenter(new THREE.Vector3());
     const radius = box.getSize(new THREE.Vector3()).length() / 2;

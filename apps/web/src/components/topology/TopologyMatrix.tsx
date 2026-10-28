@@ -1,6 +1,7 @@
 import clsx from 'clsx';
-import { useMemo } from 'react';
+import { useMemo, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
+import { stationVar } from './colors';
 import type { Topology, TopologyCell, TopologyNode } from '../../lib/api';
 import { formatMs } from '../nodes/common';
 import { Badge } from '../ui';
@@ -37,6 +38,8 @@ export default function TopologyMatrix({ data, customer, selected, onSelect }: {
               {stations.map((s) => (
                 <th key={s.id} className="h-32 min-w-11 border-b border-line px-1 align-bottom" title={`${s.name} · ${t('topology.listenersCount', { count: s.listeners })}`}>
                   <div className="mx-auto w-5 [writing-mode:vertical-rl] rotate-180 truncate text-[12px] font-semibold whitespace-nowrap">{s.name}</div>
+                  {/* The station's line colour on the map. */}
+                  <i className="topo-swatch mx-auto mt-1.5 block" style={{ '--edge': stationVar(s.color) } as CSSProperties} />
                   <div className="mt-1 text-center text-[10px] font-normal text-muted tabular-nums">{s.listeners}</div>
                 </th>
               ))}

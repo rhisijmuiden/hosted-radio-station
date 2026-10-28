@@ -1172,6 +1172,8 @@ export interface TopologyNode {
   name: string;
   /** FM/MPX node: the station node of its studio, drawn beside it (null = none). */
   home?: string | null;
+  /** Station and FM/MPX nodes: the customer whose block they stand in (null = shared). */
+  customer?: string | null;
   /** Host name and address, for who manages the node. */
   hostname: string | null;
   ip: string | null;
@@ -1244,6 +1246,8 @@ export interface TopologyStudio {
   id: string;
   station: string;
   stationId: string;
+  /** The customer whose block the studio stands in. */
+  customer?: string | null;
   account: string;
   mount: string;
   via: string;
@@ -1264,12 +1268,17 @@ export interface TopologyLink {
   kbps: number | null;
   /** A backup ingest feeding the relay on standby. */
   standby: boolean;
+  /** Audio: the stations on the line, each drawn in its own colour. */
+  stations?: { id: string; streams: number; kbps: number | null }[];
 }
 export type TopologyCell = 'onAir' | 'standby' | 'degraded' | 'down' | 'idle';
 export interface TopologyStation {
   id: string;
   name: string;
   tenantId: string | null;
+  customer?: string;
+  /** Index of the station's line colour (see stationColor). */
+  color?: number;
   edition: 'distribution' | 'station';
   stationNode: string | null;
   ingest: string | null;
@@ -1284,6 +1293,8 @@ export interface Topology {
   main: { id: 'main'; name: string; host: string | null; orchestratorOnly: boolean; version: string; commit: string | null; branch: string | null; listeners: number; stations: number };
   nodes: TopologyNode[];
   studios: TopologyStudio[];
+  /** Customers with a block of their own on the map; color indexes the station line colours. */
+  customers?: { id: string; name: string; color: number }[];
   links: TopologyLink[];
   stations: TopologyStation[];
   audience: { nodeId: string; stationId: string; country: string | null; listeners: number }[];
