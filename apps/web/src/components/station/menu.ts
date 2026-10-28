@@ -1,4 +1,4 @@
-import { BarChart3, CalendarDays, Clock, Disc3, Eye, History, LayoutDashboard, ListMusic, MessageSquare, PlayCircle, Plug, Route, Settings, SquareArrowOutUpRight, UserRound, Bot, Waypoints, type LucideIcon } from 'lucide-react';
+import { BarChart3, CalendarDays, Clock, Disc3, Eye, Grid3x3, History, LayoutDashboard, ListMusic, MessageSquare, PlayCircle, Plug, Route, Settings, SquareArrowOutUpRight, UserRound, Bot, Waypoints, type LucideIcon } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import type { StationDetail } from '../../lib/api';
 
@@ -14,6 +14,7 @@ export type StationTab =
   | 'playlists'
   | 'clocks'
   | 'schedule'
+  | 'carts'
   | 'ondemand'
   | 'requests'
   | 'statistics'
@@ -71,6 +72,7 @@ export function stationMenu(station: Pick<StationDetail, 'role' | 'edition'>, t:
               { value: 'playlists' as const, label: t('stations.tabs.playlists'), icon: ListMusic },
               { value: 'clocks' as const, label: t('stations.tabs.clocks'), icon: Clock },
               { value: 'schedule' as const, label: t('stations.tabs.schedule'), icon: CalendarDays },
+              { value: 'carts' as const, label: t('stations.tabs.carts'), icon: Grid3x3 },
             ]
           : []),
         { value: 'ondemand', label: t('stations.tabs.ondemand'), icon: PlayCircle },

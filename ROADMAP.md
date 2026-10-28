@@ -185,7 +185,7 @@ One thing at a time; each item starts when the previous one is finished and test
 3. **Phase 20: Monitoring node**: alerts when a node or relay goes down, instead of finding out from silence.
 4. **RHIS Studio: OmniPlayer-style layout**, in steps:
    1. Players A and B, the log (playlist) and a dashboard. *Built 2026-10-28 (RHIS Studio 0.17, on test).*
-   2. Both jingle grids and a separate loose player.
+   2. Both jingle grids and a separate loose player. *Built 2026-10-28 (RHIS Studio 0.18, on test).*
    3. Library with columns for the station's own item code, ISRC, BPM and key (taken from the tags first, otherwise calculated on the server in the background; an admin can correct them).
    4. News player (source set per station: a file from a URL, a file over FTP/SFTP, or a live stream, at set times, with a spare jingle when the news is missing) and a log editor.
    - Free docking of panels comes later as a separate item.

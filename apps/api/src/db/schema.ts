@@ -1256,6 +1256,28 @@ export const studioJingles = pgTable(
 );
 
 /**
+ * The station carts of RHIS Studio (the second jingle grid of the OmniPlayer layout): station IDs, traffic, beds, filled
+ * by a manager per station and the same for every DJ. The client plays them itself, like the DJ's own jingles.
+ */
+export const stationCarts = pgTable(
+  'station_carts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    /** The button: page = position / 7. */
+    position: integer('position').notNull(),
+    label: text('label').notNull(),
+    color: text('color').notNull(),
+    looped: boolean('looped').notNull().default(false),
+    /** The file is jingles/station/<id>.<ext> in the station folder. */
+    ext: text('ext').notNull(),
+    size: integer('size').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('station_carts_button_idx').on(t.stationId, t.position)],
+);
+
+/**
  * The DJ profile of RHIS Studio: the layout of the Assist screen (which layout, panels on or off, their widths, the
  * countdown of the dashboard). The client owns its shape; it follows the DJ to every studio PC.
  */

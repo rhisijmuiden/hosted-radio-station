@@ -5,6 +5,8 @@ import { useTranslation } from 'react-i18next';
 import { addLocalFile, DRAG_FILE, DRAG_MEDIA, LibraryPanel, useCanUpload } from '../components/Library';
 import { JingleBar } from '../components/Jingles';
 import { Dashboard } from '../components/Dashboard';
+import { JingleGrid, StationCartGrid } from '../components/Grids';
+import { SinglePlayer } from '../components/SinglePlayer';
 import { Decks, ModeSwitch } from '../components/Decks';
 import { PlaylistCard, type LogView } from '../components/Playlist';
 import { Badge, Button, Card, EmptyState, Spinner } from '../components/ui';
@@ -252,7 +254,9 @@ export function AssistPage() {
   if (omni) {
     const p = layout.panels;
     const jingles = p.jingles && supports('jingles');
-    const right = jingles || p.dashboard || p.library;
+    const carts = p.stationCarts && supports('station-carts');
+    const top = p.single || jingles || carts || p.dashboard;
+    const right = top || p.library;
     const log: LogView = { history: history.data?.items ?? [], showHistory: p.history, hours: rundown.data?.enabled ? rundown.data.rows : [], onAir: holding ? null : np, now };
     return (
       <div className="flex h-full min-h-[600px] gap-0">
@@ -264,14 +268,11 @@ export function AssistPage() {
           <>
             <Splitter />
             <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
-              {(jingles || p.dashboard) && (
-                <div className="flex shrink-0 items-stretch gap-3">
-                  {jingles && (
-                    <Card className="flex min-w-0 flex-1 flex-col p-3">
-                      <div className="mb-2 text-[10px] font-bold tracking-[0.08em] text-muted uppercase">{t('layout.panel.jingles')}</div>
-                      <JingleBar stationId={station.id} rows={2} />
-                    </Card>
-                  )}
+              {top && (
+                <div className="flex shrink-0 flex-wrap items-stretch gap-3">
+                  {p.single && <SinglePlayer stationId={station.id} />}
+                  {jingles && <JingleGrid stationId={station.id} />}
+                  {carts && <StationCartGrid stationId={station.id} />}
                   {p.dashboard && <Dashboard data={data} stationId={station.id} blocks={blocks} />}
                 </div>
               )}

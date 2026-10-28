@@ -29,6 +29,17 @@ export interface Settings {
   shares: string[];
   /** The layout of Assist; the DJ profile on the server has the say when it has one (see lib/layout.ts). */
   layout: Partial<StudioLayout> | null;
+  /** The list of the single player of the OmniPlayer layout; it plays on this PC. */
+  single: { items: SingleItem[]; auto: boolean };
+}
+
+/** A track in the single player: a file of this PC (or a share), or a track of the station library. */
+export interface SingleItem {
+  id: string;
+  title: string;
+  path?: string;
+  mediaId?: string;
+  ext: string;
 }
 
 const KEY = 'rhis-studio-settings';
@@ -37,19 +48,20 @@ const defaults: Settings = {
   server: '',
   stationId: null,
   channel: 'production',
-  audio: { input: null, output: null, inputGainDb: 0, cartGainDb: 0, cartsToStream: true, cartsToOutput: true, monitorInput: false },
+  audio: { input: null, output: null, inputGainDb: 0, cartGainDb: 0, cartsToStream: true, cartsToOutput: true, monitorInput: false, duckSingle: true },
   live: { accountId: null, mountId: null, bitrate: 192, title: '', plainHosts: [], link: 'auto', manual: { host: '', port: 8010, tls: false } },
   carts: Array.from({ length: 48 }, () => null),
   cartPage: 0,
   preview: { output: null },
   shares: [],
   layout: null,
+  single: { items: [], auto: false },
 };
 
 function load(): Settings {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Settings>;
-    return { ...defaults, ...raw, audio: { ...defaults.audio, ...raw.audio }, live: { ...defaults.live, ...raw.live }, preview: { ...defaults.preview, ...raw.preview }, shares: Array.isArray(raw.shares) ? raw.shares : [], layout: raw.layout && typeof raw.layout === 'object' ? raw.layout : null, carts: raw.carts?.length === 48 ? raw.carts : defaults.carts };
+    return { ...defaults, ...raw, audio: { ...defaults.audio, ...raw.audio }, live: { ...defaults.live, ...raw.live }, preview: { ...defaults.preview, ...raw.preview }, shares: Array.isArray(raw.shares) ? raw.shares : [], layout: raw.layout && typeof raw.layout === 'object' ? raw.layout : null, single: { items: Array.isArray(raw.single?.items) ? raw.single.items : [], auto: !!raw.single?.auto }, carts: raw.carts?.length === 48 ? raw.carts : defaults.carts };
   } catch {
     return defaults;
   }

@@ -34,6 +34,22 @@ use crate::{
 
 /// Frames per mixer block (about 21 ms at 48 kHz).
 const BLOCK: usize = 1024;
+/// The microphone is open above this input level (about -30 dBFS); the single player then goes down to DUCK_GAIN
+/// (-12 dB), quickly, and comes back slowly once the input was quiet for DUCK_HOLD.
+const DUCK_THRESHOLD: f32 = 0.03;
+const DUCK_GAIN: f32 = 0.25;
+const DUCK_HOLD: Duration = Duration::from_millis(600);
+
+/// The level of the single player for the next block: down in about 60 ms, back up in about a second.
+fn next_duck(level: f32, hold: &mut Instant, speaking: bool) -> f32 {
+    if speaking {
+        *hold = Instant::now() + DUCK_HOLD;
+    }
+    let target = if speaking || Instant::now() < *hold { DUCK_GAIN } else { 1.0 };
+    let speed = if target < level { 0.35 } else { 0.03 };
+    let next = level + (target - level) * speed;
+    if (next - target).abs() < 0.001 { target } else { next }
+}
 const PREFERRED_RATES: [u32; 2] = [48_000, 44_100];
 
 #[derive(Serialize, Clone, Debug)]
@@ -82,11 +98,18 @@ pub struct AudioConfig {
     pub carts_to_output: bool,
     /// Listen to the sound card input on the output device.
     pub monitor_input: bool,
+    /// The single player goes down while the microphone (the sound card input) has sound.
+    #[serde(default = "yes")]
+    pub duck_single: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Default for AudioConfig {
     fn default() -> Self {
-        Self { input: None, output: None, input_gain_db: 0.0, cart_gain_db: 0.0, carts_to_stream: true, carts_to_output: true, monitor_input: false }
+        Self { input: None, output: None, input_gain_db: 0.0, cart_gain_db: 0.0, carts_to_stream: true, carts_to_output: true, monitor_input: false, duck_single: true }
     }
 }
 
@@ -432,6 +455,9 @@ struct Mixer {
     last_meter: Instant,
     last_carts: Instant,
     carts_were_playing: bool,
+    /// Level of the single player under the microphone, and until when it stays down after the last sound.
+    duck: f32,
+    duck_hold: Instant,
     cmd_tx: Sender<Cmd>,
 }
 
@@ -619,8 +645,9 @@ impl Mixer {
         }
         let in_gain = db_to_gain(self.config.input_gain_db);
         self.scratch_in.iter_mut().for_each(|s| *s *= in_gain);
+        self.duck = next_duck(self.duck, &mut self.duck_hold, self.config.duck_single && peak(&self.scratch_in, 0).max(peak(&self.scratch_in, 1)) > DUCK_THRESHOLD);
         let mut cart_block = vec![0f32; n];
-        self.carts.render(&mut cart_block);
+        self.carts.render(&mut cart_block, self.duck);
         let cart_gain = db_to_gain(self.config.cart_gain_db);
         cart_block.iter_mut().for_each(|s| *s *= cart_gain);
 
@@ -718,6 +745,8 @@ impl Engine {
                     last_meter: Instant::now(),
                     last_carts: Instant::now(),
                     carts_were_playing: false,
+                    duck: 1.0,
+                    duck_hold: Instant::now(),
                     cmd_tx,
                 };
                 loop {
@@ -797,6 +826,32 @@ pub fn encoder_self_test() -> anyhow::Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn single_player_ducks_under_the_microphone() {
+        let mut hold = Instant::now();
+        let mut level = 1.0;
+        for _ in 0..20 {
+            level = next_duck(level, &mut hold, true);
+        }
+        assert!((level - DUCK_GAIN).abs() < 0.01, "down while speaking: {level}");
+        // Quiet again: it stays down for the hold time.
+        level = next_duck(level, &mut hold, false);
+        assert!(level < 0.3);
+        hold = Instant::now() - Duration::from_millis(1);
+        for _ in 0..400 {
+            level = next_duck(level, &mut hold, false);
+        }
+        assert_eq!(level, 1.0);
+
+        let mut carts = CartPlayer::new(48_000);
+        for slot in [0, carts::SINGLE_SLOT] {
+            carts.slots[slot] = Some(Cart { samples: Arc::new(vec![0.5; 64]), pos: 0, playing: true, looped: false, gain: 1.0 });
+        }
+        let mut out = vec![0f32; 8];
+        carts.render(&mut out, DUCK_GAIN);
+        assert!((out[0] - (0.5 + 0.5 * DUCK_GAIN)).abs() < 1e-6);
+    }
 
     #[test]
     fn limiter_keeps_peaks_below_the_ceiling() {

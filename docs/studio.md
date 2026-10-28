@@ -56,9 +56,20 @@ PC you sign in on shows the same layout (an older server keeps it on this PC onl
 - The **dashboard**: a big clock and a big red countdown to the **next fixed block**, the **end of the track** on air,
   or your own **timer** (set it with − and + in steps of 30 seconds, start, pause, reset). Your choice and the length
   of the timer stay in your profile.
-- Your **jingles** and the **library** sit next to the players.
+- **My jingles**: your own jingle buttons, the same as in Classic, here as a column of seven with pages. Click to
+  play, again to stop; drop a file or a library track on a button, or click an empty one; the pencil edits it.
+- **Station carts**: the second grid, filled by a manager in the panel (*Programme > Station carts*) and the same for
+  every DJ of the station, such as station IDs, traffic and a weather bed. In Studio they only play.
+- The **single player**: a player of its own on this PC with a short list, for a bed under a talk or a track from a
+  USB stick. Drag tracks onto it from the library, a share or *This PC*. **Play** starts the first track, again stops
+  it; the next button goes to the next track. A track that ends leaves the list and the next one waits, or starts by
+  itself with **Auto**. Like the jingles it plays into the broadcast when you are live, and it goes 12 dB down while
+  the sound card input has sound (switch it off under *Settings > Audio*, *Single player under the mic*). The list
+  stays on this PC.
+- The **library** sits under them.
 
-In the **Layout** menu each panel goes on or off (last played, jingles, dashboard, library). Drag the handle between
+In the **Layout** menu each panel goes on or off (last played, single player, my jingles, station carts, dashboard,
+library). Drag the handle between
 the players and the panels to change their width (double-click it, or *Reset* in the menu, for the default). It
 needs a server that knows the DJ profile and the last played tracks; with an older one the log shows no last played
 tracks.

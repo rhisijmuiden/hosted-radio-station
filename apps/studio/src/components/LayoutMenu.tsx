@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Switch } from './ui';
 import { DECK_WIDTH, useLayout, type OmniPanel, type StudioLayout } from '../lib/layout';
 
-const PANELS: OmniPanel[] = ['history', 'jingles', 'dashboard', 'library'];
+const PANELS: OmniPanel[] = ['history', 'single', 'jingles', 'stationCarts', 'dashboard', 'library'];
 
 /** The layout of Assist in the top bar: Classic or OmniPlayer, and in OmniPlayer which panels show. */
 export function LayoutMenu() {

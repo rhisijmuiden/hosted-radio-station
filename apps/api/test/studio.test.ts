@@ -226,6 +226,43 @@ describe('jingle buttons', () => {
     expect((await t.app.inject({ method: 'DELETE', url: `/api/studio/stations/${stationId}/jingles/${c.json().id}`, headers: dj })).statusCode).toBe(200);
     expect((await t.app.inject({ url: `/api/studio/stations/${stationId}/jingles`, headers: dj })).json()).toHaveLength(1);
   });
+
+  it('has station carts that managers fill and every DJ plays', async () => {
+    const cart = (position: number, name: string, data: Buffer, who = owner) =>
+      t.app.inject({
+        method: 'POST',
+        url: `/api/studio/stations/${stationId}/carts?position=${position}`,
+        headers: { ...who, 'content-type': `multipart/form-data; boundary=${boundary}` },
+        payload: Buffer.concat([
+          Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="files"; filename="${name}"\r\nContent-Type: audio/mpeg\r\n\r\n`),
+          data,
+          Buffer.from(`\r\n--${boundary}--\r\n`),
+        ]),
+      });
+    // DJs cannot fill them.
+    expect((await cart(0, 'Traffic.mp3', Buffer.from('x'), dj)).statusCode).toBe(403);
+    const a = await cart(0, 'Traffic.mp3', Buffer.from('ID3 traffic'));
+    expect(a.statusCode).toBe(200);
+    expect(a.json()).toMatchObject({ position: 0, label: 'Traffic', ext: 'mp3' });
+    expect((await cart(49, 'x.mp3', Buffer.from('x'))).statusCode).toBe(400);
+    const b = await cart(6, 'Station ID 1.wav', Buffer.from('RIFF id'));
+    // The same buttons for the DJ, with the audio.
+    const list = (await t.app.inject({ url: `/api/studio/stations/${stationId}/carts`, headers: dj })).json();
+    expect(list.map((c: { label: string }) => c.label)).toEqual(['Traffic', 'Station ID 1']);
+    expect((await t.app.inject({ url: `/api/studio/stations/${stationId}/carts/${a.json().id}/audio`, headers: dj })).body).toBe('ID3 traffic');
+    // Apart from the DJ's own jingles.
+    expect((await t.app.inject({ url: `/api/studio/stations/${stationId}/jingles`, headers: owner })).json()).toEqual([]);
+
+    expect((await t.app.inject({ method: 'PATCH', url: `/api/studio/stations/${stationId}/carts/${a.json().id}`, headers: dj, payload: { label: 'x' } })).statusCode).toBe(403);
+    const moved = await t.app.inject({ method: 'PATCH', url: `/api/studio/stations/${stationId}/carts/${a.json().id}`, headers: owner, payload: { position: 6, color: '#F2B640' } });
+    expect(moved.json().map((c: { id: string; position: number }) => [c.id, c.position])).toEqual([
+      [b.json().id, 0],
+      [a.json().id, 6],
+    ]);
+    expect((await t.app.inject({ method: 'DELETE', url: `/api/studio/stations/${stationId}/carts/${b.json().id}`, headers: dj })).statusCode).toBe(403);
+    expect((await t.app.inject({ method: 'DELETE', url: `/api/studio/stations/${stationId}/carts/${b.json().id}`, headers: owner })).statusCode).toBe(200);
+    expect((await t.app.inject({ url: `/api/studio/stations/${stationId}/carts/${b.json().id}/audio`, headers: dj })).statusCode).toBe(404);
+  });
 });
 
 describe('DJ profile', () => {

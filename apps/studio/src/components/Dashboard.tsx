@@ -79,7 +79,7 @@ export function Dashboard({ data, stationId, blocks }: { data: AutoDj; stationId
   const nudge = (d: number) => setLayout({ timerSeconds: Math.min(5940, Math.max(10, layout.timerSeconds + d)) });
 
   return (
-    <Card className="flex w-[300px] shrink-0 flex-col gap-2.5 p-3">
+    <Card className="flex min-w-[260px] max-w-[380px] flex-1 flex-col gap-2.5 p-3">
       <div className="rounded-md border border-line bg-surface py-2 text-center">
         <div className="display text-[38px] leading-none tabular">{new Date(now).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
         <div className="mt-1 text-[10px] font-bold tracking-[0.08em] text-muted uppercase">{new Date(now).toLocaleDateString(i18n.language, { weekday: 'long', day: 'numeric', month: 'long' })}</div>
