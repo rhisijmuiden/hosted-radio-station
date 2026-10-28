@@ -56,7 +56,9 @@ The node feeds the relays itself, and Routing says why, while:
 - none of the chosen ingests is online: it goes back to the ingest once one is online again;
 - its pushes to every chosen ingest fail (address or firewall): it tries the ingest again after 10 minutes. The node signs in on the ingest as `hrs-studio` with a token derived from its own
 secret; the ingest checks it with the orchestrator, so no DJ account is needed and nobody else can send as the studio.
-Open the ingest's encoder port (8200, or 8201 with TLS) to the station node.
+Open the ingest's encoder port (8200, or 8201 with TLS) to the station node. When the station node and the ingest sit behind the same public
+address (one site), the node uses the ingest's address on the local network (its *Address on the studio network*, or
+the first IPv4 address it reports).
 
 ## Moving a station there (and back)
 
