@@ -263,6 +263,12 @@ export default function TopologyFlat({
     if (focus) {
       const studios = new Set(data.studios.filter((s) => s.stationId === focus.id).map((s) => s.id));
       for (const l of data.links.filter((x) => x.kind === 'stream' && studios.has(x.from))) edges.push({ from: l.from, to: card(l.to, 'in'), kind: 'stream', state: 'ok', label: null, dim: false });
+      // A station node that sends through its ingest(s): the studio's single upload to each of them.
+      if (focus.stationNode)
+        for (const id of [focus.ingest, focus.backup]) {
+          if (!id || id === focus.stationNode || !data.links.some((x) => x.kind === 'stream' && x.from === focus.stationNode && x.to === id)) continue;
+          edges.push({ from: card(focus.stationNode, 'in'), to: card(id, 'in'), kind: 'stream', state: cellState(focus.cells[id]), label: null, dim: false });
+        }
       if (focus.active)
         for (const r of focus.relays) {
           const l = data.links.find((x) => x.kind === 'stream' && !x.standby && x.from === focus.active && x.to === r);
