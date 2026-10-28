@@ -35,7 +35,8 @@ export function CustomerStationNodeCard({ tenant, canEdit }: { tenant: Tenant; c
     onError: (err) => toast.error((err as Error).message),
   });
 
-  if (!nodes.length && !tenant.stationNodeId) return null;
+  // Distribution only never has a studio: its encoders send to an ingest node.
+  if ((tenant.plan === 'distribution' || !nodes.length) && !tenant.stationNodeId) return null;
   const current = nodes.find((n) => n.id === tenant.stationNodeId);
   return (
     <Card className="p-5">
