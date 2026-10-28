@@ -441,7 +441,8 @@ function SettingsTab({ station }: { station: StationDetail }) {
             )}
           </Card>
         )}
-        {owner && <PlacementCard station={station} />}
+        {/* Distribution only never runs in a studio (unless it already does, so it can move back). */}
+        {owner && (station.edition !== 'distribution' || station.nodeId) && <PlacementCard station={station} />}
         {owner && (
           <Card className="border-offline/30 p-5">
             <h2 className="display text-base text-offline">{t('stations.delete')}</h2>

@@ -12,6 +12,8 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 - Network map: audio lines no longer run through servers. A line that skips a lane (a station node straight to its
   relays, a relay back to an FM node in the studio) passes through the gap between the servers of that lane, in 3D
   and in both 2D views.
+- Distribution only never has a studio: the *Station node of this customer* card and the station's *Where it runs*
+  card are hidden for Distribution customers and stations (unless one already runs on a station node).
 - Customer page, *Station node of this customer*: the choice shows the chosen node after loading (it showed "This
   server"), and this server is listed by its own name; with *Orchestrator only* it is no longer offered.
 - One queue: Q2 is gone. Waiting Q2 tracks move to the end of the queue and Q2 playlists feed the one queue, by
