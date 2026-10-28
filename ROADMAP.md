@@ -171,7 +171,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 17 | RHIS Studio 1.0 (Windows client) | Done (1.3.0) (fader start, step 4, parked until MIDI/GPIO hardware is available) |
 | 18 | Server names and topology views | Done (1.1.0) |
 | 19 | Clearer control panels and node assignment | Done (1.2.0) |
-| 20 | Monitoring node | Next (step 3 in the order of work) |
+| 20 | Monitoring node | In progress |
 | 21 | Recorder node | Planned (step 5 in the order of work) |
 | 22 | Packaged installers and moving the orchestrator | Future (when the first customers come) |
 | 23 | Deployment wizard | Future (when the first customers come) |
@@ -182,7 +182,7 @@ One thing at a time; each item starts when the previous one is finished and test
 
 1. **Release to production** (done, 1.3.0): everything on `test` (phase 17, the UI fixes, the port plan per role and routing via ingest) goes to `main` as one release.
 2. **Bug fix: two tracks "Cued" at once** (done on test, PRs #140 and #141; goes out with the next release): only one track can be cued at a time. This must be right before the Studio layout below, where player B is the cued track.
-3. **Phase 20: Monitoring node**: alerts when a node or relay goes down, instead of finding out from silence.
+3. **Phase 20: Monitoring node** (in progress): alerts when a node or relay goes down, instead of finding out from silence.
 4. **RHIS Studio: OmniPlayer-style layout**, in steps:
    1. Players A and B, the log (playlist) and a dashboard.
    2. Both jingle grids and a separate loose player.
