@@ -528,6 +528,22 @@ Small fixes planned for a patch release, one at a time after the current phase.
 - **Control traffic on by default**: the control traffic lines are shown when the map opens.
 - **Customer "Station node" dropdown**: shows "This server" instead of the node's real name. It shows the server names from phase 18.
 
+### Next after the UI fixes: a port plan per role
+
+Every role gets its own default ports, so nodes are easy to put behind a DMZ or firewall and roles on one machine never clash. Every port can be overridden per node.
+
+| Role | Incoming ports |
+|---|---|
+| Orchestrator | 443 only (+80 for certificates) |
+| Ingest (encoders) | 8200 plain, 8201 TLS, 8210–8299 Shoutcast v1 |
+| Relay | 443/80 for listeners, 8301 TLS for pushes from ingest and station nodes |
+| Station node | 8400 plain / 8401 TLS for RHIS Studio and Go Live, 8402 SFTP |
+| FM/MPX, monitoring, recorder | none, outbound only |
+
+- The orchestrator hands out the ports in its lookup answers, so clients and encoders follow a change by themselves.
+- The panel shows per node exactly which firewall or DMZ rules to open, and the firewall check tests them.
+- The old encoder ports 8010/8443 stay on as "legacy" until the admin switches them off, so existing encoders keep working.
+
 ## Future ideas
 
 Not scheduled in a phase yet.
