@@ -532,6 +532,16 @@ Small fixes planned for a patch release, one at a time after the current phase.
 
 Not scheduled in a phase yet.
 
+### Sound processor per station
+
+Audio processing for the station's output, set per radio station (not per studio PC).
+
+- **Built-in, light**: a basic chain (EQ, multiband compressor, AGC, limiter) with presets, low on CPU, available to every station.
+- **Stereo Tool**: load Thimeo Stereo Tool (Linux command-line version, the station's own licence key), upload or import a preset (`.sts`) and tweak it from the panel.
+- Processing runs **once per station**, where the audio is made (the station node, or the server running its AutoDJ), before the encoders, so every mount and relay gets the same processed sound.
+- **System resources first**: off by default; a CPU limit per processor (systemd quota), live CPU and RAM use shown in the panel, and a warning before turning it on when the node does not have enough headroom. The plan or node limits decide who may use the heavy processor.
+- Live DJs and AutoDJ both go through it; an FM/MPX node with its own processing can skip it.
+
 ### Format builder for non-stop
 
 A format builder next to the hour clock, to make the non-stop rotation easier to build.
