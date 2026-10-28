@@ -3,7 +3,7 @@ import { and, asc, eq, inArray, isNotNull, or, sql } from 'drizzle-orm';
 import { schema } from '../../db/index.js';
 import type { OutputConfig } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
-import { nodeSettings, pushToken, relaysByStation, type Node } from '../nodes/plan.js';
+import { nodeSettings, pushPortOf, pushToken, relaysByStation, type Node } from '../nodes/plan.js';
 import type { WireRow } from './tables.js';
 
 /** A station in the package of a station node. */
@@ -31,6 +31,8 @@ export interface StationPackage {
   memberships: WireRow[];
   apiKeys: WireRow[];
   stations: PackageStation[];
+  /** The node keeps its old ports open next to the new ones (port plan, 1.3); missing from servers before 1.3. */
+  oldPorts?: boolean;
 }
 
 const wire = (row: Record<string, unknown>): WireRow => {
@@ -112,12 +114,13 @@ export async function buildPackage(ctx: AppContext, node: Node): Promise<Station
     for (const relay of relays.get(s.id) ?? []) {
       const c = nodeSettings(relay);
       const host = c.publicHost || relay.status.ip;
-      if (!host || !c.pushPort) continue;
+      const port = pushPortOf(c);
+      if (!host || !port) continue;
       for (const m of own.filter((x) => x.isPublic)) {
         const key = `${s.slug}${m.path}`;
         const config: OutputConfig = {
           host,
-          port: c.pushPort,
+          port,
           tls: true,
           insecureTls: !c.publicHost,
           mount: `/listen/${key}`,
@@ -156,6 +159,7 @@ export async function buildPackage(ctx: AppContext, node: Node): Promise<Station
     memberships: memberships.map(wire),
     apiKeys: keys.map((k) => wire({ ...k, lastUsedAt: null })),
     stations: out,
+    oldPorts: nodeSettings(node).oldPorts,
   };
   return { ...body, revision: createHash('sha256').update(JSON.stringify(body)).digest('hex').slice(0, 20) };
 }

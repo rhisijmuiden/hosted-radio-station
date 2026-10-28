@@ -11,6 +11,7 @@ import { platformHost } from '../streaming/state.js';
 import { runningVersion } from '../system.js';
 import { DEDICATIONS, serves } from './dedication.js';
 import { buildFmPlan, fmConfigSchema } from './fm.js';
+import { OLD_PORTS, PORTS } from './portplan.js';
 import { ingestsOf, pushedRouting, stationRouting } from './routing-rules.js';
 import type { IngestStation, NodePlan, ProbeTarget, RelayMount } from './protocol.js';
 
@@ -29,10 +30,16 @@ export const nodeConfigSchema = z.object({
   listenPort: z.number().int().min(1).max(65535).nullable().default(null),
   relayStations: z.union([z.literal('all'), z.array(z.uuid()).max(500)]).default('all'),
   maxListeners: z.number().int().min(0).max(1_000_000).default(0),
-  sourcePlainPort: z.number().int().min(1024).max(65535).nullable().default(8010),
-  sourceTlsPort: z.number().int().min(1024).max(65535).nullable().default(8443),
+  sourcePlainPort: z.number().int().min(1024).max(65535).nullable().default(PORTS.ingest.plain),
+  sourceTlsPort: z.number().int().min(1024).max(65535).nullable().default(PORTS.ingest.tls),
   probe: z.boolean().default(true),
-  pushPort: z.number().int().min(1024).max(65535).nullable().default(8001),
+  pushPort: z.number().int().min(1024).max(65535).nullable().default(PORTS.relay.push),
+  /**
+   * Old ports (port plan, 1.3): the node keeps the ports from before the port plan open next to the new ones (8010 and
+   * 8443 for encoders, 8001 for pushes, 2022 for SFTP on a station node), and pushes to it keep using 8001. On for nodes
+   * paired before 1.3 that kept the default ports, until the administrator switches it off.
+   */
+  oldPorts: z.boolean().default(false),
   lanAddress: z
     .string()
     .trim()
@@ -112,6 +119,12 @@ export function nodeHost(node: Pick<Node, 'config'>): string {
   if (own && platform && own !== platform && c.publicHostCheck && !c.publicHostCheck.ok) return platform;
   return own || platform;
 }
+
+/** The push port ingests and station nodes deliver to on a relay: the old one while the relay keeps its old ports. */
+export const pushPortOf = (c: Pick<NodeSettings, 'pushPort' | 'oldPorts'>) => (c.pushPort && c.oldPorts ? OLD_PORTS.push : c.pushPort);
+
+/** A port and, while the node keeps its old ports, the old one next to it (no duplicates, no empty ports). */
+export const withOld = (port: number | null, old: number, on: boolean) => [...new Set([port, port && on ? old : null])].filter((p): p is number => !!p);
 
 /** Default port listeners use: 80 behind the node's own web server, else Icecast's 8000. */
 export const defaultListenPort = (node: Pick<Node, 'status'>) => (node.status.caddy ? 80 : 8000);
@@ -208,8 +221,9 @@ export function pushTarget(relay: Pick<Node, 'id' | 'name' | 'config' | 'status'
   const c = nodeSettings(relay);
   // An ingest node that is also the relay delivers to itself.
   const host = relay.id === fromNodeId ? '127.0.0.1' : c.publicHost || relay.status.ip;
-  if (!host || !c.pushPort) return null;
-  return { nodeId: relay.id, name: relay.name, host, port: c.pushPort, insecureTls: host === '127.0.0.1' || !c.publicHost };
+  const port = pushPortOf(c);
+  if (!host || !port) return null;
+  return { nodeId: relay.id, name: relay.name, host, port, insecureTls: host === '127.0.0.1' || !c.publicHost };
 }
 
 const baseUrl = (ctx: AppContext) => ctx.config.PUBLIC_URL.replace(/\/$/, '');
@@ -247,7 +261,9 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
         list.push({ key, stationId: s.id, slug: s.slug, path: m.path, name: m.name ? `${s.name} – ${m.name}` : s.name, format: m.format, url: push ? null : `${base}/listen/${key}`, push });
       }
     }
-    relay = { maxListeners: c.maxListeners, mounts: list, pushPort: c.pushPort };
+    // pushPort is what agents before 1.3 listen on: the old port while the node keeps it, so nothing moves until the
+    // agent is updated and listens on every port in pushPorts.
+    relay = { maxListeners: c.maxListeners, mounts: list, pushPort: pushPortOf(c), pushPorts: withOld(c.pushPort, OLD_PORTS.push, c.oldPorts) };
   }
 
   let source: NodePlan['source'] = null;
@@ -266,8 +282,10 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
     const tls = proxy.mode === 'builtin' && !!proxy.domain;
     const port = tls ? streaming.ingestTlsPort : streaming.ingestPlainPort;
     source = {
-      plainPort: c.sourcePlainPort,
-      tlsPort: c.sourceTlsPort,
+      // As with the push port: agents before 1.3 keep the old ports, newer ones listen on every port in `ports`.
+      plainPort: c.oldPorts && c.sourcePlainPort ? OLD_PORTS.plain : c.sourcePlainPort,
+      tlsPort: c.oldPorts && c.sourceTlsPort ? OLD_PORTS.tls : c.sourceTlsPort,
+      ports: { plain: withOld(c.sourcePlainPort, OLD_PORTS.plain, c.oldPorts), tls: withOld(c.sourceTlsPort, OLD_PORTS.tls, c.oldPorts) },
       // A direct address (Nodes → settings) skips a public name that only carries web traffic, such as a CDN.
       upstream: settings.ingestAddress
         ? streaming.ingestPlainPort

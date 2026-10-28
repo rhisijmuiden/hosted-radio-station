@@ -5,6 +5,18 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 
 ## Unreleased
 
+- Port plan: every role has its own incoming ports, so roles on one machine never clash. Ingest 8200 (plain), 8201
+  (TLS) and 8210–8299 (Shoutcast v1); relay push port 8301; station node 8400 (plain), 8401 (TLS) and 8402 (SFTP);
+  the orchestrator itself only needs 443 (+80). Every port can still be changed per node.
+- Old ports: servers and nodes from before the port plan keep 8010, 8443, 8001 (and 2022 and 8100–8199 where they
+  apply) open next to the new ones, and pushes keep going to 8001, until you switch them off under **Nodes → Port
+  plan**, per server or everywhere at once. Each node also has the switch in its settings. Nodes with ports of their
+  own keep them (migration `0020_port_plan`).
+- Firewall tab of a node: old ports are marked, and a ready-made list of `ufw` rules can be copied.
+- RHIS Studio: Go Live falls back to the old port when a firewall does not let the new one in yet.
+- Node agent: listens on several encoder and push ports at once (needs this version on the node; older agents keep
+  the old ports until they are updated).
+
 - Network map, 3D: server labels no longer stay behind (doubled, loose from their tower) when the map refreshes while
   you rotate or zoom. New **Server labels** switch in the legend (the selected server keeps its label).
 - Network map: control lines to every node are on by default, in 3D too (and drawn stronger there); the legend switch turns them off and the

@@ -165,7 +165,7 @@ export const endpointOut = z.object({
   online: z.boolean(),
   external: z.string().nullable(),
   internal: z.string().nullable(),
-  ports: z.array(z.object({ service: z.enum(PORT_SERVICES), port: z.number(), to: z.number().optional(), tls: z.boolean().optional() })),
+  ports: z.array(z.object({ service: z.enum(PORT_SERVICES), port: z.number(), to: z.number().optional(), tls: z.boolean().optional(), old: z.boolean().optional() })),
 });
 const connectionOut = z.object({
   ingestHost: z.string(),

@@ -112,14 +112,14 @@ Open a customer and fill in **Single sign-on**. Choose OpenID Connect (Microsoft
 
 Create a station under **Stations** (or from a customer). Each station starts with a `/live` mount and gets its own Icecast server, which the system starts by itself. The station's **Overview** shows everything a DJ needs:
 
-- **Encoder**: server `src.<customer domain>` (or this server's address), port **8443** with TLS or **8010** without, mount `/<station>/live`, and the user name and password of a **DJ account**. Encoders without a user name field use `source` and `username:password` as the password.
-- **Old Shoutcast v1 encoders**: switch on *Port for old Shoutcast encoders* under the station's **Settings**; the station gets a port from 8100–8199.
+- **Encoder**: server `src.<customer domain>` (or this server's address), port **8201** with TLS or **8200** without, mount `/<station>/live`, and the user name and password of a **DJ account**. Encoders without a user name field use `source` and `username:password` as the password.
+- **Old Shoutcast v1 encoders**: switch on *Port for old Shoutcast encoders* under the station's **Settings**; the station gets a port from 8210–8299.
 - **Listen links**: `https://<domain>/listen/<station>/<mount>`.
 - **Upload**: SFTP/SCP on port 2022, FTP/FTPS on port 21, logging in as `<station>.<dj user name>`.
 
-Ports, ranges, the CNAME target for customer domains and upload are set under **Streaming**. Open these ports to the container: 80 and 443 (panel, pages, streams), 8443 and 8010 (encoders), 8100–8199 (Shoutcast v1, only when used), 2022 (SFTP/SCP), 21 and 50000–50100 (FTP/FTPS). Behind NAT, set the passive IP for FTP.
+Ports, ranges, the CNAME target for customer domains and upload are set under **Streaming**. Open these ports to the container: 80 and 443 (panel, pages, streams), 8201 and 8200 (encoders), 8210–8299 (Shoutcast v1, only when used), 2022 (SFTP/SCP), 21 and 50000–50100 (FTP/FTPS). Behind NAT, set the passive IP for FTP.
 
-**Customer domains.** Under a customer, add a domain such as `harder.fm`. The customer creates `stream.harder.fm` and `src.harder.fm` as CNAME records pointing to the CNAME target (or A/AAAA records to the public IPs) from **Streaming**. Once the DNS is right, the domain turns *Active* and Caddy requests certificates for it; encoders get the same certificate on port 8443. Administrators can approve a domain without a DNS check (split DNS, LAN).
+**Customer domains.** Under a customer, add a domain such as `harder.fm`. The customer creates `stream.harder.fm` and `src.harder.fm` as CNAME records pointing to the CNAME target (or A/AAAA records to the public IPs) from **Streaming**. Once the DNS is right, the domain turns *Active* and Caddy requests certificates for it; encoders get the same certificate on port 8201. Administrators can approve a domain without a DNS check (split DNS, LAN).
 
 ## Files and services
 
@@ -132,7 +132,7 @@ Ports, ranges, the CNAME target for customer domains and upload are set under **
 | `hosted-radio-update.path` / `.service` | Runs updates requested from the panel (as root) |
 | `hosted-radio-proxy.path` / `.service` | Rewrites the Caddy configuration requested from the panel (as root) |
 | `hosted-radio-backup.path` / `.service` | Runs backups and restores (as root, with restic and rclone) |
-| `hosted-radio-streams.service` | Encoder ingest (8443, 8010, Shoutcast v1 ports), conversions and relays to external servers |
+| `hosted-radio-streams.service` | Encoder ingest (8201, 8200, Shoutcast v1 ports; also 8443 and 8010 while the old ports are on), conversions and relays to external servers |
 | `hosted-radio-icecast@<station>.service` | The Icecast server of one station, on 127.0.0.1 |
 | `hosted-radio-sftpgo.service` | File upload (SFTP, SCP, FTP, FTPS); log-ins are checked by the API |
 | `hosted-radio-streams-apply.path` / `.service` / `.timer` | Starts and stops station servers, writes the listen routes for Caddy and copies certificates (as root) |

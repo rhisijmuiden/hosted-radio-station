@@ -29,7 +29,7 @@ control traffic. The same role also works in a datacenter, for a customer that w
 3. The node installs the station software by itself (`install.sh --station-node`, a few minutes). It then opens a
    control connection to the main server and waits for stations.
 4. Make sure at least one **relay node** carries the station: a station node has no listeners of its own. Open the
-   relay's push port (default 8001/TCP, TLS) to the station node.
+   relay's push port (default 8301/TCP, TLS) to the station node.
 5. Optionally fill in **Address on the studio network** so encoders and RHIS Studio in the studio see the node's own
    address.
 6. When the node runs in the customer's own network, open the ports from its **Firewall** tab in the router or

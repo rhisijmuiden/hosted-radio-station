@@ -9,6 +9,7 @@ import { schema } from '../../db/index.js';
 import { TUNNEL_CALL_TOKEN } from '../../lib/auth.js';
 import type { AppContext } from '../../lib/context.js';
 import { mediaDir } from '../streaming/icecast.js';
+import { getSetting, putSetting } from '../settings.js';
 import { applyStreams, stationStats } from '../streaming/state.js';
 import { scanStationStorage } from '../streaming/storage.js';
 import { workerStatusPath, workerStatusSchema } from '../streaming/status.js';
@@ -162,6 +163,9 @@ export class StationNodeLink {
     }
     this.active = r.active.filter((id) => this.seeded.has(id));
     for (const id of r.moving) if (!this.preparing.has(id)) this.prepare(id);
+    // Old ports (port plan, 1.3): switched on or off for this node on the main server.
+    const o = await getSetting(this.ctx, 'orchestrator');
+    if (pkg.oldPorts !== undefined && o.oldPorts !== pkg.oldPorts) await putSetting(this.ctx, 'orchestrator', { ...o, oldPorts: pkg.oldPorts });
     await applyStreams(this.ctx, { stationIds: [...r.stationIds], by: 'main server' });
     this.log.info({ revision: pkg.revision, active: r.active.length, moving: r.moving.length, removed: r.removed.length }, 'station package applied');
   }

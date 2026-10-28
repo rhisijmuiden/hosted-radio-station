@@ -124,7 +124,7 @@ describe('orchestrator as control plane (phase 13)', () => {
     const plan = await a.planWhere((p) => p.ingest?.stations?.[0]?.targets?.length > 0);
     const s = plan.ingest.stations[0];
     expect(s).toMatchObject({ stationId, slug: 'schermer-fm', priority: 0, mounts: [expect.objectContaining({ path: '/live', kind: 'source' })] });
-    expect(s.targets[0]).toMatchObject({ nodeId: relay.id, host: 'relay-ams.example.com', port: 8001, insecureTls: false });
+    expect(s.targets[0]).toMatchObject({ nodeId: relay.id, host: 'relay-ams.example.com', port: 8301, insecureTls: false });
     // The relay checks the same token on its push port.
     expect(s.targets[0].tokens['schermer-fm/live']).toBe(relayPlan.relay.mounts[0].push.token);
 

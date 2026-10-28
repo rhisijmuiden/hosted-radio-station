@@ -69,7 +69,7 @@ Listeners are routed through `/api/public/stations/<slug>/listen/<mount>`: a red
 
 ## Source nodes and customer domains
 
-1. Give the node the Source role. The encoder ports default to 8443 (TLS) and 8010 (plain); change them if needed.
+1. Give the node the Source role. The encoder ports default to 8201 (TLS) and 8200 (plain); change them if needed.
 2. Under **Customers → <customer> → Domains**, pick the node at **Encoders connect to**.
 3. Point `src.<domain>` at the node. The node's Caddy gets the certificate; the DNS check of the domain looks for the node's address.
 
@@ -82,7 +82,7 @@ carries no audio for a station that has an ingest node. Per station, under **Sta
 
 - **Main ingest**: where encoders connect. "This server" keeps the classic setup (relays pull from this server). An
   ingest node takes the encoders itself, makes the transcoded mounts with ffmpeg and pushes every public mount
-  straight to the relays (TLS on their push port, default 8001, a token per mount).
+  straight to the relays (TLS on their push port, default 8301, a token per mount).
 - **Backup ingest**: a second ingest (a node, or this server) that encoders can use as their backup server. Both
   ingests push to the same relays; a relay plays the best one that is on air (main before backup) and keeps the other
   one on standby. When the main ingest falls away the relay switches to the backup without dropping its listeners.
@@ -123,7 +123,7 @@ Click a block for its details.
 
 The card on the **Nodes** page switches this server to **orchestrator only**: it then carries no audio at all and only manages. Before it goes on, the panel lists the stations that still use this server (as ingest, backup ingest, for listeners, with the AutoDJ or while moving); move those to a node first. Once on:
 
-- the encoder ports (8443, 8010 and Shoutcast v1) and its Icecast are closed;
+- the encoder ports (8201, 8200, the old 8443 and 8010, and Shoutcast v1) and its Icecast are closed;
 - this server can no longer be chosen as ingest or relay, there is no fallback to it when nodes fail, and listeners are never sent to it;
 - new stations need an ingest node, and stations with the AutoDJ run on a station node;
 - uploads (SFTP/SCP/FTP) go to the station node that holds the library.

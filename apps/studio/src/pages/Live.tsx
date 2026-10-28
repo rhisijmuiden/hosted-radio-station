@@ -55,7 +55,7 @@ export function LivePage({ onPage }: { onPage: (p: Page) => void }) {
   const ingest = detail.data && mount && encoderMount(detail.data, mount.id) ? (link.picked?.to ?? null) : null;
   const host = ingest?.host ?? '';
   // The plain port of the chosen address, for the certificate fallback below.
-  const plainPort = link.picked?.via === 'external' ? (detail.data?.connection.endpoints?.find((e) => e.role === 'stationNode')?.ports.find((p) => p.service === 'encoderPlain')?.port ?? null) : link.picked?.via === 'main' ? (detail.data?.connection.plain?.port ?? null) : null;
+  const plainPort = link.picked?.via === 'external' ? (detail.data?.connection.endpoints?.find((e) => e.role === 'stationNode')?.ports.find((p) => p.service === 'encoderPlain' && !p.old)?.port ?? null) : link.picked?.via === 'main' ? (detail.data?.connection.plain?.port ?? null) : null;
   // A TLS connection that fails on the certificate (e.g. no public certificate for the encoder address yet): offer the
   // plain port. Never on its own, because then the password goes over the network readable.
   const certError =

@@ -267,3 +267,27 @@ test('a puller keeps its source open when the pulled stream ends, so listeners s
   main.close();
   ice.server.close();
 });
+
+test('listens on the new and the old push port while the node keeps its old ports (port plan)', async () => {
+  const ice = fakeIcecast();
+  const icePort = await listen(ice.server);
+  const receiver = new PushReceiver({ icecastPort: () => icePort, secrets: { source: 'src', admin: 'adm' } });
+  const [fresh, old] = [await freePort(), await freePort()];
+  const mount = { key: 'studio-fm/live', stationId: 'x', slug: 'studio-fm', path: '/live', name: 'Studio FM', format: 'mp3', url: null, push: { token: 'tok-123' } };
+  await receiver.apply([fresh, old], [mount]);
+  await new Promise((r) => setTimeout(r, 200));
+  for (const port of [fresh, old]) {
+    const wrong = await push(port, 'nope');
+    assert.equal(wrong.status.slice(0, 3), '401');
+    wrong.socket.destroy();
+  }
+  // Switched off: only the new port is left.
+  await receiver.apply([fresh], [mount]);
+  await new Promise((r) => setTimeout(r, 200));
+  await assert.rejects(push(old, 'nope'));
+  const still = await push(fresh, 'nope');
+  assert.equal(still.status.slice(0, 3), '401');
+  still.socket.destroy();
+  receiver.stop();
+  ice.server.close();
+});
