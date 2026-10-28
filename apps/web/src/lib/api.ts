@@ -1214,7 +1214,7 @@ export interface RoutingChoice {
 export interface StationRoutingView {
   routing: StationRouting;
   /** Station on a station node: where it sends its streams now. `direct` says why it feeds the relays itself. */
-  studio: { ingests: { id: string; name: string; online: boolean; priority: number }[]; direct: 'chosen' | 'none' | 'offline' | null } | null;
+  studio: { ingests: { id: string; name: string; online: boolean; priority: number }[]; direct: 'chosen' | 'update' | 'none' | 'offline' | 'failing' | null } | null;
   locked: 'station_node' | null;
   /** This server carries no audio (phase 18). */
   orchestratorOnly: boolean;

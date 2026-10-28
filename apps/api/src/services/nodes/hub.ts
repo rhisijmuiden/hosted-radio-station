@@ -217,6 +217,7 @@ export class NodeHub {
       cores: Number(msg.facts?.cores) || undefined,
       addresses: Array.isArray(msg.facts?.addresses) ? msg.facts.addresses.slice(0, 10).map(String) : [],
       ffmpeg: !!msg.facts?.ffmpeg,
+      features: Array.isArray(msg.facts?.features) ? msg.facts.features.slice(0, 20).map((x) => String(x).slice(0, 40)) : [],
       soundcards: Array.isArray(msg.facts?.soundcards) ? msg.facts.soundcards.slice(0, 16).map((c) => ({ device: String(c?.device ?? '').slice(0, 100), name: String(c?.name ?? '').slice(0, 120) })) : [],
       ip,
       country: geo?.country ?? null,

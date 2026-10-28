@@ -1034,6 +1034,8 @@ export interface NodeStatus {
   /** The end of the log of the last configuration run on the node, when it failed. */
   applyLog?: string[];
   update?: { state: 'idle' | 'running' | 'succeeded' | 'failed'; message?: string; at?: string } | null;
+  /** What the node's software can do beyond its protocol version, such as "studio-ingest" (1.3). */
+  features?: string[];
   /** FM/MPX: ffmpeg is installed, the playback devices of the node, and what it has on air (phase 11). */
   ffmpeg?: boolean;
   soundcards?: { device: string; name: string }[];
