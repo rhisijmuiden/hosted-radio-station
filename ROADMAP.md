@@ -523,6 +523,19 @@ Small fixes planned for a patch release, one at a time after the current phase.
 - An FM/MPX node is linked directly to the station node (studio) it takes its audio from, and is drawn right next to it as one group, instead of on its own in the distribution layer.
 - Shared or dedicated nodes (pulled forward from phase 19): every node is **Shared** or **Dedicated** to one customer or station. A dedicated node only carries and shows its own streams, and automatic and spare relay routing never put other stations on it. A customer's own node is dedicated by default.
 
+### 1.3: port plan, studio through the ingest, network map fixes (on test)
+
+- **Port plan**: every role has its own incoming ports (ingest 8200/8201 and 8210–8299, relay push 8301, station node 8400/8401/8402, orchestrator 443 and 80). Old ports stay open next to the new ones until they are switched off under **Nodes → Port plan**; each node's Firewall tab lists them and gives ready-made `ufw` rules.
+- **Studio through the ingest**: a station node sends each source stream once to an ingest, which makes the other mounts and feeds every relay; straight to the relays stays a choice per station.
+- **Network map**: 3D labels no longer stay behind, a **Server labels** switch, control lines on by default, audio lines run around servers instead of through them. Distribution only customers never get a studio.
+
+| Nodes → Port plan | Show ports, dark, Dutch |
+| --- | --- |
+| ![Port plan card on the Nodes page](docs/screenshots/port-plan-nodes-port-plan-light-en.png) | ![Ports per role, dark, Dutch](docs/screenshots/port-plan-show-ports-dark-nl.png) |
+| ![Firewall tab of a node with old ports and ufw rules](docs/screenshots/port-plan-node-firewall-light-en.png) | ![Streaming defaults, dark, Dutch](docs/screenshots/port-plan-streaming-dark-nl.png) |
+| ![3D network map with control lines](docs/screenshots/pr-128-129-3d-control-on.png) | ![2D layers with lines around servers](docs/screenshots/pr-128-129-2d-layers.png) |
+| ![Customer page, station node of this customer](docs/screenshots/pr-128-129-customer-station-node-harder-fm.png) | ![Customer page, the chosen station node shown after loading](docs/screenshots/pr-128-129-customer-station-node-radio-schermer.png) |
+
 ## Future ideas
 
 Not scheduled in a phase yet.
