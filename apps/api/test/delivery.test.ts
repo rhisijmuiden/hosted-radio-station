@@ -200,4 +200,25 @@ describe('station node through the ingest (1.3)', () => {
     expect((await buildPlan(t.ctx, await nodeRow(via!))).ingest!.stations.some((x) => x.stationId === stationId)).toBe(true);
     expect((await pushes()).every((o) => o.relayNodeId === relay)).toBe(true);
   });
+
+  it('puts the station node and its MPX in the customer block, and gives the station its line colour', async () => {
+    const [station] = await t.db.select({ tenantId: schema.stations.tenantId }).from(schema.stations).where(eq(schema.stations.id, stationId));
+    const mpx = await pair({ name: 'hf-mpx', roles: ['fm'] });
+    await t.app.inject({ method: 'PATCH', url: `/api/nodes/${mpx}`, headers: admin, payload: { config: { fm: { stationId } } } });
+    const topo = (await t.app.inject({ method: 'GET', url: '/api/nodes/topology', headers: admin })).json();
+    expect(topo.customers).toEqual([{ id: station!.tenantId, name: 'Harder', color: 0 }]);
+    const node = (id: string) => topo.nodes.find((n: { id: string }) => n.id === id);
+    // A shared station node runs only this customer's station, so it stands in its block; the MPX follows its studio.
+    expect(node(studio).customer).toBe(station!.tenantId);
+    expect(node(mpx).customer).toBe(station!.tenantId);
+    expect(node(ingest).customer).toBeNull();
+    expect(node(relay).customer).toBeNull();
+    expect(topo.stations.find((x: { id: string }) => x.id === stationId)).toMatchObject({ customer: station!.tenantId, color: 0 });
+    for (const l of topo.links) expect(Array.isArray(l.stations)).toBe(true);
+    // The customer sees its own block only.
+    const owner = await login(t.app, 'owner@harder.fm', 'owner-password');
+    const mine = (await t.app.inject({ method: 'GET', url: '/api/nodes/topology', headers: owner })).json();
+    expect(mine.customers.map((c: { id: string }) => c.id)).toEqual([station!.tenantId]);
+    await t.app.inject({ method: 'DELETE', url: `/api/nodes/${mpx}`, headers: admin });
+  });
 });

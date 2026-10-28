@@ -2528,8 +2528,13 @@ export const en = {
       tbTitle: 'Flow from top to bottom',
     },
     flat: {
-      lanes: { studios: 'Studios & encoders', ingest: 'Ingest', distribution: 'Distribution', audience: 'Audience', monitor: 'Monitoring' },
+      lanes: { customers: 'Customers', studios: 'Studios & encoders', ingest: 'Ingest', distribution: 'Distribution', audience: 'Audience', monitor: 'Monitoring' },
+      transmitter: 'FM transmitter',
+      ether: 'Over the air',
+      shared: 'Shared infrastructure',
+      customer: 'customer',
       fmListeners: 'FM {{where}}',
+      fmListenersTitle: 'FM listeners',
       listeners: 'Listeners',
       direct: 'Direct',
       now: '{{count}} listening now',
@@ -2540,7 +2545,7 @@ export const en = {
     wholeNetwork: 'Whole network',
     asCustomer: 'As {{name}}',
     filters: { all: 'All', relays: 'Relays', sources: 'Ingests', stations: 'Station nodes', problems: 'Problems', mine: 'My nodes', streams: 'Streams' },
-    legend: { stream: 'Live stream', standby: 'Backup (standby)', control: 'Control only (no audio)', degraded: 'Degraded', listeners: 'Listeners', labels: 'Server labels', checks: 'Checks', height: 'Height = listeners or load' },
+    legend: { stations: 'Line colour = station', stream: 'Live stream', standby: 'Backup (standby)', control: 'Control only (no audio)', degraded: 'Degraded', listeners: 'Listeners', labels: 'Server labels', checks: 'Checks', height: 'Height = listeners or load' },
     views: {
       label: 'View',
       layers: 'Layers',
@@ -2552,7 +2557,7 @@ export const en = {
       matrixHint: 'Every server against every station in one table: what it does for each station, at a glance.',
       '3dHint': 'The layers on a floor: towers grow with listeners or load, their top shows health. Drag to rotate, scroll to zoom.',
     },
-    lanes: { studios: 'Studios', ingest: 'Ingest', relays: 'Relays', listeners: 'Listeners', monitor: 'Monitoring' },
+    lanes: { customers: 'Customers', shared: 'Shared infrastructure', studios: 'Studios', ingest: 'Ingest', relays: 'Relays', listeners: 'Listeners', monitor: 'Monitoring' },
     tags: { station: 'STATION NODE', ingest: 'INGEST', relay: 'RELAY' },
     station: {
       pick: 'Station',

@@ -826,6 +826,13 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       getSetting(ctx, 'orchestrator'),
     ]);
     const tenantRows = await ctx.db.select({ id: schema.tenants.id, stationNodeId: schema.tenants.stationNodeId }).from(schema.tenants).where(isNotNull(schema.tenants.stationNodeId));
+    // Every station in the order it was made: its place gives it a line colour of its own that stays the same in every
+    // view (a new station takes the next one).
+    const everyStation = await ctx.db
+      .select({ id: schema.stations.id, tenantId: schema.stations.tenantId, nodeId: schema.stations.nodeId })
+      .from(schema.stations)
+      .orderBy(asc(schema.stations.createdAt), asc(schema.stations.id));
+    const colorOf = new Map(everyStation.map((s, i) => [s.id, i]));
     const stationIds = stations.map((s) => s.id);
     const scopeSet = scope ? new Set(scope) : null;
     const pairedRelayNodes = allNodes.filter((n) => n.pairedAt && n.roles.includes('relay')).map((n) => ({ ...n, status: hub.liveStatus(n.id) ?? { ...n.status, online: false } }));
@@ -921,6 +928,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         relaysTotal: relaysSeen?.length ?? 0,
         fmOnAir: !!status.online && !!status.fm && (status.fm.meters?.playing === true || (status.fm.output === 'off' && status.fm.uecp === 'connected')),
         home: n.roles.includes('fm') ? fmHome(n) : null,
+        customer: null as string | null,
         check: null,
       };
     });
@@ -960,6 +968,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       relaysTotal: 0,
       fmOnAir: false,
       home: null,
+      customer: null,
       check: null,
       ...extra,
     });
@@ -971,17 +980,27 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
     const links: z.infer<typeof topologyOut>['links'] = [];
     const seen = new Map<string, z.infer<typeof topologyOut>['links'][number]>();
     type LinkOut = z.infer<typeof topologyOut>['links'][number];
-    const link = (l: Omit<LinkOut, 'streams' | 'kbps' | 'standby'> & Partial<Pick<LinkOut, 'streams' | 'kbps' | 'standby'>>) => {
+    const link = (l: Omit<LinkOut, 'streams' | 'kbps' | 'standby' | 'stations'> & Partial<Pick<LinkOut, 'streams' | 'kbps' | 'standby'>> & { station?: string }) => {
       const key = `${l.from}>${l.to}>${l.kind}${l.standby ? '~' : ''}`;
       const ok = (id: string) => id === 'main' || id.startsWith('studio:') || shown.has(id);
       if (!ok(l.from) || !ok(l.to)) return;
-      const full: LinkOut = { streams: l.kind === 'stream' ? 1 : 0, kbps: null, standby: false, ...l };
+      const { station, ...rest } = l;
+      const full: LinkOut = { streams: l.kind === 'stream' ? 1 : 0, kbps: null, standby: false, stations: [], ...rest };
+      if (station) full.stations = [{ id: station, streams: full.streams, kbps: full.kbps }];
       const had = seen.get(key);
-      // The same two servers carry several stations: one line, thicker.
+      // The same two servers carry several stations: one line, thicker, that still knows which stations it carries.
       if (had) {
         had.streams += full.streams;
         had.kbps = had.kbps == null && full.kbps == null ? null : (had.kbps ?? 0) + (full.kbps ?? 0);
         had.active ||= full.active;
+        for (const x of full.stations) {
+          const same = had.stations.find((y) => y.id === x.id);
+          if (!same) had.stations.push(x);
+          else {
+            same.streams += x.streams;
+            same.kbps = same.kbps == null && x.kbps == null ? null : (same.kbps ?? 0) + (x.kbps ?? 0);
+          }
+        }
         return;
       }
       seen.set(key, full);
@@ -1029,22 +1048,24 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       if (from) {
         const fromNode = byId.get(from);
         const st = { active: !!fromNode?.online, degraded: !!fromNode?.degraded, rttMs: null, loss: null };
-        if (!pushedRouting(r)) link({ from, to: 'local:relay', kind: 'stream', ...st });
+        if (!pushedRouting(r)) link({ from, to: 'local:relay', kind: 'stream', ...st, station: s.id });
         for (const relay of relaysOf(s, pairedRelayNodes)) {
           const c = carriedOn(relay.id, s.slug);
-          if (c.streams) link({ from, to: relay.id, kind: 'stream', ...st, active: st.active && !!byId.get(relay.id)?.online, streams: c.streams, kbps: c.kbps });
+          if (c.streams) link({ from, to: relay.id, kind: 'stream', ...st, active: st.active && !!byId.get(relay.id)?.online, streams: c.streams, kbps: c.kbps, station: s.id });
         }
       }
       // A backup ingest that is up keeps feeding the relays on standby, so they switch without dropping listeners.
       for (const i of ingests) {
         if (i.ref === 'local' || topoId(i.ref) === from || !statusOf(i.ref).online) continue;
         const pushing = new Set((statusOf(i.ref).ingest ?? []).filter((m) => m.stationId === s.id).flatMap((m) => m.pushing));
-        for (const relayId of pushing) link({ from: i.ref, to: relayId, kind: 'stream', active: true, degraded: false, rttMs: null, loss: null, standby: true });
+        for (const relayId of pushing) link({ from: i.ref, to: relayId, kind: 'stream', active: true, degraded: false, rttMs: null, loss: null, standby: true, station: s.id });
       }
       stationsOut.push({
         id: s.id,
         name: s.name,
         tenantId: admin ? s.tenantId : null,
+        customer: s.tenantId,
+        color: colorOf.get(s.id) ?? 0,
         edition: s.edition,
         stationNode: null,
         ingest: shown.has(topoId(r.ingest)) ? topoId(r.ingest) : null,
@@ -1065,7 +1086,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       if (out) out.cells[n.id] = !n.online ? 'down' : n.fmOnAir ? 'onAir' : inputUp ? 'degraded' : 'idle';
       if (!inputUp) continue;
       const from = s.nodeId || pushedRouting(stationRouting(s)) ? relaysOf(s, pairedRelayNodes).find((r) => byId.get(r.id)?.online)?.id : 'local:relay';
-      if (from) link({ from, to: n.id, kind: 'stream', active: n.online, degraded: n.degraded, rttMs: null, loss: null });
+      if (from) link({ from, to: n.id, kind: 'stream', active: n.online, degraded: n.degraded, rttMs: null, loss: null, station: s.id });
     }
     // A station node sends the streams of its stations through its ingest(s) (1.3), or straight to the relays.
     const relayMap = await relaysByStation(ctx);
@@ -1084,7 +1105,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
           for (const [i, id] of via.entries()) {
             const state = rt?.relays[id]?.state;
             cells[id] = !byId.get(id)?.online ? 'down' : state === 'error' ? 'degraded' : state === 'connected' ? (i === 0 ? 'onAir' : 'standby') : 'idle';
-            link({ from: n.id, to: id, kind: 'stream', active: n.online && state === 'connected', degraded: state === 'error', rttMs: null, loss: null, standby: i > 0 });
+            link({ from: n.id, to: id, kind: 'stream', active: n.online && state === 'connected', degraded: state === 'error', rttMs: null, loss: null, standby: i > 0, station: s.id });
           }
           // The relays hear the first ingest that has the station on air; the other one feeds them on standby.
           const onAir = (id: string) => !!statusOf(id).online && !!statusOf(id).ingest?.some((m) => m.stationId === s.id);
@@ -1093,8 +1114,8 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
           for (const id of via.filter(onAir)) {
             for (const relay of relayIds) {
               const c = carriedOn(relay, s.slug);
-              if (id === from && c.streams) link({ from: id, to: relay, kind: 'stream', active: !!byId.get(relay)?.online, degraded: false, rttMs: null, loss: null, streams: c.streams, kbps: c.kbps });
-              else if (id !== from && (statusOf(id).ingest ?? []).some((m) => m.stationId === s.id && m.pushing.includes(relay))) link({ from: id, to: relay, kind: 'stream', active: true, degraded: false, rttMs: null, loss: null, standby: true });
+              if (id === from && c.streams) link({ from: id, to: relay, kind: 'stream', active: !!byId.get(relay)?.online, degraded: false, rttMs: null, loss: null, streams: c.streams, kbps: c.kbps, station: s.id });
+              else if (id !== from && (statusOf(id).ingest ?? []).some((m) => m.stationId === s.id && m.pushing.includes(relay))) link({ from: id, to: relay, kind: 'stream', active: true, degraded: false, rttMs: null, loss: null, standby: true, station: s.id });
             }
           }
         } else {
@@ -1102,13 +1123,15 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
             const state = rt?.relays[relayId]?.state;
             const c = carriedOn(relayId, s.slug);
             cells[relayId] = !byId.get(relayId)?.online ? 'down' : state === 'error' ? 'degraded' : c.streams ? 'onAir' : 'idle';
-            link({ from: n.id, to: relayId, kind: 'stream', active: n.online && state === 'connected', degraded: state === 'error', rttMs: null, loss: null, streams: Math.max(1, c.streams), kbps: c.kbps });
+            link({ from: n.id, to: relayId, kind: 'stream', active: n.online && state === 'connected', degraded: state === 'error', rttMs: null, loss: null, streams: Math.max(1, c.streams), kbps: c.kbps, station: s.id });
           }
         }
         stationsOut.push({
           id: s.id,
           name: s.name,
           tenantId: admin ? s.tenantId : null,
+          customer: s.tenantId,
+          color: colorOf.get(s.id) ?? 0,
           edition: s.edition,
           stationNode: n.id,
           ingest: via[0] ?? n.id,
@@ -1152,15 +1175,41 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       const station = stations.find((s) => s.id === l.stationId)!;
       const viaNode = l.nodeId && shown.has(l.nodeId) ? l.nodeId : null;
       const to = viaNode ?? (shown.has('local:ingest') ? 'local:ingest' : 'main');
-      link({ from: `studio:${l.id}`, to, kind: 'stream', active: true, degraded: false, rttMs: null, loss: null });
+      link({ from: `studio:${l.id}`, to, kind: 'stream', active: true, degraded: false, rttMs: null, loss: null, station: station.id });
       // An encoder through a source node that only passes it on still ends up in this server's ingest.
-      if (viaNode && !l.onNode && shown.has('local:ingest')) link({ from: viaNode, to: 'local:ingest', kind: 'stream', active: true, degraded: false, rttMs: null, loss: null });
-      return { id: `studio:${l.id}`, station: station.name, stationId: station.id, account: l.accountName, mount: l.mountPath, via: l.via, nodeId: viaNode, since: l.startedAt };
+      if (viaNode && !l.onNode && shown.has('local:ingest')) link({ from: viaNode, to: 'local:ingest', kind: 'stream', active: true, degraded: false, rttMs: null, loss: null, station: station.id });
+      return { id: `studio:${l.id}`, station: station.name, stationId: station.id, customer: station.tenantId, account: l.accountName, mount: l.mountPath, via: l.via, nodeId: viaNode, since: l.startedAt };
     });
     // Listeners now per relay, station and country (this server's own listeners under its relay role).
     const audience = open
       .map((o) => ({ nodeId: o.nodeId ?? 'local:relay', stationId: o.stationId, country: o.country, listeners: o.n }))
       .filter((a) => shown.has(a.nodeId));
+
+    // Customer blocks (2D and 3D): each customer's studio side apart from the shared servers. A station node belongs to
+    // its customer, or to the one customer whose stations it runs; an FM/MPX node to its customer or to its studio. A
+    // customer only ever sees a block of its own.
+    const visible = (id: string | null | undefined) => (id && (!scopeSet || scopeSet.has(id)) ? id : null);
+    for (const n of nodeOutList) {
+      if (n.local) continue;
+      const row = nodes.find((x) => x.id === n.id)!;
+      if (n.roles.includes('station')) {
+        const owners = new Set(everyStation.filter((s) => s.nodeId === n.id).map((s) => s.tenantId));
+        n.customer = visible(row.tenantId ?? (owners.size === 1 ? [...owners][0] : null));
+      }
+    }
+    for (const n of nodeOutList) {
+      if (n.local || n.roles.includes('relay') || !n.roles.includes('fm')) continue;
+      const row = nodes.find((x) => x.id === n.id)!;
+      const fmStation = everyStation.find((s) => s.id === nodeSettings(row).fm.stationId);
+      n.customer = visible(row.tenantId ?? (n.home ? byId.get(n.home)?.customer : null) ?? fmStation?.tenantId);
+    }
+    const customerIds = new Set([...nodeOutList.map((n) => n.customer), ...studios.map((s) => visible(s.customer))].filter((x): x is string => !!x));
+    const customerNames = customerIds.size ? await ctx.db.select({ id: schema.tenants.id, name: schema.tenants.name }).from(schema.tenants).where(inArray(schema.tenants.id, [...customerIds])) : [];
+    // A customer block takes the colour of the customer's first station.
+    const customers = customerNames
+      .map((c) => ({ id: c.id, name: c.name, color: Math.min(...everyStation.filter((s) => s.tenantId === c.id).map((s) => colorOf.get(s.id)!), Number.MAX_SAFE_INTEGER) }))
+      .map((c) => ({ ...c, color: c.color === Number.MAX_SAFE_INTEGER ? 0 : c.color }))
+      .sort((a, b) => a.name.localeCompare(b.name));
 
     const remote = nodeOutList.filter((n) => !n.local);
     const online = remote.filter((n) => n.online);
@@ -1169,7 +1218,8 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       view: admin && !tenantFilter ? 'admin' : 'customer',
       main: { id: 'main', name: names.orchestrator, host: admin ? names.host : null, orchestratorOnly: orchestrator.only, version: v.version, commit: v.commit, branch: v.branch, listeners: mainListeners, stations: stations.length },
       nodes: nodeOutList,
-      studios,
+      studios: studios.map((s) => ({ ...s, customer: visible(s.customer) })),
+      customers,
       links,
       stations: stationsOut,
       audience,
@@ -1236,11 +1286,15 @@ const topologyOut = z.object({
       fmOnAir: z.boolean(),
       /** FM/MPX node: the station node of its studio, drawn beside it. */
       home: z.string().nullable(),
+      /** Station and FM/MPX nodes: the customer whose block they stand in, or null (shared). */
+      customer: z.string().nullable(),
       /** What the monitoring nodes hear on this server (phase 20): every check plays, one fails, or not checked. */
       check: z.enum(['ok', 'failed']).nullable(),
     }),
   ),
-  studios: z.array(z.object({ id: z.string(), station: z.string(), stationId: z.string(), account: z.string(), mount: z.string(), via: z.string(), nodeId: z.string().nullable(), since: z.date() })),
+  studios: z.array(z.object({ id: z.string(), station: z.string(), stationId: z.string(), customer: z.string().nullable(), account: z.string(), mount: z.string(), via: z.string(), nodeId: z.string().nullable(), since: z.date() })),
+  /** The customers that have a block of their own on the map; color is an index into the station line colours. */
+  customers: z.array(z.object({ id: z.string(), name: z.string(), color: z.number() })),
   links: z.array(
     z.object({
       from: z.string(),
@@ -1256,6 +1310,8 @@ const topologyOut = z.object({
       kbps: z.number().nullable(),
       /** A backup ingest that feeds the relay on standby. */
       standby: z.boolean(),
+      /** Audio: the stations on the line, each drawn in its own colour. */
+      stations: z.array(z.object({ id: z.string(), streams: z.number(), kbps: z.number().nullable() })),
     }),
   ),
   /** Per station: its path through the network and the state of each server for it (per station view, matrix). */
@@ -1264,6 +1320,10 @@ const topologyOut = z.object({
       id: z.string(),
       name: z.string(),
       tenantId: z.string().nullable(),
+      /** The customer of the station (its own, in the customer view). */
+      customer: z.string(),
+      /** Index of the station's line colour: the order the stations were made in. */
+      color: z.number(),
       edition: z.enum(['distribution', 'station']),
       /** The station node that runs the station, or null. */
       stationNode: z.string().nullable(),

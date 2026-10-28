@@ -2530,8 +2530,13 @@ export const nl: Translation = {
       tbTitle: 'Stroom van boven naar beneden',
     },
     flat: {
-      lanes: { studios: 'Studio’s & encoders', ingest: 'Ingest', distribution: 'Distributie', audience: 'Publiek', monitor: 'Monitoring' },
+      lanes: { customers: 'Klanten', studios: 'Studio’s & encoders', ingest: 'Ingest', distribution: 'Distributie', audience: 'Publiek', monitor: 'Monitoring' },
+      transmitter: 'FM-zender',
+      ether: 'Via de ether',
+      shared: 'Gedeelde infrastructuur',
+      customer: 'klant',
       fmListeners: 'FM {{where}}',
+      fmListenersTitle: 'FM-luisteraars',
       listeners: 'Luisteraars',
       direct: 'Direct',
       now: '{{count}} luisteren nu',
@@ -2542,7 +2547,7 @@ export const nl: Translation = {
     wholeNetwork: 'Hele netwerk',
     asCustomer: 'Als {{name}}',
     filters: { all: 'Alles', relays: 'Relays', sources: 'Ingests', stations: 'Station nodes', problems: 'Problemen', mine: 'Mijn nodes', streams: 'Streams' },
-    legend: { stream: 'Live stream', standby: 'Backup (stand-by)', control: 'Alleen besturing (geen audio)', degraded: 'Verminderd', listeners: 'Luisteraars', labels: 'Serverlabels', checks: 'Controles', height: 'Hoogte = luisteraars of belasting' },
+    legend: { stations: 'Lijnkleur = zender', stream: 'Live stream', standby: 'Backup (stand-by)', control: 'Alleen besturing (geen audio)', degraded: 'Verminderd', listeners: 'Luisteraars', labels: 'Serverlabels', checks: 'Controles', height: 'Hoogte = luisteraars of belasting' },
     views: {
       label: 'Weergave',
       layers: 'Lagen',
@@ -2554,7 +2559,7 @@ export const nl: Translation = {
       matrixHint: 'Elke server tegen elk station in één tabel: in één oogopslag wat hij voor elk station doet.',
       '3dHint': 'De lagen op een vloer: torens groeien met luisteraars of belasting, de bovenkant toont de gezondheid. Sleep om te draaien, scroll om te zoomen.',
     },
-    lanes: { studios: 'Studio’s', ingest: 'Ingest', relays: 'Relays', listeners: 'Luisteraars', monitor: 'Monitoring' },
+    lanes: { customers: 'Klanten', shared: 'Gedeelde infrastructuur', studios: 'Studio’s', ingest: 'Ingest', relays: 'Relays', listeners: 'Luisteraars', monitor: 'Monitoring' },
     tags: { station: 'STATION NODE', ingest: 'INGEST', relay: 'RELAY' },
     station: {
       pick: 'Station',

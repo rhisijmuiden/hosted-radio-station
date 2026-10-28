@@ -1,12 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
 import { ArrowRight, Eye, EyeOff, Plus, X } from 'lucide-react';
-import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router';
 import { formatBps, formatMs, formatPct } from '../components/nodes/common';
 import { Sparkline } from '../components/stats/charts';
 import type { SceneData, SceneHealth, SceneKind } from '../components/topology/scene';
+import { splitLine, stationHex, stationVar } from '../components/topology/colors';
 import TopologyFlat, { countryName, flag, nodeName, streamWidth, type FlatLayout } from '../components/topology/TopologyFlat';
 import TopologyMatrix from '../components/topology/TopologyMatrix';
 import { Badge, Button, Card, PageHeader, Select, Spinner } from '../components/ui';
@@ -340,6 +341,11 @@ export function TopologyPage() {
     if (!data) return { nodes: [], links: [] };
     const matches = (n: TopologyNode) =>
       filter === 'all' || filter === 'streams' || (filter === 'relays' && n.roles.includes('relay')) || (filter === 'sources' && n.roles.includes('source')) || (filter === 'stations' && n.roles.includes('station')) || (filter === 'problems' && (n.degraded || !n.online)) || (filter === 'mine' && n.own);
+    // Customer blocks: a plate per customer in the colour of its first station, and every station in its own colour.
+    const blocks = new Set((data.customers ?? []).map((c) => c.id));
+    const blockOf = (id: string | null | undefined) => (id && blocks.has(id) ? id : undefined);
+    const colorIdx = new Map(data.stations.map((s) => [s.id, s.color]));
+    const stationColor = (id: string) => (colorIdx.has(id) ? stationHex(colorIdx.get(id)) : undefined);
     // Relays of one location stand next to each other.
     const ordered = [...data.nodes].sort((a, b) => (a.roles.includes('relay') && b.roles.includes('relay') ? a.location.localeCompare(b.location) : 0));
     const nodes: SceneData['nodes'] = [
@@ -377,8 +383,24 @@ export function TopologyPage() {
         // An FM/MPX node of a station on a station node stands beside that node, in the studio.
         const homeId = kind === 'fm' ? (n.home ?? data.stations.find((s) => s.cells[n.id] && s.stationNode)?.stationNode) : undefined;
         const home = homeId && data.nodes.some((x) => x.id === homeId && x.roles.includes('station')) ? homeId : undefined;
-        return { id: n.id, kind, label: nodeName(t, n, customer), meta, health: healthOf(n), listeners: n.online ? n.listeners : 0, load: n.online ? load : 0, dim: !matches(n), own: customer && n.own, home, check: n.check };
+        const block = kind === 'station' || kind === 'fm' ? blockOf(n.customer) : undefined;
+        return { id: n.id, kind, label: nodeName(t, n, customer), meta, health: healthOf(n), listeners: n.online ? n.listeners : 0, load: n.online ? load : 0, dim: !matches(n), own: customer && n.own, home, check: n.check, block };
       }),
+      // The FM transmitter of an MPX node in a customer block: a mast beside it, with its FM listeners around it.
+      ...ordered
+        .filter((n) => kindOf(n) === 'fm' && blockOf(n.customer))
+        .map((n) => ({
+          id: `tx:${n.id}`,
+          kind: 'transmitter' as const,
+          label: t('topology.flat.fmListenersTitle'),
+          meta: [n.location || n.city, n.fmOnAir ? t('topology.fmOnAir') : t('topology.fmOff')].filter(Boolean).join(' · '),
+          health: (n.online && n.fmOnAir ? 'online' : 'offline') as SceneHealth,
+          listeners: 0,
+          dim: !matches(n),
+          home: n.id,
+          block: blockOf(n.customer),
+          select: n.id,
+        })),
       ...data.studios.map((s) => ({
         id: s.id,
         kind: 'studio' as const,
@@ -387,6 +409,7 @@ export function TopologyPage() {
         health: 'online' as const,
         listeners: 0,
         dim: filter !== 'all' && filter !== 'streams' && !(s.nodeId && matches(data.nodes.find((n) => n.id === s.nodeId)!)),
+        block: blockOf(s.customer),
       })),
     ];
     // Listeners per country: the six biggest as towers of their own, the rest together.
@@ -402,28 +425,60 @@ export function TopologyPage() {
     }
     for (const n of nodes) if (n.kind === 'country') n.meta = t('topology.listenersCount', { count: n.listeners });
     const dim = new Set(nodes.filter((n) => n.dim).map((n) => n.id));
-    const links: SceneData['links'] = data.links.map((l) => ({
-      from: l.from,
-      to: l.to,
-      kind: l.kind,
-      state: !l.active ? 'down' : l.degraded ? 'degraded' : 'ok',
-      label: l.kind === 'control' && l.active && l.rttMs != null ? `${formatMs(l.rttMs)}${(l.loss ?? 0) > 0.005 ? ` · ${formatPct(l.loss, 0)}` : ''}` : null,
-      dim: dim.has(l.from) || dim.has(l.to) || (filter === 'streams' && l.kind !== 'stream'),
-      width: l.kind === 'stream' ? streamWidth(l) : undefined,
-      standby: l.standby,
-    }));
-    // Relays hand their listeners to the countries.
-    const toCountry = new Map<string, number>();
+    const links: SceneData['links'] = data.links.flatMap((l) => {
+      const one: SceneData['links'][number] = {
+        from: l.from,
+        to: l.to,
+        kind: l.kind,
+        state: !l.active ? 'down' : l.degraded ? 'degraded' : 'ok',
+        label: l.kind === 'control' && l.active && l.rttMs != null ? `${formatMs(l.rttMs)}${(l.loss ?? 0) > 0.005 ? ` · ${formatPct(l.loss, 0)}` : ''}` : null,
+        dim: dim.has(l.from) || dim.has(l.to) || (filter === 'streams' && l.kind !== 'stream'),
+        width: l.kind === 'stream' ? streamWidth(l) : undefined,
+        standby: l.standby,
+      };
+      // Several stations on one line: a trail per station in its own colour, side by side.
+      const parts = l.kind === 'stream' ? splitLine(l.stations, (id) => colorIdx.get(id), (x) => 1.4 + (streamWidth(x) - 2) * 0.6, 2) : null;
+      return parts ? parts.map((p) => ({ ...one, width: p.width, offset: p.offset, color: stationColor(p.station.id) })) : [one];
+    });
+    // An MPX node feeds its transmitter.
+    for (const n of nodes.filter((x) => x.kind === 'transmitter')) {
+      const fm = data.nodes.find((x) => x.id === n.home)!;
+      const s = data.stations.find((x) => x.cells[fm.id]);
+      links.push({ from: fm.id, to: n.id, kind: 'stream', state: !fm.online ? 'down' : 'ok', label: null, dim: n.dim, width: 2.4, standby: !fm.fmOnAir, color: s ? stationColor(s.id) : undefined });
+    }
+    // Relays hand their listeners to the countries, a trail per station in its colour.
+    const toCountry = new Map<string, Map<string, number>>();
     for (const a of data.audience) {
       const key = `${a.nodeId}>${countryId(a.country)}`;
-      toCountry.set(key, (toCountry.get(key) ?? 0) + a.listeners);
+      const m = toCountry.get(key) ?? new Map<string, number>();
+      m.set(a.stationId, (m.get(a.stationId) ?? 0) + a.listeners);
+      toCountry.set(key, m);
     }
-    for (const [key, n] of toCountry) {
+    const listenWidth = (n: number) => 1.5 + Math.min(5, Math.log2(1 + n) / 1.6);
+    for (const [key, m] of toCountry) {
       const [from, to] = key.split('>') as [string, string];
-      links.push({ from, to, kind: 'stream', state: 'ok', label: null, dim: dim.has(from) || dim.has(to), width: 1.5 + Math.min(5, Math.log2(1 + n) / 1.6) });
+      const n = [...m.values()].reduce((a, b) => a + b, 0);
+      const base = { from, to, kind: 'stream' as const, state: 'ok' as const, label: null, dim: dim.has(from) || dim.has(to) };
+      const parts = splitLine([...m].map(([id, v]) => ({ id, v })), (id) => colorIdx.get(id), (x) => 1 + listenWidth(x.v) * 0.55, 2);
+      if (!parts) links.push({ ...base, width: listenWidth(n) });
+      else for (const p of parts) links.push({ ...base, width: p.width, offset: p.offset, color: stationColor(p.station.id) });
     }
-    return { nodes, links, lanes: { studios: t('topology.lanes.studios'), ingest: t('topology.lanes.ingest'), relays: t('topology.lanes.relays'), listeners: t('topology.lanes.listeners'), monitor: t('topology.lanes.monitor') } };
-  }, [data, filter, customer, t, i18n.language]);
+    return {
+      nodes,
+      links,
+      lanes: {
+        studios: blocks.size && !customer ? t('topology.lanes.customers') : t('topology.lanes.studios'),
+        ingest: t('topology.lanes.ingest'),
+        relays: t('topology.lanes.relays'),
+        listeners: t('topology.lanes.listeners'),
+        monitor: t('topology.lanes.monitor'),
+        shared: t('topology.lanes.shared'),
+      },
+      blocks: (data.customers ?? []).map((c) => ({ id: c.id, name: c.name, color: stationHex(c.color) })),
+    };
+    // The station colours come from the theme.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, filter, customer, t, i18n.language, theme]);
 
   const dimmed = useMemo(() => new Set(scene.nodes.filter((n) => n.dim).map((n) => n.id)), [scene]);
   const k = data?.kpis;
@@ -575,6 +630,17 @@ export function TopologyPage() {
                   <span className="flex items-center gap-1.5">
                     <i className="inline-block h-[3px] w-4 rounded bg-koraal" /> {t('topology.legend.stream')}
                   </span>
+                  {/* Every station in its own colour, from studio to listener. */}
+                  {data.stations.length > 1 && view !== 'station' && (
+                    <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1" title={t('topology.legend.stations')}>
+                      {data.stations.slice(0, 8).map((s) => (
+                        <span key={s.id} className="flex items-center gap-1">
+                          <i className="topo-swatch" style={{ '--edge': stationVar(s.color) } as CSSProperties} />
+                          {s.name}
+                        </span>
+                      ))}
+                    </span>
+                  )}
                   <span className="flex items-center gap-1.5">
                     <i className="inline-block w-4 border-t-2 border-dashed border-lucht" /> {t('topology.legend.standby')}
                   </span>
