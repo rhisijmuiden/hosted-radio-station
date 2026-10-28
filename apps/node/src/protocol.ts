@@ -267,6 +267,8 @@ export interface AgentStats {
   revision: string | null;
   /** The node's public IPv4 address as the internet sees it, looked up by the node itself (phase 19). */
   publicIp?: string | null;
+  /** Names the node has a valid certificate from an authority for (1.3), so others can reach it over checked TLS. */
+  certs?: string[];
   /** Ingest: mounts on air on this node. */
   ingest?: IngestMountStatus[];
   fm?: FmStatus | null;

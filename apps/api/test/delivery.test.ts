@@ -25,13 +25,14 @@ async function pair(body: Record<string, unknown>) {
 const nodeRow = async (id: string) => (await t.db.select().from(schema.nodes).where(eq(schema.nodes.id, id)))[0]!;
 const setOnline = async (id: string, online: boolean, ip = '192.0.2.10') => {
   const n = await nodeRow(id);
-  await t.db.update(schema.nodes).set({ status: { ...n.status, online, ip, features: [STUDIO_INGEST] } }).where(eq(schema.nodes.id, id));
+  // Every node holds a certificate for the names under example.com (Certificates through Cloudflare DNS).
+  await t.db.update(schema.nodes).set({ status: { ...n.status, online, ip, features: [STUDIO_INGEST], certs: ['*.example.com'] } }).where(eq(schema.nodes.id, id));
 };
 const routing = (payload: Record<string, unknown>) => t.app.inject({ method: 'PUT', url: `/api/stations/${stationId}/routing`, headers: admin, payload });
 const pushes = async () => {
   const pkg = await buildPackage(t.ctx, await nodeRow(studio));
   // Only the pushes the orchestrator adds; the station's own outputs travel along as they are.
-  return pkg.stations[0]!.outputs.map((o) => o.config as { host: string; port: number; mount: string; username: string; ingestNodeId?: string; relayNodeId?: string }).filter((c) => c.ingestNodeId || c.relayNodeId);
+  return pkg.stations[0]!.outputs.map((o) => o.config as { host: string; port: number; tls?: boolean; mount: string; username: string; ingestNodeId?: string; relayNodeId?: string }).filter((c) => c.ingestNodeId || c.relayNodeId);
 };
 
 beforeAll(async () => {
@@ -59,6 +60,8 @@ beforeAll(async () => {
   backup = await pair({ name: 'pub-ingest-02', roles: ['source'] });
   relay = await pair({ name: 'pub-relay-01', roles: ['relay'] });
   await t.app.inject({ method: 'PATCH', url: `/api/nodes/${relay}`, headers: admin, payload: { config: { publicHost: 'relay.example.com' } } });
+  await t.app.inject({ method: 'PATCH', url: `/api/nodes/${ingest}`, headers: admin, payload: { config: { publicHost: 'ingest1.example.com' } } });
+  await t.app.inject({ method: 'PATCH', url: `/api/nodes/${backup}`, headers: admin, payload: { config: { publicHost: 'ingest2.example.com' } } });
   for (const id of [studio, ingest, relay]) await setOnline(id, true);
   await t.db.update(schema.stations).set({ nodeId: studio }).where(eq(schema.stations.id, stationId));
 });
@@ -70,7 +73,7 @@ describe('station node through the ingest (1.3)', () => {
     expect(view.routing.delivery).toBe('ingest');
     expect(view.studio).toEqual({ ingests: [{ id: ingest, name: 'pub-ingest-01', online: true, priority: 0 }], direct: null, error: null });
     const out = await pushes();
-    expect(out).toEqual([expect.objectContaining({ host: '192.0.2.10', port: 8200, mount: '/harder-fm/live', username: STUDIO_USER, ingestNodeId: ingest })]);
+    expect(out).toEqual([expect.objectContaining({ host: 'ingest1.example.com', port: 8201, tls: true, mount: '/harder-fm/live', username: STUDIO_USER, ingestNodeId: ingest })]);
   });
 
   it('plans the ingest to take the station, make its mounts and feed the relays', async () => {
@@ -155,9 +158,18 @@ describe('station node through the ingest (1.3)', () => {
     await t.db.update(schema.nodes).set({ status: { ...s.status, ip: '198.51.100.7' } }).where(eq(schema.nodes.id, studio));
     await routing({ ingest, backupIngest: null, relays: 'auto', spareRelays: true, delivery: 'ingest' });
     expect(await pushes()).toEqual([expect.objectContaining({ host: '10.10.4.121', port: 8200, ingestNodeId: ingest })]);
+    // Seen from different public addresses (a proxy), but on the same local network.
+    await t.db.update(schema.nodes).set({ status: { ...s.status, ip: '203.0.113.9', addresses: ['10.10.4.123'] } }).where(eq(schema.nodes.id, studio));
+    expect(await pushes()).toEqual([expect.objectContaining({ host: '10.10.4.121', port: 8200, tls: false })]);
     // From elsewhere the public address.
-    await t.db.update(schema.nodes).set({ status: { ...s.status, ip: '203.0.113.5' } }).where(eq(schema.nodes.id, studio));
-    expect(await pushes()).toEqual([expect.objectContaining({ host: '198.51.100.7', ingestNodeId: ingest })]);
+    await t.db.update(schema.nodes).set({ status: { ...s.status, ip: '203.0.113.5', addresses: ['192.168.1.20'] } }).where(eq(schema.nodes.id, studio));
+    expect(await pushes()).toEqual([expect.objectContaining({ host: 'ingest1.example.com', port: 8201, tls: true, ingestNodeId: ingest })]);
+    // Without a certificate the ingest cannot be reached safely from another site: the node keeps to the relays.
+    const i = await nodeRow(ingest);
+    await t.db.update(schema.nodes).set({ status: { ...i.status, certs: [] } }).where(eq(schema.nodes.id, ingest));
+    expect((await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/routing`, headers: admin })).json().studio).toEqual({ ingests: [], direct: 'nocert', error: null });
+    expect((await pushes()).every((o) => o.relayNodeId === relay)).toBe(true);
+    await setOnline(ingest, true);
   });
 
   // Last: the station then stays on the relays for a while.

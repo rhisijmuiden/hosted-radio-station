@@ -27,7 +27,7 @@ const routingOut = z.object({
   studio: z
     .object({
       ingests: z.array(z.object({ id: z.uuid(), name: z.string(), online: z.boolean(), priority: z.number() })),
-      direct: z.enum(['chosen', 'update', 'none', 'offline', 'failing']).nullable(),
+      direct: z.enum(['chosen', 'update', 'none', 'offline', 'nocert', 'failing']).nullable(),
       error: z.string().nullable(),
     })
     .nullable(),

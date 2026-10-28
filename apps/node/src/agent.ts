@@ -343,6 +343,7 @@ export class Agent {
         update: this.update ? { state: this.update.state, message: this.update.message, at: this.update.at } : null,
         revision: this.plan?.revision ?? null,
         publicIp: publicIp(),
+        certs: await this.source.certificateNames(),
         ingest: this.ingest?.status() ?? [],
         fm: this.fm.status(),
       });

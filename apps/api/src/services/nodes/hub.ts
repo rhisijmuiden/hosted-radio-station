@@ -324,6 +324,7 @@ export class NodeHub {
       s.latitude = geo?.latitude ?? null;
       s.longitude = geo?.longitude ?? null;
     }
+    if (Array.isArray(m.certs)) s.certs = m.certs.slice(0, 50).map((x) => String(x).slice(0, 253).toLowerCase());
     s.icmp = m.icmp && typeof m.icmp === 'object' ? { rttMs: num(m.icmp.rttMs) ?? null, loss: num(m.icmp.loss, 1) ?? 0 } : null;
     if (Array.isArray(m.ingest)) {
       const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : null);
