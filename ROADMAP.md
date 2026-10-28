@@ -545,6 +545,15 @@ Every role gets its own default ports, so nodes are easy to put behind a DMZ or 
 - The panel shows per node exactly which firewall or DMZ rules to open, and the firewall check tests them.
 - The old encoder ports 8010/8443 stay on as "legacy" until the admin switches them off, so existing encoders keep working.
 
+### Next after the port plan: route station nodes via ingest
+
+A routing choice per station, set in the station's routing settings: how the audio of a station node reaches the relays.
+
+- **Via ingest** (default for a station node at the customer's site): the station node uploads once, optionally as a single high-quality stream, to a main and a backup ingest node in the datacenter. The ingest makes the mounts (transcodes) and pushes them to all relays over datacenter bandwidth. The customer's upload and the station node's CPU stay low, and adding relays does not touch the studio.
+- **Direct to relays** (today's behaviour, for station nodes already in a datacenter): the station node pushes every mount to every relay itself.
+- Failover: main and backup ingest use the existing priority system; when both are down, the station node pushes directly to the relays as an emergency route.
+- The delivery path, the topology views and the firewall checklist follow the chosen route.
+
 ## Future ideas
 
 Not scheduled in a phase yet.
