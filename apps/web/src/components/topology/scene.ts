@@ -496,7 +496,8 @@ export class TopologyScene {
 
   private label(node: SceneNode, at: THREE.Vector3) {
     const el = document.createElement('div');
-    el.className = node.id === this.selected ? 'topo-label selected' : 'topo-label';
+    // With nothing selected the side panel shows the orchestrator, so its label counts as the selected one.
+    el.className = node.id === this.selected || (!this.selected && node.kind === 'main') ? 'topo-label selected' : 'topo-label';
     el.style.opacity = node.dim ? '0.45' : '1';
     el.innerHTML = this.labelHtml(node);
     el.dataset.id = node.id;
@@ -553,8 +554,8 @@ export class TopologyScene {
       const curve = new THREE.LineCurve3(start, end);
       const focus = this.selected === l.from || this.selected === l.to;
       if (!this.control && !focus) return;
-      const opacity = l.dim ? 0.06 : l.state === 'down' ? 0.15 : focus ? 0.6 : 0.22;
-      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([start, end]), new THREE.LineDashedMaterial({ color: l.state === 'down' ? p.muted : color, dashSize: 0.3, gapSize: 0.3, transparent: true, opacity, depthWrite: false }));
+      const opacity = l.dim ? 0.06 : l.state === 'down' ? 0.2 : focus ? 0.75 : 0.5;
+      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([start, end]), new THREE.LineDashedMaterial({ color: l.state === 'down' ? p.muted : color, dashSize: 0.35, gapSize: 0.25, transparent: true, opacity, depthWrite: false }));
       line.computeLineDistances();
       this.content.add(line);
       if (focus && l.state !== 'down' && !l.dim) this.addDots(curve, 1, 0.09, color, 0.3, true);

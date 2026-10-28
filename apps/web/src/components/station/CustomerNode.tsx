@@ -18,7 +18,7 @@ export function CustomerStationNodeCard({ tenant, canEdit }: { tenant: Tenant; c
   const server = useServerNames();
   // This server by its own name (phase 18); with "Orchestrator only" it runs no stations, so it is not a choice then.
   const here = server?.name ?? t('placement.mainServer');
-  const noMain = !!server?.orchestratorOnly && !!tenant.stationNodeId;
+  const noMain = !!server?.orchestratorOnly;
   const [target, setTarget] = useState(tenant.stationNodeId ?? MAIN);
   const [moveStations, setMoveStations] = useState(true);
   useEffect(() => setTarget(tenant.stationNodeId ?? MAIN), [tenant.stationNodeId]);
@@ -40,10 +40,18 @@ export function CustomerStationNodeCard({ tenant, canEdit }: { tenant: Tenant; c
     <Card className="p-5">
       <h2 className="display text-base">{t('customerNode.title')}</h2>
       <p className="mt-1 mb-4 text-[13px] text-muted">{t('customerNode.hint')}</p>
-      <Field label={t('customerNode.node')} hint={current ? t('customerNode.current', { name: current.name }) : t('customerNode.none', { name: here })}>
+      <Field label={t('customerNode.node')} hint={current ? t('customerNode.current', { name: current.name }) : noMain ? t('customerNode.noneYet') : t('customerNode.none', { name: here })}>
         {/* Keyed on the list: a select that first renders before the nodes are loaded keeps showing its first option. */}
         <Select key={nodes.map((n) => n.id).join()} value={target} onChange={(e) => setTarget(e.target.value)} disabled={!canEdit}>
-          {!noMain && <option value={MAIN}>{here}</option>}
+          {noMain ? (
+            !tenant.stationNodeId && (
+              <option value={MAIN} disabled>
+                {t('customerNode.choose')}
+              </option>
+            )
+          ) : (
+            <option value={MAIN}>{here}</option>
+          )}
           {nodes.map((n) => (
             <option key={n.id} value={n.id}>
               {n.name}
@@ -58,7 +66,7 @@ export function CustomerStationNodeCard({ tenant, canEdit }: { tenant: Tenant; c
             <Switch checked={moveStations} onChange={setMoveStations} label={t('customerNode.moveStations')} description={t('customerNode.moveStationsHint')} />
           </div>
           <div className="mt-4 flex items-center gap-3">
-            <Button variant="primary" disabled={target === (tenant.stationNodeId ?? MAIN)} loading={save.isPending} onClick={() => save.mutate()}>
+            <Button variant="primary" disabled={target === (tenant.stationNodeId ?? MAIN) || (noMain && target === MAIN)} loading={save.isPending} onClick={() => save.mutate()}>
               {t('common.save')}
             </Button>
             {tenant.stationNodeId && (

@@ -856,6 +856,8 @@ export const en = {
     hint: 'New stations of this customer start on this node, with their library and AutoDJ in the studio.',
     node: 'Station node',
     current: 'Now: {{name}}.',
+    choose: 'Choose a station node',
+    noneYet: 'No station node yet: this server is orchestrator only, so choose one for its stations.',
     none: 'Its stations run on {{name}}.',
     moveStations: 'Move existing stations too',
     moveStationsHint: 'Their music library is copied first; each station switches over when its copy is complete.',

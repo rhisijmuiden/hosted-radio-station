@@ -7,7 +7,7 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 
 - Network map, 3D: server labels no longer stay behind (doubled, loose from their tower) when the map refreshes while
   you rotate or zoom. New **Server labels** switch in the legend (the selected server keeps its label).
-- Network map: control lines to every node are on by default, in 3D too; the legend switch turns them off and the
+- Network map: control lines to every node are on by default, in 3D too (and drawn stronger there); the legend switch turns them off and the
   choice is remembered per user in the browser.
 - Network map: audio lines no longer run through servers. A line that skips a lane (a station node straight to its
   relays, a relay back to an FM node in the studio) passes through the gap between the servers of that lane, in 3D
