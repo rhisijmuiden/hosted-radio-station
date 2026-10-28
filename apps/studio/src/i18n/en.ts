@@ -37,6 +37,9 @@ export const en = {
   },
   assist: {
     intro: 'Intro',
+    locked: 'Locked',
+    lockedBlock: 'Locked block of the format',
+    lockedHint: 'A locked part of the format: it cannot be skipped or interrupted. Managers are asked first.',
     introHint: 'Seconds until the vocals start: talk up to the intro',
     endsAt: 'ends at {{time}}',
     after: 'Next',

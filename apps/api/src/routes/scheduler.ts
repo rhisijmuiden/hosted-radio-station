@@ -27,13 +27,16 @@ const clockItemSchema = z.object({
   count: z.number().int().min(0).max(20).default(1),
   at: z.number().int().min(0).max(59).nullable().default(null),
   hard: z.boolean().default(false),
+  /** DJs cannot skip it or play something else over it. */
+  locked: z.boolean().default(false),
 });
 const clockBody = z.object({
   name: z.string().trim().min(1).max(60),
   color: color.default('#FF6B57'),
   items: z.array(clockItemSchema).max(60).default([]),
 });
-const clockOut = clockBody.extend({ id: z.uuid(), createdAt: z.date(), updatedAt: z.date() });
+// Clocks saved before 1.3 have no `locked` on their items.
+const clockOut = clockBody.extend({ items: z.array(clockItemSchema.extend({ locked: z.boolean().optional() })), id: z.uuid(), createdAt: z.date(), updatedAt: z.date() });
 
 const entryBody = z
   .object({

@@ -34,10 +34,20 @@ Drag tracks to reorder them, or use the buttons that appear on hover (to the top
 rotation; requests and tracks added by hand stay. Search the library on the right and drag a track onto the
 playlist, or use **+** (Shift = at the top); see *Library and preview* below.
 
-The fixed blocks of the hour clock sit in the playlist at their minute, with a lock and their expected length. A
-block on the minute (*hard*) cuts the track that runs into it; another block waits for that track to end. The header
+The fixed blocks of the hour clock sit in the playlist at their minute, with a clock icon and their expected length.
+A block on the minute (*hard*) cuts the track that runs into it; another block waits for that track to end. The header
 **backtimes** to the next block: how much the track that runs into it is too long, or how much the playlist is too
 short to reach it. The lengths of news and commercials are estimates (the average track of their playlist).
+
+### Locked blocks
+
+An item of the hour clock can be **locked** (panel: *Hour clocks*, the *Locked* box on a playlist or track item), for
+example jingle, news, jingle. In the playlist a locked block has a lock. While a locked item is on air the player
+says *Locked*, and DJs cannot skip it (**Next** is off) or play something else over it (dropping on the player). The
+music the DJ adds waits in the playlist until the block is over. Managers and owners can still skip it after a
+question, in Studio and in the panel. It needs server 1.3.
+
+![A locked block in the playlist](screenshots/phase-17-locked-block-en.png)
 
 ### Auto and Manual
 

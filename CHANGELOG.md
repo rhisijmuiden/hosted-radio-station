@@ -24,6 +24,12 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 - RHIS Studio 0.14: the cue editor, with the waveform of the track, a zoomed view, keys 1 to 5 and listening on the
   preview output. The player counts down the intro of the track on air. Lengths in the playlist go from cue in to
   cue out.
+- Locked items in the hour clock (migration `0019_locked_blocks`): a *Locked* box on playlist and track items. While a
+  locked item is on air, DJs cannot skip it or play something else over it (`POST /autodj/skip` and `/play-now`
+  answer 403); managers and owners get a 409 `locked` and go ahead with `force: true` after a question, in the
+  panel and in RHIS Studio.
+- RHIS Studio 0.15: locked blocks have a lock in the playlist and the top bar, the player says *Locked* and **Next**
+  is off for DJs while one is on air. Other fixed blocks have a clock icon.
 - A station node takes encoders on the bare mount (`/live`), as the panel and RHIS Studio give it, when one station
   there has that mount. Before, it answered "Unknown mount /live".
 - A station node waits up to 8 seconds for a Go Live password RHIS Studio just got from the main server. The

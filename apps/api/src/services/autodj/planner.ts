@@ -210,6 +210,7 @@ async function clockPick(tx: Tx, station: Station, s: AutodjSettings, musicSecon
     let track: MediaFile | null = null;
     let label: string | null = null;
     let playlistId: string | null = null;
+    let locked = false;
     if (d.kind === 'music') {
       await save(state);
       const p = d.playlistId ? playlists.get(d.playlistId) : undefined;
@@ -237,10 +238,11 @@ async function clockPick(tx: Tx, station: Station, s: AutodjSettings, musicSecon
       }
       await save(state);
       label = item.label || (playlistId ? playlists.get(playlistId)!.name : null);
+      locked = !!item.locked;
     }
     const [queued] = await tx
       .insert(schema.queueItems)
-      .values({ stationId: station.id, queue: 'q1', mediaId: track.id, position: await top(tx, station.id, 'q1'), origin: d.kind === 'item' ? 'clock' : 'rotation', playlistId, label })
+      .values({ stationId: station.id, queue: 'q1', mediaId: track.id, position: await top(tx, station.id, 'q1'), origin: d.kind === 'item' ? 'clock' : 'rotation', playlistId, label, locked })
       .returning();
     return { item: queued!, media: track, cutAt: d.kind === 'item' ? d.cutAt : null };
   }
@@ -498,6 +500,7 @@ export interface QueueRow {
   playlistName: string | null;
   /** Clock item it came from. */
   label: string | null;
+  locked: boolean;
   startedAt: Date | null;
   media: { id: string; title: string; artist: string; album: string; durationSeconds: number | null; location: string; path: string } & Cues;
 }
@@ -521,6 +524,7 @@ export async function queueRows(ctx: AppContext, stationId: string): Promise<Que
     requestId: item.requestId,
     playlistName,
     label: item.label,
+    locked: item.locked,
     startedAt: item.startedAt,
     media: {
       id: media.id,

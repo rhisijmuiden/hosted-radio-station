@@ -7,7 +7,9 @@ export interface Block {
   at: number;
   /** On the minute: the track playing then is cut. Otherwise the block waits for the end of that track. */
   hard: boolean;
-  items: { label: string; seconds: number | null; source: RundownRow['source'] }[];
+  /** One of its items is locked: DJs cannot skip it or play something over it. */
+  locked: boolean;
+  items: { label: string; seconds: number | null; source: RundownRow['source']; locked: boolean }[];
   /** Expected length; unknown items count as nothing. */
   seconds: number;
 }
@@ -25,11 +27,12 @@ export function blocksOf(rows: RundownRow[], now: number): Block[] {
     }
     const at = new Date(r.startsAt).getTime();
     if (r.timed) {
-      open = r.past || r.current || at < now - 60_000 ? null : { at, hard: r.hard, items: [], seconds: 0 };
+      open = r.past || r.current || at < now - 60_000 ? null : { at, hard: r.hard, locked: false, items: [], seconds: 0 };
       if (open) blocks.push(open);
     }
     if (open && !r.past && !r.current) {
-      open.items.push({ label: r.label, seconds: r.seconds ?? null, source: r.source });
+      open.items.push({ label: r.label, seconds: r.seconds ?? null, source: r.source, locked: !!r.locked });
+      open.locked ||= !!r.locked;
       open.seconds += r.seconds ?? 0;
     }
   }

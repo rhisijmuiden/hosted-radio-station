@@ -779,6 +779,8 @@ export interface ClockItem {
   /** Minute of the hour; null = after the item before. */
   at: number | null;
   hard: boolean;
+  /** DJs cannot skip it or play something else over it (missing on clocks saved before 1.3). */
+  locked?: boolean;
 }
 export interface Clock {
   id: string;

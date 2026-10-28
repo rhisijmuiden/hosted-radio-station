@@ -1706,6 +1706,8 @@ export const nl: Translation = {
     addPlaylist: 'Playlist',
     addTrack: 'Nummer',
     timeline: 'Vaste en geplande onderdelen',
+    locked: 'Op slot',
+    lockedHint: 'Dj\'s kunnen dit onderdeel niet overslaan en er niets anders overheen spelen, in RHIS Studio en in het panel. Managers kunnen het wel, na een vraag.',
     hardShort: 'exact',
     dialHint: 'Lengtes zijn geschat op de gemiddelde nummerlengte van elke playlist.',
     help: 'Het eerste onderdeel opent het uur. Onderdelen met een minuut staan vast; de rest volgt op het onderdeel ervoor. "Muziek uit de wachtrijen" en "Tot het volgende vaste onderdeel" vullen de tijd tot het volgende vaste onderdeel. Verzoeken en met de hand toegevoegde nummers spelen tijdens de muziek.',
