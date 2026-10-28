@@ -950,7 +950,7 @@ export const scheduleEntries = pgTable(
 
 // Phase 8: distribution network and orchestration
 
-export const NODE_ROLES = ['relay', 'source', 'station', 'fm'] as const;
+export const NODE_ROLES = ['relay', 'source', 'station', 'fm', 'monitor'] as const;
 export type NodeRole = (typeof NODE_ROLES)[number];
 
 /** Settings of a node, made in the panel. Read through nodeConfigSchema for defaults. */
@@ -1183,6 +1183,12 @@ export const nodeProbes = pgTable(
     lastOkAt: timestamp('last_ok_at', { withTimezone: true }),
     /** Checks and failures over the last 24 hours, kept as per-hour buckets [hour, checks, failures]. */
     buckets: jsonb('buckets').$type<[number, number, number][]>().notNull().default([]),
+    /** Deep checks of a monitoring node (phase 20): what it measured while it listened. */
+    bitrateKbps: integer('bitrate_kbps'),
+    contentType: text('content_type'),
+    title: text('title'),
+    levelDb: doublePrecision('level_db'),
+    silent: boolean('silent'),
   },
   (t) => [primaryKey({ columns: [t.nodeId, t.target] }), index('node_probes_station_idx').on(t.stationId)],
 );

@@ -826,7 +826,7 @@ export interface SchedulerView {
 
 // Nodes (distribution network)
 
-export type NodeRole = 'relay' | 'source' | 'station' | 'fm';
+export type NodeRole = 'relay' | 'source' | 'station' | 'fm' | 'monitor';
 /** FM/MPX settings of a node (phase 11). Shares are 0..1 of 100% modulation. */
 export interface FmConfig {
   stationId: string | null;
@@ -1078,6 +1078,11 @@ export interface NodeProbe {
   checkedAt: string;
   lastOkAt: string | null;
   uptime24h: number | null;
+  bitrateKbps: number | null;
+  contentType: string | null;
+  title: string | null;
+  levelDb: number | null;
+  silent: boolean | null;
 }
 export interface NodesSettings {
   autoUpdate: boolean;
@@ -1193,6 +1198,8 @@ export interface TopologyNode {
   relaysTotal: number;
   /** FM/MPX node with its station on air. */
   fmOnAir: boolean;
+  /** What the monitoring node heard on this node's streams lately (null = it does not check this node). */
+  check: 'ok' | 'failed' | null;
 }
 /** "local" = this server's own ingest; otherwise an ingest node id. */
 export type IngestRef = 'local' | string;
@@ -1242,7 +1249,8 @@ export interface TopologyStudio {
 export interface TopologyLink {
   from: string;
   to: string;
-  kind: 'control' | 'stream';
+  /** check = a monitoring node listening to the streams of a node. */
+  kind: 'control' | 'stream' | 'check';
   active: boolean;
   degraded: boolean;
   rttMs: number | null;
@@ -1575,7 +1583,7 @@ export interface NodeDns {
 
 // Phase 20: monitoring
 
-export type AlertKind = 'node_offline' | 'node_problem' | 'station_off_air' | 'stream_down' | 'feed_lost' | 'updates_paused' | 'dns_error';
+export type AlertKind = 'node_offline' | 'node_problem' | 'station_off_air' | 'station_silent' | 'stream_down' | 'stream_quality' | 'feed_lost' | 'updates_paused' | 'dns_error';
 export interface Alert {
   id: string;
   key: string;

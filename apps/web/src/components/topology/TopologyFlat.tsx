@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { Building2, Cpu, Globe2, Headphones, Maximize2, Mic, Minus, Plus, Radio, RadioTower, Server, Users } from 'lucide-react';
+import { Activity, Building2, Check, Cpu, Globe2, Headphones, Maximize2, Mic, Minus, Plus, Radio, RadioTower, Server, Users, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Topology, TopologyCell, TopologyLink, TopologyNode, TopologyStation } from '../../lib/api';
@@ -15,7 +15,8 @@ interface Card {
   key: string;
   /** What a click selects (a node, a studio or the orchestrator). */
   select: string | null;
-  lane: Lane | 'control';
+  /** monitor: a monitoring node, in a band of its own opposite the orchestrator (phase 20). */
+  lane: Lane | 'control' | 'monitor';
   icon: ReactNode;
   title: string;
   meta: string;
@@ -29,11 +30,13 @@ interface Card {
   /** A frame around cards that belong together: relays of one location ("loc:…"), or a station node with its FM/MPX
    * nodes ("studio:…"). */
   group?: string;
+  /** What the monitoring node heard here: a badge on the card. */
+  check?: 'ok' | 'failed' | null;
 }
 interface Edge {
   from: string;
   to: string;
-  kind: 'stream' | 'control' | 'listen';
+  kind: 'stream' | 'control' | 'listen' | 'check';
   /** idle: a listener line without listeners; standby: a backup feed that waits. */
   state: 'ok' | 'degraded' | 'down' | 'idle' | 'standby';
   label: string | null;
@@ -84,6 +87,7 @@ export default function TopologyFlat({
   dimmed,
   selected,
   showControl,
+  showChecks,
   focus,
   onSelect,
 }: {
@@ -93,6 +97,8 @@ export default function TopologyFlat({
   selected: string | null;
   /** Draw every control line, not only those of the selected block. */
   showControl: boolean;
+  /** Draw every check line of the monitoring nodes, not only those of the selected block. */
+  showChecks: boolean;
   /** The station the per station view follows. */
   focus?: TopologyStation | null;
   onSelect: (id: string | null) => void;
@@ -136,6 +142,7 @@ export default function TopologyFlat({
       health: 'online',
       core: true,
       dim: false,
+      check: data.links.some((l) => l.kind === 'check' && l.to === 'main') ? (data.links.some((l) => l.kind === 'check' && l.to === 'main' && l.degraded) ? 'failed' : 'ok') : null,
     });
     // An FM/MPX node of a station on a station node stands in the studio, right beside that node.
     const homeOf = (fmId: string) => {
@@ -162,7 +169,8 @@ export default function TopologyFlat({
       const ingest = n.roles.includes('source') || stationNode;
       const relay = n.roles.includes('relay');
       const fm = !relay && n.roles.includes('fm');
-      const common = { select: n.id, title: nodeName(t, n, customer), health: healthOf(n), own: customer && n.own, dim: off(n.id) };
+      const monitor = !ingest && !relay && !fm && n.roles.includes('monitor');
+      const common = { select: n.id, title: nodeName(t, n, customer), health: healthOf(n), own: customer && n.own, dim: off(n.id), check: n.check };
       if (ingest) {
         const role = focus && focus.ingest === n.id ? 'main' : focus && focus.backup === n.id ? 'backup' : null;
         const text = role
@@ -172,7 +180,10 @@ export default function TopologyFlat({
             : t('topology.encodersCount', { count: n.encoders });
         add({ ...common, key: `${n.id}#in`, lane: stationNode ? 'studios' : 'ingest', group: stationNode && homes.has(n.id) ? studioGroup(n) : undefined, icon: stationNode ? <Building2 /> : <Server />, tag: role ? t(`topology.station.${role}`).toUpperCase() : stationNode ? t('topology.tags.station') : t('topology.tags.ingest'), meta: meta(n, text) });
       }
-      if (relay || !ingest) {
+      if (monitor) {
+        const checks = new Set(data.links.filter((l) => l.kind === 'check' && l.from === n.id).map((l) => l.to)).size;
+        add({ ...common, key: `${n.id}#out`, lane: 'monitor', icon: <Activity />, meta: meta(n, t('topology.checksCount', { count: checks })), dim: dimmed.has(n.id) });
+      } else if (relay || !ingest) {
         const text = relay
           ? focus && path?.has(n.id)
             ? t('topology.station.plays', { feed, count: stationListeners(n.id) })
@@ -285,6 +296,13 @@ export default function TopologyFlat({
         edges.push({ from, to, kind: 'stream', state: l.standby ? 'standby' : !l.active ? 'down' : l.degraded ? 'degraded' : 'ok', label: null, dim: dimmed.has(l.from) || dimmed.has(l.to), width: l.standby ? undefined : streamWidth(l) });
       }
     }
+    // The monitoring nodes listen to the streams of the servers they check (phase 20).
+    for (const l of data.links.filter((x) => x.kind === 'check')) {
+      if (!keys.has(`${l.from}#out`)) continue;
+      const to = card(l.to, 'out');
+      if (!keys.has(to)) continue;
+      edges.push({ from: `${l.from}#out`, to, kind: 'check', state: !l.active ? 'down' : l.degraded ? 'degraded' : 'ok', label: null, dim: off(l.to) });
+    }
     // Cards of one studio group stand side by side: the FM/MPX nodes right after their station node.
     const sorted: Card[] = [];
     for (const c of cards) {
@@ -297,18 +315,21 @@ export default function TopologyFlat({
 
   const lr = layout === 'lr';
   const perLane = LANES.map((l) => cards.filter((c) => c.lane === l));
+  const monitors = cards.filter((c) => c.lane === 'monitor');
   const most = Math.max(...perLane.map((c) => c.length), 1);
   const n = LANES.length;
   // The orchestrator gets a band of its own: above the flow (left to right) or beside it (top to bottom).
   const BAND = lr ? 92 : 190;
+  // The monitoring nodes get one opposite it: below the flow, or to the right of it.
+  const MON = monitors.length ? (lr ? 96 : 200) : 0;
   // Location groups need a little room for their title.
   const grouped = cards.some((c) => c.group);
   const STEP = grouped ? 84 : 72;
   // The view fits the box; it only grows (and scrolls) when the cards would get too small. Room is kept at the bottom
   // for the legend and the zoom buttons.
-  const W = lr ? Math.max(box.w, n * 186 + 48) : Math.max(box.w, BAND + most * 158 + 48);
-  const H = lr ? Math.max(box.h, BAND + most * STEP + 150) : Math.max(box.h, n * 112 + 120);
-  const cardW = lr ? clamp((W - 48) / n - 36, 150, 180) : clamp((W - BAND - 48) / most - 18, 140, 172);
+  const W = lr ? Math.max(box.w, n * 186 + 48) : Math.max(box.w, BAND + MON + most * 158 + 48);
+  const H = lr ? Math.max(box.h, BAND + MON + most * STEP + 150) : Math.max(box.h, n * 112 + 120);
+  const cardW = lr ? clamp((W - 48) / n - 36, 150, 180) : clamp((W - BAND - MON - 48) / most - 18, 140, 172);
   const [start, end] = lr ? [cardW / 2 + 24, cardW / 2 + 24] : [76, 140];
   const along = (i: number) => start + (i * ((lr ? W : H) - start - end)) / (n - 1);
   const pos = new Map<string, { x: number; y: number }>();
@@ -316,13 +337,19 @@ export default function TopologyFlat({
   const mainPos = lr ? { x: cardW / 2 + 24, y: 46 } : { x: BAND / 2 + 4, y: 46 };
   pos.set('main', mainPos);
   const bus = lr ? `M${mainPos.x + cardW / 2} ${mainPos.y} H${W - 24}` : `M${mainPos.x} ${mainPos.y + CARD_H / 2} V${H - 24}`;
-  const [from, to] = lr ? [BAND + 52, H - 92] : [BAND + 24, W - 24];
+  const [from, to] = lr ? [BAND + 52, H - 92 - MON] : [BAND + 24, W - 24 - MON];
   perLane.forEach((list, i) => {
     const a = along(i);
     list.forEach((c, j) => {
       const b = from + ((j + 0.5) * (to - from)) / list.length;
       pos.set(c.key, lr ? { x: a, y: b } : { x: b, y: a });
     });
+  });
+  // Each monitoring node stands in a gap between two lanes, so its control line runs down that gap clear of the cards.
+  const monV = lr ? H - 56 - MON / 2 : W - 16 - MON / 2;
+  monitors.forEach((c, i) => {
+    const u = along([1.5, 0.5, 2.5][i % 3]! + Math.floor(i / 3) * 0.25);
+    pos.set(c.key, lr ? { x: u, y: monV } : { x: monV, y: u });
   });
   // A frame around the relays of each location.
   const groups: { name: string; x: number; y: number; w: number; h: number }[] = [];
@@ -380,13 +407,31 @@ export default function TopologyFlat({
     return d;
   };
 
-  const shown = (e: Edge) => e.kind !== 'control' || showControl || selected === 'main' || (!!selected && e.to.startsWith(`${selected}#`));
+  const touches = (key: string) => !!selected && (key === selected || key.startsWith(`${selected}#`));
+  const shown = (e: Edge) =>
+    e.kind === 'check' ? showChecks || touches(e.from) || touches(e.to) : e.kind !== 'control' || showControl || selected === 'main' || (!!selected && e.to.startsWith(`${selected}#`));
+  // Where a check line ends: the badge on the lower corner of the card, on the side away from the incoming audio.
+  const badgeAt = (p: { x: number; y: number }) => (lr ? { x: p.x + cardW / 2, y: p.y + CARD_H / 2 - 8 } : { x: p.x + cardW / 2 - 8, y: p.y + CARD_H / 2 });
+  // A check line: from the monitoring node into the gap after the card's lane, along it, and into the badge. Worked out
+  // along the flow (u) and across it (v) like the audio.
+  const checkPath = (A: { x: number; y: number }, B: { x: number; y: number }) => {
+    const uv = (p: { x: number; y: number }) => (lr ? [p.x, p.y] : [p.y, p.x]) as [number, number];
+    const xy = (u: number, v: number) => (lr ? `${u} ${v}` : `${v} ${u}`);
+    const halfU = lr ? cardW / 2 : CARD_H / 2;
+    const halfV = lr ? CARD_H / 2 : cardW / 2;
+    const [au, av] = uv(A);
+    const [eu, ev] = uv(badgeAt(B));
+    const gu = uv(B)[0] + halfU + 14;
+    const sv = av - halfV;
+    return `M${xy(au, sv)} C${xy(au, sv - 34)} ${xy(gu, sv - 14)} ${xy(gu, sv - 48)} L${xy(gu, ev + 14)} Q${xy(gu, ev)} ${xy(eu, ev)}`;
+  };
   const paths = edges.filter(shown).flatMap((e) => {
     const A = pos.get(e.from);
     const B = pos.get(e.to);
     if (!A || !B) return [];
     let d: string;
-    if (e.kind === 'control') {
+    if (e.kind === 'check') d = checkPath(A, B);
+    else if (e.kind === 'control') {
       // Straight off the control bus into the top (or the left) of the node.
       d = lr ? `M${B.x} ${A.y} V${B.y - CARD_H / 2}` : `M${A.x} ${B.y} H${B.x - cardW / 2}`;
     } else
@@ -418,20 +463,36 @@ export default function TopologyFlat({
                 const a = along(i);
                 return lr ? (
                   <div key={l}>
-                    <div className="topo-lane absolute" style={{ left: a - cardW / 2 - 12, width: cardW + 24, top: BAND + 40, bottom: 56 }} />
+                    <div className="topo-lane absolute" style={{ left: a - cardW / 2 - 12, width: cardW + 24, top: BAND + 40, bottom: 56 + MON }} />
                     <div className="topo-lane-title absolute -translate-x-1/2" style={{ left: a, top: BAND + 16 }}>
                       {t(`topology.flat.lanes.${l}`)}
                     </div>
                   </div>
                 ) : (
                   <div key={l}>
-                    <div className="topo-lane absolute" style={{ top: a - 40, height: 80, left: BAND + 16, right: 16 }} />
+                    <div className="topo-lane absolute" style={{ top: a - 40, height: 80, left: BAND + 16, right: 16 + MON }} />
                     <div className="topo-lane-title absolute" style={{ top: a - 56, left: BAND + 24 }}>
                       {t(`topology.flat.lanes.${l}`)}
                     </div>
                   </div>
                 );
               })}
+              {MON > 0 &&
+                (lr ? (
+                  <>
+                    <div className="topo-lane monitor absolute" style={{ left: 16, right: 16, top: monV - MON / 2 + 4, height: MON - 8 }} />
+                    <div className="topo-lane-title absolute" style={{ left: 28, top: monV - MON / 2 + 10 }}>
+                      {t('topology.flat.lanes.monitor')}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="topo-lane monitor absolute" style={{ top: 16, bottom: 16, left: monV - MON / 2 + 4, width: MON - 8 }} />
+                    <div className="topo-lane-title absolute" style={{ top: 24, left: monV - MON / 2 + 14 }}>
+                      {t('topology.flat.lanes.monitor')}
+                    </div>
+                  </>
+                ))}
               {groups.map((g) => (
                 <div key={g.name}>
                   <div className="topo-group pointer-events-none absolute" style={{ left: g.x, top: g.y, width: g.w, height: g.h }} />
@@ -460,7 +521,7 @@ export default function TopologyFlat({
                     type="button"
                     title={`${c.title} · ${c.meta}`}
                     onClick={() => onSelect(c.select)}
-                    className={clsx('topo-card absolute -translate-x-1/2 -translate-y-1/2', c.core && 'core', c.audience && 'audience', c.own && 'own', isSel(c) && 'selected', c.dim && 'opacity-30')}
+                    className={clsx('topo-card absolute -translate-x-1/2 -translate-y-1/2', c.core && 'core', c.lane === 'monitor' && 'monitor', c.audience && 'audience', c.own && 'own', isSel(c) && 'selected', c.dim && 'opacity-30')}
                     style={{ left: p.x, top: p.y, width: cardW, height: CARD_H }}
                   >
                     <span className="topo-card-icon">{c.icon}</span>
@@ -478,6 +539,21 @@ export default function TopologyFlat({
                   </button>
                 );
               })}
+              {cards
+                .filter((c) => c.check)
+                .map((c) => {
+                  const b = badgeAt(pos.get(c.key)!);
+                  return (
+                    <span
+                      key={`b:${c.key}`}
+                      title={t(c.check === 'ok' ? 'topology.checkOk' : 'topology.checkFailed')}
+                      className={clsx('topo-badge pointer-events-none absolute -translate-x-1/2 -translate-y-1/2', c.check, c.dim && 'opacity-30')}
+                      style={{ left: b.x, top: b.y }}
+                    >
+                      {c.check === 'ok' ? <Check /> : <X />}
+                    </span>
+                  );
+                })}
               {paths
                 .filter((p) => p.label)
                 .map((p) => (

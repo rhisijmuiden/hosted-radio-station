@@ -30,7 +30,7 @@ function input(patch: Partial<RulesInput> = {}): RulesInput {
   };
 }
 
-const probe = (where: string, ok: boolean, agoMs = 20_000, from = INGEST) => ({ nodeId: from, target: `harder-fm/live@${where}`, stationId: HARDER, ok, message: ok ? null : 'Timeout', checkedAt: new Date(NOW - agoMs) });
+const probe = (where: string, ok: boolean, agoMs = 20_000, from = INGEST) => ({ nodeId: from, target: `harder-fm/live@${where}`, stationId: HARDER, ok, message: ok ? null : 'Timeout', checkedAt: new Date(NOW - agoMs), lastOkAt: new Date(NOW - 3_600_000) as Date | null });
 
 describe('alert rules', () => {
   it('finds nothing when all is well', () => {
@@ -55,6 +55,8 @@ describe('alert rules', () => {
     const one = evaluate(input({ probes: [probe(RELAY, false), probe('main', true)] }));
     expect(one.map((c) => c.kind)).toEqual(['stream_down']);
     expect(one[0]!.params.where).toBe('pub-relay-01');
+    // A station that never played since it is checked (no encoder yet) has not started, it is not off air.
+    expect(evaluate(input({ probes: [{ ...probe(RELAY, false), lastOkAt: null }, { ...probe('main', false), lastOkAt: null }] }))).toEqual([]);
     // Another node that hears it play wins over one that does not.
     expect(evaluate(input({ probes: [probe(RELAY, false), probe(RELAY, true, 20_000, RELAY)] }))).toEqual([]);
   });

@@ -279,7 +279,8 @@ export class Agent {
       certHosts: [...new Set([plan.web.publicHost, ...(plan.source?.hosts ?? [])].filter((h): h is string => !!h))].sort(),
       dnsCerts: plan.web.dnsCerts ?? null,
       station: !!plan.station,
-      ffmpeg: !!plan.ingest?.stations.some((st) => st.mounts.some((m) => m.kind === 'transcode')),
+      // Converted mounts on an ingest, and the audio level checks of a monitoring node (phase 20).
+      ffmpeg: !!plan.ingest?.stations.some((st) => st.mounts.some((m) => m.kind === 'transcode')) || plan.roles.includes('monitor'),
       roles: [...plan.roles].sort(),
     });
     // Give Icecast a moment to read the new mounts before the streams come in.

@@ -330,3 +330,67 @@ body {
 .topo-labels-off .topo-label:not(.selected) {
   display: none;
 }
+
+/* Monitoring (phase 20): the monitoring node in its band, its check lines and the badge on each server it checks. */
+:root {
+  --monitor: #39ff88;
+  --monitor-line: #14b866;
+}
+:root[data-theme='dark'] {
+  --monitor-line: #39ff88;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --monitor-line: #39ff88;
+  }
+}
+.topo-lane.monitor {
+  border-color: color-mix(in srgb, var(--monitor) 40%, transparent);
+  background: color-mix(in srgb, var(--monitor) 6%, transparent);
+}
+.topo-card.monitor {
+  border-color: var(--monitor-line);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--monitor) 35%, transparent), 0 6px 18px rgb(0 0 0 / 0.14);
+}
+.topo-card.monitor .topo-card-icon {
+  background: var(--monitor);
+  color: #0b1530;
+}
+.topo-card.monitor.selected {
+  box-shadow: 0 0 0 2px var(--monitor-line), 0 0 24px color-mix(in srgb, var(--monitor) 45%, transparent);
+}
+.topo-edge.check {
+  stroke: var(--monitor-line);
+  stroke-width: 1.75;
+  stroke-dasharray: 5 7;
+  opacity: 0.9;
+  animation: topo-flow 1.4s linear infinite reverse;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--monitor) 45%, transparent));
+}
+.topo-edge.check.degraded {
+  stroke: var(--status-offline);
+  filter: none;
+}
+.topo-edge.check.down {
+  stroke: var(--ink-muted);
+  filter: none;
+}
+.topo-badge {
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 999px;
+  border: 2px solid var(--surface-raised);
+  background: var(--monitor);
+  color: #0b1530;
+}
+.topo-badge.failed {
+  background: var(--status-offline);
+  color: #fff;
+}
+.topo-badge svg {
+  width: 10px;
+  height: 10px;
+  stroke-width: 3.5;
+}

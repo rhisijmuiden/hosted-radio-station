@@ -407,7 +407,7 @@ export const nodeRolloutSchema = z.object({
 export type NodeRollout = z.infer<typeof nodeRolloutSchema>;
 
 /** Monitoring (phase 20): when a problem counts as an outage, and who hears about it. */
-export const ALERT_KINDS = ['node_offline', 'node_problem', 'station_off_air', 'stream_down', 'feed_lost', 'updates_paused', 'dns_error'] as const;
+export const ALERT_KINDS = ['node_offline', 'node_problem', 'station_off_air', 'station_silent', 'stream_down', 'stream_quality', 'feed_lost', 'updates_paused', 'dns_error'] as const;
 export type AlertKind = (typeof ALERT_KINDS)[number];
 
 export const maintenanceSchema = z.object({

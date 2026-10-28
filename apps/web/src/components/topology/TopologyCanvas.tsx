@@ -17,6 +17,8 @@ function readPalette(dark: boolean): ScenePalette {
     online: v('--status-online', '#1C8A57'),
     warning: v('--status-warning', '#A86B00'),
     offline: v('--status-offline', '#C23434'),
+    monitor: v('--monitor', '#39FF88'),
+    monitorLine: v('--monitor-line', dark ? '#39FF88' : '#14B866'),
     dark,
   };
 }
@@ -28,6 +30,7 @@ export default function TopologyCanvas({
   onSelect,
   dark,
   showControl,
+  showChecks,
   showLabels,
 }: {
   data: SceneData;
@@ -36,6 +39,8 @@ export default function TopologyCanvas({
   dark: boolean;
   /** Every control line, or only those of the selected block. */
   showControl: boolean;
+  /** Every check line of the monitoring nodes, or only those of the selected block. */
+  showChecks: boolean;
   /** Server labels on the towers (the selected one always keeps its label). */
   showLabels: boolean;
 }) {
@@ -57,6 +62,7 @@ export default function TopologyCanvas({
   }, []);
   useEffect(() => scene.current?.setPalette(readPalette(dark)), [dark]);
   useEffect(() => scene.current?.setControl(showControl), [showControl]);
+  useEffect(() => scene.current?.setChecks(showChecks), [showChecks]);
   useEffect(() => scene.current?.setLabels(showLabels), [showLabels]);
   useEffect(() => scene.current?.setData(data), [data]);
   useEffect(() => scene.current?.setSelected(selected), [selected]);
