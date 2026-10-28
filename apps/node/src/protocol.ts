@@ -246,7 +246,7 @@ export interface AgentHello {
   version: string;
   commit: string | null;
   hostname: string;
-  facts: { cores: number; memoryMb: number; os: string; caddy: boolean; addresses: string[]; ffmpeg?: boolean; soundcards?: { device: string; name: string }[] };
+  facts: { cores: number; memoryMb: number; os: string; caddy: boolean; addresses: string[]; ffmpeg?: boolean; soundcards?: { device: string; name: string }[]; features?: string[] };
 }
 
 export interface AgentStats {

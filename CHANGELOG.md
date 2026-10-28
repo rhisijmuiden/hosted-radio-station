@@ -9,8 +9,9 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   which makes the other mounts and feeds every relay, so the studio's upload stays minimal. Choose per station under
   **Routing**: main ingest (automatic or a chosen node), an optional backup ingest (hot standby, doubles the upload),
   or **Straight to the relays** as before. Without an ingest online the node falls back to the relays by itself.
-  Existing stations on a station node switch to *through an ingest* after the update when an ingest node can carry
-  them. The delivery path, the routing status and the network map show the route.
+  A station node only sends through an ingest once its own software is updated to this version (until then it keeps
+  sending straight to the relays), and when its pushes to the ingest fail it sends straight to the relays for 10
+  minutes before it tries the ingest again. The delivery path, the routing status and the network map show the route.
 - Streaming settings with *Orchestrator only*: the firewall line lists only 80 and 443.
 
 - Port plan: every role has its own incoming ports, so roles on one machine never clash. Ingest 8200 (plain), 8201

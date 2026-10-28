@@ -7,13 +7,23 @@ import { OLD_PORTS } from './portplan.js';
 import { stationRouting } from './routing-rules.js';
 
 type IngestNode = Pick<Node, 'id' | 'name' | 'roles' | 'tenantId' | 'config' | 'status' | 'pairedAt'>;
-type RoutedStation = { id: string; tenantId: string; nodeId: string | null; routing?: Record<string, unknown> | null };
+type RoutedStation = { id: string; tenantId: string; nodeId: string | null; routing?: Record<string, unknown> | null; nodeRuntime?: { relays?: Record<string, { state: string }> } | null };
+
+/** Feature a node agent reports (hello) when its station software can send through an ingest (1.3). */
+export const STUDIO_INGEST = 'studio-ingest';
+
+/** How long a station node keeps feeding the relays itself after its pushes to the ingest failed, before it tries again. */
+const FAILED_HOLD_MS = 10 * 60_000;
+const failedUntil = new Map<string, number>();
 
 export interface StudioDelivery {
   /** The ingests the station node sends to, best first (priority 0 = main, 1 = backup). Empty = straight to the relays. */
   ingests: { node: IngestNode; priority: number }[];
-  /** Why the node feeds the relays itself: chosen so, no ingest node can take the station, or none is online. */
-  direct: 'chosen' | 'none' | 'offline' | null;
+  /**
+   * Why the node feeds the relays itself: chosen so, its software cannot send through an ingest yet (update the node),
+   * no ingest node can take the station, none is online, or its pushes to the ingest failed (it tries again later).
+   */
+  direct: 'chosen' | 'update' | 'none' | 'offline' | 'failing' | null;
 }
 
 /**
@@ -21,11 +31,15 @@ export interface StudioDelivery {
  * source streams once (to the main and the backup ingest), and the ingests make the other mounts and feed every relay.
  * The chosen ingests, or with "local" (automatic) one ingest node that may carry the station, online ones first; a
  * backup ingest only when one is chosen, since the node then uploads its streams twice. When none of them is online
- * the node feeds the relays itself until one is back.
+ * the node feeds the relays itself until one is back, and the same while the node runs software from before 1.3 or its
+ * pushes to the ingests fail.
  */
 export function studioDelivery(s: RoutedStation, nodes: IngestNode[]): StudioDelivery {
   const r = stationRouting(s);
   if (r.delivery === 'direct') return { ingests: [], direct: 'chosen' };
+  // A node from before 1.3 does not send through an ingest: the relays would wait for an ingest that never gets audio.
+  const studio = nodes.find((n) => n.id === s.nodeId);
+  if (!studio?.status.features?.includes(STUDIO_INGEST)) return { ingests: [], direct: 'update' };
   const usable = nodes.filter((n) => n.pairedAt && n.roles.includes('source') && n.id !== s.nodeId && serves(n, s));
   const picked =
     r.ingest === 'local'
@@ -38,6 +52,13 @@ export function studioDelivery(s: RoutedStation, nodes: IngestNode[]): StudioDel
   }
   if (!picked.length) return { ingests: [], direct: 'none' };
   if (!picked.some((n) => n.status.online)) return { ingests: [], direct: 'offline' };
+  // The node reports its pushes per ingest. When every one of them fails (wrong address, firewall), it feeds the relays
+  // itself for a while instead of leaving them without audio, then tries the ingest again.
+  const now = Date.now();
+  const states = picked.map((n) => s.nodeRuntime?.relays?.[n.id]?.state);
+  if (states.every((x) => x === 'error')) failedUntil.set(s.id, now + FAILED_HOLD_MS);
+  if ((failedUntil.get(s.id) ?? 0) > now) return { ingests: [], direct: 'failing' };
+  failedUntil.delete(s.id);
   return { ingests: picked.map((node, priority) => ({ node, priority })), direct: null };
 }
 

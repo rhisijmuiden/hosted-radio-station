@@ -1,9 +1,15 @@
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { cpus, hostname, loadavg, networkInterfaces, totalmem, uptime } from 'node:os';
+import { soundCards } from './fm/manager.js';
 
-/** Facts the main server shows about the node. */import { soundCards } from './fm/manager.js';
+/**
+ * What this version can do beyond its protocol version. "studio-ingest" (1.3): on a station node, the station software
+ * of this version sends its streams through an ingest node (it is updated together with the agent).
+ */
+const FEATURES = ['studio-ingest'];
 
+/** Facts the main server shows about the node. */
 export function facts(web: 'caddy' | 'direct') {
   let os = 'Linux';
   try {
@@ -17,7 +23,7 @@ export function facts(web: 'caddy' | 'direct') {
     .map((a) => a!.address);
   return {
     hostname: hostname(),
-    facts: { cores: cpus().length, memoryMb: Math.round(totalmem() / 1048576), os, caddy: web === 'caddy' && existsSync('/usr/bin/caddy'), addresses, ffmpeg: existsSync('/usr/bin/ffmpeg'), soundcards: soundCards() },
+    facts: { cores: cpus().length, memoryMb: Math.round(totalmem() / 1048576), os, caddy: web === 'caddy' && existsSync('/usr/bin/caddy'), addresses, ffmpeg: existsSync('/usr/bin/ffmpeg'), soundcards: soundCards(), features: FEATURES },
   };
 }
 

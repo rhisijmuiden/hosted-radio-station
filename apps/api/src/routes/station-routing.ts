@@ -27,7 +27,7 @@ const routingOut = z.object({
   studio: z
     .object({
       ingests: z.array(z.object({ id: z.uuid(), name: z.string(), online: z.boolean(), priority: z.number() })),
-      direct: z.enum(['chosen', 'none', 'offline']).nullable(),
+      direct: z.enum(['chosen', 'update', 'none', 'offline', 'failing']).nullable(),
     })
     .nullable(),
   /** Why the routing cannot be changed here: the station runs on a station node, or its AutoDJ runs on this server. */

@@ -50,8 +50,11 @@ stays as small as possible however many relays and mounts the station has. Set i
 - **Straight to the relays**: the node pushes each public mount to every relay itself, as before 1.3. Use it when you
   do not want to run an ingest.
 
-While none of the chosen ingests is online the node falls back to sending straight to the relays, and goes back to the
-ingest once one is online again. The node signs in on the ingest as `hrs-studio` with a token derived from its own
+The node feeds the relays itself, and Routing says why, while:
+
+- its software is from before 1.3: update the node (agent and station software are updated together);
+- none of the chosen ingests is online: it goes back to the ingest once one is online again;
+- its pushes to every chosen ingest fail (address or firewall): it tries the ingest again after 10 minutes. The node signs in on the ingest as `hrs-studio` with a token derived from its own
 secret; the ingest checks it with the orchestrator, so no DJ account is needed and nobody else can send as the studio.
 Open the ingest's encoder port (8200, or 8201 with TLS) to the station node.
 

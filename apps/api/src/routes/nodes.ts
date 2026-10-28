@@ -1061,7 +1061,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         const rt = runtime.find((x) => x.id === s.id)?.runtime ?? null;
         const relayIds = (relayMap.get(s.id) ?? []).map((r: Node) => r.id).filter((id) => byId.has(id));
         const cells: Record<string, Cell> = { [n.id]: !n.online ? 'down' : rt?.mounts.length ? 'onAir' : 'idle' };
-        const via = studioDelivery(s, liveNodes).ingests.map((i) => i.node.id).filter((id) => byId.has(id));
+        const via = studioDelivery({ ...s, nodeRuntime: rt }, liveNodes).ingests.map((i) => i.node.id).filter((id) => byId.has(id));
         let from: string | null = n.online && rt?.mounts.length ? n.id : null;
         if (via.length) {
           for (const [i, id] of via.entries()) {
