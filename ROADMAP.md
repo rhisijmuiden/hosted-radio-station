@@ -485,9 +485,10 @@ A node role that watches the whole platform from the outside, as a listener and 
 
 A node role that only records: radio logging and recordings of live shows, dedicated to the stations that subscribe to it.
 
-- Placement: at a customer's site, or central in a datacenter recording many stations. Linked to customers and stations in the panel, like other dedicated nodes.
+- Placement: at a customer's site (on their own LXC or PC next to the studio, installed like any other node), or central in a datacenter recording many stations. Linked to customers and stations in the panel, like other dedicated nodes.
 - Logging: a continuous recording of each subscribed stream at a lower bitrate (for example 64 kbps), kept for a set number of days, with a play log of every song (start, end, title, artist, live or AutoDJ).
-- Live shows: when a DJ goes live, the recorder records the show in full quality and offers it as an on-demand item (listen again) on the station's public page, after the customer approves it or automatically.
+- Live shows: the station node (or ingest node) tells the recorder when a live broadcast starts and stops (Go Live in RHIS Studio or an encoder going live). The recorder then records the show in high quality, taken straight from the station node rather than from a relay, and saves it as one file per show. It offers it as an on-demand item (listen again) on the station's public page, after the customer approves it or automatically.
+- Upload targets: finished recordings (and optionally the logging files) are sent on to **OneDrive** or an **FTP/FTPS/SFTP** server, per station, with retries when the target is unreachable and an option to delete the local copy after a confirmed upload.
 - Reports: a CSV export per period for auditing and rights reporting (Buma/Stemra, SENA): how often each song played, when, and for how long. Also in the API.
 - The customer listens back, downloads and cuts recordings in their own panel; storage and retention are set per package.
 
