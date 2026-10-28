@@ -192,7 +192,7 @@ async function clockPick(tx: Tx, station: Station, s: AutodjSettings, musicSecon
     .select({ item: schema.queueItems, media: playTimes })
     .from(schema.queueItems)
     .innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.queueItems.mediaId))
-    .where(and(eq(schema.queueItems.stationId, station.id), inArray(schema.queueItems.state, ['cued', 'playing'])))
+    .where(and(eq(schema.queueItems.stationId, station.id), inArray(schema.queueItems.state, ['cued', 'loaded', 'playing'])))
     .orderBy(desc(schema.queueItems.cuedAt))
     .limit(1);
   const base = loading?.item.startedAt?.getTime() ?? now;
@@ -290,7 +290,14 @@ export async function nextTrack(
         await tx.delete(schema.queueItems).where(eq(schema.queueItems.id, pick.item.id));
         continue;
       }
-      await tx.update(schema.queueItems).set({ state: 'cued', cuedAt: new Date() }).where(eq(schema.queueItems.id, pick.item.id));
+      // One track is cued: the one that goes on air next. When the player still holds one that is not on air yet
+      // (manual playout waiting for Play, or its start not reported yet), this one is loaded behind it.
+      const [ahead] = await tx
+        .select({ id: schema.queueItems.id })
+        .from(schema.queueItems)
+        .where(and(eq(schema.queueItems.stationId, stationId), eq(schema.queueItems.state, 'cued')))
+        .limit(1);
+      await tx.update(schema.queueItems).set({ state: ahead ? 'loaded' : 'cued', cuedAt: new Date() }).where(eq(schema.queueItems.id, pick.item.id));
       await tx
         .insert(schema.autodjState)
         .values({ stationId, lastQueue: 'q1', streak: 0, seenAt: new Date() })
@@ -320,9 +327,9 @@ export async function flushForClock(ctx: AppContext, stationId: string, now = Da
       .select({ item: schema.queueItems, media: playTimes })
       .from(schema.queueItems)
       .innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.queueItems.mediaId))
-      .where(and(eq(schema.queueItems.stationId, stationId), inArray(schema.queueItems.state, ['cued', 'playing'])));
+      .where(and(eq(schema.queueItems.stationId, stationId), inArray(schema.queueItems.state, ['cued', 'loaded', 'playing'])));
     const playing = rows.find((r) => r.item.state === 'playing');
-    if (!playing?.item.startedAt || !rows.some((r) => r.item.state === 'cued')) return false;
+    if (!playing?.item.startedAt || !rows.some((r) => r.item.state !== 'playing')) return false;
     const ends = playing.item.startedAt.getTime() + (playSeconds(playing.media, autodjSettings(station).crossfadeSeconds) ?? 0) * 1000;
     const [row] = await tx.select().from(schema.autodjState).where(eq(schema.autodjState.stationId, stationId));
     const h = hourStart(now, schedule.settings.timezone);
@@ -342,7 +349,7 @@ export async function flushForClock(ctx: AppContext, stationId: string, now = Da
       }),
     );
     if (!needed) return false;
-    await tx.update(schema.queueItems).set({ state: 'queued', cuedAt: null }).where(and(eq(schema.queueItems.stationId, stationId), eq(schema.queueItems.state, 'cued')));
+    await tx.update(schema.queueItems).set({ state: 'queued', cuedAt: null }).where(and(eq(schema.queueItems.stationId, stationId), inArray(schema.queueItems.state, ['cued', 'loaded'])));
     return true;
   });
 }
@@ -376,9 +383,11 @@ export async function cueNow(ctx: AppContext, stationId: string, itemId: string)
       .innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.queueItems.mediaId))
       .where(and(eq(schema.queueItems.id, itemId), eq(schema.queueItems.stationId, stationId)));
     if (!station || !row || row.item.state === 'playing') return null;
-    if (row.item.state === 'cued') return 'loaded';
+    if (row.item.state === 'cued' || row.item.state === 'loaded') return 'loaded';
     const full = mediaPath(ctx, row.media, await loadSources(tx, stationId));
     if (!full || !(await stat(full).then((st) => st.isFile()).catch(() => false))) return null;
+    // It plays before the track the player loaded ahead, which waits behind it until this one is on air.
+    await tx.update(schema.queueItems).set({ state: 'loaded' }).where(and(eq(schema.queueItems.stationId, stationId), eq(schema.queueItems.state, 'cued')));
     await tx.update(schema.queueItems).set({ state: 'cued', cuedAt: new Date() }).where(eq(schema.queueItems.id, itemId));
     return { uri: requestUri({ id: itemId, queue: row.item.queue }, row.media, full, autodjSettings(station)), itemId };
   });
@@ -391,9 +400,10 @@ export async function trackStarted(ctx: AppContext, stationId: string, itemId: s
     const [item] = await tx.select().from(schema.queueItems).where(and(eq(schema.queueItems.id, itemId), eq(schema.queueItems.stationId, stationId)));
     await tx.delete(schema.queueItems).where(and(eq(schema.queueItems.stationId, stationId), eq(schema.queueItems.state, 'playing'), ne(schema.queueItems.id, itemId)));
     await tx.insert(schema.autodjState).values({ stationId, seenAt: new Date() }).onConflictDoUpdate({ target: schema.autodjState.stationId, set: { seenAt: new Date() } });
-    if (!item) return;
     const now = new Date();
-    await tx.update(schema.queueItems).set({ state: 'playing', startedAt: now }).where(eq(schema.queueItems.id, item.id));
+    if (item) await tx.update(schema.queueItems).set({ state: 'playing', startedAt: now }).where(eq(schema.queueItems.id, item.id));
+    await promoteLoaded(tx, stationId);
+    if (!item) return;
     await tx
       .update(schema.mediaFiles)
       .set({ lastPlayedAt: now, playCount: sql`${schema.mediaFiles.playCount} + 1` })
@@ -407,11 +417,22 @@ export async function trackStarted(ctx: AppContext, stationId: string, itemId: s
   });
 }
 
+/** No track cued any more: the first one the player loaded behind it goes on air next. */
+async function promoteLoaded(tx: Tx, stationId: string) {
+  const rows = await tx
+    .select({ id: schema.queueItems.id, state: schema.queueItems.state })
+    .from(schema.queueItems)
+    .where(and(eq(schema.queueItems.stationId, stationId), inArray(schema.queueItems.state, ['cued', 'loaded'])))
+    .orderBy(asc(schema.queueItems.cuedAt));
+  if (!rows.length || rows.some((r) => r.state === 'cued')) return;
+  await tx.update(schema.queueItems).set({ state: 'cued' }).where(eq(schema.queueItems.id, rows[0]!.id));
+}
+
 /** The player (re)started: tracks it had loaded ahead go back to waiting, nothing of ours is on air yet. */
 export async function playerStarted(ctx: AppContext, stationId: string) {
   await ctx.db.transaction(async (tx) => {
     await lock(tx, stationId);
-    await tx.update(schema.queueItems).set({ state: 'queued', cuedAt: null }).where(and(eq(schema.queueItems.stationId, stationId), eq(schema.queueItems.state, 'cued')));
+    await tx.update(schema.queueItems).set({ state: 'queued', cuedAt: null }).where(and(eq(schema.queueItems.stationId, stationId), inArray(schema.queueItems.state, ['cued', 'loaded'])));
     await tx.delete(schema.queueItems).where(and(eq(schema.queueItems.stationId, stationId), eq(schema.queueItems.state, 'playing')));
     await tx.insert(schema.autodjState).values({ stationId, seenAt: new Date() }).onConflictDoUpdate({ target: schema.autodjState.stationId, set: { seenAt: new Date() } });
   });
@@ -492,7 +513,7 @@ export async function fillQueues(ctx: AppContext, stationId: string, fresh = fal
 export interface QueueRow {
   id: string;
   queue: Queue;
-  state: 'queued' | 'cued' | 'playing';
+  state: 'queued' | 'cued' | 'loaded' | 'playing';
   origin: string;
   position: number;
   addedBy: string | null;
@@ -505,7 +526,7 @@ export interface QueueRow {
   media: { id: string; title: string; artist: string; album: string; durationSeconds: number | null; location: string; path: string } & Cues;
 }
 
-/** Everything in the queues, first to last, with the track on air. */
+/** Everything in the queues, first to last, with the track on air: on air, cued, loaded behind it, then waiting. */
 export async function queueRows(ctx: AppContext, stationId: string): Promise<QueueRow[]> {
   const rows = await ctx.db
     .select({ item: schema.queueItems, media: schema.mediaFiles, playlistName: schema.playlists.name })
@@ -513,7 +534,12 @@ export async function queueRows(ctx: AppContext, stationId: string): Promise<Que
     .innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.queueItems.mediaId))
     .leftJoin(schema.playlists, eq(schema.playlists.id, schema.queueItems.playlistId))
     .where(eq(schema.queueItems.stationId, stationId))
-    .orderBy(desc(sql`${schema.queueItems.state} = 'playing'`), asc(schema.queueItems.position));
+    .orderBy(
+      desc(sql`${schema.queueItems.state} = 'playing'`),
+      desc(sql`${schema.queueItems.state} = 'cued'`),
+      desc(sql`${schema.queueItems.state} = 'loaded'`),
+      asc(schema.queueItems.position),
+    );
   return rows.map(({ item, media, playlistName }) => ({
     id: item.id,
     queue: item.queue,

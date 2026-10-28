@@ -363,6 +363,35 @@ describe.runIf(hasFfmpeg)('library and AutoDJ', () => {
     execFileSync('mv', [copy, full]);
   });
 
+  it('cues only one track: the player loads the next one behind a track it holds', async () => {
+    await playerStarted(t.ctx, stationId);
+    const cuedRows = async () => (await t.db.select().from(schema.queueItems).where(eq(schema.queueItems.state, 'cued'))).map((r) => r.id);
+    const state = async (id: string) => (await t.db.select().from(schema.queueItems).where(eq(schema.queueItems.id, id)))[0]?.state;
+    const first = await nextTrack(t.ctx, stationId);
+    await trackStarted(t.ctx, stationId, first!.itemId);
+    // Manual playout: the next track waits for Play on the gate, and the player already asks for the one after it.
+    const held = await nextTrack(t.ctx, stationId);
+    const behind = await nextTrack(t.ctx, stationId);
+    expect(await cuedRows()).toEqual([held!.itemId]);
+    expect(await state(behind!.itemId)).toBe('loaded');
+    // The list shows the held track first, the loaded one right after it.
+    const q1 = (await api('GET', '/autodj')).json().queues.q1 as { id: string; state: string }[];
+    expect(q1.slice(0, 2).map((r) => [r.id, r.state])).toEqual([
+      [held!.itemId, 'cued'],
+      [behind!.itemId, 'loaded'],
+    ]);
+    // Play: the held track is on air, the one behind it is cued now.
+    await trackStarted(t.ctx, stationId, held!.itemId);
+    expect(await state(held!.itemId)).toBe('playing');
+    expect(await cuedRows()).toEqual([behind!.itemId]);
+    // A restart puts loaded tracks back too.
+    const again = await nextTrack(t.ctx, stationId);
+    expect(await state(again!.itemId)).toBe('loaded');
+    await playerStarted(t.ctx, stationId);
+    expect(await state(again!.itemId)).toBe('queued');
+    expect(await cuedRows()).toEqual([]);
+  });
+
   it('lets DJs add, move and remove queue tracks', async () => {
     const [four] = await t.db.select().from(schema.mediaFiles).where(eq(schema.mediaFiles.title, 'Four'));
     let res = await api('POST', '/autodj/queue', { mediaId: four!.id, queue: 'q2', at: 'top' });
@@ -477,12 +506,16 @@ describe.runIf(hasFfmpeg)('library and AutoDJ', () => {
       expect(heard).toHaveLength(1);
       expect(heard[0]).toMatch(/^playnow annotate:/);
       expect(itemOf(heard[0]!)).toBe(dropped);
+      // Only the dropped track is cued: it plays first, the track loaded ahead waits behind it.
       expect(await state(dropped)).toBe('cued');
-      expect(await state(ahead)).toBe('cued');
+      expect(await state(ahead)).toBe('loaded');
       // The track loaded ahead: skipping starts it.
       heard.length = 0;
       await ctrl.command(JSON.stringify({ stationId, command: 'playnow', itemId: ahead }));
       expect(heard).toEqual(['skip']);
+      // The dropped track is on air: the one loaded ahead is cued again.
+      await trackStarted(t.ctx, stationId, dropped);
+      expect(await state(ahead)).toBe('cued');
       // A library track goes on top of Q1 first.
       const lib = await api('POST', '/autodj/play-now', { mediaId: four!.id });
       expect(lib.statusCode).toBe(200);

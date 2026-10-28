@@ -825,11 +825,12 @@ export const playlistItems = pgTable(
   (t) => [primaryKey({ columns: [t.playlistId, t.mediaId] }), index('playlist_items_media_idx').on(t.mediaId)],
 );
 
-export const queueState = pgEnum('queue_state', ['queued', 'cued', 'playing']);
+export const queueState = pgEnum('queue_state', ['queued', 'cued', 'playing', 'loaded']);
 
 /**
- * The two AutoDJ queues. `queued` items wait their turn, the `cued` item has been handed to the player (it loads one
- * track ahead) and the `playing` item is on air. Played items are removed; the play itself is in song_plays.
+ * The two AutoDJ queues. `queued` items wait their turn, the `cued` item has been handed to the player and goes on air
+ * next (only ever one), a `loaded` item has been handed to the player too but plays after the cued one (the player
+ * loads ahead while it holds a track in manual playout, or a track plays now before it), and the `playing` item is on air. Played items are removed; the play itself is in song_plays.
  */
 export const queueItems = pgTable(
   'queue_items',

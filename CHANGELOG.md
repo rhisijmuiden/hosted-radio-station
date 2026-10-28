@@ -3,6 +3,13 @@
 All notable changes to Hosted Radio Station. Versions follow [semantic versioning](https://semver.org). The
 [roadmap](ROADMAP.md) has the full description of each phase, with screenshots.
 
+## Unreleased
+
+- AutoDJ queue: only one track is *Cued* at a time, the one that goes on air next. When the player already loaded the
+  track after it (in Manual playout while it waits for Play, or when a track is played now), that one shows as loaded
+  right behind it and becomes cued once the track before it is on air. The panel and RHIS Studio list the cued track
+  first.
+
 ## 1.3.0 (28 October 2026)
 
 Phase 17 (RHIS Studio 1.0, fader start still parked), the port plan per role, station nodes sending through the
