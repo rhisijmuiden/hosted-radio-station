@@ -89,7 +89,7 @@ describe('orchestrator as control plane (phase 13)', () => {
 
   it('starts with this server as ingest and the relays pulling from it', async () => {
     const got = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/routing`, headers: owner })).json();
-    expect(got.routing).toEqual({ ingest: 'local', backupIngest: null, relays: 'auto', spareRelays: true });
+    expect(got.routing).toEqual({ ingest: 'local', backupIngest: null, relays: 'auto', spareRelays: true, delivery: 'ingest' });
     expect(got.canEdit).toBe(true);
   });
 
@@ -104,7 +104,7 @@ describe('orchestrator as control plane (phase 13)', () => {
     expect((await routing({ ingest: ingest.id }, owner)).statusCode).toBe(403);
     const ok = await routing({ ingest: ingest.id, backupIngest: backup.id, relays: [relay.id] });
     expect(ok.statusCode).toBe(200);
-    expect(ok.json().routing).toEqual({ ingest: ingest.id, backupIngest: backup.id, relays: [relay.id], spareRelays: true });
+    expect(ok.json().routing).toEqual({ ingest: ingest.id, backupIngest: backup.id, relays: [relay.id], spareRelays: true, delivery: 'ingest' });
     // Encoders now go to the ingest node; the backup is shown for the encoder's backup server.
     const detail = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}`, headers: owner })).json();
     expect(detail.connection.node).toMatchObject({ id: ingest.id, name: 'ingest-ams' });
@@ -207,8 +207,9 @@ describe('relays of a station on a station node (phase 19)', () => {
       const got = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/routing`, headers: admin })).json();
       expect(got.locked).toBe('station_node');
       expect(got.canEdit).toBe(true);
-      // The ingest fields are ignored on a station node; only the relays change.
-      const r = await routing({ ingest: randomUUID(), relays: [relay2.id], spareRelays: false });
+      // On a station node the ingest fields choose the ingests the node sends through (1.3); an unknown one is refused.
+      expect((await routing({ ingest: randomUUID(), relays: [relay2.id], spareRelays: false })).statusCode).toBe(400);
+      const r = await routing({ ...before.routing, relays: [relay2.id], spareRelays: false });
       expect(r.statusCode).toBe(200);
       expect(r.json().routing).toEqual({ ...before.routing, relays: [relay2.id], spareRelays: false });
       // A chosen relay that lost its relay role is listed as stale, so the panel can say why it carries nothing.

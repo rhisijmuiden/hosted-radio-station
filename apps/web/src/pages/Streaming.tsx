@@ -226,22 +226,29 @@ export function StreamingPage() {
             <p className="mt-1 text-[13px] text-muted">{t('streaming.firewallHint')}</p>
             <ul className="mt-3 flex flex-col gap-1 font-mono text-[13px]">
               <li>80, 443/tcp · {t('streaming.fwWeb')}</li>
-              <li>{draft.ingestTlsPort}/tcp · {t('streaming.fwTls')}</li>
-              {draft.ingestPlainPort > 0 && <li>{draft.ingestPlainPort}/tcp · {t('streaming.fwPlain')}</li>}
-              {old && (
-                <li className="text-muted">
-                  {old.tls}
-                  {draft.ingestPlainPort > 0 && `, ${old.plain}`}/tcp · {t('streaming.fwOld')}
-                </li>
-              )}
-              <li>
-                {draft.legacyPortFrom}–{draft.legacyPortTo}/tcp · {t('streaming.fwLegacy')}
-              </li>
-              {draft.sftp.enabled && <li>{draft.sftp.port}/tcp · SFTP/SCP</li>}
-              {draft.ftp.enabled && (
-                <li>
-                  {draft.ftp.port}, {draft.ftp.passivePortFrom}–{draft.ftp.passivePortTo}/tcp · FTP(S)
-                </li>
+              {/* Orchestrator only: no encoder or upload port is open here at all. */}
+              {plan.data?.orchestratorOnly ? (
+                <li className="font-sans text-muted">{t('streaming.fwOnly')}</li>
+              ) : (
+                <>
+                  <li>{draft.ingestTlsPort}/tcp · {t('streaming.fwTls')}</li>
+                  {draft.ingestPlainPort > 0 && <li>{draft.ingestPlainPort}/tcp · {t('streaming.fwPlain')}</li>}
+                  {old && (
+                    <li className="text-muted">
+                      {old.tls}
+                      {draft.ingestPlainPort > 0 && `, ${old.plain}`}/tcp · {t('streaming.fwOld')}
+                    </li>
+                  )}
+                  <li>
+                    {draft.legacyPortFrom}–{draft.legacyPortTo}/tcp · {t('streaming.fwLegacy')}
+                  </li>
+                  {draft.sftp.enabled && <li>{draft.sftp.port}/tcp · SFTP/SCP</li>}
+                  {draft.ftp.enabled && (
+                    <li>
+                      {draft.ftp.port}, {draft.ftp.passivePortFrom}–{draft.ftp.passivePortTo}/tcp · FTP(S)
+                    </li>
+                  )}
+                </>
               )}
             </ul>
           </Card>

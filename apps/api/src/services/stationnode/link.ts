@@ -335,11 +335,12 @@ export class StationNodeLink {
       const [stats, encoders, outputs] = await Promise.all([
         stationStats(this.ctx, station),
         this.ctx.db.select({ n: sql<number>`count(*)::int` }).from(schema.liveSessions).where(and(eq(schema.liveSessions.stationId, id), isNull(schema.liveSessions.endedAt))),
-        this.ctx.db.select().from(schema.stationOutputs).where(and(eq(schema.stationOutputs.stationId, id), isNotNull(sql`${schema.stationOutputs.config}->>'relayNodeId'`))),
+        this.ctx.db.select().from(schema.stationOutputs).where(and(eq(schema.stationOutputs.stationId, id), sql`coalesce(${schema.stationOutputs.config}->>'relayNodeId', ${schema.stationOutputs.config}->>'ingestNodeId') is not null`)),
       ]);
       const relays: MirrorBatch['runtime'][string]['relays'] = {};
       for (const o of outputs) {
-        const relayId = o.config.relayNodeId!;
+        // Pushes to an ingest (1.3) show under the ingest node.
+        const relayId = (o.config.relayNodeId ?? o.config.ingestNodeId)!;
         const state = o.status?.state ?? 'idle';
         // One relay can take several mounts: the worst state counts.
         const rank = { error: 3, connecting: 2, idle: 1, connected: 0 } as const;

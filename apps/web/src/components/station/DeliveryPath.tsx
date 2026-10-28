@@ -81,7 +81,20 @@ function useDeliveryPath(station: StationDetail) {
   if (ts.stationNode) {
     const n = node(ts.stationNode);
     const h = nodeHealth(n, ts.cells[ts.stationNode]);
-    first.push({ id: ts.stationNode, kind: t('delivery.stationNode'), name: n?.name ?? '—', meta: [stateText(h, ts.active === ts.stationNode), n?.location || null, ping(n), t('delivery.feedsRelays')].filter(Boolean) as string[], health: h, live: ts.active === ts.stationNode, icon: <Server />, to: link(n) });
+    // By default the station node sends through the ingest(s), which feed the relays (1.3).
+    const via = ts.ingest && ts.ingest !== ts.stationNode ? node(ts.ingest) : null;
+    const live = via ? ts.cells[ts.stationNode] === 'onAir' : ts.active === ts.stationNode;
+    first.push({ id: ts.stationNode, kind: t('delivery.stationNode'), name: n?.name ?? '—', meta: [stateText(h, live), n?.location || null, ping(n), via ? t('delivery.viaIngest', { name: via.name }) : t('delivery.feedsRelays')].filter(Boolean) as string[], health: h, live, icon: <Server />, to: link(n) });
+    for (const [ref, kind] of [
+      [via ? ts.ingest : null, t('delivery.mainIngest')],
+      [via ? ts.backup : null, t('delivery.backupIngest')],
+    ] as const) {
+      if (!ref) continue;
+      const x = node(ref);
+      const on = ts.active === ref;
+      const hx = !x?.online ? 'offline' : x.degraded ? 'warning' : on ? 'online' : 'neutral';
+      first.push({ id: ref, kind, name: x?.name ?? '—', meta: [stateText(hx, on), x?.location || null, ping(x)].filter(Boolean) as string[], health: hx, live: on, icon: <Server />, to: link(x) });
+    }
   } else {
     for (const [ref, kind] of [
       [ts.ingest, t('delivery.mainIngest')],

@@ -5,6 +5,14 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 
 ## Unreleased
 
+- Station nodes send through an ingest by default: the node uploads each source stream once to the station's ingest,
+  which makes the other mounts and feeds every relay, so the studio's upload stays minimal. Choose per station under
+  **Routing**: main ingest (automatic or a chosen node), an optional backup ingest (hot standby, doubles the upload),
+  or **Straight to the relays** as before. Without an ingest online the node falls back to the relays by itself.
+  Existing stations on a station node switch to *through an ingest* after the update when an ingest node can carry
+  them. The delivery path, the routing status and the network map show the route.
+- Streaming settings with *Orchestrator only*: the firewall line lists only 80 and 443.
+
 - Port plan: every role has its own incoming ports, so roles on one machine never clash. Ingest 8200 (plain), 8201
   (TLS) and 8210–8299 (Shoutcast v1); relay push port 8301; station node 8400 (plain), 8401 (TLS) and 8402 (SFTP);
   the orchestrator itself only needs 443 (+80). Every port can still be changed per node.

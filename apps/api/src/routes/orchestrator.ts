@@ -211,6 +211,8 @@ export const orchestratorRoutes: FastifyPluginAsyncZod = async (app) => {
     old: z.object({ plain: z.number(), tls: z.number(), push: z.number(), sftp: z.number(), shoutcastFrom: z.number(), shoutcastTo: z.number() }),
     /** This server keeps the old encoder ports open. */
     thisServer: z.boolean(),
+    /** Orchestrator only: this server opens no encoder or upload ports at all, old or new. */
+    orchestratorOnly: z.boolean(),
     /** Stations whose Shoutcast v1 ports still lie in the old range; they move when this server's old ports go off. */
     oldShoutcast: z.number(),
     nodes: z.array(z.object({ id: z.uuid(), name: z.string(), roles: z.array(z.string()), online: z.boolean(), oldPorts: z.boolean() })),
@@ -227,6 +229,7 @@ export const orchestratorRoutes: FastifyPluginAsyncZod = async (app) => {
       ports: PORTS,
       old: OLD_PORTS,
       thisServer: o.oldPorts,
+      orchestratorOnly: o.only,
       oldShoutcast: stations.filter((s) => s.legacyPort && (s.legacyPort < streaming.legacyPortFrom || s.legacyPort > streaming.legacyPortTo)).length,
       nodes: nodes
         .filter((n) => n.pairedAt)
