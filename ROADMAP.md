@@ -538,6 +538,8 @@ A format builder next to the hour clock, to make the non-stop rotation easier to
 
 - Music **categories** (for example Hits, Recurrents, Gold, New), filled from playlists, folders or tags.
 - A **pattern** of steps: "3 tracks from category A, jingle, 3 tracks from category B, jingle, …". The pattern repeats until the hour is full.
+- The pattern is **clicked together** in a visual editor: add a step, pick the category (not single tracks), set the number of tracks (1, 2, 3, 4, …), drag steps to reorder.
+- **Jingle over the music**: an option to mix a jingle over the playing track at set times (for example every half hour) without stopping the track, with the music ducked under the jingle. Useful for stations with very long tracks, such as Harder.FM.
 - Separation rules (artist, title) and how often each category may repeat, per format.
 - The **hour clock stays** for fixed times: news blocks, ads and locked items run at their set minutes, and the format fills the time in between.
 - A format can be set as the station's default, per hour clock, or per show in the weekly schedule.
