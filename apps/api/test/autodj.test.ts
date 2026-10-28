@@ -5,7 +5,7 @@ import http from 'node:http';
 import net from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import pino from 'pino';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { schema } from '../src/db/index.js';
@@ -390,6 +390,15 @@ describe.runIf(hasFfmpeg)('library and AutoDJ', () => {
     await playerStarted(t.ctx, stationId);
     expect(await state(again!.itemId)).toBe('queued');
     expect(await cuedRows()).toEqual([]);
+    // Three cued tracks from before the loaded state: the next start keeps only the first one waiting cued.
+    const on = await nextTrack(t.ctx, stationId);
+    const old = [await nextTrack(t.ctx, stationId), await nextTrack(t.ctx, stationId)].map((n) => n!.itemId);
+    await t.db.update(schema.queueItems).set({ state: 'cued' }).where(inArray(schema.queueItems.id, old));
+    expect(await cuedRows()).toHaveLength(3);
+    await trackStarted(t.ctx, stationId, on!.itemId);
+    expect(await cuedRows()).toEqual([old[0]]);
+    expect(await state(old[1]!)).toBe('loaded');
+    await playerStarted(t.ctx, stationId);
   });
 
   it('lets DJs add, move and remove queue tracks', async () => {

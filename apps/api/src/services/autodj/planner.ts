@@ -417,15 +417,23 @@ export async function trackStarted(ctx: AppContext, stationId: string, itemId: s
   });
 }
 
-/** No track cued any more: the first one the player loaded behind it goes on air next. */
+/**
+ * After a track went on air, exactly one of the tracks the player has loaded is cued: the one it loaded first (or the
+ * one played now), the others are loaded behind it. This also tidies queues from before the `loaded` state, which
+ * could have two cued tracks.
+ */
 async function promoteLoaded(tx: Tx, stationId: string) {
   const rows = await tx
     .select({ id: schema.queueItems.id, state: schema.queueItems.state })
     .from(schema.queueItems)
     .where(and(eq(schema.queueItems.stationId, stationId), inArray(schema.queueItems.state, ['cued', 'loaded'])))
     .orderBy(asc(schema.queueItems.cuedAt));
-  if (!rows.length || rows.some((r) => r.state === 'cued')) return;
-  await tx.update(schema.queueItems).set({ state: 'cued' }).where(eq(schema.queueItems.id, rows[0]!.id));
+  const cued = rows.filter((r) => r.state === 'cued');
+  const keep = cued[0] ?? rows[0];
+  if (!keep) return;
+  if (keep.state !== 'cued') await tx.update(schema.queueItems).set({ state: 'cued' }).where(eq(schema.queueItems.id, keep.id));
+  const extra = cued.slice(1).map((r) => r.id);
+  if (extra.length) await tx.update(schema.queueItems).set({ state: 'loaded' }).where(inArray(schema.queueItems.id, extra));
 }
 
 /** The player (re)started: tracks it had loaded ahead go back to waiting, nothing of ours is on air yet. */
