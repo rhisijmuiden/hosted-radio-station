@@ -674,7 +674,7 @@ export interface AutodjSettings {
 export interface QueueRow {
   id: string;
   queue: QueueName;
-  state: 'queued' | 'cued' | 'playing';
+  state: 'queued' | 'cued' | 'loaded' | 'playing';
   origin: 'rotation' | 'request' | 'manual' | 'clock';
   addedBy: string | null;
   requestId: string | null;

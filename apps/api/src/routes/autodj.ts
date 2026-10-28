@@ -159,7 +159,7 @@ const scanOut = z.object({
 const queueRowOut = z.object({
   id: z.uuid(),
   queue: queueSchema,
-  state: z.enum(['queued', 'cued', 'playing']),
+  state: z.enum(['queued', 'cued', 'loaded', 'playing']),
   origin: z.string(),
   addedBy: z.string().nullable(),
   requestId: z.uuid().nullable(),

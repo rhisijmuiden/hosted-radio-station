@@ -134,7 +134,7 @@ export interface Media extends Cues {
 export interface QueueRow {
   id: string;
   queue: 'q1' | 'q2';
-  state: 'queued' | 'cued' | 'playing';
+  state: 'queued' | 'cued' | 'loaded' | 'playing';
   origin: string;
   addedBy: string | null;
   requestId: string | null;
