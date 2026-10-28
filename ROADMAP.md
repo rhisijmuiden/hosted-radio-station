@@ -191,6 +191,7 @@ One thing at a time; each item starts when the previous one is finished and test
    4. News player (source set per station: a file from a URL, a file over FTP/SFTP, or a live stream, at set times, with a spare jingle when the news is missing) and a log editor.
    - Free docking of panels comes later as a separate item.
 6. **Bug fix: upgrading a station does nothing**: switching a station (for example Uptempo.fm) from Distribution to Radio station has no effect.
+   - **Bug fix: a station cannot move from one station node to another**: a station on a station node can only move back to the main server, and with "Orchestrator only" that way is closed, so for example Uptempo.fm is stuck on the shared station node. Fix: move straight from node to node, library included.
 7. **Security hardening for external nodes**: see the queued item below. (For now the one external server was closed by hand.)
 8. **Phase 21: Recorder node**: recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download.
 
