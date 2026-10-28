@@ -532,6 +532,16 @@ Small fixes planned for a patch release, one at a time after the current phase.
 
 Not scheduled in a phase yet.
 
+### Format builder for non-stop
+
+A format builder next to the hour clock, to make the non-stop rotation easier to build.
+
+- Music **categories** (for example Hits, Recurrents, Gold, New), filled from playlists, folders or tags.
+- A **pattern** of steps: "3 tracks from category A, jingle, 3 tracks from category B, jingle, …". The pattern repeats until the hour is full.
+- Separation rules (artist, title) and how often each category may repeat, per format.
+- The **hour clock stays** for fixed times: news blocks, ads and locked items run at their set minutes, and the format fills the time in between.
+- A format can be set as the station's default, per hour clock, or per show in the weekly schedule.
+
 ### Phone calls in RHIS Studio (SIP)
 
 A SIP client built into RHIS Studio, so a DJ can take listener calls and interviews on air without a separate phone hybrid.
