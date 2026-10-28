@@ -2,6 +2,7 @@ import { and, isNotNull, lt, or, sql } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import { schema } from '../db/index.js';
 import type { AppContext } from '../lib/context.js';
+import { analysePending } from './autodj/analyse.js';
 import { scanAllLibraries } from './autodj/library.js';
 import { tickScheduler } from './backup/jobs.js';
 import { billingTick } from './billing/engine.js';
@@ -79,6 +80,8 @@ export function startBackgroundTasks(ctx: AppContext, log: FastifyBaseLogger) {
   const ondemand = setInterval(safe('on-demand scan', () => scanAllOnDemand(ctx)), 5 * 60_000);
   // Music libraries of Radio stations (new files on shares and server folders; uploads trigger their own scan).
   const library = setInterval(safe('library scan', () => scanAllLibraries(ctx)), 30 * 60_000);
+  // Codes for new tracks, and tempo and key where the tags have none.
+  const analyse = setInterval(safe('track analysis', () => analysePending(ctx)), 60_000);
   setTimeout(safe('listener figures', () => rollupHourly(ctx, new Date(Date.now() - 2 * 86400_000))), 20_000).unref();
   if (main) setTimeout(safe('GeoIP update', () => maybeUpdateGeoip(ctx)), 15_000).unref();
   setTimeout(safe('housekeeping', () => housekeeping(ctx)), 30_000).unref();
@@ -86,7 +89,7 @@ export function startBackgroundTasks(ctx: AppContext, log: FastifyBaseLogger) {
   setTimeout(safe('storage scan', () => scanAllStorage(ctx)), 60_000).unref();
   setTimeout(safe('on-demand scan', () => scanAllOnDemand(ctx)), 45_000).unref();
   setTimeout(safe('library scan', () => scanAllLibraries(ctx)), 90_000).unref();
-  const timers = [scheduler, house, storage, domains, hourly, geoip, ondemand, library, billing, webhooks].filter((t) => t !== undefined);
+  const timers = [scheduler, house, storage, domains, hourly, geoip, ondemand, library, analyse, billing, webhooks].filter((t) => t !== undefined);
   for (const t of timers) t.unref();
   return () => {
     for (const t of timers) clearInterval(t);

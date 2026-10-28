@@ -309,6 +309,12 @@ export const en = {
     scanning: 'Reading the tags of {{name}}…',
     uploadFailed: 'The file was not added',
     notScanned: 'The server has not read the file yet; find it in the Server tab in a moment.',
+    searchCodes: 'Search title, artist, code or ISRC',
+    code: 'Code',
+    title: 'Title',
+    artist: 'Artist',
+    key: 'Key',
+    length: 'Length',
   },
   info: {
     button: 'Info',

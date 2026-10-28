@@ -278,7 +278,7 @@ export function AssistPage() {
               )}
               {p.library && (
                 <div className="flex min-h-0 flex-1 flex-col">
-                  <LibraryPanel stationId={station.id} add={(v) => queueActions.add.mutate(v)} />
+                  <LibraryPanel stationId={station.id} add={(v) => queueActions.add.mutate(v)} wide />
                 </div>
               )}
             </div>

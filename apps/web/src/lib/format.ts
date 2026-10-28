@@ -53,3 +53,15 @@ export function formatMoney(cents: number | null | undefined, currency = 'EUR') 
   if (cents == null) return '—';
   return new Intl.NumberFormat(i18n.language, { style: 'currency', currency }).format(cents / 100);
 }
+
+const CAMELOT_MAJOR = [8, 3, 10, 5, 12, 7, 2, 9, 4, 11, 6, 1];
+const CAMELOT_MINOR = [5, 12, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10];
+const SEMITONE: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+
+/** The Camelot code of a key ("Am" → "8A"), for mixing in key; empty when the key is unknown. */
+export function camelot(key: string | null | undefined) {
+  const m = /^([A-G])(#|b)?(m)?$/.exec(key ?? '');
+  if (!m) return '';
+  const root = (SEMITONE[m[1]!]! + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0) + 12) % 12;
+  return m[3] ? `${CAMELOT_MINOR[root]}A` : `${CAMELOT_MAJOR[root]}B`;
+}

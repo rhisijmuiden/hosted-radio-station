@@ -359,6 +359,19 @@ function SettingsCard({ station, view }: { station: StationDetail; view: AutodjV
             <Switch checked={draft.pauseWhenLive} onChange={(pauseWhenLive) => setDraft({ ...draft, pauseWhenLive })} label={t('autodj.pauseWhenLive')} description={t('autodj.pauseWhenLiveHint')} />
           </div>
         </div>
+        {draft.codePrefix !== undefined && (
+          <div className="border-t border-line pt-4">
+            <div className="mb-3 text-[13px] font-semibold">{t('autodj.library')}</div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label={t('autodj.codePrefix')} hint={t('autodj.codePrefixHint')}>
+                <Input className="font-mono uppercase" maxLength={6} value={draft.codePrefix} onChange={(e) => setDraft({ ...draft, codePrefix: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) })} />
+              </Field>
+            </div>
+            <div className="mt-4">
+              <Switch checked={draft.analyse ?? true} onChange={(analyse) => setDraft({ ...draft, analyse })} label={t('autodj.analyse')} description={t('autodj.analyseHint')} />
+            </div>
+          </div>
+        )}
         <div className="border-t border-line pt-4">
           <div className="mb-3 text-[13px] font-semibold">{t('autodj.requests')}</div>
           <div className="flex flex-col gap-4">

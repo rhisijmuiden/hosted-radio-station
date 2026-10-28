@@ -45,6 +45,16 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   station gets the same buttons. The single player plays a short list of its own on the studio PC (tracks from the
   library, a share or a USB stick), goes into the broadcast like the jingles, and goes 12 dB down while the microphone
   has sound (*Settings > Audio*); with **Auto** it plays the list on by itself. New API: `/api/studio/stations/{id}/carts`.
+- Track codes, ISRC, tempo and key: every track in the library of a Radio station gets the station's own code, such as
+  **HF-03007** (the prefix is set in the AutoDJ settings under *Library*; empty uses the initials of the station). The
+  ISRC, the BPM and the key are read from the tags (keys in any notation, also Camelot and Open Key); where the tags
+  have no BPM or key the server measures them in the background at low priority (switch it off under *Library*).
+  Managers correct them in *Edit tags*. The library in the panel shows the code and BPM · key with the Camelot code,
+  and searches on code and ISRC. API: `code`, `isrc`, `bpm` and `musicKey` on library tracks, sorting by `code`,
+  `bpm` and `key`.
+- RHIS Studio 0.19, OmniPlayer layout step 3: the library under the players is a table with code, title and artist,
+  ISRC (when there is room), BPM and key with its Camelot code, and length; click a column to sort. Search finds
+  codes and ISRCs too. Classic shows BPM and key under the artist.
 
 ## 1.3.0 (28 October 2026)
 

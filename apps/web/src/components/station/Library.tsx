@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { api, SECRET_MASK, type LibraryFolders, type MediaFile, type MediaSource, type MediaSourceType, type Playlist, type ScanProgress, type StationDetail } from '../../lib/api';
 import { useMe, isAdmin } from '../../lib/auth';
-import { formatRelative, formatSeconds } from '../../lib/format';
+import { camelot, formatRelative, formatSeconds } from '../../lib/format';
 import { Badge, Button, Card, CardHeader, Dialog, EmptyState, Field, Input, Segmented, Select, Spinner, Switch } from '../ui';
 
 const PAGE = 100;
@@ -48,15 +48,36 @@ const locationIcon = (type: string) => (type === 'storage' ? HardDrive : type ==
 function TagsDialog({ station, file, onClose }: { station: StationDetail; file: MediaFile | null; onClose: () => void }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const [draft, setDraft] = useState({ title: '', artist: '', album: '', genre: '', year: '' as string, enabled: true });
+  const [draft, setDraft] = useState({ title: '', artist: '', album: '', genre: '', year: '' as string, isrc: '', bpm: '', musicKey: '', enabled: true });
   useEffect(() => {
-    if (file) setDraft({ title: file.title, artist: file.artist, album: file.album, genre: file.genre, year: file.year ? String(file.year) : '', enabled: file.enabled });
+    if (file)
+      setDraft({
+        title: file.title,
+        artist: file.artist,
+        album: file.album,
+        genre: file.genre,
+        year: file.year ? String(file.year) : '',
+        isrc: file.isrc ?? '',
+        bpm: file.bpm != null ? String(file.bpm) : '',
+        musicKey: file.musicKey ?? '',
+        enabled: file.enabled,
+      });
   }, [file]);
+  // Servers before 1.4 have no codes, ISRC, tempo or key.
+  const extended = file?.code !== undefined;
   const save = useMutation({
     mutationFn: () =>
       api(`/stations/${station.id}/library/${file!.id}`, {
         method: 'PATCH',
-        body: { title: draft.title, artist: draft.artist, album: draft.album, genre: draft.genre, year: draft.year ? Number(draft.year) : null, enabled: draft.enabled },
+        body: {
+          title: draft.title,
+          artist: draft.artist,
+          album: draft.album,
+          genre: draft.genre,
+          year: draft.year ? Number(draft.year) : null,
+          enabled: draft.enabled,
+          ...(extended ? { isrc: draft.isrc, bpm: draft.bpm ? Number(draft.bpm.replace(',', '.')) : null, musicKey: draft.musicKey } : {}),
+        },
       }),
     onSuccess: () => {
       toast.success(t('common.saved'));
@@ -70,7 +91,14 @@ function TagsDialog({ station, file, onClose }: { station: StationDetail; file: 
       open={!!file}
       onClose={onClose}
       title={t('library.editTags')}
-      description={file ? <span className="font-mono text-xs">{file.path}</span> : null}
+      description={
+        file ? (
+          <span className="font-mono text-xs">
+            {file.code && <span className="mr-2 font-bold text-ink">{file.code}</span>}
+            {file.path}
+          </span>
+        ) : null
+      }
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -100,7 +128,20 @@ function TagsDialog({ station, file, onClose }: { station: StationDetail; file: 
             <Input inputMode="numeric" value={draft.year} onChange={(e) => setDraft({ ...draft, year: e.target.value.replace(/\D/g, '').slice(0, 4) })} />
           </Field>
         </div>
-        <p className="text-xs text-muted">{t('library.tagsHint')}</p>
+        {extended && (
+          <div className="grid gap-3 sm:grid-cols-[1fr_100px_100px]">
+            <Field label={t('library.isrc')}>
+              <Input className="font-mono uppercase" placeholder="NLA1R2400123" value={draft.isrc} onChange={(e) => setDraft({ ...draft, isrc: e.target.value.slice(0, 20) })} />
+            </Field>
+            <Field label={t('library.bpm')}>
+              <Input inputMode="decimal" value={draft.bpm} onChange={(e) => setDraft({ ...draft, bpm: e.target.value.replace(/[^\d.,]/g, '').slice(0, 6) })} />
+            </Field>
+            <Field label={t('library.key')} hint={camelot(draft.musicKey) || undefined}>
+              <Input placeholder="Am" value={draft.musicKey} onChange={(e) => setDraft({ ...draft, musicKey: e.target.value.slice(0, 20) })} />
+            </Field>
+          </div>
+        )}
+        <p className="text-xs text-muted">{extended ? t('library.tagsHintExtended') : t('library.tagsHint')}</p>
         <Switch checked={draft.enabled} onChange={(enabled) => setDraft({ ...draft, enabled })} label={t('library.enabled')} description={t('library.enabledHint')} />
       </div>
     </Dialog>
@@ -435,6 +476,8 @@ export function LibraryTab({ station, canEdit }: { station: StationDetail; canEd
   });
 
   const items = list.data?.pages.flatMap((p) => p.items) ?? [];
+  // Servers before 1.4 have no codes, ISRC, tempo or key.
+  const extended = items.some((i) => i.code !== undefined);
   const total = list.data?.pages[0]?.total ?? 0;
   const names = new Map((playlists.data ?? []).map((p) => [p.id, p.name]));
   const allChecked = items.length > 0 && items.every((i) => checked.has(i.id));
@@ -583,9 +626,11 @@ export function LibraryTab({ station, canEdit }: { station: StationDetail; canEd
                     </th>
                   )}
                   <th className="w-10 border-b border-line py-2.5" />
+                  {extended && <th className="hidden border-b border-line px-3 py-2.5 font-semibold md:table-cell">{t('library.code')}</th>}
                   <th className="border-b border-line px-3 py-2.5 font-semibold">{t('library.track')}</th>
                   <th className="hidden border-b border-line px-3 py-2.5 font-semibold lg:table-cell">{t('library.album')}</th>
                   <th className="hidden border-b border-line px-3 py-2.5 font-semibold md:table-cell">{t('library.playlists')}</th>
+                  {extended && <th className="hidden border-b border-line px-3 py-2.5 font-semibold xl:table-cell">{t('library.bpmKey')}</th>}
                   <th className="border-b border-line px-3 py-2.5 text-right font-semibold">{t('library.length')}</th>
                   <th className="hidden border-b border-line px-3 py-2.5 font-semibold sm:table-cell">{t('library.lastPlayed')}</th>
                   {canEdit && <th className="w-10 border-b border-line" />}
@@ -606,6 +651,7 @@ export function LibraryTab({ station, canEdit }: { station: StationDetail; canEd
                         {playing === m.id ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
                       </button>
                     </td>
+                    {extended && <td className="hidden px-3 py-2 font-mono text-xs whitespace-nowrap text-muted md:table-cell">{m.code ?? '…'}</td>}
                     <td className="max-w-72 px-3 py-2">
                       <div className="truncate text-[13px] font-semibold" title={m.path}>
                         {m.title}
@@ -622,6 +668,16 @@ export function LibraryTab({ station, canEdit }: { station: StationDetail; canEd
                         {!m.enabled && <Badge tone="warning">{t('library.off')}</Badge>}
                       </div>
                     </td>
+                    {extended && (
+                      <td className="hidden px-3 py-2 text-xs whitespace-nowrap text-muted tabular-nums xl:table-cell" title={m.isrc ? `ISRC ${m.isrc}` : undefined}>
+                        {m.bpm != null ? Math.round(m.bpm) : '—'}
+                        {m.musicKey && (
+                          <span className="ml-2">
+                            {m.musicKey} <span className="text-[11px] font-semibold text-accent-text">{camelot(m.musicKey)}</span>
+                          </span>
+                        )}
+                      </td>
+                    )}
                     <td className="px-3 py-2 text-right text-xs text-muted tabular-nums">{formatSeconds(m.durationSeconds)}</td>
                     <td className="hidden px-3 py-2 text-xs text-muted sm:table-cell">
                       {m.lastPlayedAt ? formatRelative(m.lastPlayedAt) : t('library.never')}

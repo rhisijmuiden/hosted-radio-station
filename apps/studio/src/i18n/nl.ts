@@ -311,6 +311,12 @@ export const nl: Translation = {
     scanning: 'Tags van {{name}} worden gelezen…',
     uploadFailed: 'Het bestand is niet toegevoegd',
     notScanned: 'De server heeft het bestand nog niet gelezen; zoek het zo op het tabblad Server.',
+    searchCodes: 'Zoek op titel, artiest, code of ISRC',
+    code: 'Code',
+    title: 'Titel',
+    artist: 'Artiest',
+    key: 'Toon',
+    length: 'Duur',
   },
   info: {
     button: 'Info',

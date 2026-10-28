@@ -669,6 +669,10 @@ export interface AutodjSettings {
   artistSeparationMinutes: number;
   trackSeparationMinutes: number;
   pauseWhenLive: boolean;
+  /** Prefix of the track codes; empty = the initials of the station. */
+  codePrefix?: string;
+  /** Measure tempo and key where the tags have none. */
+  analyse?: boolean;
   requests: { fromLibrary: boolean; autoQueue: boolean; queue: QueueName; repeatMinutes: number };
 }
 export interface QueueRow {
@@ -707,6 +711,12 @@ export interface MediaFile {
   durationSeconds: number | null;
   bitrateKbps: number | null;
   gainDb: number | null;
+  /** The station's own number for the track, e.g. HF-03007 (null on servers before 1.4, or for a moment after a scan). */
+  code?: string | null;
+  isrc?: string;
+  bpm?: number | null;
+  /** "Am", "F#" or empty. */
+  musicKey?: string;
   sizeBytes: number;
   enabled: boolean;
   edited: boolean;
