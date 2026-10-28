@@ -168,7 +168,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 14 | Orchestrator redundancy | Planned (1.x) |
 | 15 | Cloudflare DNS integration | Done (1.1.1) |
 | 16 | Installer menu and node enrollment | Done (1.2.0) |
-| 17 | RHIS Studio 1.0 (Windows client) | In progress (steps 1–3 and 5 built; 6, 4 and 7 to go) |
+| 17 | RHIS Studio 1.0 (Windows client) | Done on test (fader start, step 4, parked until MIDI/GPIO hardware is available) |
 | 18 | Server names and topology views | Done (1.1.0) |
 | 19 | Clearer control panels and node assignment | Done (1.2.0) |
 | 20 | Monitoring node | Planned (1.x) |
@@ -521,7 +521,7 @@ Small fixes planned for a patch release, one at a time after the current phase.
 - An FM/MPX node is linked directly to the station node (studio) it takes its audio from, and is drawn right next to it as one group, instead of on its own in the distribution layer.
 - Shared or dedicated nodes (pulled forward from phase 19): every node is **Shared** or **Dedicated** to one customer or station. A dedicated node only carries and shows its own streams, and automatic and spare relay routing never put other stations on it. A customer's own node is dedicated by default.
 
-### Next after phase 17: UI fixes
+### UI fixes (in progress)
 
 - **3D topology map**: server labels duplicate and come loose from their servers when you rotate or zoom the map. Labels stay attached to their server.
 - **Lines around nodes**: connection lines on the 3D map no longer run straight through other nodes (for example studio lines cutting through the ingest nodes); they route around or over them.
