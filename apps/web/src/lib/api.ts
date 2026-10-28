@@ -1143,6 +1143,7 @@ export interface PortPlan {
   };
   old: { plain: number; tls: number; push: number; sftp: number; shoutcastFrom: number; shoutcastTo: number };
   thisServer: boolean;
+  orchestratorOnly: boolean;
   oldShoutcast: number;
   nodes: { id: string; name: string; roles: NodeRole[]; online: boolean; oldPorts: boolean }[];
 }
@@ -1200,6 +1201,8 @@ export interface StationRouting {
   backupIngest: IngestRef | null;
   relays: 'auto' | string[];
   spareRelays: boolean;
+  /** Station on a station node (1.3): through the ingests (default) or straight to the relays. */
+  delivery: 'ingest' | 'direct';
 }
 export interface RoutingChoice {
   id: string;
@@ -1210,6 +1213,8 @@ export interface RoutingChoice {
 }
 export interface StationRoutingView {
   routing: StationRouting;
+  /** Station on a station node: where it sends its streams now. `direct` says why it feeds the relays itself. */
+  studio: { ingests: { id: string; name: string; online: boolean; priority: number }[]; direct: 'chosen' | 'none' | 'offline' | null } | null;
   locked: 'station_node' | null;
   /** This server carries no audio (phase 18). */
   orchestratorOnly: boolean;

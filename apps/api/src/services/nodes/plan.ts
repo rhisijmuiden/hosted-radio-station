@@ -11,6 +11,7 @@ import { platformHost } from '../streaming/state.js';
 import { runningVersion } from '../system.js';
 import { DEDICATIONS, serves } from './dedication.js';
 import { buildFmPlan, fmConfigSchema } from './fm.js';
+import { studioDelivery } from './delivery.js';
 import { OLD_PORTS, PORTS } from './portplan.js';
 import { ingestsOf, pushedRouting, stationRouting } from './routing-rules.js';
 import type { IngestStation, NodePlan, ProbeTarget, RelayMount } from './protocol.js';
@@ -377,9 +378,15 @@ async function ingestPlan(
   relays: Node[],
   domains: { host: string; tenantId: string }[],
 ): Promise<NonNullable<NodePlan['ingest']>> {
+  // A station on a station node sends its source streams here when it is routed through this ingest (1.3).
+  const paired = stations.some((s) => s.nodeId) ? await ctx.db.select().from(schema.nodes).where(isNotNull(schema.nodes.pairedAt)).orderBy(asc(schema.nodes.id)) : [];
   const mine = stations
-    .filter((s) => !s.nodeId)
-    .map((s) => ({ s, me: ingestsOf(stationRouting(s)).find((i) => i.ref === node.id) }))
+    .map((s) => ({
+      s,
+      me: s.nodeId
+        ? studioDelivery(s, paired).ingests.filter((i) => i.node.id === node.id).map((i) => ({ ref: node.id, priority: i.priority }))[0]
+        : ingestsOf(stationRouting(s)).find((i) => i.ref === node.id),
+    }))
     .filter((x): x is { s: StationRow; me: { ref: string; priority: number } } => !!x.me);
   const ids = mine.map((x) => x.s.id);
   const outputs = ids.length
@@ -424,8 +431,9 @@ async function ingestPlan(
         isPublic: m.isPublic,
       })),
       targets,
+      // The station node feeds the external servers of its stations itself.
       outputs: outputs
-        .filter((o) => o.stationId === s.id && o.config.push !== false && o.mountId && o.config.host && o.config.port)
+        .filter((o) => o.stationId === s.id && !s.nodeId && o.config.push !== false && o.mountId && o.config.host && o.config.port)
         .map((o) => ({
           id: o.id,
           mountPath: path(o.mountId) ?? '',

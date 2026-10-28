@@ -4,6 +4,7 @@ import { schema } from '../../db/index.js';
 import type { OutputConfig } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
 import { nodeSettings, pushPortOf, pushToken, relaysByStation, type Node } from '../nodes/plan.js';
+import { ingestTarget, STUDIO_USER, studioDelivery, studioToken } from '../nodes/delivery.js';
 import type { WireRow } from './tables.js';
 
 /** A station in the package of a station node. */
@@ -73,6 +74,7 @@ export async function buildPackage(ctx: AppContext, node: Node): Promise<Station
     tenantIds.length ? ctx.db.select().from(schema.memberships).where(inArray(schema.memberships.tenantId, tenantIds)).orderBy(asc(schema.memberships.tenantId), asc(schema.memberships.userId)) : [],
     ids.length ? relaysByStation(ctx) : new Map<string, Node[]>(),
   ]);
+  const paired = ids.length ? await ctx.db.select().from(schema.nodes).where(isNotNull(schema.nodes.pairedAt)).orderBy(asc(schema.nodes.id)) : [];
   const accountIds = accounts.map((a) => a.id);
   const liveTokens = accountIds.length
     ? await ctx.db
@@ -110,8 +112,29 @@ export async function buildPackage(ctx: AppContext, node: Node): Promise<Station
     const outs: WireRow[] = outputs
       .filter((o) => o.stationId === s.id)
       .map((o) => wire({ ...o, status: null, config: { ...o.config, password: open(o.config.password), adminPassword: open(o.config.adminPassword) } }));
-    // The node delivers each public stream to every relay node that carries the station.
-    for (const relay of relays.get(s.id) ?? []) {
+    // By default the node sends its source streams once to the station's ingest(s), which make the other mounts and
+    // feed the relays (1.3); chosen so, or without an ingest online, it delivers each public stream to every relay.
+    const via = studioDelivery(s, paired);
+    for (const { node: ingest, priority } of via.ingests) {
+      const t = ingestTarget(ingest);
+      if (!t) continue;
+      const pub = own.filter((x) => x.isPublic);
+      const needed = new Set([...pub.map((m) => m.id), ...pub.map((m) => m.sourceMountId), ...pub.map((m) => m.fallbackMountId)].filter((id): id is string => !!id));
+      for (const m of own.filter((x) => x.kind === 'source' && needed.has(x.id))) {
+        const config: OutputConfig = {
+          host: t.host,
+          port: t.port,
+          tls: t.tls,
+          mount: `/${s.slug}${m.path}`,
+          username: STUDIO_USER,
+          password: studioToken(ctx, node, s.id),
+          push: true,
+          ingestNodeId: ingest.id,
+        };
+        outs.push(wire({ id: derivedUuid(`ingest-push:${ingest.id}:${m.id}`), stationId: s.id, type: 'icecast', name: `${priority ? 'Backup ingest' : 'Ingest'} ${ingest.name}`, enabled: true, mountId: m.id, config, status: null, createdAt: s.createdAt }));
+      }
+    }
+    for (const relay of via.ingests.length ? [] : (relays.get(s.id) ?? [])) {
       const c = nodeSettings(relay);
       const host = c.publicHost || relay.status.ip;
       const port = pushPortOf(c);

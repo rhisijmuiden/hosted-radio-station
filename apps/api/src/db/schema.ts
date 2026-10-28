@@ -401,6 +401,8 @@ export interface OutputConfig {
   publicUrl?: string;
   /** A relay node a station node pushes to (made by the main server, phase 12); its certificate may be self-signed. */
   relayNodeId?: string;
+  /** An ingest node a station node sends its source streams to (1.3), which feeds the relays in its place. */
+  ingestNodeId?: string;
   insecureTls?: boolean;
   /** Pushes to relay nodes (phase 13), in memory only: the push token itself and the ingest priority (0 = main). */
   token?: string;

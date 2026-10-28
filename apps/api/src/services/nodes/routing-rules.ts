@@ -15,6 +15,12 @@ export const routingSchema = z.object({
   relays: z.union([z.literal('auto'), z.array(z.uuid()).max(100)]).default('auto'),
   /** When none of the chosen relays is online, the other relays step in until one is back. */
   spareRelays: z.boolean().default(true),
+  /**
+   * A station on a station node (1.3): "ingest" = the node sends its source streams once to the ingest(s) above
+   * (main and backup; "local" there means: pick one), which make the other mounts and feed the relays, so the studio's
+   * upload stays small. "direct" = the node feeds every relay itself. Without an ingest online it feeds them directly.
+   */
+  delivery: z.enum(['ingest', 'direct']).default('ingest'),
 });
 export type StationRouting = z.infer<typeof routingSchema>;
 
