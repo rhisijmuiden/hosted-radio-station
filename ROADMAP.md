@@ -523,6 +523,7 @@ Small fixes planned for a patch release, one at a time after the current phase.
 ### Next after phase 17: UI fixes
 
 - **3D topology map**: server labels duplicate and come loose from their servers when you rotate or zoom the map. Labels stay attached to their server.
+- **Lines around nodes**: connection lines on the 3D map no longer run straight through other nodes (for example studio lines cutting through the ingest nodes); they route around or over them.
 - **Label toggle**: a switch on the 3D map to hide the server labels.
 - **Control traffic on by default**: the control traffic lines are shown when the map opens.
 - **Customer "Station node" dropdown**: shows "This server" instead of the node's real name. It shows the server names from phase 18.
