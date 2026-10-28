@@ -165,16 +165,33 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 11 | FM/MPX and RDS module | Done |
 | 12 | Station nodes | Done |
 | 13 | Orchestrator as control plane | Done |
-| 14 | Orchestrator redundancy | Planned (1.x) |
+| 14 | Orchestrator redundancy | Planned (just before sales start) |
 | 15 | Cloudflare DNS integration | Done (1.1.1) |
 | 16 | Installer menu and node enrollment | Done (1.2.0) |
 | 17 | RHIS Studio 1.0 (Windows client) | Done on test (fader start, step 4, parked until MIDI/GPIO hardware is available) |
 | 18 | Server names and topology views | Done (1.1.0) |
 | 19 | Clearer control panels and node assignment | Done (1.2.0) |
-| 20 | Monitoring node | Planned (1.x) |
-| 21 | Recorder node | Future |
-| 22 | Packaged installers and moving the orchestrator | Future |
-| 23 | Deployment wizard | Future |
+| 20 | Monitoring node | Next (step 3 in the order of work) |
+| 21 | Recorder node | Planned (step 5 in the order of work) |
+| 22 | Packaged installers and moving the orchestrator | Future (when the first customers come) |
+| 23 | Deployment wizard | Future (when the first customers come) |
+
+## Order of work
+
+One thing at a time; each item starts when the previous one is finished and tested.
+
+1. **Release to production**: everything on `test` (phase 17, the UI fixes, the port plan per role and routing via ingest) goes to `main` as one release.
+2. **Bug fix: two tracks "Cued" at once**: only one track can be cued at a time. This must be right before the Studio layout below, where player B is the cued track.
+3. **Phase 20: Monitoring node**: alerts when a node or relay goes down, instead of finding out from silence.
+4. **RHIS Studio: OmniPlayer-style layout**, in steps:
+   1. Players A and B, the log (playlist) and a dashboard.
+   2. Both jingle grids and a separate loose player.
+   3. Library with columns for the station's own item code, ISRC, BPM and key (taken from the tags first, otherwise calculated on the server in the background; an admin can correct them).
+   4. News player (source set per station: a file from a URL, a file over FTP/SFTP, or a live stream, at set times, with a spare jingle when the news is missing) and a log editor.
+   - Free docking of panels comes later as a separate item.
+5. **Phase 21: Recorder node**: recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download.
+
+Later: phase 14 (orchestrator redundancy) just before sales start; phases 22 and 23 when the first customers come.
 
 ## Phases
 
@@ -521,7 +538,7 @@ Small fixes planned for a patch release, one at a time after the current phase.
 - An FM/MPX node is linked directly to the station node (studio) it takes its audio from, and is drawn right next to it as one group, instead of on its own in the distribution layer.
 - Shared or dedicated nodes (pulled forward from phase 19): every node is **Shared** or **Dedicated** to one customer or station. A dedicated node only carries and shows its own streams, and automatic and spare relay routing never put other stations on it. A customer's own node is dedicated by default.
 
-### UI fixes (in progress)
+### UI fixes (done on test)
 
 - **3D topology map**: server labels duplicate and come loose from their servers when you rotate or zoom the map. Labels stay attached to their server.
 - **Lines around nodes**: connection lines on the 3D map no longer run straight through other nodes (for example studio lines cutting through the ingest nodes); they route around or over them.
@@ -529,7 +546,7 @@ Small fixes planned for a patch release, one at a time after the current phase.
 - **Control traffic on by default**: the control traffic lines are shown when the map opens.
 - **Customer "Station node" dropdown**: shows "This server" instead of the node's real name. It shows the server names from phase 18.
 
-### Next after the UI fixes: a port plan per role
+### Port plan per role (done on test)
 
 Every role gets its own default ports, so nodes are easy to put behind a DMZ or firewall and roles on one machine never clash. Every port can be overridden per node.
 
@@ -545,7 +562,7 @@ Every role gets its own default ports, so nodes are easy to put behind a DMZ or 
 - The panel shows per node exactly which firewall or DMZ rules to open, and the firewall check tests them.
 - The old encoder ports 8010/8443 stay on as "legacy" until the admin switches them off, so existing encoders keep working.
 
-### Next after the port plan: route station nodes via ingest
+### Route station nodes via ingest (done on test)
 
 A routing choice per station, set in the station's routing settings: how the audio of a station node reaches the relays.
 
