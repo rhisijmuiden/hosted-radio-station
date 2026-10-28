@@ -1,6 +1,6 @@
 [package]
 name = "rhis-studio"
-version = "0.14.0"
+version = "0.15.0"
 description = "RHIS Studio: the Windows client of Hosted Radio Station"
 authors = ["RHIS"]
 edition = "2021"

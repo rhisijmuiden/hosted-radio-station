@@ -4,7 +4,7 @@ import { GripVertical, ListPlus, Music2, Pause, Plus, Radio, RefreshCw, Search, 
 import { useEffect, useState, type DragEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { api, type AutodjSettings, type AutodjView, type MediaFile, type QueueName, type QueueRow, type StationDetail } from '../../lib/api';
+import { api, ApiError, type AutodjSettings, type AutodjView, type MediaFile, type QueueName, type QueueRow, type StationDetail } from '../../lib/api';
 import { formatSeconds } from '../../lib/format';
 import { paint } from './Clocks';
 import { Badge, Button, Card, CardHeader, Dialog, EmptyState, Field, Input, Select, Spinner, Switch } from '../ui';
@@ -41,12 +41,17 @@ function NowPlaying({ station, view, canSkip }: { station: StationDetail; view: 
   const duration = np?.media.durationSeconds ?? null;
   const pct = duration ? Math.min(100, (elapsed / duration) * 100) : 0;
   const skip = useMutation({
-    mutationFn: () => api(`/stations/${station.id}/autodj/skip`, { method: 'POST' }),
+    mutationFn: (force?: boolean) => api(`/stations/${station.id}/autodj/skip`, { method: 'POST', body: force ? { force } : {} }),
     onSuccess: () => {
       toast.success(t('autodj.skipped'));
       setTimeout(() => void qc.invalidateQueries({ queryKey: ['autodj', station.id] }), 1500);
     },
-    onError: (err) => toast.error((err as Error).message),
+    // A locked item of the format: managers may skip it after all.
+    onError: (err) => {
+      if (err instanceof ApiError && err.code === 'locked') {
+        if (confirm(err.message)) skip.mutate(true);
+      } else toast.error((err as Error).message);
+    },
   });
   const p = view.player;
   const state = !view.settings.enabled ? (

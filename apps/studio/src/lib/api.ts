@@ -129,6 +129,8 @@ export interface QueueRow {
   requestId: string | null;
   playlistName: string | null;
   label: string | null;
+  /** From a locked item of the format (server 1.3): DJs cannot skip it or play something over it. */
+  locked?: boolean;
   startedAt: string | null;
   media: Pick<Media, 'id' | 'title' | 'artist' | 'album' | 'durationSeconds' | 'location' | 'path'> & Cues;
 }
@@ -149,6 +151,8 @@ export interface RundownRow {
   startsAt: string;
   timed: boolean;
   hard: boolean;
+  /** DJs cannot skip it or play something over it (server 1.3). */
+  locked?: boolean;
   kind: 'music' | 'item';
   source: 'queues' | 'playlist' | 'track';
   label: string;

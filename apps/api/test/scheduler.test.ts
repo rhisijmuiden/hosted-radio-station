@@ -162,6 +162,7 @@ describe('scheduler API and AutoDJ', () => {
   const hasFfmpeg = spawnSync('ffmpeg', ['-version']).status === 0;
   let newsId: string;
   let adsId: string;
+  let dj: { cookie: string };
 
   beforeAll(async () => {
     t = await setup();
@@ -181,6 +182,13 @@ describe('scheduler API and AutoDJ', () => {
     const res = await t.app.inject({ method: 'POST', url: '/api/stations', headers: admin, payload: { tenantId: tenant.json().id, name: 'Radio Schermer', slug: 'schermer', bitrateKbps: 128 } });
     stationId = res.json().id;
     expect((await api('POST', '/upgrade', {})).statusCode).toBe(200);
+    await t.app.inject({
+      method: 'POST',
+      url: `/api/tenants/${tenant.json().id}/members`,
+      headers: admin,
+      payload: { email: 'dj@schermer.nl', name: 'DJ', password: 'dj-password-1', role: 'dj' },
+    });
+    dj = await login(t.app, 'dj@schermer.nl', 'dj-password-1');
   }, 60_000);
 
   afterEach(() => {
@@ -372,6 +380,27 @@ describe('scheduler API and AutoDJ', () => {
       expect(row).toMatchObject({ origin: 'clock', label: 'Power play' });
       const same = await t.db.select().from(schema.queueItems).where(eq(schema.queueItems.mediaId, row!.mediaId));
       expect(same).toHaveLength(1);
+    });
+    it('keeps DJs from skipping or interrupting a locked item; managers go ahead after a question', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      const view = (await api('GET', '/scheduler')).json();
+      const news = (await t.db.select().from(schema.mediaFiles).where(eq(schema.mediaFiles.title, 'News')))[0]!;
+      const clock = (await api('POST', '/clocks', { name: 'Locked news', items: [item({ kind: 'track', mediaId: news.id, at: 0, label: 'News', locked: true }), item({ kind: 'rotation' })] })).json();
+      expect(clock.items[0].locked).toBe(true);
+      await api('PUT', '/scheduler', { ...view.settings, enabled: true, defaultClockId: clock.id });
+      vi.setSystemTime(local('2026-10-26', '14:00') + 1000);
+      await playerStarted(t.ctx, stationId);
+      const next = await nextTrack(t.ctx, stationId);
+      await trackStarted(t.ctx, stationId, next!.itemId);
+      expect((await api('GET', '/autodj')).json().nowPlaying).toMatchObject({ label: 'News', locked: true });
+      const rundown = (await api('GET', '/autodj/rundown?hours=1')).json() as { rows: { label: string; locked: boolean }[] };
+      expect(rundown.rows.find((r) => r.label === 'News')!.locked).toBe(true);
+      expect((await api('POST', '/autodj/skip', {}, dj)).statusCode).toBe(403);
+      expect((await api('POST', '/autodj/play-now', { mediaId: news.id }, dj)).statusCode).toBe(403);
+      const asked = await api('POST', '/autodj/skip', {});
+      expect(asked.statusCode).toBe(409);
+      expect(asked.json().error.code).toBe('locked');
+      expect((await api('POST', '/autodj/skip', { force: true })).statusCode).toBe(200);
     });
     it('drops the track loaded ahead when a hard item is added before the playing track ends (#27)', async () => {
       vi.useFakeTimers({ toFake: ['Date'] });

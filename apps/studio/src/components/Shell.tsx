@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { ChevronsUpDown, Grid3x3, Headphones, Lock, LogOut, Mic, Radio, Settings, type LucideIcon } from 'lucide-react';
+import { ChevronsUpDown, Clock3, Grid3x3, Headphones, Lock, LogOut, Mic, Radio, Settings, type LucideIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEngine } from '../lib/engine';
@@ -149,7 +149,7 @@ function NextBlock() {
   return (
     <div className="border-l border-line pl-5" title={block.items.map((i) => i.label).filter(Boolean).join(' · ')}>
       <div className="flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.08em] text-muted uppercase">
-        <Lock className="size-3" /> {t('top.nextBlock')}
+        {block.locked ? <Lock className="size-3" /> : <Clock3 className="size-3" />} {t('top.nextBlock')}
       </div>
       <div className="mt-1 flex items-baseline gap-2 whitespace-nowrap">
         <span className="max-w-[220px] truncate text-[15px] font-bold">{t('top.blockAt', { label, time: at })}</span>

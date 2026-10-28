@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowUpToLine, Eraser, GripVertical, ListMusic, Lock, Music2, Play, SkipForward, Square, Trash2 } from 'lucide-react';
+import { ArrowUpToLine, Clock3, Eraser, GripVertical, ListMusic, Lock, Music2, Play, SkipForward, Square, Trash2 } from 'lucide-react';
 import { Fragment, useState, type DragEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -8,7 +8,7 @@ import { addLocalFile, DRAG_FILE, DRAG_MEDIA, LibraryPanel, useCanUpload, type Q
 import { JingleBar } from '../components/Jingles';
 import { Badge, Button, Card, EmptyState, Spinner } from '../components/ui';
 import { CueButton, CueEditor, hasCues, useCanCue } from '../components/CueEditor';
-import { api, type AutoDj, type QueueRow } from '../lib/api';
+import { api, ApiError, type AutoDj, type QueueRow } from '../lib/api';
 import { introLeft, playLength, trackLength } from '../lib/cues';
 import { duration } from '../lib/format';
 import { useNow } from '../lib/now';
@@ -23,6 +23,31 @@ function useQueueActions(stationId: string) {
   const { t } = useTranslation();
   const done = (data: AutoDj) => qc.setQueryData(['autodj', stationId], data);
   const fail = (err: unknown) => toast.error((err as Error).message);
+  // A locked item of the format is on air: managers and owners may go ahead after all.
+  const locked = (err: unknown) => err instanceof ApiError && err.code === 'locked' && confirm(err.message);
+  const skip = useMutation({
+    mutationFn: (force?: boolean) => api(`/stations/${stationId}/autodj/skip`, { method: 'POST', body: force ? { force } : {} }),
+    onSuccess: () => {
+      toast.success(t('assist.skipped'));
+      setTimeout(() => void qc.invalidateQueries({ queryKey: ['autodj', stationId] }), 800);
+    },
+    onError: (err): void => {
+      if (locked(err)) skip.mutate(true);
+      else fail(err);
+    },
+  });
+  const playNow = useMutation({
+    mutationFn: (v: ({ itemId: string } | { mediaId: string }) & { force?: boolean }) => api<AutoDj>(`/stations/${stationId}/autodj/play-now`, { method: 'POST', body: v }),
+    onSuccess: (d) => {
+      done(d);
+      toast.success(t('assist.playingNow'));
+      setTimeout(() => void qc.invalidateQueries({ queryKey: ['autodj', stationId] }), 1500);
+    },
+    onError: (err, v): void => {
+      if (locked(err)) playNow.mutate({ ...v, force: true });
+      else fail(err);
+    },
+  });
   return {
     add: useMutation({
       mutationFn: (v: { mediaId: string; queue: QueueName; at: 'top' | 'bottom' }) => api<AutoDj>(`/stations/${stationId}/autodj/queue`, { method: 'POST', body: v }),
@@ -48,23 +73,8 @@ function useQueueActions(stationId: string) {
       onSuccess: done,
       onError: fail,
     }),
-    skip: useMutation({
-      mutationFn: () => api(`/stations/${stationId}/autodj/skip`, { method: 'POST' }),
-      onSuccess: () => {
-        toast.success(t('assist.skipped'));
-        setTimeout(() => void qc.invalidateQueries({ queryKey: ['autodj', stationId] }), 800);
-      },
-      onError: fail,
-    }),
-    playNow: useMutation({
-      mutationFn: (v: { itemId: string } | { mediaId: string }) => api<AutoDj>(`/stations/${stationId}/autodj/play-now`, { method: 'POST', body: v }),
-      onSuccess: (d) => {
-        done(d);
-        toast.success(t('assist.playingNow'));
-        setTimeout(() => void qc.invalidateQueries({ queryKey: ['autodj', stationId] }), 1500);
-      },
-      onError: fail,
-    }),
+    skip,
+    playNow,
     player: useMutation({
       mutationFn: (command: 'play' | 'stop') => api(`/stations/${stationId}/autodj/${command}`, { method: 'POST' }),
       onSuccess: () => setTimeout(() => void qc.invalidateQueries({ queryKey: ['autodj', stationId] }), 800),
@@ -147,7 +157,10 @@ function NowPlaying({ data, stationId, lines, now }: { data: AutoDj; stationId: 
   const { supports } = useSession();
   const canUpload = useCanUpload();
   const [over, setOver] = useState(false);
-  const accepts = (e: DragEvent) => supports('play-now') && [DRAG, DRAG_MEDIA, ...(canUpload ? [DRAG_FILE] : [])].some((k) => e.dataTransfer.types.includes(k));
+  // A locked item of the format on air: DJs cannot skip it or play something over it; managers are asked first.
+  const lockedOnAir = !!np?.locked && !holding;
+  const blocked = lockedOnAir && !canUpload;
+  const accepts = (e: DragEvent) => !blocked && supports('play-now') && [DRAG, DRAG_MEDIA, ...(canUpload ? [DRAG_FILE] : [])].some((k) => e.dataTransfer.types.includes(k));
   const drop = (e: DragEvent) => {
     e.preventDefault();
     setOver(false);
@@ -179,7 +192,14 @@ function NowPlaying({ data, stationId, lines, now }: { data: AutoDj; stationId: 
           <Music2 className="size-7" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">{holding ? t('playout.waiting') : t('assist.nowPlaying')}</div>
+          <div className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+            {holding ? t('playout.waiting') : t('assist.nowPlaying')}
+            {lockedOnAir && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-koraal/15 px-2 py-0.5 text-accent-text" title={t('assist.lockedHint')}>
+                <Lock className="size-3" /> {t('assist.locked')}
+              </span>
+            )}
+          </div>
           <div className="display truncate text-[22px]">{holding ? (next ? next.media.title || next.media.path : t('assist.nothing')) : np ? np.media.title || np.media.path : t('assist.nothing')}</div>
           <div className="truncate text-[13px] text-muted">
             {holding
@@ -253,8 +273,8 @@ function NowPlaying({ data, stationId, lines, now }: { data: AutoDj; stationId: 
           variant="primary"
           onClick={() => a.skip.mutate()}
           loading={a.skip.isPending}
-          disabled={(!np && !holding) || data.edition !== 'station'}
-          title={t('assist.nextHint')}
+          disabled={(!np && !holding) || data.edition !== 'station' || blocked}
+          title={blocked ? t('assist.lockedHint') : t('assist.nextHint')}
           className="h-12 min-w-40 px-6 text-[15px]"
         >
           <SkipForward className="size-5" /> {t('playout.next')}
@@ -347,9 +367,9 @@ function PlaylistCard({ data, stationId, lines, until }: { data: AutoDj; station
             return (
               <Fragment key={`block-${l.block.at}`}>
                 <div className="flex items-center gap-2 border-b border-koraal/30 bg-koraal/10 px-3 py-1.5 text-[11px] font-bold text-accent-text">
-                  <Lock className="size-3.5" />
+                  {l.block.locked ? <Lock className="size-3.5" /> : <Clock3 className="size-3.5" />}
                   <span className="tabular">{clock(l.block.at).slice(0, 5)}</span>
-                  <span className="font-semibold">{t('assist.fixedBlock')}</span>
+                  <span className="font-semibold">{l.block.locked ? t('assist.lockedBlock') : t('assist.fixedBlock')}</span>
                   {l.block.hard && <span className="font-semibold text-muted">· {t('rundown.onTheMinute')}</span>}
                 </div>
                 {l.block.items.map((i, n) => {
@@ -357,12 +377,12 @@ function PlaylistCard({ data, stationId, lines, until }: { data: AutoDj; station
                   at += (i.seconds ?? 0) * 1000;
                   return (
                     <div key={n} className={clsx(GRID, 'border-b border-line border-l-[3px] border-l-koraal bg-koraal/5 py-2 pr-2 pl-[5px]')}>
-                      <Lock className="size-3.5 text-accent-text" aria-label={t('assist.fixed')} />
+                      {i.locked ? <Lock className="size-3.5 text-accent-text" aria-label={t('assist.locked')} /> : <Clock3 className="size-3.5 text-accent-text" aria-label={t('assist.fixed')} />}
                       <span className="text-[13px] font-semibold text-muted tabular">{clock(start)}</span>
                       <div className="min-w-0">
                         <div className="truncate text-[13px] font-semibold">{i.label || t('rundown.fixed')}</div>
                         <div className="truncate text-[11px] text-muted">
-                          {kind(i.source)} · {t('assist.fixed')}
+                          {kind(i.source)} · {i.locked ? t('assist.locked') : t('assist.fixed')}
                         </div>
                       </div>
                       <span className="text-right text-xs text-muted tabular">{i.seconds != null ? `±${duration(i.seconds)}` : '–'}</span>

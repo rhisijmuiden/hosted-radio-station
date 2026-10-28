@@ -39,6 +39,9 @@ export const nl: Translation = {
   },
   assist: {
     intro: 'Intro',
+    locked: 'Op slot',
+    lockedBlock: 'Vast blok van het format, op slot',
+    lockedHint: 'Een deel van het format dat op slot staat: niet over te slaan of te onderbreken. Managers krijgen eerst een vraag.',
     introHint: 'Seconden tot de zang begint: praat tot het einde van de intro',
     endsAt: 'eindigt om {{time}}',
     after: 'Hierna',

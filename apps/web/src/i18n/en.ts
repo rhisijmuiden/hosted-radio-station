@@ -1704,6 +1704,8 @@ export const en = {
     addPlaylist: 'Playlist',
     addTrack: 'Track',
     timeline: 'Timed and planned items',
+    locked: 'Locked',
+    lockedHint: 'DJs cannot skip this item or play something else over it, in RHIS Studio and in the panel. Managers can, after a question.',
     hardShort: 'exact',
     dialHint: 'Lengths are estimated from the average track length of each playlist.',
     help: 'The first item starts the hour. Items with a minute are timed; the others follow the item before them. "Music from the queues" and "Until the next timed item" fill the time up to the next timed item. Requests and tracks added by hand play during the music.',

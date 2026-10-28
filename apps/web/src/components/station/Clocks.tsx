@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowDown, ArrowUp, Clock3, Disc3, ListMusic, Music2, Plus, Radio, Save, Search, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Clock3, Disc3, ListMusic, Lock, Music2, Plus, Radio, Save, Search, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -302,6 +302,13 @@ function ItemRow({
             {t('clocks.hard')}
           </label>
         )}
+        {item.kind !== 'rotation' && (
+          <label className="inline-flex cursor-pointer items-center gap-2 text-[13px]" title={t('clocks.lockedHint')}>
+            <input type="checkbox" className="accent-koraal" disabled={!canEdit} checked={!!item.locked} onChange={(e) => onChange({ ...item, locked: e.target.checked })} />
+            <Lock className="size-3.5 text-muted" />
+            {t('clocks.locked')}
+          </label>
+        )}
         {segment && (
           <span className="ml-auto text-xs text-muted tabular-nums">
             {timed ? t('clocks.timedAt', { minute: minuteLabel(segment.start) }) : t('clocks.approx', { minute: minuteLabel(segment.start) })}
@@ -440,6 +447,7 @@ function ClockEditor({ station, clock, view, canEdit, onSaved }: { station: Stat
                         {x.item.label || (x.item.kind === 'track' ? info.track(x.item.mediaId)?.title : info.playlist(x.item.playlistId)?.name) || '—'}
                       </span>
                       {x.item.hard && <span className="text-[10px] font-bold text-offline uppercase">{t('clocks.hardShort')}</span>}
+                      {x.item.locked && <Lock className="size-3 shrink-0 text-muted" aria-label={t('clocks.locked')} />}
                     </li>
                   ))}
               </ul>

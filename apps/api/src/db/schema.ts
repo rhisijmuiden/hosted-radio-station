@@ -842,6 +842,8 @@ export const queueItems = pgTable(
     origin: text('origin').notNull(),
     /** Name of the hour clock item it came from (clock items). */
     label: text('label'),
+    /** From a locked clock item: DJs cannot skip it or play something else over it. */
+    locked: boolean('locked').notNull().default(false),
     playlistId: uuid('playlist_id').references(() => playlists.id, { onDelete: 'set null' }),
     requestId: uuid('request_id').references(() => songRequests.id, { onDelete: 'set null' }),
     addedBy: text('added_by'),
@@ -890,6 +892,8 @@ export interface ClockItem {
   at: number | null;
   /** Timed items: cut the track that is playing at the minute instead of waiting for its end. */
   hard: boolean;
+  /** DJs cannot skip it or play something else over it (missing in clocks saved before 1.3 = false). */
+  locked?: boolean;
 }
 
 /**
