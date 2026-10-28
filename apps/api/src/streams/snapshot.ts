@@ -43,6 +43,8 @@ export interface Snapshot {
   sourceNodes: Map<string, { id: string; tenantId: string | null; roles: string[]; config: NodeConfig; secret: string }>;
   /** Orchestrator only (phase 18): no encoders, no audio on this server. */
   orchestratorOnly: boolean;
+  /** The encoder ports from before the port plan (8010 and 8443) stay open next to the configured ones (1.3). */
+  oldPorts: boolean;
 }
 
 export async function loadSnapshot(ctx: AppContext): Promise<Snapshot> {
@@ -128,6 +130,7 @@ export async function loadSnapshot(ctx: AppContext): Promise<Snapshot> {
     hostTenant,
     sourceNodes,
     orchestratorOnly: orchestrator.only,
+    oldPorts: orchestrator.oldPorts,
   };
 }
 

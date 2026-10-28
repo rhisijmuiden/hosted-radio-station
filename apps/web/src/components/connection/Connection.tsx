@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { api, type ConnectionEndpoint, type FirewallPort, type NodeFirewall, type NodeItem, type PortService, type StationConnection, type StationDetail } from '../../lib/api';
 import { formatRelative } from '../../lib/format';
+import { CommandBox } from '../nodes/common';
 import { Badge, Button, Card, CardHeader, CopyField, Spinner, Table } from '../ui';
 
 /** "8010" or "50000–50100". */
@@ -18,7 +19,7 @@ const ROLE_ICON: Record<ConnectionEndpoint['role'], ReactNode> = {
   uploads: <Upload />,
 };
 
-function PortRows({ ports }: { ports: { service: PortService; port: number; to?: number; tls?: boolean }[] }) {
+function PortRows({ ports }: { ports: { service: PortService; port: number; to?: number; tls?: boolean; old?: boolean }[] }) {
   const { t } = useTranslation();
   return (
     <div className="flex flex-col divide-y divide-line rounded-md border border-line">
@@ -27,6 +28,7 @@ function PortRows({ ports }: { ports: { service: PortService; port: number; to?:
           <span className="w-28 shrink-0 font-mono font-semibold tabular-nums">{portText(p)}</span>
           <span className="min-w-0 flex-1 text-muted">{t(`connection.ports.${p.service}`)}</span>
           {p.tls && <Badge tone="online">TLS</Badge>}
+          {p.old && <Badge tone="warning">{t('firewall.oldPort')}</Badge>}
         </div>
       ))}
     </div>
@@ -182,6 +184,7 @@ export function FirewallTab({ node }: { node: NodeItem }) {
                     {t(`connection.ports.${p.service}`)}
                     {p.station && <span className="text-muted"> · {p.station}</span>}
                     <div className="mt-0.5 flex flex-wrap gap-1">
+                      {p.old && <Badge tone="warning">{t('firewall.oldPort')}</Badge>}
                       {FOR_ORDER.filter((f) => p.for.includes(f)).map((f) => (
                         <Badge key={f}>{t(`firewall.forWho.${f}`)}</Badge>
                       ))}
@@ -201,6 +204,7 @@ export function FirewallTab({ node }: { node: NodeItem }) {
               );
             })}
           </Table>
+          {data.ports.some((p) => p.old) && <p className="px-5 pb-4 text-xs text-muted">{t('firewall.oldHint')}</p>}
           </>
         )}
       </Card>
@@ -213,6 +217,14 @@ export function FirewallTab({ node }: { node: NodeItem }) {
             <p className="text-xs text-muted">{data.publicInterface ? t('firewall.publicHint') : t('firewall.forwardHint', { internal: data.internal ?? t('firewall.theNode') })}</p>
           </div>
         </Card>
+        {!!data.ports.length && (
+          <Card>
+            <CardHeader title={t('firewall.rules')} description={t('firewall.rulesHint')} />
+            <div className="p-5">
+              <CommandBox value={ufwRules(data.ports)} />
+            </div>
+          </Card>
+        )}
         <Card className="p-5">
           <p className="text-[13px] text-muted">{t('firewall.outbound')}</p>
         </Card>
@@ -220,5 +232,9 @@ export function FirewallTab({ node }: { node: NodeItem }) {
     </div>
   );
 }
+
+/** One ufw rule per port, e.g. "ufw allow 8200/tcp comment 'HRS encoderPlain'"; old ports are marked as such. */
+export const ufwRules = (ports: FirewallPort[]) =>
+  ports.map((p) => `ufw allow ${p.to ? `${p.port}:${p.to}` : p.port}/tcp comment 'HRS ${p.service}${p.station ? ` ${p.station}` : ''}${p.old ? ' (old)' : ''}'`).join('\n');
 
 const portKey = (p: { port: number; to?: number }) => (p.to ? `${p.port}-${p.to}` : String(p.port));

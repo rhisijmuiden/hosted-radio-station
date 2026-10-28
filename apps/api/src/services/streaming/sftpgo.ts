@@ -3,7 +3,8 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { schema } from '../../db/index.js';
 import { verifyPassword } from '../../lib/auth.js';
 import type { AppContext } from '../../lib/context.js';
-import type { StreamingSettings } from '../settings.js';
+import { OLD_PORTS } from '../nodes/portplan.js';
+import { getSetting, type StreamingSettings } from '../settings.js';
 import { mediaDir } from './icecast.js';
 import { tenantStorageUsage } from './storage.js';
 
@@ -14,6 +15,8 @@ import { tenantStorageUsage } from './storage.js';
 export async function renderSftpgoEnv(ctx: AppContext, s: StreamingSettings) {
   const api = `http://127.0.0.1:${ctx.config.PORT}/api/internal/sftpgo`;
   const certs = join(ctx.config.DATA_DIR, 'certs');
+  // A station node keeps SFTP on its old port (2022) next to 8402 while it keeps its old ports (port plan, 1.3).
+  const old = !!ctx.config.STATION_NODE && s.sftp.enabled && s.sftp.port !== OLD_PORTS.sftp && (await getSetting(ctx, 'orchestrator')).oldPorts;
   const env: Record<string, string | number> = {
     SFTPGO_CONFIG_DIR: join(ctx.config.DATA_DIR, 'sftpgo'),
     SFTPGO_LOG_FILE_PATH: '',
@@ -31,6 +34,7 @@ export async function renderSftpgoEnv(ctx: AppContext, s: StreamingSettings) {
     SFTPGO_TELEMETRY__BIND_PORT: 0,
     SFTPGO_WEBDAVD__BINDINGS__0__PORT: 0,
     SFTPGO_SFTPD__BINDINGS__0__PORT: s.sftp.enabled ? s.sftp.port : 0,
+    ...(old ? { SFTPGO_SFTPD__BINDINGS__1__PORT: OLD_PORTS.sftp } : {}),
     SFTPGO_SFTPD__ENABLED_SSH_COMMANDS: 'md5sum,sha1sum,sha256sum,cd,pwd,scp',
     SFTPGO_FTPD__BINDINGS__0__PORT: s.ftp.enabled ? s.ftp.port : 0,
     // 0 = plain FTP and explicit TLS, 1 = explicit TLS required.

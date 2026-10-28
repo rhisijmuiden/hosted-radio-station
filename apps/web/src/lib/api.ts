@@ -893,6 +893,8 @@ export interface NodeConfig {
   probe: boolean;
   /** Relay: where station nodes push their streams (TLS). */
   pushPort: number;
+  /** Keeps the ports from before the port plan open next to the new ones (1.3). */
+  oldPorts: boolean;
   /** Station node: its address on the studio network, for encoders and RHIS Studio there. */
   lanAddress: string;
   fm: FmConfig;
@@ -1099,7 +1101,8 @@ export interface ConnectionEndpoint {
   online: boolean;
   external: string | null;
   internal: string | null;
-  ports: { service: PortService; port: number; to?: number; tls?: boolean }[];
+  /** `old`: a port from before the port plan (1.3), after the new one. */
+  ports: { service: PortService; port: number; to?: number; tls?: boolean; old?: boolean }[];
 }
 export interface StationConnection {
   endpoints: ConnectionEndpoint[];
@@ -1127,6 +1130,21 @@ export interface FirewallPort {
   to?: number;
   for: ('studio' | 'encoders' | 'uploads' | 'listeners' | 'ingests')[];
   station?: string;
+  /** A port from before the port plan, open while the node keeps its old ports (1.3). */
+  old?: boolean;
+}
+/** The port plan (1.3): ports per role, and where the old ports are still open. */
+export interface PortPlan {
+  ports: {
+    orchestrator: { https: number; http: number };
+    ingest: { plain: number; tls: number; shoutcastFrom: number; shoutcastTo: number };
+    relay: { push: number };
+    stationNode: { plain: number; tls: number; sftp: number };
+  };
+  old: { plain: number; tls: number; push: number; sftp: number; shoutcastFrom: number; shoutcastTo: number };
+  thisServer: boolean;
+  oldShoutcast: number;
+  nodes: { id: string; name: string; roles: NodeRole[]; online: boolean; oldPorts: boolean }[];
 }
 export interface NodeFirewall {
   selfHosted: boolean;

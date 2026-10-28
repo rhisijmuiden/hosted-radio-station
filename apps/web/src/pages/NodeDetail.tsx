@@ -397,6 +397,9 @@ function SettingsForm({ node, admin }: { node: NodeItem; admin: boolean }) {
             <RolePicker value={roles} onChange={setRoles} />
           </Field>
           <Switch checked={c.probe} onChange={(probe) => set({ probe })} label={t('nodes.fields.probe')} description={t('nodes.fields.probeHint')} />
+          {roles.some((r) => r === 'source' || r === 'relay' || r === 'station') && (
+            <Switch checked={!!c.oldPorts} onChange={(oldPorts) => set({ oldPorts })} label={t('portPlan.nodeSwitch')} description={t('portPlan.nodeSwitchHint')} />
+          )}
         </div>
       </Card>
       <DedicationCard node={node} roles={roles} value={c} onChange={set} stations={stations.data ?? []} />
@@ -413,7 +416,7 @@ function SettingsForm({ node, admin }: { node: NodeItem; admin: boolean }) {
                 <Input type="number" min={0} value={c.maxListeners} onChange={(e) => set({ maxListeners: Number(e.target.value) })} />
               </Field>
               <Field label={t('nodes.fields.pushPort')} hint={t('nodes.fields.pushPortHint')}>
-                <Input type="number" min={1024} max={65535} value={c.pushPort ?? ''} placeholder="8001" onChange={(e) => set({ pushPort: port(e.target.value) ?? 8001 })} />
+                <Input type="number" min={1024} max={65535} value={c.pushPort ?? ''} placeholder="8301" onChange={(e) => set({ pushPort: port(e.target.value) ?? 8301 })} />
               </Field>
             </div>
             <div>

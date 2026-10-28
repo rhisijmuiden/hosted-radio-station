@@ -10,6 +10,7 @@ import { authenticateSource, type Account, type OutsideShow } from '../services/
 import type { LiveBroadcast } from './recorder.js';
 import { PREAMBLE_PREFIX, verifyPreamble } from '../services/nodes/preamble.js';
 import { serves } from '../services/nodes/dedication.js';
+import { OLD_PORTS } from '../services/nodes/portplan.js';
 import { resolveMount, type Snapshot, type StationView } from './snapshot.js';
 
 type SourceNode = Snapshot['sourceNodes'] extends Map<string, infer N> ? N : never;
@@ -162,6 +163,11 @@ export class IngestGateway {
     if (this.secure.has('default') && !snap.orchestratorOnly) wanted.set('tls', { port: snap.streaming.ingestTlsPort, kind: 'tls' });
     else this.servers.get('tls')?.server.close();
     if (snap.streaming.ingestPlainPort && !snap.orchestratorOnly) wanted.set('plain', { port: snap.streaming.ingestPlainPort, kind: 'plain' });
+    // Old ports (port plan, 1.3): encoders set up before 1.3 keep working until the administrator switches them off.
+    if (snap.oldPorts && !snap.orchestratorOnly) {
+      if (wanted.has('tls') && snap.streaming.ingestTlsPort !== OLD_PORTS.tls) wanted.set('tls-old', { port: OLD_PORTS.tls, kind: 'tls' });
+      if (wanted.has('plain') && snap.streaming.ingestPlainPort !== OLD_PORTS.plain) wanted.set('plain-old', { port: OLD_PORTS.plain, kind: 'plain' });
+    }
     for (const v of snap.stations.values()) {
       if (!v.active || v.onNode || !v.ingest.local || !v.station.legacyPort) continue;
       wanted.set(`legacy:${v.station.id}:0`, { port: v.station.legacyPort, kind: 'legacy', stationId: v.station.id });
@@ -174,7 +180,10 @@ export class IngestGateway {
         this.servers.delete(key);
       }
     }
-    if (!this.secure.has('default') || snap.orchestratorOnly) this.servers.delete('tls');
+    if (!this.secure.has('default') || snap.orchestratorOnly) {
+      this.servers.delete('tls');
+      this.servers.delete('tls-old');
+    }
     for (const [key, want] of wanted) {
       if (this.servers.has(key)) continue;
       const handler = (socket: net.Socket) => void this.handle(socket, want.kind === 'tls' ? 'tls' : want.kind === 'plain' ? 'plain' : 'shoutcast', want.stationId);
@@ -242,8 +251,10 @@ export class IngestGateway {
     this.certStamp = stamp;
     // A running TLS server picks up the new default certificate for clients without SNI.
     const d = raw.get('default');
-    const t = this.servers.get('tls')?.server as tls.Server | undefined;
-    if (d && t) t.setSecureContext({ cert: d.cert, key: d.key });
+    for (const key of ['tls', 'tls-old']) {
+      const t = this.servers.get(key)?.server as tls.Server | undefined;
+      if (d && t) t.setSecureContext({ cert: d.cert, key: d.key });
+    }
   }
 
   // Connections

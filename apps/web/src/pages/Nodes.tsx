@@ -12,6 +12,7 @@ import { RolloutCard, UpdateBadge } from '../components/nodes/updates';
 import { Badge, Button, Card, Dialog, EmptyState, Field, Input, PageHeader, Select, Spinner, Switch, Table } from '../components/ui';
 import { api, ApiError, type NodeItem, type NodePairing, type NodeRole, type NodesSettings, type StationListItem, type Tenant } from '../lib/api';
 import { isAdmin, useMe } from '../lib/auth';
+import { PortPlanCard } from '../components/nodes/PortPlan';
 import { OrchestratorOnlyCard } from '../components/nodes/OrchestratorOnly';
 import { PendingNodesCard } from '../components/nodes/PendingNodes';
 
@@ -255,6 +256,7 @@ export function NodesPage() {
 
       {admin && <PendingNodesCard />}
       {admin && <OrchestratorOnlyCard />}
+      {admin && <PortPlanCard />}
       {admin && <RolloutCard />}
 
       {!!list.length && (

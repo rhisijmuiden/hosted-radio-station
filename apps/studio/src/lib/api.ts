@@ -89,7 +89,7 @@ export interface Endpoint {
   online: boolean;
   external: string | null;
   internal: string | null;
-  ports: { service: string; port: number; to?: number; tls?: boolean }[];
+  ports: { service: string; port: number; to?: number; tls?: boolean; old?: boolean }[];
 }
 export interface LiveSession {
   id: string;

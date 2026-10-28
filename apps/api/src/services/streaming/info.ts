@@ -4,6 +4,7 @@ import type { AppContext } from '../../lib/context.js';
 import { namesFrom } from '../nodes/names.js';
 import { nodeHost, nodeSettings } from '../nodes/plan.js';
 import { externalAddress, inboundPorts, internalAddress, STATION_NODE_STREAMING, type PortService } from '../nodes/ports.js';
+import { OLD_PORTS } from '../nodes/portplan.js';
 import { ingestsOf, pushedRouting, stationRouting } from '../nodes/routing-rules.js';
 import { getSetting } from '../settings.js';
 import type { Mount, Station } from './state.js';
@@ -56,7 +57,8 @@ export interface Endpoint {
   external: string | null;
   /** Address on the customer's or studio's own network, when known. */
   internal: string | null;
-  ports: { service: PortService; port: number; to?: number; tls?: boolean }[];
+  /** `old`: a port from before the port plan (1.3), listed after the new one; clients use it when the new one is closed. */
+  ports: { service: PortService; port: number; to?: number; tls?: boolean; old?: boolean }[];
 }
 
 /** Everything a DJ needs to set up an encoder, and the listen URLs of the public mounts. */
@@ -204,7 +206,7 @@ async function endpointsOf(ctx: AppContext, station: Station, conn: BaseConnecti
     const sn = await nodeRow(station.nodeId);
     if (sn) {
       const routed = domain?.ingestNodeId === sn.id ? domain.ingestHost : null;
-      const ports = (await inboundPorts(ctx, sn)).filter((p) => p.service !== 'legacy' || p.station === station.slug).map((p) => ({ service: p.service, port: p.port, ...(p.to ? { to: p.to } : {}), ...(p.service === 'encoderTls' ? { tls: true } : {}) }));
+      const ports = (await inboundPorts(ctx, sn)).filter((p) => p.service !== 'legacy' || p.station === station.slug).map((p) => ({ service: p.service, port: p.port, ...(p.to ? { to: p.to } : {}), ...(p.service === 'encoderTls' ? { tls: true } : {}), ...(p.old ? { old: true } : {}) }));
       endpoints.push({ role: 'stationNode', name: sn.name, node: { id: sn.id, name: sn.name }, online: !!sn.status.online, external: routed ?? externalAddress(sn), internal: internalAddress(sn), ports });
       return { endpoints, panelUrl, upload: uploadPorts(STATION_NODE_STREAMING) };
     }
@@ -228,6 +230,9 @@ async function endpointsOf(ctx: AppContext, station: Station, conn: BaseConnecti
           { service: 'encoderTls' as const, port: conn.tls.port, tls: true },
           ...(streaming.ingestPlainPort ? [{ service: 'encoderPlain' as const, port: streaming.ingestPlainPort }] : []),
           ...(station.legacyPort && !viaNode ? [{ service: 'legacy' as const, port: station.legacyPort, to: station.legacyPort + 1 }] : []),
+          // Old ports (port plan, 1.3) after the new ones, while this server keeps them.
+          ...(orchestrator.oldPorts && !viaNode && conn.tls.port !== OLD_PORTS.tls ? [{ service: 'encoderTls' as const, port: OLD_PORTS.tls, tls: true, old: true }] : []),
+          ...(orchestrator.oldPorts && !viaNode && streaming.ingestPlainPort && streaming.ingestPlainPort !== OLD_PORTS.plain ? [{ service: 'encoderPlain' as const, port: OLD_PORTS.plain, old: true }] : []),
         ].filter((p) => p.service !== 'encoderTls' || (i.priority === 0 ? conn.tls.available : !!conn.backup?.tls.available)),
       });
       continue;
@@ -244,7 +249,12 @@ async function endpointsOf(ctx: AppContext, station: Station, conn: BaseConnecti
       external: domain?.ingestNodeId === n.id ? domain.ingestHost : externalAddress(n),
       // The address on the customer's own network only for the customer's own node.
       internal: n.tenantId === station.tenantId ? internalAddress(n) : null,
-      ports: [...(c.sourceTlsPort && tlsOk ? [{ service: 'encoderTls' as const, port: c.sourceTlsPort, tls: true }] : []), ...(c.sourcePlainPort ? [{ service: 'encoderPlain' as const, port: c.sourcePlainPort }] : [])],
+      ports: [
+        ...(c.sourceTlsPort && tlsOk ? [{ service: 'encoderTls' as const, port: c.sourceTlsPort, tls: true }] : []),
+        ...(c.sourcePlainPort ? [{ service: 'encoderPlain' as const, port: c.sourcePlainPort }] : []),
+        ...(c.oldPorts && c.sourceTlsPort && tlsOk && c.sourceTlsPort !== OLD_PORTS.tls ? [{ service: 'encoderTls' as const, port: OLD_PORTS.tls, tls: true, old: true }] : []),
+        ...(c.oldPorts && c.sourcePlainPort && c.sourcePlainPort !== OLD_PORTS.plain ? [{ service: 'encoderPlain' as const, port: OLD_PORTS.plain, old: true }] : []),
+      ],
     });
   }
   // Without a station node the library is on this server; an orchestrator only takes no uploads.

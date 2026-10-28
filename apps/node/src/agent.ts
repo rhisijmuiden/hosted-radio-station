@@ -285,7 +285,7 @@ export class Agent {
     // Give Icecast a moment to read the new mounts before the streams come in.
     setTimeout(
       () => {
-        this.relay?.apply(mounts, plan.relay?.pushPort ?? null);
+        this.relay?.apply(mounts, plan.relay?.pushPorts ?? plan.relay?.pushPort ?? null);
         this.ingest?.apply(plan.ingest ?? null);
       },
       current !== body ? 1500 : 0,

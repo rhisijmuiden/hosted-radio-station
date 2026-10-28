@@ -153,7 +153,7 @@ describe('orchestrator only (phase 18)', () => {
     expect(c.orchestratorOnly).toBe(true);
     expect(c.panelUrl).toBe('https://onlineradio.example.com');
     expect(c.endpoints).toEqual([expect.objectContaining({ role: 'ingest', name: 'ingest-ams', node: { id: ingest.id, name: 'ingest-ams' }, external: '127.0.0.1' })]);
-    expect(c.endpoints[0].ports).toEqual(expect.arrayContaining([{ service: 'encoderPlain', port: 8010 }]));
+    expect(c.endpoints[0].ports).toEqual(expect.arrayContaining([{ service: 'encoderPlain', port: 8200 }]));
     const detail = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}`, headers: owner })).json();
     expect(detail.connection.upload).toMatchObject({ sftpPort: null, ftpPort: null });
   });

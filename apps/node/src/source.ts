@@ -78,8 +78,9 @@ interface Listener {
  * come from the node's web server (copied by the root helper into certs/).
  */
 export class SourceForwarder {
-  private plain: Listener | null = null;
-  private secure: Listener | null = null;
+  /** Listening encoder ports: the node's own and, while it keeps them, the old ones (port plan, 1.3). */
+  private plain: Listener[] = [];
+  private secure: Listener[] = [];
   private plan: SourcePlan | null = null;
   private contexts = new Map<string, tls.SecureContext>();
   private defaultCert: { cert: Buffer; key: Buffer } | null = null;
@@ -101,9 +102,11 @@ export class SourceForwarder {
     this.plan = plan;
     this.problems = [];
     await this.loadCertificates();
-    this.plain = this.rebind(this.plain, plan?.plainPort ?? null, 'plain');
-    this.secure = this.rebind(this.secure, plan?.tlsPort && this.defaultCert ? plan.tlsPort : null, 'tls');
-    if (plan?.tlsPort && !this.defaultCert) this.problems.push('No certificate for encoder TLS yet');
+    const plain = plan?.ports?.plain ?? (plan?.plainPort ? [plan.plainPort] : []);
+    const secure = plan?.ports?.tls ?? (plan?.tlsPort ? [plan.tlsPort] : []);
+    this.plain = this.rebind(this.plain, plain, 'plain');
+    this.secure = this.rebind(this.secure, this.defaultCert ? secure : [], 'tls');
+    if (secure.length && !this.defaultCert) this.problems.push('No certificate for encoder TLS yet');
   }
 
   stop() {
@@ -111,10 +114,13 @@ export class SourceForwarder {
     for (const s of this.active.keys()) s.destroy();
   }
 
-  private rebind(cur: Listener | null, port: number | null, via: 'tls' | 'plain'): Listener | null {
-    if (cur && cur.port === port) return cur;
-    cur?.server.close();
-    if (!port) return null;
+  private rebind(cur: Listener[], ports: number[], via: 'tls' | 'plain'): Listener[] {
+    const keep = cur.filter((l) => ports.includes(l.port));
+    for (const l of cur) if (!ports.includes(l.port)) l.server.close();
+    return [...keep, ...ports.filter((p) => !keep.some((l) => l.port === p)).map((p) => this.listen(p, via))];
+  }
+
+  private listen(port: number, via: 'tls' | 'plain'): Listener {
     const onConn = (socket: net.Socket) => this.forward(socket, via);
     const server =
       via === 'tls'
@@ -152,7 +158,7 @@ export class SourceForwarder {
     this.certStamp = stamp;
     const changed = !!def && (!this.defaultCert || !def.cert.equals(this.defaultCert.cert));
     this.defaultCert = def;
-    if (changed && this.secure) (this.secure.server as tls.Server).setSecureContext(def!);
+    if (changed) for (const l of this.secure) (l.server as tls.Server).setSecureContext(def!);
   }
 
   private forward(client: net.Socket, via: 'tls' | 'plain') {
@@ -205,6 +211,6 @@ export class SourceForwarder {
   /** Picks up new and renewed certificates, and opens the TLS port once the first certificate is there. */
   async refreshCertificates() {
     await this.loadCertificates();
-    if (this.plan?.tlsPort && this.defaultCert && !this.secure) await this.apply(this.plan);
+    if ((this.plan?.ports?.tls.length || this.plan?.tlsPort) && this.defaultCert && !this.secure.length) await this.apply(this.plan);
   }
 }

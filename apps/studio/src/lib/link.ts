@@ -18,6 +18,8 @@ export interface Ingest {
   host: string;
   port: number;
   tls: boolean;
+  /** The same server's old port (from before the port plan), for when a firewall does not let the new one in yet. */
+  oldPort?: number;
 }
 /** internal/external: the station node's addresses; main: the server's ingest when the station is not on a node. */
 export interface Links {
@@ -45,18 +47,22 @@ export function linksOf(detail: StationDetail, plainHosts: string[] = []): Links
   const c = detail.connection;
   const node = c.endpoints?.find((e) => e.role === 'stationNode');
   if (node) {
-    const plain = node.ports.find((p) => p.service === 'encoderPlain')?.port ?? c.plain?.port ?? null;
-    const tls = node.ports.find((p) => p.service === 'encoderTls')?.port ?? null;
+    const plain = node.ports.find((p) => p.service === 'encoderPlain' && !p.old)?.port ?? c.plain?.port ?? null;
+    const tls = node.ports.find((p) => p.service === 'encoderTls' && !p.old)?.port ?? null;
+    const oldPlain = node.ports.find((p) => p.service === 'encoderPlain' && p.old)?.port;
+    const oldTls = node.ports.find((p) => p.service === 'encoderTls' && p.old)?.port;
     const ext = node.external;
     return {
       node: { name: node.name, online: node.online },
-      internal: node.internal && plain ? { host: node.internal, port: plain, tls: false } : null,
-      external: !ext ? null : tls && publicName(ext) && !plainHosts.includes(ext) ? { host: ext, port: tls, tls: true } : plain ? { host: ext, port: plain, tls: false } : null,
+      internal: node.internal && plain ? { host: node.internal, port: plain, tls: false, oldPort: oldPlain } : null,
+      external: !ext ? null : tls && publicName(ext) && !plainHosts.includes(ext) ? { host: ext, port: tls, tls: true, oldPort: oldTls } : plain ? { host: ext, port: plain, tls: false, oldPort: oldPlain } : null,
       main: null,
     };
   }
   const usePlain = plainHosts.includes(c.ingestHost) && !!c.plain;
-  const main = c.tls.available && !usePlain ? { host: c.ingestHost, port: c.tls.port, tls: true } : c.plain ? { host: c.ingestHost, port: c.plain.port, tls: false } : null;
+  const ingest = c.endpoints?.find((e) => e.role === 'ingest');
+  const oldOf = (service: 'encoderTls' | 'encoderPlain') => ingest?.ports.find((p) => p.service === service && p.old)?.port;
+  const main = c.tls.available && !usePlain ? { host: c.ingestHost, port: c.tls.port, tls: true, oldPort: oldOf('encoderTls') } : c.plain ? { host: c.ingestHost, port: c.plain.port, tls: false, oldPort: oldOf('encoderPlain') } : null;
   return { node: null, internal: null, external: null, main };
 }
 
@@ -90,10 +96,16 @@ export function useLink(detail: StationDetail | undefined) {
   return { links, reachable: reach.data, picked, mode: live.link ?? 'auto' };
 }
 
-/** The same choice at the moment of Go Live, with a fresh check of the studio network. */
+/**
+ * The same choice at the moment of Go Live, with a fresh check of the studio network. A server that still keeps its
+ * old port (port plan, 1.3) is reached on that one when a firewall does not let the new port in yet.
+ */
 export async function chooseNow(links: Links, mode: LinkMode, manual: ManualLink) {
   const reachable = mode === 'auto' && links.internal && links.external ? await probe(links.internal) : undefined;
-  return choose(links, mode, manual, reachable);
+  const picked = choose(links, mode, manual, reachable);
+  if (!picked?.to.oldPort || (await probe(picked.to))) return picked;
+  const old = { ...picked.to, port: picked.to.oldPort };
+  return (await probe(old)) ? { ...picked, to: old } : picked;
 }
 
 /** "Studio network (automatic)" and the like, for the address Go Live uses. */
