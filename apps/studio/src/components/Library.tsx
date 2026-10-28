@@ -1,13 +1,13 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowUp, Folder, HardDrive, Headphones, ListMusic, Network, Pause, Play, Plus, Search, Server, Square, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Folder, HardDrive, Headphones, ListMusic, Network, Pause, Play, Plus, Search, Server, Square, X } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { api, getApiKey, type Media } from '../lib/api';
-import { duration } from '../lib/format';
+import { camelot, duration } from '../lib/format';
 import { call, type Folder as FolderData, type FolderEntry, type PreviewState } from '../lib/native';
-import { useCanUpload } from '../lib/session';
+import { useCanUpload, useSession } from '../lib/session';
 import { getSettings, useSettings } from '../lib/settings';
 import { CueButton, CueEditor, hasCues, useCanCue } from './CueEditor';
 import { Card, EmptyState, Input, Spinner } from './ui';
@@ -124,22 +124,106 @@ function SearchBox({ value, onChange, placeholder }: { value: string; onChange: 
   );
 }
 
-function ServerList({ stationId, add, preview, playing }: { stationId: string; add: AddToQueue; preview: (m: Media) => void; playing: string | null }) {
+type Sort = 'code' | 'artist' | 'title' | 'bpm' | 'key' | 'duration';
+
+/** Tempo and key in one line: "128 · Am 8A". */
+function TempoKey({ m }: { m: Media }) {
+  if (m.bpm == null && !m.musicKey) return null;
+  return (
+    <span className="whitespace-nowrap tabular">
+      {m.bpm != null && `${Math.round(m.bpm)} BPM`}
+      {m.bpm != null && m.musicKey && ' · '}
+      {m.musicKey && (
+        <>
+          {m.musicKey} <span className="font-semibold text-accent-text">{camelot(m.musicKey)}</span>
+        </>
+      )}
+    </span>
+  );
+}
+
+function SortHeader({ value, sort, dir, onSort, className, children }: { value: Sort; sort: Sort; dir: 'asc' | 'desc'; onSort: (s: Sort) => void; className?: string; children: ReactNode }) {
+  const active = sort === value;
+  return (
+    <button type="button" onClick={() => onSort(value)} className={clsx('flex items-center gap-0.5 truncate uppercase hover:text-ink', active && 'text-ink', className)}>
+      {children}
+      {active && (dir === 'asc' ? <ArrowUp className="size-3 shrink-0" /> : <ArrowDown className="size-3 shrink-0" />)}
+    </button>
+  );
+}
+
+/**
+ * The station library. Narrow (Classic) it is a list; wide (OmniPlayer) it is a table with the station's code, tempo and
+ * key, sorted by clicking a column.
+ */
+function ServerList({ stationId, add, preview, playing, wide }: { stationId: string; add: AddToQueue; preview: (m: Media) => void; playing: string | null; wide?: boolean }) {
   const { t } = useTranslation();
+  const { supports } = useSession();
+  const codes = supports('track-codes');
   const [q, setQ] = useState('');
+  const [sort, setSort] = useState<Sort>('artist');
+  const [dir, setDir] = useState<'asc' | 'desc'>('asc');
   const canCue = useCanCue();
   const [cue, setCue] = useState<Media | null>(null);
   const search = useQuery({
-    queryKey: ['library', stationId, q],
-    queryFn: () => api<{ items: Media[]; total: number }>(`/stations/${stationId}/library?enabled=yes&limit=60&sort=artist&q=${encodeURIComponent(q)}`),
+    queryKey: ['library', stationId, q, sort, dir],
+    queryFn: () => api<{ items: Media[]; total: number }>(`/stations/${stationId}/library?enabled=yes&limit=${wide ? 150 : 60}&sort=${sort}&dir=${dir}&q=${encodeURIComponent(q)}`),
     placeholderData: (prev) => prev,
   });
+  const onSort = (s: Sort) => {
+    if (s === sort) setDir(dir === 'asc' ? 'desc' : 'asc');
+    else {
+      setSort(s);
+      setDir(s === 'bpm' ? 'desc' : 'asc');
+    }
+  };
+  const table = wide && codes;
+  // Code | title and artist | ISRC (when there is room) | BPM | key | length | buttons
+  const cols = 'grid grid-cols-[88px_minmax(0,1fr)_44px_64px_52px_84px] @3xl:grid-cols-[88px_minmax(0,1fr)_120px_44px_64px_52px_84px] items-center gap-x-3';
+  const drag = (m: Media) => (e: React.DragEvent) => {
+    e.dataTransfer.setData(DRAG_MEDIA, m.id);
+    e.dataTransfer.setData(DRAG_MEDIA_PATH, m.path);
+    e.dataTransfer.effectAllowed = 'copy';
+  };
+  const buttons = (m: Media) => (
+    <div className="flex items-center justify-end gap-1">
+      <PreviewButton onClick={() => preview(m)} active={playing === m.id} label={t('library.preview')} />
+      {canCue && <CueButton onClick={() => setCue(m)} set={hasCues(m)} />}
+      <QueueButtons onAdd={(queue, top) => add({ mediaId: m.id, queue, at: top ? 'top' : 'bottom' })} />
+    </div>
+  );
   return (
     <>
       <div className="border-b border-line p-3">
-        <SearchBox value={q} onChange={setQ} placeholder={t('assist.search')} />
+        <SearchBox value={q} onChange={setQ} placeholder={codes ? t('library.searchCodes') : t('assist.search')} />
         <div className="mt-1.5 text-[11px] text-muted">{search.data ? t('assist.found', { count: search.data.total }) : ' '}</div>
       </div>
+      {table && (
+        <div className={clsx(cols, 'border-b border-line bg-chip/40 px-3 py-1.5 text-[10px] font-bold tracking-[0.06em] text-muted')}>
+          <SortHeader value="code" sort={sort} dir={dir} onSort={onSort}>
+            {t('library.code')}
+          </SortHeader>
+          <div className="flex gap-3">
+            <SortHeader value="title" sort={sort} dir={dir} onSort={onSort}>
+              {t('library.title')}
+            </SortHeader>
+            <SortHeader value="artist" sort={sort} dir={dir} onSort={onSort}>
+              {t('library.artist')}
+            </SortHeader>
+          </div>
+          <span className="hidden uppercase @3xl:block">ISRC</span>
+          <SortHeader value="bpm" sort={sort} dir={dir} onSort={onSort} className="justify-end">
+            BPM
+          </SortHeader>
+          <SortHeader value="key" sort={sort} dir={dir} onSort={onSort}>
+            {t('library.key')}
+          </SortHeader>
+          <SortHeader value="duration" sort={sort} dir={dir} onSort={onSort} className="justify-end">
+            {t('library.length')}
+          </SortHeader>
+          <span />
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {search.isPending ? (
           <div className="grid place-items-center py-10">
@@ -147,26 +231,41 @@ function ServerList({ stationId, add, preview, playing }: { stationId: string; a
           </div>
         ) : !search.data?.items.length ? (
           <EmptyState icon={<ListMusic className="size-6" />} title={t('assist.noTracks')} />
-        ) : (
+        ) : table ? (
           search.data.items.map((m) => (
-            <div
-              key={m.id}
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.setData(DRAG_MEDIA, m.id);
-                e.dataTransfer.setData(DRAG_MEDIA_PATH, m.path);
-                e.dataTransfer.effectAllowed = 'copy';
-              }}
-              className="group flex cursor-grab items-center gap-2 border-b border-line px-3 py-2 hover:bg-hover"
-            >
-              <div className="min-w-0 flex-1">
+            <div key={m.id} draggable onDragStart={drag(m)} className={clsx(cols, 'group cursor-grab border-b border-line px-3 py-1.5 hover:bg-hover')}>
+              <span className="truncate font-mono text-[11px] text-muted">{m.code ?? '…'}</span>
+              <div className="min-w-0">
                 <div className="truncate text-[13px] font-semibold">{m.title || m.path}</div>
                 <div className="truncate text-[11px] text-muted">{m.artist}</div>
               </div>
+              <span className="hidden truncate font-mono text-[11px] text-muted @3xl:block">{m.isrc || '—'}</span>
+              <span className="text-right text-xs tabular">{m.bpm != null ? Math.round(m.bpm) : '—'}</span>
+              <span className="truncate text-xs">
+                {m.musicKey ? (
+                  <>
+                    {m.musicKey} <span className="text-[11px] font-semibold text-accent-text">{camelot(m.musicKey)}</span>
+                  </>
+                ) : (
+                  <span className="text-muted">—</span>
+                )}
+              </span>
+              <span className="text-right text-xs text-muted tabular">{duration(m.durationSeconds)}</span>
+              {buttons(m)}
+            </div>
+          ))
+        ) : (
+          search.data.items.map((m) => (
+            <div key={m.id} draggable onDragStart={drag(m)} className="group flex cursor-grab items-center gap-2 border-b border-line px-3 py-2 hover:bg-hover">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[13px] font-semibold">{m.title || m.path}</div>
+                <div className="flex gap-2 truncate text-[11px] text-muted">
+                  <span className="truncate">{m.artist}</span>
+                  {codes && <TempoKey m={m} />}
+                </div>
+              </div>
               <span className="text-xs text-muted tabular">{duration(m.durationSeconds)}</span>
-              <PreviewButton onClick={() => preview(m)} active={playing === m.id} label={t('library.preview')} />
-              {canCue && <CueButton onClick={() => setCue(m)} set={hasCues(m)} />}
-              <QueueButtons onAdd={(queue, top) => add({ mediaId: m.id, queue, at: top ? 'top' : 'bottom' })} />
+              {buttons(m)}
             </div>
           ))
         )}
@@ -318,7 +417,7 @@ function PreviewBar({ state, run }: { state: PreviewState; run: (cmd: string, ar
 type Source = 'server' | 'network' | 'pc';
 
 /** The right-hand panel of Live assist: the server library, network shares and this PC, with pre-listen. */
-export function LibraryPanel({ stationId, add }: { stationId: string; add: AddToQueue }) {
+export function LibraryPanel({ stationId, add, wide }: { stationId: string; add: AddToQueue; wide?: boolean }) {
   const { t } = useTranslation();
   const [source, setSource] = useState<Source>('server');
   const [current, setCurrent] = useState<string | null>(null);
@@ -343,7 +442,7 @@ export function LibraryPanel({ stationId, add }: { stationId: string; add: AddTo
     { value: 'pc', label: t('library.pc'), icon: <HardDrive className="size-3.5" /> },
   ];
   return (
-    <Card className="flex min-h-0 flex-col overflow-hidden">
+    <Card className={clsx('flex min-h-0 flex-col overflow-hidden', wide && '@container flex-1')}>
       <div role="tablist" aria-label={t('library.sources')} className="grid grid-cols-3 border-b border-line">
         {tabs.map((tab) => (
           <button
@@ -361,7 +460,7 @@ export function LibraryPanel({ stationId, add }: { stationId: string; add: AddTo
           </button>
         ))}
       </div>
-      {source === 'server' && <ServerList stationId={stationId} add={add} preview={previewServer} playing={playing} />}
+      {source === 'server' && <ServerList stationId={stationId} add={add} preview={previewServer} playing={playing} wide={wide} />}
       {source === 'network' && <Shares stationId={stationId} add={add} preview={previewFile} playing={playing} />}
       {source === 'pc' && <FolderList start={null} stationId={stationId} add={add} preview={previewFile} playing={playing} />}
       {state?.loaded ? <PreviewBar state={state} run={run} /> : <div className="border-t border-line px-3 py-2 text-[11px] text-muted">{t('assist.libraryHint')}</div>}

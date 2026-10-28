@@ -16,6 +16,8 @@ import {
   filePath,
   MEDIA_EXTENSIONS,
   MUSIC_FOLDER,
+  normaliseIsrc,
+  normaliseKey,
   refreshSourceStatus,
   scanLibrary,
   scanProgress,
@@ -65,6 +67,12 @@ const mediaOut = z.object({
   durationSeconds: z.number().nullable(),
   bitrateKbps: z.number().int().nullable(),
   gainDb: z.number().nullable(),
+  /** The station's own number for the track, e.g. HF-03007 (null until the server gives it, within a minute). */
+  code: z.string().nullable(),
+  isrc: z.string(),
+  bpm: z.number().nullable(),
+  /** "Am", "F#" or empty. */
+  musicKey: z.string(),
   ...cuesOut.shape,
   sizeBytes: z.number(),
   enabled: z.boolean(),
@@ -733,7 +741,7 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
     folder: z.string().max(500).optional(),
     playlistId: z.uuid().optional(),
     enabled: z.enum(['all', 'yes', 'no']).default('all'),
-    sort: z.enum(['artist', 'title', 'album', 'added', 'played', 'plays', 'duration', 'path']).default('artist'),
+    sort: z.enum(['artist', 'title', 'album', 'added', 'played', 'plays', 'duration', 'path', 'code', 'bpm', 'key']).default('artist'),
     dir: z.enum(['asc', 'desc']).default('asc'),
     offset: z.coerce.number().int().min(0).default(0),
     limit: z.coerce.number().int().min(1).max(500).default(100),
@@ -757,7 +765,7 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
       const where: (SQL | undefined)[] = [eq(mf.stationId, station.id)];
       if (q.q) {
         const like = `%${q.q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
-        where.push(or(ilike(mf.title, like), ilike(mf.artist, like), ilike(mf.album, like), ilike(mf.path, like)));
+        where.push(or(ilike(mf.title, like), ilike(mf.artist, like), ilike(mf.album, like), ilike(mf.path, like), ilike(mf.code, like), ilike(mf.isrc, like.replace(/[\s-]/g, ''))));
       }
       if (q.location) where.push(eq(mf.location, q.location));
       if (q.folder) where.push(sql`${mf.path} like ${`${q.folder.replace(/[\\%_]/g, (c) => `\\${c}`)}/%`}`);
@@ -768,7 +776,7 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
         if (!p) throw notFound('Playlist');
         where.push(inPlaylist(p));
       }
-      const column = { artist: mf.artist, title: mf.title, album: mf.album, added: mf.createdAt, played: mf.lastPlayedAt, plays: mf.playCount, duration: mf.durationSeconds, path: mf.path }[q.sort];
+      const column = { artist: mf.artist, title: mf.title, album: mf.album, added: mf.createdAt, played: mf.lastPlayedAt, plays: mf.playCount, duration: mf.durationSeconds, path: mf.path, code: mf.code, bpm: mf.bpm, key: mf.musicKey }[q.sort];
       const dir = q.dir === 'asc' ? asc : desc;
       const [items, [total]] = await Promise.all([
         ctx.db
@@ -933,6 +941,11 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
           album: z.string().trim().max(300).optional(),
           genre: z.string().trim().max(100).optional(),
           year: z.number().int().min(1000).max(2999).nullable().optional(),
+          /** With or without dashes; empty clears it. */
+          isrc: z.string().trim().max(20).optional(),
+          bpm: z.number().min(40).max(250).nullable().optional(),
+          /** "Am", "A minor", "8A" (Camelot) and the like; empty clears it. */
+          musicKey: z.string().trim().max(20).optional(),
           enabled: z.boolean().optional(),
           /** All five cue points at once; null clears one. */
           cues: z.object({ cueIn: cueSecond, cueIntro: cueSecond, cueSegue: cueSecond, cueFadeOut: cueSecond, cueOut: cueSecond }).optional(),
@@ -942,7 +955,17 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (req) => {
       const { station } = await radio(req, req.params.id, 'manager');
-      const { enabled, cues, ...tags } = req.body;
+      const { enabled, cues, isrc, musicKey, bpm, ...rest } = req.body;
+      const tags: Partial<typeof schema.mediaFiles.$inferInsert> = { ...rest };
+      if (isrc !== undefined) {
+        tags.isrc = normaliseIsrc(isrc);
+        if (isrc && !tags.isrc) throw badRequest('That is not an ISRC (two letters, three letters or digits, seven digits)');
+      }
+      if (musicKey !== undefined) {
+        tags.musicKey = normaliseKey(musicKey);
+        if (musicKey && !tags.musicKey) throw badRequest('Unknown key: use for example Am, F#, Bb minor or 8A');
+      }
+      if (bpm !== undefined) tags.bpm = bpm === null ? null : Math.round(bpm * 10) / 10;
       const tagged = Object.values(tags).some((v) => v !== undefined);
       if (cues) {
         const [m] = await ctx.db

@@ -758,6 +758,14 @@ export const mediaFiles = pgTable(
     bitrateKbps: integer('bitrate_kbps'),
     /** ReplayGain of the track in dB, from the file's tags; evens out loudness between tracks. */
     gainDb: doublePrecision('gain_db'),
+    /** The station's own number for the track (e.g. HF-03007): given once when the file is first found, never reused. */
+    code: text('code'),
+    isrc: text('isrc').notNull().default(''),
+    /** Tempo and musical key ("Am", "F#"): from the tags, otherwise measured by the server (`analysedAt`). */
+    bpm: doublePrecision('bpm'),
+    musicKey: text('music_key').notNull().default(''),
+    /** When the server measured tempo and key of the current file; null = not yet (or the file changed). */
+    analysedAt: timestamp('analysed_at', { withTimezone: true }),
     // Cue points, in seconds from the start of the file (null = not set): where the track starts and stops playing,
     // where the intro ends (the DJ talks up to it), where the next track starts and where the fade-out begins.
     cueIn: doublePrecision('cue_in'),
@@ -778,6 +786,7 @@ export const mediaFiles = pgTable(
     uniqueIndex('media_files_path_idx').on(t.stationId, t.location, t.path),
     index('media_files_artist_idx').on(t.stationId, t.artist),
     index('media_files_played_idx').on(t.stationId, t.lastPlayedAt),
+    uniqueIndex('media_files_code_idx').on(t.stationId, t.code),
   ],
 );
 

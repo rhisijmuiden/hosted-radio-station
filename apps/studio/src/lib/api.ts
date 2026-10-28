@@ -130,6 +130,11 @@ export interface Media extends Cues {
   location: string;
   path: string;
   enabled: boolean;
+  /** The station's own number, e.g. HF-03007; ISRC, tempo and key ("Am"). Servers with `track-codes` only. */
+  code?: string | null;
+  isrc?: string;
+  bpm?: number | null;
+  musicKey?: string;
 }
 export interface QueueRow {
   id: string;

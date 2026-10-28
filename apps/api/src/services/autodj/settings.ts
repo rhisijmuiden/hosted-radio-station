@@ -31,6 +31,10 @@ export const autodjSchema = z.object({
   trackSeparationMinutes: z.number().int().min(0).max(10080).default(180),
   /** Hold the AutoDJ while a DJ is live on a mount that falls back to it, and continue with a new track afterwards. */
   pauseWhenLive: z.boolean().default(true),
+  /** Prefix of the track codes ("HF" → HF-03007); empty = the initials of the station. Changing it only affects new tracks. */
+  codePrefix: z.string().trim().toUpperCase().regex(/^[A-Z0-9]{0,6}$/, 'Use up to six letters and digits').default(''),
+  /** Measure tempo and key of tracks whose tags have neither (in the background, at low priority). */
+  analyse: z.boolean().default(true),
   requests: z
     .object({
       /** Listeners pick a track from the library on the public page. */
