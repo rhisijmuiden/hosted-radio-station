@@ -137,6 +137,27 @@ certificate yet), the client shows the error with **Connect without encryption**
 The temporary password then goes over the network readable. The choice is kept for that address; *Try encrypted
 again* under *Connection* undoes it.
 
+### Connection to a station node
+
+When the station runs on a [station node](station-nodes.md) in the studio, the node has two addresses: its address
+on the studio network and its public address. **Settings › Connection** shows both, whether the node answers on the
+studio network, and which one Go live uses. *Connect via*:
+
+- **Automatic** (default): the studio network when the node answers there, otherwise the internet. The client checks
+  again at every Go live, so a studio PC goes live over the LAN in the studio and over the internet at home, and a
+  studio keeps broadcasting when its internet connection drops.
+- **Studio network** or **Internet**: always that address.
+- **Manual address**: an address and port of your own (for example another LAN address or a port forward), with or
+  without TLS.
+
+The studio network address is the node's *Address on the studio network* from the panel, or else the first address
+the node reports. It is always plain (a LAN address has no public certificate). The public address uses TLS when it
+is a public name with a certificate. The Go live page shows the address in use and how it was chosen.
+
+![Settings › Connection](screenshots/phase-17-connection-en.png)
+
+![Go live over the internet, chosen automatically](screenshots/phase-17-live-internet-en.png)
+
 DJs can only broadcast with the DJ account linked to their own user; managers and owners can use any account of the
 station. The server's normal rules apply: show times, mount limits and bitrate limits.
 

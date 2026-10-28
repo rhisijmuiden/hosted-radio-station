@@ -30,6 +30,10 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   panel and in RHIS Studio.
 - RHIS Studio 0.15: locked blocks have a lock in the playlist and the top bar, the player says *Locked* and **Next**
   is off for DJs while one is on air. Other fixed blocks have a clock icon.
+- RHIS Studio 0.16: Go live reaches a station on a station node over the studio network when the node answers there,
+  and over its public address otherwise, checked at every Go live. **Settings › Connection** shows both addresses,
+  whether the studio network answers and which one is in use, and takes *Studio network*, *Internet* or a manual
+  address instead.
 - A station node takes encoders on the bare mount (`/live`), as the panel and RHIS Studio give it, when one station
   there has that mount. Before, it answered "Unknown mount /live".
 - A station node waits up to 8 seconds for a Go Live password RHIS Studio just got from the main server. The

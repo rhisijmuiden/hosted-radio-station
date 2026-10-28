@@ -63,6 +63,11 @@ pub fn connect(host: &str, port: u16, tls: bool) -> anyhow::Result<Box<dyn Conn>
     Ok(Box::new(connector.connect(host, tcp).map_err(|e| anyhow::anyhow!("TLS: {e}"))?))
 }
 
+/// Whether something listens on host:port (any of its addresses) within the timeout.
+pub fn reachable(host: &str, port: u16, timeout: Duration) -> bool {
+    (host, port).to_socket_addrs().map(|addrs| addrs.into_iter().any(|a| TcpStream::connect_timeout(&a, timeout).is_ok())).unwrap_or(false)
+}
+
 fn basic(user: &str, pass: &str) -> String {
     base64::engine::general_purpose::STANDARD.encode(format!("{user}:{pass}"))
 }
@@ -234,6 +239,16 @@ pub fn send_metadata(t: &Target, title: &str) -> anyhow::Result<()> {
 mod tests {
     use super::*;
     use std::net::TcpListener;
+
+    #[test]
+    fn probes_a_port() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(reachable("127.0.0.1", port, Duration::from_millis(500)));
+        drop(listener);
+        assert!(!reachable("127.0.0.1", port, Duration::from_millis(500)));
+        assert!(!reachable("does-not-exist.invalid", port, Duration::from_millis(500)));
+    }
 
     #[test]
     fn streams_with_put_and_basic_auth() {

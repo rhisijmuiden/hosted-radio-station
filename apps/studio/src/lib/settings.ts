@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import type { LinkMode, ManualLink } from './link';
 import type { AudioConfig, OutputSel } from './native';
 
 export interface CartSlot {
@@ -14,8 +15,11 @@ export interface Settings {
   stationId: string | null;
   channel: 'production' | 'test';
   audio: AudioConfig;
-  /** plainHosts: encoder addresses where the DJ chose to connect without TLS (their certificate is not trusted). */
-  live: { accountId: string | null; mountId: string | null; bitrate: number; title: string; plainHosts: string[] };
+  /**
+   * plainHosts: encoder addresses where the DJ chose to connect without TLS (their certificate is not trusted).
+   * link: how Go Live reaches a station node (see lib/link.ts); manual: the address for link 'manual'.
+   */
+  live: { accountId: string | null; mountId: string | null; bitrate: number; title: string; plainHosts: string[]; link: LinkMode; manual: ManualLink };
   carts: (CartSlot | null)[];
   cartPage: number;
   /** Pre-listen, off air: its own sound card output (null = the Windows default). */
@@ -31,7 +35,7 @@ const defaults: Settings = {
   stationId: null,
   channel: 'production',
   audio: { input: null, output: null, inputGainDb: 0, cartGainDb: 0, cartsToStream: true, cartsToOutput: true, monitorInput: false },
-  live: { accountId: null, mountId: null, bitrate: 192, title: '', plainHosts: [] },
+  live: { accountId: null, mountId: null, bitrate: 192, title: '', plainHosts: [], link: 'auto', manual: { host: '', port: 8010, tls: false } },
   carts: Array.from({ length: 48 }, () => null),
   cartPage: 0,
   preview: { output: null },

@@ -102,6 +102,15 @@ async fn send_metadata(target: Target, title: String) -> Result<(), String> {
         .map_err(|e| e.to_string())?
 }
 
+/// Whether a TCP port answers within the timeout: RHIS Studio uses it to see if the station node is reachable on the
+/// studio network before it goes live there.
+#[tauri::command]
+async fn probe_tcp(host: String, port: u16, timeout_ms: u64) -> bool {
+    tauri::async_runtime::spawn_blocking(move || streamer::reachable(&host, port, std::time::Duration::from_millis(timeout_ms.clamp(100, 10_000))))
+        .await
+        .unwrap_or(false)
+}
+
 #[tauri::command]
 fn secret_get(server: String) -> Result<Option<String>, String> {
     secrets::get(&server)
@@ -259,6 +268,7 @@ pub fn run() {
             stop_broadcast,
             broadcast_status,
             send_metadata,
+            probe_tcp,
             secret_get,
             secret_set,
             secret_delete,
