@@ -131,6 +131,7 @@ export function RoutingCard({ station }: { station: StationDetail }) {
                   {v.studio.direct
                     ? t(`routing.delivery.now.${v.studio.direct}`)
                     : t('routing.delivery.now.ingest', { names: v.studio.ingests.map((i) => i.name).join(` ${t('routing.delivery.and')} `), count: v.studio.ingests.length })}
+                  {v.studio.error && <span className="mt-1 block font-mono text-xs text-muted">{t('routing.delivery.lastError', { error: v.studio.error })}</span>}
                 </p>
               )}
             </div>

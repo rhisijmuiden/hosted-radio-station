@@ -28,6 +28,7 @@ const routingOut = z.object({
     .object({
       ingests: z.array(z.object({ id: z.uuid(), name: z.string(), online: z.boolean(), priority: z.number() })),
       direct: z.enum(['chosen', 'update', 'none', 'offline', 'failing']).nullable(),
+      error: z.string().nullable(),
     })
     .nullable(),
   /** Why the routing cannot be changed here: the station runs on a station node, or its AutoDJ runs on this server. */
@@ -80,7 +81,7 @@ export const stationRoutingRoutes: FastifyPluginAsyncZod = async (app) => {
     const studio = station.nodeId ? studioDelivery(station, rows) : null;
     return {
       routing: r,
-      studio: studio && { ingests: studio.ingests.map((i) => ({ id: i.node.id, name: i.node.name, online: !!i.node.status.online, priority: i.priority })), direct: studio.direct },
+      studio: studio && { ingests: studio.ingests.map((i) => ({ id: i.node.id, name: i.node.name, online: !!i.node.status.online, priority: i.priority })), direct: studio.direct, error: studio.error ?? null },
       locked: station.nodeId ? 'station_node' : null,
       orchestratorOnly: only,
       autodjHere: station.edition === 'station',

@@ -11,7 +11,7 @@ import { platformHost } from '../streaming/state.js';
 import { runningVersion } from '../system.js';
 import { DEDICATIONS, serves } from './dedication.js';
 import { buildFmPlan, fmConfigSchema } from './fm.js';
-import { studioDelivery } from './delivery.js';
+import { plannedIngests } from './delivery.js';
 import { OLD_PORTS, PORTS } from './portplan.js';
 import { ingestsOf, pushedRouting, stationRouting } from './routing-rules.js';
 import type { IngestStation, NodePlan, ProbeTarget, RelayMount } from './protocol.js';
@@ -384,7 +384,7 @@ async function ingestPlan(
     .map((s) => ({
       s,
       me: s.nodeId
-        ? studioDelivery(s, paired).ingests.filter((i) => i.node.id === node.id).map((i) => ({ ref: node.id, priority: i.priority }))[0]
+        ? (plannedIngests(s, paired) ?? []).filter((i) => i.node.id === node.id).map((i) => ({ ref: node.id, priority: i.priority }))[0]
         : ingestsOf(stationRouting(s)).find((i) => i.ref === node.id),
     }))
     .filter((x): x is { s: StationRow; me: { ref: string; priority: number } } => !!x.me);

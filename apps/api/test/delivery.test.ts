@@ -68,7 +68,7 @@ describe('station node through the ingest (1.3)', () => {
   it('sends the source stream once to an ingest by default, not every mount to every relay', async () => {
     const view = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/routing`, headers: admin })).json();
     expect(view.routing.delivery).toBe('ingest');
-    expect(view.studio).toEqual({ ingests: [{ id: ingest, name: 'pub-ingest-01', online: true, priority: 0 }], direct: null });
+    expect(view.studio).toEqual({ ingests: [{ id: ingest, name: 'pub-ingest-01', online: true, priority: 0 }], direct: null, error: null });
     const out = await pushes();
     expect(out).toEqual([expect.objectContaining({ host: '192.0.2.10', port: 8200, mount: '/harder-fm/live', username: STUDIO_USER, ingestNodeId: ingest })]);
   });
@@ -110,7 +110,7 @@ describe('station node through the ingest (1.3)', () => {
   it('falls back to the relays while no ingest is online', async () => {
     await setOnline(ingest, false);
     await setOnline(backup, false);
-    expect((await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/routing`, headers: admin })).json().studio).toEqual({ ingests: [], direct: 'offline' });
+    expect((await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/routing`, headers: admin })).json().studio).toEqual({ ingests: [], direct: 'offline', error: null });
     const out = await pushes();
     expect(out).toHaveLength(2);
     expect(out.every((o) => o.relayNodeId === relay && o.port === 8301)).toBe(true);
@@ -120,7 +120,7 @@ describe('station node through the ingest (1.3)', () => {
 
   it('sends straight to the relays when chosen so', async () => {
     const res = await routing({ ingest: 'local', backupIngest: null, relays: 'auto', spareRelays: true, delivery: 'direct' });
-    expect(res.json().studio).toEqual({ ingests: [], direct: 'chosen' });
+    expect(res.json().studio).toEqual({ ingests: [], direct: 'chosen', error: null });
     const out = await pushes();
     expect(out.map((o) => o.mount).sort()).toEqual(['/listen/harder-fm/live', '/listen/harder-fm/low']);
     expect(out.every((o) => o.relayNodeId === relay)).toBe(true);
@@ -136,11 +136,13 @@ describe('station node through the ingest (1.3)', () => {
     const n = await nodeRow(studio);
     await t.db.update(schema.nodes).set({ status: { ...n.status, features: [] } }).where(eq(schema.nodes.id, studio));
     try {
-      expect((await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/routing`, headers: admin })).json().studio).toEqual({ ingests: [], direct: 'update' });
+      expect((await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/routing`, headers: admin })).json().studio).toEqual({ ingests: [], direct: 'update', error: null });
       const out = await pushes();
       expect(out).toHaveLength(2);
       expect(out.every((o) => o.relayNodeId === relay)).toBe(true);
-      expect((await buildPlan(t.ctx, await nodeRow(ingest))).ingest!.stations.some((x) => x.stationId === stationId)).toBe(false);
+      // The ingest already takes the station, so it is ready the moment the updated node starts sending.
+      const ready = await Promise.all([ingest, backup].map(async (id) => (await buildPlan(t.ctx, await nodeRow(id))).ingest!.stations.some((x) => x.stationId === stationId)));
+      expect(ready.filter(Boolean)).toHaveLength(1);
     } finally {
       await setOnline(studio, true);
     }
@@ -163,13 +165,15 @@ describe('station node through the ingest (1.3)', () => {
     // Automatic: one of the two ingests.
     const [via] = (await pushes()).map((o) => o.ingestNodeId!);
     expect([ingest, backup]).toContain(via);
-    await t.db.update(schema.stations).set({ nodeRuntime: { mounts: [], autodj: null, encoders: 0, relays: { [via!]: { state: 'error', message: 'timeout' } }, revision: null, storageBytes: null, updatedAt: new Date().toISOString(), syncedAt: null } as never }).where(eq(schema.stations.id, stationId));
+    await t.db.update(schema.stations).set({ nodeRuntime: { mounts: [], autodj: null, encoders: 0, relays: { [via!]: { state: 'error', message: '10.10.4.121:8200: ECONNREFUSED' } }, revision: null, storageBytes: null, updatedAt: new Date().toISOString(), syncedAt: null } as never }).where(eq(schema.stations.id, stationId));
     const out = await pushes();
     expect(out).toHaveLength(2);
     expect(out.every((o) => o.relayNodeId === relay)).toBe(true);
     // Once the node no longer pushes to the ingest it reports nothing for it, and still feeds the relays.
     await t.db.update(schema.stations).set({ nodeRuntime: null }).where(eq(schema.stations.id, stationId));
-    expect((await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/routing`, headers: admin })).json().studio).toEqual({ ingests: [], direct: 'failing' });
+    expect((await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/routing`, headers: admin })).json().studio).toEqual({ ingests: [], direct: 'failing', error: '10.10.4.121:8200: ECONNREFUSED' });
+    // The ingest keeps the station in its plan meanwhile, so the next try finds it ready.
+    expect((await buildPlan(t.ctx, await nodeRow(via!))).ingest!.stations.some((x) => x.stationId === stationId)).toBe(true);
     expect((await pushes()).every((o) => o.relayNodeId === relay)).toBe(true);
   });
 });
