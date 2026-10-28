@@ -1025,6 +1025,7 @@ export const en = {
         chosen: 'Now: the studio sends every stream straight to the relays.',
         update: 'The studio node runs software from before this option, so it sends straight to the relays. Update the node to send through the ingest.',
         none: 'No ingest node can carry this station, so the studio sends straight to the relays.',
+        nocert: 'The studio is on another site than the ingest, and the ingest has no valid certificate for its name, so the studio sends straight to the relays. Turn on Certificates through Cloudflare DNS in the ingest node’s settings.',
         failing: 'The studio could not reach the ingest, so it sends straight to the relays for now and tries the ingest again in 10 minutes. Check the ingest’s address and firewall.',
         offline: 'No chosen ingest is online, so the studio sends straight to the relays until one is back.',
       },

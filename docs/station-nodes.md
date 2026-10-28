@@ -54,6 +54,9 @@ The node feeds the relays itself, and Routing says why, while:
 
 - its software is from before 1.3: update the node (agent and station software are updated together);
 - none of the chosen ingests is online: it goes back to the ingest once one is online again;
+- the ingest is on another site and has no valid certificate for its name: turn on **Certificates through Cloudflare
+  DNS** in the ingest node's settings (or give it a name its web server can fetch a certificate for). From another site
+  the node only sends over TLS it can check; nodes report which names they hold a certificate for;
 - its pushes to every chosen ingest fail (address or firewall): it tries the ingest again after 10 minutes. The node signs in on the ingest as `hrs-studio` with a token derived from its own
 secret; the ingest checks it with the orchestrator, so no DJ account is needed and nobody else can send as the studio.
 Open the ingest's encoder port (8200, or 8201 with TLS) to the station node. When the station node and the ingest sit behind the same public

@@ -1027,6 +1027,7 @@ export const nl: Translation = {
         chosen: 'Nu: de studio stuurt elke stream direct naar de relays.',
         update: 'De studio-node draait software van vóór deze optie, dus hij stuurt direct naar de relays. Werk de node bij om via de ingest te sturen.',
         none: 'Geen enkele ingest node mag dit station dragen, dus de studio stuurt direct naar de relays.',
+        nocert: 'De studio staat op een andere locatie dan de ingest, en de ingest heeft geen geldig certificaat voor zijn naam, dus de studio stuurt direct naar de relays. Zet Certificaten via Cloudflare DNS aan in de instellingen van de ingest-node.',
         failing: 'De studio kon de ingest niet bereiken, dus hij stuurt nu direct naar de relays en probeert de ingest over 10 minuten opnieuw. Controleer het adres en de firewall van de ingest.',
         offline: 'Geen gekozen ingest is online, dus de studio stuurt direct naar de relays tot er een terug is.',
       },

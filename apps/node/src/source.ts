@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto';
+import { createHmac, X509Certificate } from 'node:crypto';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import net from 'node:net';
 import { join } from 'node:path';
@@ -85,6 +85,8 @@ export class SourceForwarder {
   private contexts = new Map<string, tls.SecureContext>();
   private defaultCert: { cert: Buffer; key: Buffer } | null = null;
   private certStamp = '';
+  /** Names this node has a certificate from a certificate authority for, still valid (1.3): others can check it. */
+  private trusted: string[] = [];
   private active = new Map<net.Socket, number>();
   problems: string[] = [];
 
@@ -107,6 +109,12 @@ export class SourceForwarder {
     this.plain = this.rebind(this.plain, plain, 'plain');
     this.secure = this.rebind(this.secure, this.defaultCert ? secure : [], 'tls');
     if (secure.length && !this.defaultCert) this.problems.push('No certificate for encoder TLS yet');
+  }
+
+  /** The names with a trusted certificate, for the stats; picks up certificates the web server fetched meanwhile. */
+  async certificateNames(): Promise<string[]> {
+    await this.loadCertificates();
+    return this.trusted;
   }
 
   stop() {
@@ -142,6 +150,7 @@ export class SourceForwarder {
     const stamp = (await Promise.all(files.map(async (f) => `${f}:${(await stat(join(dir, f)).catch(() => null))?.mtimeMs ?? 0}`))).join(',');
     if (stamp === this.certStamp) return;
     const contexts = new Map<string, tls.SecureContext>();
+    const trusted: string[] = [];
     let def: { cert: Buffer; key: Buffer } | null = null;
     for (const f of files) {
       const host = f.slice(0, -4);
@@ -149,12 +158,14 @@ export class SourceForwarder {
         const cert = await readFile(join(dir, f));
         const key = await readFile(join(dir, `${host}.key`));
         contexts.set(host, tls.createSecureContext({ cert, key }));
+        trusted.push(...trustedNames(cert));
         if (host === 'default' || !def) def = { cert, key };
       } catch (err) {
         log.warn('certificate could not be loaded', { host, err });
       }
     }
     this.contexts = contexts;
+    this.trusted = [...new Set(trusted)].sort();
     this.certStamp = stamp;
     const changed = !!def && (!this.defaultCert || !def.cert.equals(this.defaultCert.cert));
     this.defaultCert = def;
@@ -212,5 +223,21 @@ export class SourceForwarder {
   async refreshCertificates() {
     await this.loadCertificates();
     if ((this.plan?.ports?.tls.length || this.plan?.tlsPort) && this.defaultCert && !this.secure.length) await this.apply(this.plan);
+  }
+}
+
+/** The DNS names of a certificate issued by an authority (not self-signed) that is valid now. */
+function trustedNames(pem: Buffer): string[] {
+  try {
+    const c = new X509Certificate(pem);
+    const now = Date.now();
+    if (c.issuer === c.subject || Date.parse(c.validFrom) > now || Date.parse(c.validTo) < now) return [];
+    return (c.subjectAltName ?? '')
+      .split(',')
+      .map((x) => x.trim())
+      .filter((x) => x.startsWith('DNS:'))
+      .map((x) => x.slice(4).toLowerCase());
+  } catch {
+    return [];
   }
 }

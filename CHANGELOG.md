@@ -13,7 +13,9 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   sending straight to the relays), and when its pushes to the ingest fail it sends straight to the relays for 10
   minutes before it tries the ingest again. A station node behind the same public address as its ingest sends to the ingest's
   address on the local network. The chosen ingest always has the station ready, also while the node still
-  sends to the relays, so the first push after an update finds it; Routing shows the node's last push error. The delivery path, the routing status and the network map show the route.
+  sends to the relays, so the first push after an update finds it; Routing shows the node's last push error. From another site a station node only sends
+  to an ingest over TLS with a certificate it can check (nodes now report the names they hold a valid certificate
+  for); without one it keeps to the relays and Routing says to turn on Certificates through Cloudflare DNS. The delivery path, the routing status and the network map show the route.
 - Streaming settings with *Orchestrator only*: the firewall line lists only 80 and 443.
 
 - Port plan: every role has its own incoming ports, so roles on one machine never clash. Ingest 8200 (plain), 8201
