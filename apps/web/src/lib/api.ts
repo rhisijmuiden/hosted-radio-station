@@ -1513,6 +1513,8 @@ export const WEBHOOK_EVENTS = [
   'invoice.created',
   'invoice.paid',
   'invoice.overdue',
+  'alert.opened',
+  'alert.resolved',
 ] as const;
 
 // Phase 15: Cloudflare DNS
@@ -1569,4 +1571,60 @@ export interface NodeDns {
   host: string | null;
   ownHost: string | null;
   check: { ok: boolean; found: string[]; error?: string; at: string } | null;
+}
+
+// Phase 20: monitoring
+
+export type AlertKind = 'node_offline' | 'node_problem' | 'station_off_air' | 'stream_down' | 'feed_lost' | 'updates_paused' | 'dns_error';
+export interface Alert {
+  id: string;
+  key: string;
+  kind: AlertKind;
+  severity: 'critical' | 'warning';
+  nodeId: string | null;
+  stationId: string | null;
+  params: Record<string, string>;
+  message: string | null;
+  openedAt: string;
+  lastSeenAt: string;
+  resolvedAt: string | null;
+  notified: boolean;
+  acknowledgedAt: string | null;
+  acknowledgedBy: string | null;
+}
+export interface AlertSummary {
+  open: number;
+  critical: number;
+  unacknowledged: number;
+}
+export interface Maintenance {
+  kind: 'node' | 'station';
+  id: string;
+  until: string | null;
+  note: string;
+  by: string | null;
+}
+export interface AlertDelivery {
+  channel: 'email' | 'telegram';
+  ok: boolean;
+  error: string | null;
+  at?: string;
+}
+export interface AlertSettings {
+  graceSeconds: number;
+  recoverSeconds: number;
+  minSeverity: 'warning' | 'critical';
+  notifyRecovery: boolean;
+  language: 'en' | 'nl';
+  email: { enabled: boolean; to: string[] };
+  telegram: { enabled: boolean; botToken: string; chatId: string };
+  quietStations: string[];
+  maintenance: Maintenance[];
+  mailReady: boolean;
+  lastDelivery: AlertDelivery[];
+}
+export interface TelegramChat {
+  id: string;
+  name: string;
+  type: string;
 }

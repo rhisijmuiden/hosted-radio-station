@@ -1441,3 +1441,35 @@ export const idempotencyKeys = pgTable('idempotency_keys', {
   response: jsonb('response').notNull(),
   createdAt: createdAt(),
 });
+
+// Phase 20: monitoring
+
+/**
+ * A problem the orchestrator noticed (a node offline, a station off air, a relay without its feed), from the moment
+ * it lasted longer than the wait time until it was gone for a while. One row per outage: `key` names what is wrong,
+ * and only one open row per key exists. `params` carries the names for the messages, as they were at the time.
+ */
+export const alerts = pgTable(
+  'alerts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    key: text('key').notNull(),
+    /** node_offline | node_problem | station_off_air | stream_down | feed_lost | updates_paused | dns_error */
+    kind: text('kind').notNull(),
+    /** critical | warning */
+    severity: text('severity').notNull(),
+    nodeId: uuid('node_id').references(() => nodes.id, { onDelete: 'set null' }),
+    stationId: uuid('station_id').references(() => stations.id, { onDelete: 'set null' }),
+    params: jsonb('params').$type<Record<string, string>>().notNull().default({}),
+    /** What the check said last, such as "Timeout" or the node's own problem text. */
+    message: text('message'),
+    openedAt: timestamp('opened_at', { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    /** An alert went out when it opened, so its recovery is sent too. */
+    notified: boolean('notified').notNull().default(false),
+    acknowledgedAt: timestamp('acknowledged_at', { withTimezone: true }),
+    acknowledgedBy: text('acknowledged_by'),
+  },
+  (t) => [uniqueIndex('alerts_open_key_idx').on(t.key).where(sql`resolved_at is null`), index('alerts_opened_idx').on(t.openedAt)],
+);

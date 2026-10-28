@@ -28,6 +28,8 @@ export async function housekeeping(ctx: AppContext) {
   await pruneDeliveries(ctx);
   await ctx.db.delete(schema.idempotencyKeys).where(lt(schema.idempotencyKeys.createdAt, new Date(now.getTime() - 30 * 86400_000)));
   await pruneRecordings(ctx);
+  // Solved alerts after 90 days (phase 20).
+  await ctx.db.delete(schema.alerts).where(and(isNotNull(schema.alerts.resolvedAt), lt(schema.alerts.resolvedAt, new Date(now.getTime() - 90 * 86400_000))));
   // Keep the run history readable: the last 500 runs.
   await ctx.db.delete(schema.backupRuns).where(
     and(

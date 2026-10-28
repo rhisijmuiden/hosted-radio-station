@@ -5,6 +5,11 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 
 ## Unreleased
 
+- Monitoring and alerts (phase 20, step 1): a new **Monitoring** page under Network shows what is wrong now (a node
+  offline, a station off air, a relay without its feed, a node problem, paused node updates, Cloudflare DNS errors),
+  the history of the last 90 days and maintenance for nodes and stations. Alerts go to Telegram, e-mail and the new
+  webhook events `alert.opened` and `alert.resolved`, in English or Dutch, with one message per outage and one when
+  it is solved. See [monitoring](docs/monitoring.md).
 - AutoDJ queue: only one track is *Cued* at a time, the one that goes on air next. When the player already loaded the
   track after it (in Manual playout while it waits for Play, or when a track is played now), that one shows as loaded
   right behind it and becomes cued once the track before it is on air. The panel and RHIS Studio list the cued track
