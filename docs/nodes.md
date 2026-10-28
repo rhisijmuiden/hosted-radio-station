@@ -31,7 +31,7 @@ Installer options:
 | --- | --- |
 | `--server <url>` | The main server. |
 | `--code <code>` | The one-time pairing code. Not needed when the node is already paired (running the installer again updates it). Without it, a node with `--server` registers and waits under Pending nodes. |
-| `--role <role>` | Preferred role when registering (`relay`, `source`, `station` or `fm`); it is preselected when you accept the node. |
+| `--role <role>` | Preferred role when registering (`relay`, `source`, `station`, `fm` or `monitor`); it is preselected when you accept the node. |
 | `--no-setup-page` | No setup page on port 8080 while the node is not paired. |
 | `--no-wait` | Register, but do not wait in the terminal for the acceptance (the node keeps waiting by itself). |
 | `--ref <branch>` | Branch to install; later the node follows the main server's version by itself. |
