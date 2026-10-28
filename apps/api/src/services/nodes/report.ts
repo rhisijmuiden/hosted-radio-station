@@ -51,9 +51,15 @@ export const reportSchema = z.object({
         ttfbMs: z.number().int().min(0).nullable(),
         message: short(300).optional(),
         at: z.iso.datetime(),
+        // Deep checks of a monitoring node (phase 20).
+        bitrateKbps: z.number().int().min(0).max(100_000).nullable().optional(),
+        contentType: short(60).nullable().optional(),
+        title: short(300).nullable().optional(),
+        levelDb: z.number().min(-200).max(50).nullable().optional(),
+        silent: z.boolean().nullable().optional(),
       }),
     )
-    .max(200)
+    .max(2000)
     .default([]),
 });
 export type Report = z.infer<typeof reportSchema>;
@@ -152,6 +158,11 @@ export async function storeReport(ctx: AppContext, hub: NodeHub, node: Node, rep
         checkedAt: at,
         lastOkAt: p.ok ? at : (prev.get(p.target)?.lastOkAt ?? null),
         buckets,
+        bitrateKbps: p.bitrateKbps ?? null,
+        contentType: p.contentType ?? null,
+        title: p.title ?? null,
+        levelDb: p.levelDb ?? null,
+        silent: p.silent ?? null,
       };
       await ctx.db
         .insert(schema.nodeProbes)

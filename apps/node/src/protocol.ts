@@ -1,4 +1,4 @@
-export type NodeRole = 'relay' | 'source' | 'station' | 'fm';
+export type NodeRole = 'relay' | 'source' | 'station' | 'fm' | 'monitor';
 
 /**
  * The messages between the main server and the node agent. A copy of apps/api/src/services/nodes/protocol.ts: keep
@@ -34,6 +34,22 @@ export interface ProbeTarget {
   target: string;
   stationId: string;
   url: string;
+  /**
+   * Monitoring node (phase 20): listen for a few seconds and also measure bitrate, format, title and audio level.
+   * Older agents ignore it and do the short check.
+   */
+  deep?: { seconds: number } | null;
+}
+
+/** What a deep stream check measured (monitoring node, phase 20). */
+export interface ProbeMeasure {
+  bitrateKbps: number | null;
+  contentType: string | null;
+  title: string | null;
+  /** Loudest moment in dBFS over the check, from ffmpeg; null without ffmpeg. */
+  levelDb: number | null;
+  /** The stream plays, but nothing louder than the silence threshold was heard. */
+  silent: boolean | null;
 }
 
 /** Everything a node has to do. Sent on connect and whenever it changes. */
@@ -303,7 +319,7 @@ export type ServerMessage =
 export interface AgentReport {
   relays: { key: string; state: 'connecting' | 'connected' | 'error' | 'idle'; message?: string; bitrateKbps?: number | null; listeners?: number }[];
   clients: { key: string; id: string; ip: string | null; userAgent: string | null; referer: string | null; connectedSeconds: number }[];
-  probes: { target: string; stationId: string; url: string; ok: boolean; httpStatus: number | null; ttfbMs: number | null; message?: string; at: string }[];
+  probes: ({ target: string; stationId: string; url: string; ok: boolean; httpStatus: number | null; ttfbMs: number | null; message?: string; at: string } & Partial<ProbeMeasure>)[];
   /** Listeners that left since the last report, with the moment they left. */
   ended?: { key: string; id: string; endedAt: string }[];
 }

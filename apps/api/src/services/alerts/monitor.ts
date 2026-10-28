@@ -52,11 +52,25 @@ export class AlertMonitor {
 
   /** What is wrong right now, before the wait times. */
   async conditions(now = Date.now()): Promise<Condition[]> {
+    const mounts = await this.ctx.db
+      .select({ stationId: schema.stationMounts.stationId, path: schema.stationMounts.path, format: schema.stationMounts.format, kind: schema.stationMounts.kind, bitrateKbps: schema.stationMounts.bitrateKbps })
+      .from(schema.stationMounts);
     const [nodes, stations, probes, nodeSettings, rollout, dns, settings, names] = await Promise.all([
       this.ctx.db.select({ id: schema.nodes.id, name: schema.nodes.name, roles: schema.nodes.roles, pairedAt: schema.nodes.pairedAt, status: schema.nodes.status }).from(schema.nodes),
       this.ctx.db.select({ id: schema.stations.id, name: schema.stations.name, slug: schema.stations.slug, enabled: schema.stations.enabled }).from(schema.stations),
       this.ctx.db
-        .select({ nodeId: schema.nodeProbes.nodeId, target: schema.nodeProbes.target, stationId: schema.nodeProbes.stationId, ok: schema.nodeProbes.ok, message: schema.nodeProbes.message, checkedAt: schema.nodeProbes.checkedAt })
+        .select({
+          nodeId: schema.nodeProbes.nodeId,
+          target: schema.nodeProbes.target,
+          stationId: schema.nodeProbes.stationId,
+          ok: schema.nodeProbes.ok,
+          message: schema.nodeProbes.message,
+          checkedAt: schema.nodeProbes.checkedAt,
+          lastOkAt: schema.nodeProbes.lastOkAt,
+          silent: schema.nodeProbes.silent,
+          contentType: schema.nodeProbes.contentType,
+          bitrateKbps: schema.nodeProbes.bitrateKbps,
+        })
         .from(schema.nodeProbes),
       getSetting(this.ctx, 'nodes'),
       getSetting(this.ctx, 'nodeRollout'),
@@ -69,6 +83,7 @@ export class AlertMonitor {
       nodes: nodes.map((n) => ({ ...n, online: this.hub.isOnline(n.id), status: this.hub.liveStatus(n.id) ?? n.status })),
       stations,
       probes,
+      mounts,
       probeIntervalSeconds: nodeSettings.probeIntervalSeconds,
       rollout,
       dns,

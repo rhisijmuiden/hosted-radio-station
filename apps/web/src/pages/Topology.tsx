@@ -98,7 +98,17 @@ function Segmented<T extends string>({ value, options, label, onChange, text, ti
 type Filter = 'all' | 'relays' | 'sources' | 'stations' | 'problems' | 'mine' | 'streams';
 
 const kindOf = (n: TopologyNode): SceneKind =>
-  n.roles.includes('station') ? 'station' : n.roles.includes('relay') ? 'relay' : n.roles.includes('source') ? 'source' : n.roles.includes('fm') ? 'fm' : 'node';
+  n.roles.includes('station')
+    ? 'station'
+    : n.roles.includes('relay')
+      ? 'relay'
+      : n.roles.includes('source')
+        ? 'source'
+        : n.roles.includes('fm')
+          ? 'fm'
+          : n.roles.includes('monitor')
+            ? 'monitor'
+            : 'node';
 
 const healthOf = (n: TopologyNode): SceneHealth => (!n.paired ? 'unpaired' : !n.online ? 'offline' : n.degraded ? 'degraded' : 'online');
 const healthTone = { online: 'online', degraded: 'warning', offline: 'offline', unpaired: 'neutral' } as const;
@@ -308,6 +318,8 @@ export function TopologyPage() {
   // in 3D likewise. Both are remembered per user in this browser.
   const [showControl, setShowControl] = useToggle(`hrs-topology-control:${me.user.id}`);
   const [showLabels, setShowLabels] = useToggle(`hrs-topology-labels:${me.user.id}`);
+  // The check lines of the monitoring nodes (phase 20), the same way.
+  const [showChecks, setShowChecks] = useToggle(`hrs-topology-checks:${me.user.id}`);
   const { view, flow, setView, setFlow } = useView(me.user.id);
   const topo = useQuery({ queryKey: ['topology', tenantId], queryFn: () => api<Topology>(`/nodes/topology${tenantId ? `?tenantId=${tenantId}` : ''}`), refetchInterval: 5000 });
   const tenants = useQuery({ queryKey: ['tenants'], queryFn: () => api<Tenant[]>('/tenants'), enabled: admin });
@@ -332,7 +344,16 @@ export function TopologyPage() {
     const ordered = [...data.nodes].sort((a, b) => (a.roles.includes('relay') && b.roles.includes('relay') ? a.location.localeCompare(b.location) : 0));
     const nodes: SceneData['nodes'] = [
       // The orchestrator carries no audio: it hovers above as a ring with control lines only.
-      { id: 'main', kind: 'main', label: data.main.name, meta: data.main.orchestratorOnly ? t('orchestratorOnly.badgeOn') : t('topology.orchestrator'), health: 'online', listeners: 0, dim: false },
+      {
+        id: 'main',
+        kind: 'main',
+        label: data.main.name,
+        meta: data.main.orchestratorOnly ? t('orchestratorOnly.badgeOn') : t('topology.orchestrator'),
+        health: 'online',
+        listeners: 0,
+        dim: false,
+        check: data.links.some((l) => l.kind === 'check' && l.to === 'main') ? (data.links.some((l) => l.kind === 'check' && l.to === 'main' && l.degraded) ? 'failed' : 'ok') : null,
+      },
       ...ordered.map((n) => {
         const kind = kindOf(n);
         const meta = !n.paired
@@ -349,12 +370,14 @@ export function TopologyPage() {
                     ? n.fmOnAir
                       ? t('topology.fmOnAir')
                       : t('topology.fmOff')
-                    : n.location || t('nodes.noRoles');
+                    : kind === 'monitor'
+                      ? t('topology.checksCount', { count: new Set(data.links.filter((l) => l.kind === 'check' && l.from === n.id).map((l) => l.to)).size })
+                      : n.location || t('nodes.noRoles');
         const load = n.cpu ?? Math.min(1, n.encoders / 8);
         // An FM/MPX node of a station on a station node stands beside that node, in the studio.
         const homeId = kind === 'fm' ? (n.home ?? data.stations.find((s) => s.cells[n.id] && s.stationNode)?.stationNode) : undefined;
         const home = homeId && data.nodes.some((x) => x.id === homeId && x.roles.includes('station')) ? homeId : undefined;
-        return { id: n.id, kind, label: nodeName(t, n, customer), meta, health: healthOf(n), listeners: n.online ? n.listeners : 0, load: n.online ? load : 0, dim: !matches(n), own: customer && n.own, home };
+        return { id: n.id, kind, label: nodeName(t, n, customer), meta, health: healthOf(n), listeners: n.online ? n.listeners : 0, load: n.online ? load : 0, dim: !matches(n), own: customer && n.own, home, check: n.check };
       }),
       ...data.studios.map((s) => ({
         id: s.id,
@@ -385,7 +408,7 @@ export function TopologyPage() {
       kind: l.kind,
       state: !l.active ? 'down' : l.degraded ? 'degraded' : 'ok',
       label: l.kind === 'control' && l.active && l.rttMs != null ? `${formatMs(l.rttMs)}${(l.loss ?? 0) > 0.005 ? ` · ${formatPct(l.loss, 0)}` : ''}` : null,
-      dim: dim.has(l.from) || dim.has(l.to) || (filter === 'streams' && l.kind === 'control'),
+      dim: dim.has(l.from) || dim.has(l.to) || (filter === 'streams' && l.kind !== 'stream'),
       width: l.kind === 'stream' ? streamWidth(l) : undefined,
       standby: l.standby,
     }));
@@ -399,7 +422,7 @@ export function TopologyPage() {
       const [from, to] = key.split('>') as [string, string];
       links.push({ from, to, kind: 'stream', state: 'ok', label: null, dim: dim.has(from) || dim.has(to), width: 1.5 + Math.min(5, Math.log2(1 + n) / 1.6) });
     }
-    return { nodes, links, lanes: { studios: t('topology.lanes.studios'), ingest: t('topology.lanes.ingest'), relays: t('topology.lanes.relays'), listeners: t('topology.lanes.listeners') } };
+    return { nodes, links, lanes: { studios: t('topology.lanes.studios'), ingest: t('topology.lanes.ingest'), relays: t('topology.lanes.relays'), listeners: t('topology.lanes.listeners'), monitor: t('topology.lanes.monitor') } };
   }, [data, filter, customer, t, i18n.language]);
 
   const dimmed = useMemo(() => new Set(scene.nodes.filter((n) => n.dim).map((n) => n.id)), [scene]);
@@ -538,14 +561,14 @@ export function TopologyPage() {
                     </div>
                   }
                 >
-                  <TopologyCanvas data={scene} selected={selected ?? ownSel?.id ?? null} onSelect={setSelected} dark={theme === 'dark'} showControl={showControl} showLabels={showLabels} />
+                  <TopologyCanvas data={scene} selected={selected ?? ownSel?.id ?? null} onSelect={setSelected} dark={theme === 'dark'} showControl={showControl} showChecks={showChecks} showLabels={showLabels} />
                 </Suspense>
               ) : view === 'matrix' ? (
                 <TopologyMatrix data={data} customer={!!customer} selected={selected} onSelect={setSelected} />
               ) : view === 'station' && !focus ? (
                 <p className="p-6 text-[13px] text-muted">{t('topology.station.none')}</p>
               ) : (
-                <TopologyFlat data={data} layout={flow} dimmed={view === 'station' ? new Set() : dimmed} selected={selected ?? ownSel?.id ?? null} showControl={showControl} focus={focus} onSelect={setSelected} />
+                <TopologyFlat data={data} layout={flow} dimmed={view === 'station' ? new Set() : dimmed} selected={selected ?? ownSel?.id ?? null} showControl={showControl} showChecks={showChecks} focus={focus} onSelect={setSelected} />
               )}
               {view !== 'matrix' && (
                 <div className="pointer-events-none absolute bottom-3 left-3 hidden max-w-[calc(100%-10rem)] flex-wrap gap-x-3 gap-y-1.5 rounded-md border border-line bg-raised/85 px-3 py-2 text-xs text-muted backdrop-blur sm:flex">
@@ -566,6 +589,18 @@ export function TopologyPage() {
                     <i className="inline-block w-4 border-t-2 border-dotted border-lucht" /> {t('topology.legend.control')}
                     {showControl ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
                   </button>
+                  {data.links.some((l) => l.kind === 'check') && (
+                    <button
+                      type="button"
+                      aria-pressed={showChecks}
+                      title={t(showChecks ? 'topology.checkLinesHide' : 'topology.checkLinesShow')}
+                      onClick={setShowChecks}
+                      className={clsx('pointer-events-auto -my-1 flex items-center gap-1.5 rounded-full border px-2 py-0.5 transition-colors', showChecks ? 'border-[var(--monitor-line)] bg-[color-mix(in_srgb,var(--monitor)_15%,transparent)] text-ink' : 'border-line hover:text-ink')}
+                    >
+                      <i className="inline-block w-4 border-t-2 border-dashed border-[var(--monitor-line)]" /> {t('topology.legend.checks')}
+                      {showChecks ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+                    </button>
+                  )}
                   {view === '3d' && (
                     <button
                       type="button"

@@ -265,6 +265,8 @@ function Overview({ node, warnMs, canEdit }: { node: NodeItem; warnMs: number; c
 function Probes({ node }: { node: NodeItem }) {
   const { t } = useTranslation();
   const probes = useQuery({ queryKey: ['nodes', node.id, 'probes'], queryFn: () => api<NodeProbe[]>(`/nodes/${node.id}/probes`), refetchInterval: 30_000 });
+  // A monitoring node listens to each stream and measures it (phase 20).
+  const deep = node.roles.includes('monitor') || !!probes.data?.some((p) => p.bitrateKbps != null || p.contentType);
   return (
     <Card>
       <CardHeader title={t('nodes.probes.title')} description={t('nodes.probes.subtitle')} />
@@ -275,7 +277,7 @@ function Probes({ node }: { node: NodeItem }) {
       ) : !probes.data?.length ? (
         <EmptyState icon={<Radio className="size-5" />} title={t('nodes.probes.empty')} description={node.config.probe ? t('nodes.probes.emptyText') : t('nodes.probes.off')} />
       ) : (
-        <Table head={[t('nodes.probes.station'), t('nodes.probes.checked'), t('fields.status'), t('nodes.probes.ttfb'), t('nodes.probes.uptime'), t('nodes.probes.when')]}>
+        <Table head={[t('nodes.probes.station'), t('nodes.probes.checked'), t('fields.status'), ...(deep ? [t('nodes.probes.sound')] : []), t('nodes.probes.ttfb'), t('nodes.probes.uptime'), t('nodes.probes.when')]}>
           {probes.data.map((p) => (
             <tr key={p.target}>
               <td>
@@ -296,6 +298,21 @@ function Probes({ node }: { node: NodeItem }) {
                   </span>
                 )}
               </td>
+              {deep && (
+                <td className="text-[12px]">
+                  {p.ok && (p.bitrateKbps != null || p.contentType) && (
+                    <div className="tabular-nums">
+                      {[p.contentType, p.bitrateKbps != null && `${p.bitrateKbps} kbps`, p.levelDb != null && `${p.levelDb.toFixed(1)} dB`].filter(Boolean).join(' · ')}
+                      {p.silent && <span className="ml-1.5 font-semibold text-offline">{t('nodes.probes.silent')}</span>}
+                    </div>
+                  )}
+                  {p.ok && p.title && (
+                    <div className="max-w-56 truncate text-muted" title={p.title}>
+                      ♪ {p.title}
+                    </div>
+                  )}
+                </td>
+              )}
               <td className="text-[13px] tabular-nums">{formatMs(p.ttfbMs)}</td>
               <td className={clsx('text-[13px] tabular-nums', p.uptime24h != null && p.uptime24h < 0.99 && 'font-semibold text-warning')}>{formatPct(p.uptime24h, 2)}</td>
               <td className="text-xs text-muted">{formatRelative(p.checkedAt)}</td>

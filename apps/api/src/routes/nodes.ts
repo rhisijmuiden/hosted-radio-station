@@ -211,6 +211,12 @@ const probeOut = z.object({
   lastOkAt: z.date().nullable(),
   /** Share of successful checks over the last 24 hours, 0..1, null without checks. */
   uptime24h: z.number().nullable(),
+  /** Deep checks of a monitoring node (phase 20). */
+  bitrateKbps: z.number().nullable(),
+  contentType: z.string().nullable(),
+  title: z.string().nullable(),
+  levelDb: z.number().nullable(),
+  silent: z.boolean().nullable(),
 });
 
 /** Who may see or change a node: administrators all of them, customers their own (owners change, managers look). */
@@ -774,6 +780,11 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         checkedAt: p.checkedAt,
         lastOkAt: p.lastOkAt,
         uptime24h: uptimeOf(p.buckets),
+        bitrateKbps: p.bitrateKbps,
+        contentType: p.contentType,
+        title: p.title,
+        levelDb: p.levelDb,
+        silent: p.silent,
       };
     });
   }
@@ -910,6 +921,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         relaysTotal: relaysSeen?.length ?? 0,
         fmOnAir: !!status.online && !!status.fm && (status.fm.meters?.playing === true || (status.fm.output === 'off' && status.fm.uecp === 'connected')),
         home: n.roles.includes('fm') ? fmHome(n) : null,
+        check: null,
       };
     });
 
@@ -948,6 +960,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       relaysTotal: 0,
       fmOnAir: false,
       home: null,
+      check: null,
       ...extra,
     });
     if (localStations.length)
@@ -1107,6 +1120,30 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         });
       }
     }
+    // Monitoring nodes (phase 20): a check line to every server they listen on, red when a check there fails or hears
+    // silence. Only the checks of the stations in view count.
+    const monitors = nodeOutList.filter((n) => n.paired && n.roles.includes('monitor'));
+    if (monitors.length && stationIds.length) {
+      const fresh = new Date(Date.now() - (settings.probeIntervalSeconds * 3 + 30) * 1000);
+      const rows = await ctx.db
+        .select({ nodeId: schema.nodeProbes.nodeId, target: schema.nodeProbes.target, ok: schema.nodeProbes.ok, silent: schema.nodeProbes.silent })
+        .from(schema.nodeProbes)
+        .where(and(inArray(schema.nodeProbes.nodeId, monitors.map((m) => m.id)), inArray(schema.nodeProbes.stationId, stationIds), gt(schema.nodeProbes.checkedAt, fresh)));
+      const pairs = new Map<string, boolean>();
+      const heard = new Map<string, boolean>();
+      for (const r of rows) {
+        const where = r.target.slice(r.target.lastIndexOf('@') + 1);
+        const to = where === 'main' ? (shown.has('local:relay') ? 'local:relay' : 'main') : where;
+        const good = r.ok && r.silent !== true;
+        pairs.set(`${r.nodeId}>${to}`, (pairs.get(`${r.nodeId}>${to}`) ?? true) && good);
+        heard.set(to, (heard.get(to) ?? true) && good);
+      }
+      for (const [key, good] of pairs) {
+        const [from, to] = key.split('>') as [string, string];
+        link({ from, to, kind: 'check', active: !!byId.get(from)?.online, degraded: !good, rttMs: null, loss: null });
+      }
+      for (const n of nodeOutList) if (heard.has(n.id)) n.check = heard.get(n.id) ? 'ok' : 'failed';
+    }
     stationsOut.sort((a, b) => a.name.localeCompare(b.name));
     const studios = live.map((l) => {
       const station = stations.find((s) => s.id === l.stationId)!;
@@ -1196,6 +1233,8 @@ const topologyOut = z.object({
       fmOnAir: z.boolean(),
       /** FM/MPX node: the station node of its studio, drawn beside it. */
       home: z.string().nullable(),
+      /** What the monitoring nodes hear on this server (phase 20): every check plays, one fails, or not checked. */
+      check: z.enum(['ok', 'failed']).nullable(),
     }),
   ),
   studios: z.array(z.object({ id: z.string(), station: z.string(), stationId: z.string(), account: z.string(), mount: z.string(), via: z.string(), nodeId: z.string().nullable(), since: z.date() })),
@@ -1203,7 +1242,8 @@ const topologyOut = z.object({
     z.object({
       from: z.string(),
       to: z.string(),
-      kind: z.enum(['control', 'stream']),
+      /** check: a monitoring node listens to the streams on this server (phase 20). */
+      kind: z.enum(['control', 'stream', 'check']),
       active: z.boolean(),
       degraded: z.boolean(),
       rttMs: z.number().nullable(),

@@ -1,6 +1,6 @@
 import { createHash, createHmac } from 'node:crypto';
 import net from 'node:net';
-import { and, asc, count, eq, inArray, isNotNull } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '../../db/index.js';
 import { NODE_ROLES, type NodeConfig, type NodeRole } from '../../db/schema.js';
@@ -9,7 +9,7 @@ import { dnsConfig } from '../dns/config.js';
 import { getSetting, UPDATE_POLICIES, updateWindowSchema } from '../settings.js';
 import { platformHost } from '../streaming/state.js';
 import { runningVersion } from '../system.js';
-import { DEDICATIONS, serves } from './dedication.js';
+import { DEDICATIONS, scopeOf, serves } from './dedication.js';
 import { buildFmPlan, fmConfigSchema } from './fm.js';
 import { plannedIngests } from './delivery.js';
 import { OLD_PORTS, PORTS } from './portplan.js';
@@ -227,6 +227,45 @@ export function pushTarget(relay: Pick<Node, 'id' | 'name' | 'config' | 'status'
   return { nodeId: relay.id, name: relay.name, host, port, insecureTls: host === '127.0.0.1' || !c.publicHost };
 }
 
+/** How long a monitoring node listens to each stream (phase 20). */
+export const MONITOR_LISTEN_SECONDS = 8;
+
+/**
+ * A shared monitoring node is online (phase 20): it checks every stream from outside, so the other nodes stop their
+ * own stream checks. A monitoring node of (or dedicated to) a customer only watches that customer and switches nothing off.
+ */
+export async function sharedMonitorOnline(ctx: AppContext) {
+  const rows = await ctx.db
+    .select({ id: schema.nodes.id, tenantId: schema.nodes.tenantId, roles: schema.nodes.roles, config: schema.nodes.config })
+    .from(schema.nodes)
+    .where(and(isNotNull(schema.nodes.pairedAt), isNull(schema.nodes.tenantId), sql`'monitor' = any(${schema.nodes.roles})`, sql`(${schema.nodes.status}->>'online')::boolean`));
+  return rows.some((n) => scopeOf(n).kind === 'shared');
+}
+
+/**
+ * What a monitoring node checks: the default stream of every station through every relay that carries it (and through
+ * this server when it serves the station itself), and each other public stream once, as a listener would hear it.
+ */
+export function monitorTargets(stations: StationRow[], mounts: (typeof schema.stationMounts.$inferSelect)[], relays: Node[], base: string): ProbeTarget[] {
+  const targets: ProbeTarget[] = [];
+  const deep = { seconds: MONITOR_LISTEN_SECONDS };
+  for (const s of stations) {
+    const own = mounts.filter((m) => m.stationId === s.id);
+    const def = own.find((m) => m.isDefault) ?? own[0];
+    if (!def) continue;
+    const places: { where: string; base: string }[] = [];
+    if (!s.nodeId && !pushedRouting(stationRouting(s))) places.push({ where: 'main', base });
+    for (const r of relaysOf(s, relays)) {
+      const rb = r.status.online ? relayBaseUrl(r) : null;
+      if (rb) places.push({ where: r.id, base: rb });
+    }
+    for (const [i, p] of places.entries()) {
+      for (const m of i === 0 ? own : [def]) targets.push({ target: `${s.slug}${m.path}@${p.where}`, stationId: s.id, url: `${p.base}/listen/${s.slug}${m.path}`, deep });
+    }
+  }
+  return targets.slice(0, 1000);
+}
+
 const baseUrl = (ctx: AppContext) => ctx.config.PUBLIC_URL.replace(/\/$/, '');
 
 /** What a node must do now. */
@@ -299,7 +338,10 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
   }
 
   let probes: NodePlan['probes'] = null;
-  if (c.probe) {
+  const monitor = roles.includes('monitor');
+  if (monitor) {
+    probes = { intervalSeconds: settings.probeIntervalSeconds, targets: monitorTargets(stations, mounts, relays, base) };
+  } else if (c.probe && !(await sharedMonitorOnline(ctx))) {
     const targets: ProbeTarget[] = [];
     for (const s of stations) {
       const own = mounts.filter((m) => m.stationId === s.id);
