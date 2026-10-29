@@ -189,6 +189,8 @@ One thing at a time; each item starts when the previous one is finished and test
    2. Both jingle grids and a separate loose player.
    3. Library with columns for the station's own item code, ISRC, BPM and key (taken from the tags first, otherwise calculated on the server in the background; an admin can correct them).
    4. News player (source set per station: a file from a URL, a file over FTP/SFTP, or a live stream, at set times, with a spare jingle when the news is missing) and a log editor.
+   - Window size: designed for 1920×1080, usable down to 1280×720 (after Windows display scaling, so a laptop at 1920×1080 with 150% scaling still fits). Below that panels scroll or collapse instead of stretching; on wide screens the players keep a maximum width. A real full screen mode (F11).
+   - The layout keeps the layout switch (Classic and this new layout). The working name "OmniPlayer layout" gets its own name before release, to avoid confusion with another product.
    - Free docking of panels comes later as a separate item.
 6. **Security hardening for external nodes**: see the queued item below. (For now the one external server was closed by hand.)
 7. **Phase 21: Recorder node**: recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download.
@@ -605,6 +607,12 @@ A WordPress plugin for customer websites, built on the station node API above.
 - Connect with the station's public address (or slug), the plugin finds the right node through the orchestrator lookup.
 - Blocks and shortcodes: weekly schedule, today's schedule, "on air now / who is live", now playing with player, recently played.
 - Creates a schedule page in one click; follows the site's theme; caches on the WordPress side.
+
+### RHIS Studio on a second screen, Stream Deck and a viewer screen
+
+- **Second screen (optional)**: spread RHIS Studio over two monitors and choose per screen what it shows (extra jingle grids, library, log, clock), building on free docking of panels.
+- **Stream Deck support**: hot keys on an Elgato Stream Deck (or similar button panel) for jingles, players, Next and Go Live, with the button labels and colours taken from the jingle grid.
+- **Viewer screen for sidekicks**: a stripped-down read-only screen (a second monitor in the studio, or a browser on a tablet) showing what is on air, the next tracks, time to the next ad block or news, and who is live. No controls; locked blocks such as ads are clearly marked.
 
 ### Several RHIS Studio clients at once (remote broadcasts)
 
