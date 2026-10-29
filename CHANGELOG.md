@@ -3,7 +3,12 @@
 All notable changes to Hosted Radio Station. Versions follow [semantic versioning](https://semver.org). The
 [roadmap](ROADMAP.md) has the full description of each phase, with screenshots.
 
-## Unreleased
+## 1.5.0 (29 October 2026)
+
+Security hardening for external nodes (a node firewall with nftables, on by default for nodes with a public address,
+SSH limits and a wider outside check) and the small fixes: the orchestrator card on Nodes, the direct fallback on the
+map, named failing checks, quiet port alerts during updates, bulk and large uploads in the library, the ingest as its
+own step in the delivery path, and the fix for a silent station node with a chosen main ingest.
 
 - Delivery path of a station on a station node: the ingest is its own step to the right of the studio node (source →
   studio node → ingest → relays → listeners) instead of stacked under it, on the Delivery page and in the summary.
