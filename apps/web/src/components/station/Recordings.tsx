@@ -82,7 +82,7 @@ function LoggingSettings({ station, data }: { station: StationDetail; data: Stat
                 ))}
               </Select>
             </Field>
-            <Field label={t('recordings.days')} hint={t('recordings.daysHint', { gb: ((draft.loggingKbps * 86400 * draft.loggingDays) / 8 / 1e9).toFixed(1) })}>
+            <Field label={t('recordings.days')} hint={t('recordings.daysHint', { gb: ((draft.loggingKbps * 1000 * 86400 * draft.loggingDays) / 8 / 1e9).toFixed(1) })}>
               <Input type="number" min={1} max={366} disabled={!data.canEdit} value={draft.loggingDays} onChange={(e) => set({ loggingDays: Number(e.target.value) })} />
             </Field>
           </div>
