@@ -12,7 +12,7 @@
 #   - safe apply: the previous rules are kept, and a timer puts them back after a minute unless the agent confirms that
 #     it still reaches the main server. Rules that were rolled back are not tried again until they change.
 #   - confirmed rules are saved and loaded again at boot (hrs-node-firewall-boot.service, "boot").
-# Status for the agent and the panel: run/firewall-status.json.
+# Status for the agent and the panel: run/firewall-status.json; the log of the runs: run/firewall.log.
 set -Eeuo pipefail
 
 RUN=/var/lib/hrs-node/run
@@ -169,7 +169,10 @@ apply() {
   ID=$(jq -r '.id // empty' "$RUN/firewall-request.json" 2>/dev/null | tr -cd 'A-Za-z0-9-' | cut -c1-64 || true)
   rm -f "$RUN/firewall-request.json"
   [[ -f "$STATE" ]] || exit 0
-  : > "$LOG"; chown hrs-node: "$LOG"
+  # The log keeps earlier runs (the rollback of a trial is its own run), trimmed to its last 500 lines.
+  if [[ -f "$LOG" ]]; then tail -n 500 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"; fi
+  touch "$LOG"; chown hrs-node: "$LOG"
+  log "--- request ${ID:-?}"
   local enabled take hash
   enabled=$(jq -r '.enabled == true' "$STATE"); take=$(jq -r '.takeOver == true' "$STATE")
   hash=$(sha256sum < "$STATE" | cut -c1-16)
