@@ -172,7 +172,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 18 | Server names and topology views | Done (1.1.0) |
 | 19 | Clearer control panels and node assignment | Done (1.2.0) |
 | 20 | Monitoring node | Done on test (PRs #142–#145) |
-| 21 | Recorder node | Planned (step 8 in the order of work) |
+| 21 | Recorder node | Planned (step 7 in the order of work) |
 | 22 | Packaged installers and moving the orchestrator | Future (when the first customers come) |
 | 23 | Deployment wizard | Future (when the first customers come) |
 
@@ -190,9 +190,8 @@ One thing at a time; each item starts when the previous one is finished and test
    3. Library with columns for the station's own item code, ISRC, BPM and key (taken from the tags first, otherwise calculated on the server in the background; an admin can correct them).
    4. News player (source set per station: a file from a URL, a file over FTP/SFTP, or a live stream, at set times, with a spare jingle when the news is missing) and a log editor.
    - Free docking of panels comes later as a separate item.
-6. **Bug fix: upgrading a station does nothing**: switching a station (for example Uptempo.fm) from Distribution to Radio station has no effect.
-7. **Security hardening for external nodes**: see the queued item below. (For now the one external server was closed by hand.)
-8. **Phase 21: Recorder node**: recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download.
+6. **Security hardening for external nodes**: see the queued item below. (For now the one external server was closed by hand.)
+7. **Phase 21: Recorder node**: recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download.
 
 Later: phase 14 (orchestrator redundancy) just before sales start; phases 22 and 23 when the first customers come.
 
@@ -566,7 +565,7 @@ Small fixes planned for a patch release, one at a time after the current phase.
 | ![3D network map with control lines](docs/screenshots/pr-128-129-3d-control-on.png) | ![2D layers with lines around servers](docs/screenshots/pr-128-129-2d-layers.png) |
 | ![Customer page, station node of this customer](docs/screenshots/pr-128-129-customer-station-node-harder-fm.png) | ![Customer page, the chosen station node shown after loading](docs/screenshots/pr-128-129-customer-station-node-radio-schermer.png) |
 
-### Security hardening for external nodes (step 7 in the order of work)
+### Security hardening for external nodes (step 6 in the order of work)
 
 Nodes with a direct public IP address get a firewall that is closed by default.
 
@@ -576,10 +575,13 @@ Nodes with a direct public IP address get a firewall that is closed by default.
 - Safe apply: new rules roll back by themselves when the node loses its connection to the orchestrator within a minute, so a mistake never locks a node out.
 - Hardening is on by default for nodes that detect a public IP, and can be turned on for nodes behind NAT as well. The panel shows the firewall state per node, and the external port check confirms that only the expected ports answer.
 
-### Small follow-ups (backlog, not started)
+### Small fixes (own thread, done in between)
+
+Small fixes are collected here and handled one at a time in a separate thread, next to the main item in the order of work.
 
 - **Direct fallback visible**: when a station node bypasses the ingest and pushes directly to the relays (fallback), the network map and the Monitoring page say so.
 - **Failing check by name**: the check badge on a relay names the check that failed in its tooltip.
+- **Upgrading a station does nothing**: switching a station (for example Uptempo.fm) from Distribution to Radio station has no effect.
 - **Orchestrator in the node overview**: the Nodes page opens with a pinned card for the server that hosts the orchestrator: its server name, hostname, internal and public address, version, uptime, CPU/RAM/disk, and which roles it still runs itself (local ingest or relay, or "Orchestrator only"). In the node list it is the first row with an "Orchestrator" badge, so it is never confused with a normal node. Later a standby orchestrator (phase 14) shows next to it.
 - **Quiet during updates**: the "old port open" check no longer flaps while a node is being updated.
 
