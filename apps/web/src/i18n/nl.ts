@@ -2626,6 +2626,8 @@ export const nl: Translation = {
     fromMonitor: 'Gecontroleerd vanaf de monitoring-node {{name}}, buiten je netwerk, zoals een luisteraar of encoder verbinding maakt.',
     fromServer: 'Gecontroleerd vanaf deze server. Een server in hetzelfde netwerk kan meer zien dan de buitenwereld; een monitoring-node controleert echt van buitenaf.',
     unexpected: 'Deze poorten antwoorden van buitenaf terwijl de node ze niet nodig heeft: {{ports}}. Sluit ze, bijvoorbeeld door de firewall van de node aan te zetten.',
+    unexpectedNat: 'Deze poorten antwoorden op {{address}}: {{ports}}. Deze node deelt dat adres via een router (NAT), dus ze kunnen van de router of van een andere machine erachter zijn in plaats van deze node. Controleer de port forwards in de router.',
+    fromMonitorSame: 'Gecontroleerd vanaf de monitoringnode {{name}}. Die deelt het publieke adres van deze node, zit dus in hetzelfde netwerk en controleert via de router, niet echt van buitenaf.',
     oldStillOpen: 'Oude poorten {{ports}} reageren nog terwijl de oude poorten voor deze node uit staan. Sluit ze in de firewall.',
     open: 'Open · {{ms}} ms',
     closed: { dns: 'Naam niet gevonden in DNS', idle: 'Nog niet in gebruik: gaat open zodra een ingest hierheen stuurt', timeout: 'Geen antwoord (gefilterd)', refused: 'Dicht (geweigerd)', unreachable: 'Niet bereikbaar', other: 'Niet bereikbaar' },

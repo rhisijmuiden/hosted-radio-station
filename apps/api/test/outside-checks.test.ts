@@ -78,7 +78,9 @@ describe('ports from outside through the monitoring node', () => {
     await wait(300);
 
     const fw = (await t.app.inject({ method: 'POST', url: `/api/nodes/${ingest.id}/firewall/check`, headers: admin })).json();
-    expect(fw.checkedFrom).toEqual({ kind: 'monitor', nodeId: monitor.id, name: 'pub-monitor-01' });
+    // Both connect from 127.0.0.1 here: the monitoring node shares the node's public address, so it is marked as being
+    // in the same network.
+    expect(fw.checkedFrom).toEqual({ kind: 'monitor', nodeId: monitor.id, name: 'pub-monitor-01', sameNetwork: true });
     expect(fw.dns).toEqual({ host: 'ingest.example.com', state: 'ok', checkedOn: '203.0.113.7' });
     expect(fw.checks['8200']).toMatchObject({ ok: true });
     expect(fw.checks['8201']).toMatchObject({ ok: false, message: 'timeout' });
