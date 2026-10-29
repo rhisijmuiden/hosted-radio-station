@@ -3,7 +3,7 @@ import { mkdir, rename, rm, stat } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import fastifyMultipart from '@fastify/multipart';
-import { and, asc, count, desc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, inArray, isNotNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { FastifyRequest } from 'fastify';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -11,11 +11,13 @@ import { schema } from '../db/index.js';
 import type { MediaSourceConfig } from '../db/schema.js';
 import { badRequest, forbidden, HttpError, notFound } from '../lib/errors.js';
 import { okOut } from '../lib/schemas.js';
-import { downgradeStation, upgradeStation } from '../services/autodj/edition.js';
+import { assertRadioStationAllowed, downgradeKeeping, makeRadioStation, radioStationNode, undoDowngrade } from '../services/autodj/edition.js';
 import {
   filePath,
   MEDIA_EXTENSIONS,
   MUSIC_FOLDER,
+  normaliseIsrc,
+  normaliseKey,
   refreshSourceStatus,
   scanLibrary,
   scanProgress,
@@ -23,6 +25,7 @@ import {
   type MediaSource,
 } from '../services/autodj/library.js';
 import { clearQueue, dropDisabled, enqueue, fillQueues, inPlaylist, mediaPath, moveItem, playNow, queueRows } from '../services/autodj/planner.js';
+import { NEWS, newsSettings, readNewsStatus } from '../services/autodj/news.js';
 import { autodjSchema, autodjSettings, queueRuleSchema } from '../services/autodj/settings.js';
 import { anchorOf, isFill } from '../services/scheduler/clock.js';
 import { hourStart } from '../services/scheduler/time.js';
@@ -37,7 +40,7 @@ import { AUTODJ_CHANNEL } from '../streams/autodj.js';
 import { sendFile } from './public.js';
 import { stationAccess } from './stations.js';
 import { cueProblem, playSeconds } from '../services/autodj/cues.js';
-import { assertAudioAllowedHere } from '../services/nodes/orchestrator.js';
+import { stationRouting } from '../services/nodes/routing-rules.js';
 
 const stationParams = z.object({ id: z.uuid() });
 const queueSchema = z.enum(['q1', 'q2']);
@@ -65,6 +68,12 @@ const mediaOut = z.object({
   durationSeconds: z.number().nullable(),
   bitrateKbps: z.number().int().nullable(),
   gainDb: z.number().nullable(),
+  /** The station's own number for the track, e.g. HF-03007 (null until the server gives it, within a minute). */
+  code: z.string().nullable(),
+  isrc: z.string(),
+  bpm: z.number().nullable(),
+  /** "Am", "F#" or empty. */
+  musicKey: z.string(),
   ...cuesOut.shape,
   sizeBytes: z.number(),
   enabled: z.boolean(),
@@ -159,7 +168,7 @@ const scanOut = z.object({
 const queueRowOut = z.object({
   id: z.uuid(),
   queue: queueSchema,
-  state: z.enum(['queued', 'cued', 'playing']),
+  state: z.enum(['queued', 'cued', 'loaded', 'playing']),
   origin: z.string(),
   addedBy: z.string().nullable(),
   requestId: z.uuid().nullable(),
@@ -212,7 +221,7 @@ const rundownRowOut = z.object({
   locked: z.boolean(),
   /** music = from the queues or a playlist until the next timed item; item = tracks the format puts in. */
   kind: z.enum(['music', 'item']),
-  source: z.enum(['queues', 'playlist', 'track']),
+  source: z.enum(['queues', 'playlist', 'track', 'news']),
   label: z.string(),
   count: z.number().int(),
   /** Expected length of a format item in seconds: its track, or count × the average of its playlist (null = unknown). */
@@ -258,24 +267,43 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
       schema: {
         tags: ['AutoDJ'],
         summary:
-          'Upgrade a station to the Radio station edition in one step: AutoDJ mount, fallback of the default mount, a first playlist and the AutoDJ switched on. Owners; administrators can upgrade the customer plan at the same time.',
+          'Upgrade a station to the Radio station edition in one step: AutoDJ mount, fallback of the default mount, a first playlist and the AutoDJ switched on. It runs on the station node `nodeId` (default: the customer\'s station node) or on this server. Owners, within the customer\'s limit of Radio stations.',
         params: stationParams,
-        body: z.object({ upgradeCustomer: z.boolean().default(false) }).default({ upgradeCustomer: false }),
+        body: z
+          .object({
+            nodeId: z.uuid().optional(),
+            /** No longer used: customers have no edition any more, only a limit of Radio stations. */
+            upgradeCustomer: z.boolean().optional(),
+          })
+          .default({}),
         response: { 200: autodjOut },
       },
     },
     async (req) => {
       const { station, tenant, access } = await stationAccess(ctx, req, req.params.id, 'owner');
-      if (!station.nodeId) await assertAudioAllowedHere(ctx, 'a Radio station runs on a station node; move it there first');
-      if (tenant.plan !== 'station') {
-        if (!req.body.upgradeCustomer || access.role !== 'superadmin') throw badRequest('The customer has the Distribution plan; an administrator upgrades the customer first');
-        await ctx.db.update(schema.tenants).set({ plan: 'station' }).where(eq(schema.tenants.id, tenant.id));
+      if (station.edition === 'station') return describe(station);
+      await assertRadioStationAllowed(ctx, tenant, station.id);
+      // Within 24 hours of going back to Distribution only: it returns where it ran, with all its content.
+      if (station.downgrade) {
+        const back = (await undoDowngrade(ctx, station))!;
+        req.auditInfo.details = { from: station.edition, to: 'station', undo: true, nodeId: back.nodeId };
+        await apply(req, station.id);
+        if (!back.nodeId) await fillQueues(ctx, station.id).catch(() => undefined);
+        return describe(back);
       }
-      const { station: updated } = await upgradeStation(ctx, station);
-      req.auditInfo.details = { from: station.edition, to: 'station', customerUpgraded: tenant.plan !== 'station' };
+      const node = station.nodeId ? null : await radioStationNode(ctx, { tenant, stationId: station.id, nodeId: req.body.nodeId, admin: access.role === 'superadmin' });
+      if (!node && !station.nodeId) {
+        // The AutoDJ plays on this server, so it becomes the main ingest again (an ingest node can stay as backup).
+        const r = stationRouting(station);
+        if (r.ingest !== 'local') await ctx.db.update(schema.stations).set({ routing: { ...r, ingest: 'local', backupIngest: r.backupIngest ?? r.ingest } }).where(eq(schema.stations.id, station.id));
+      }
+      const updated = await makeRadioStation(ctx, station, node);
+      req.auditInfo.details = { from: station.edition, to: 'station', nodeId: node?.id ?? station.nodeId };
       await apply(req, station.id);
-      await fillQueues(ctx, station.id).catch(() => undefined);
-      void scanLibrary(ctx, station.id).catch(() => undefined);
+      if (!updated.nodeId) {
+        await fillQueues(ctx, station.id).catch(() => undefined);
+        void scanLibrary(ctx, station.id).catch(() => undefined);
+      }
       return describe(updated);
     },
   );
@@ -286,18 +314,21 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
       config: { audit: 'station.downgrade' },
       schema: {
         tags: ['AutoDJ'],
-        summary: 'Back to the Distribution edition: the AutoDJ stops. Library and playlists are kept. Owners.',
+        summary:
+          'Back to Distribution only, with confirm: true. From then on the station only receives a stream from your own software; the AutoDJ, hour clocks, library and DJ logins stop. Its content is kept for 24 hours (until) so it can switch back with POST /upgrade; then it is deleted. Owners.',
         params: stationParams,
-        response: { 200: okOut },
+        body: z.object({ confirm: z.boolean().default(false) }).default({ confirm: false }),
+        response: { 200: z.object({ ok: z.literal(true), until: z.string() }) },
       },
     },
     async (req) => {
       const { station } = await stationAccess(ctx, req, req.params.id, 'owner');
       if (station.edition !== 'station') throw badRequest('This station has the Distribution edition');
-      await downgradeStation(ctx, station);
-      req.auditInfo.details = { from: 'station', to: 'distribution' };
+      if (!req.body.confirm) throw badRequest('Confirm that the station goes back to Distribution only: its AutoDJ, hour clocks, library and DJ logins stop, and its content is deleted after 24 hours');
+      const updated = await downgradeKeeping(ctx, station, req.auth?.user.email);
+      req.auditInfo.details = { from: 'station', to: 'distribution', until: updated.downgrade!.until, nodeId: station.nodeId };
       await apply(req, station.id);
-      return { ok: true as const };
+      return { ok: true as const, until: updated.downgrade!.until };
     },
   );
 
@@ -311,7 +342,7 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
       ctx.db
         .select({ tracks: count(), enabled: sql<number>`count(*) filter (where ${schema.mediaFiles.enabled})::int` })
         .from(schema.mediaFiles)
-        .where(eq(schema.mediaFiles.stationId, station.id)),
+        .where(and(eq(schema.mediaFiles.stationId, station.id), ne(schema.mediaFiles.location, NEWS))),
       ctx.db.select({ n: count() }).from(schema.playlists).where(eq(schema.playlists.stationId, station.id)),
       readStreamsStatus(ctx),
     ]);
@@ -525,6 +556,34 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
   );
 
   app.get(
+    '/:id/autodj/history',
+    {
+      schema: {
+        tags: ['AutoDJ'],
+        summary: 'The tracks the AutoDJ played last, newest first (the track on air is the first one)',
+        params: stationParams,
+        querystring: z.object({ limit: z.coerce.number().int().min(1).max(50).default(10) }),
+        response: {
+          200: z.object({
+            items: z.array(z.object({ mediaId: z.uuid(), title: z.string(), artist: z.string(), path: z.string(), durationSeconds: z.number().nullable(), playedAt: z.date() })),
+          }),
+        },
+      },
+    },
+    async (req) => {
+      const { station } = await radio(req, req.params.id, 'dj');
+      const mf = schema.mediaFiles;
+      const rows = await ctx.db
+        .select({ mediaId: mf.id, title: mf.title, artist: mf.artist, path: mf.path, durationSeconds: mf.durationSeconds, playedAt: mf.lastPlayedAt })
+        .from(mf)
+        .where(and(eq(mf.stationId, station.id), isNotNull(mf.lastPlayedAt)))
+        .orderBy(desc(mf.lastPlayedAt))
+        .limit(req.query.limit);
+      return { items: rows.map((r) => ({ ...r, playedAt: r.playedAt! })) };
+    },
+  );
+
+  app.get(
     '/:id/autodj/rundown',
     {
       schema: {
@@ -588,6 +647,8 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
         }),
       ),
     );
+    const news = newsSettings(station);
+    const bulletin = news.enabled ? await readNewsStatus(ctx, station.id) : null;
     const rows: z.infer<typeof rundownRowOut>[] = [];
     const first = hourStart(now, tz);
     for (let h = 0; h < hours; h++) {
@@ -609,10 +670,13 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
         const a = anchorOf(clock.items, i);
         if (a !== null) start = hour + a * 60_000;
         const source = item.kind === 'rotation' ? 'queues' : item.kind;
-        const label = item.label || (item.kind === 'playlist' ? (listName.get(item.playlistId ?? '') ?? '') : item.kind === 'track' ? (trackName.get(item.mediaId ?? '') ?? '') : '');
+        const label =
+          item.label ||
+          (item.kind === 'playlist' ? (listName.get(item.playlistId ?? '') ?? '') : item.kind === 'track' ? (trackName.get(item.mediaId ?? '') ?? '') : item.kind === 'news' ? news.name : '');
         const current = !!st?.clockHour && st.clockHour.getTime() === hour && st.clockId === clock.id && st.clockStep === i;
-        const count = item.kind === 'track' ? 1 : item.count;
-        const each = item.kind === 'track' ? trackSeconds.get(item.mediaId ?? '') : item.kind === 'playlist' ? listSeconds.get(item.playlistId ?? '') : null;
+        const count = item.kind === 'track' || item.kind === 'news' ? 1 : item.count;
+        const each =
+          item.kind === 'track' ? trackSeconds.get(item.mediaId ?? '') : item.kind === 'playlist' ? listSeconds.get(item.playlistId ?? '') : item.kind === 'news' ? (bulletin?.durationSeconds ?? null) : null;
         const kind = isFill(item) ? 'music' : 'item';
         const seconds = kind === 'item' && each != null ? Math.round(each * count) : null;
         rows.push({ ...base, startsAt: new Date(start), timed: a !== null, hard: item.hard, locked: kind === 'item' && !!item.locked, kind, source, label, count, seconds, current });
@@ -705,7 +769,7 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
     folder: z.string().max(500).optional(),
     playlistId: z.uuid().optional(),
     enabled: z.enum(['all', 'yes', 'no']).default('all'),
-    sort: z.enum(['artist', 'title', 'album', 'added', 'played', 'plays', 'duration', 'path']).default('artist'),
+    sort: z.enum(['artist', 'title', 'album', 'added', 'played', 'plays', 'duration', 'path', 'code', 'bpm', 'key']).default('artist'),
     dir: z.enum(['asc', 'desc']).default('asc'),
     offset: z.coerce.number().int().min(0).default(0),
     limit: z.coerce.number().int().min(1).max(500).default(100),
@@ -726,10 +790,11 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
       const { station } = await radio(req, req.params.id, 'dj');
       const q = req.query;
       const mf = schema.mediaFiles;
-      const where: (SQL | undefined)[] = [eq(mf.stationId, station.id)];
+      // The news bulletin is not part of the library.
+      const where: (SQL | undefined)[] = [eq(mf.stationId, station.id), ne(mf.location, NEWS)];
       if (q.q) {
         const like = `%${q.q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
-        where.push(or(ilike(mf.title, like), ilike(mf.artist, like), ilike(mf.album, like), ilike(mf.path, like)));
+        where.push(or(ilike(mf.title, like), ilike(mf.artist, like), ilike(mf.album, like), ilike(mf.path, like), ilike(mf.code, like), ilike(mf.isrc, like.replace(/[\s-]/g, ''))));
       }
       if (q.location) where.push(eq(mf.location, q.location));
       if (q.folder) where.push(sql`${mf.path} like ${`${q.folder.replace(/[\\%_]/g, (c) => `\\${c}`)}/%`}`);
@@ -740,7 +805,7 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
         if (!p) throw notFound('Playlist');
         where.push(inPlaylist(p));
       }
-      const column = { artist: mf.artist, title: mf.title, album: mf.album, added: mf.createdAt, played: mf.lastPlayedAt, plays: mf.playCount, duration: mf.durationSeconds, path: mf.path }[q.sort];
+      const column = { artist: mf.artist, title: mf.title, album: mf.album, added: mf.createdAt, played: mf.lastPlayedAt, plays: mf.playCount, duration: mf.durationSeconds, path: mf.path, code: mf.code, bpm: mf.bpm, key: mf.musicKey }[q.sort];
       const dir = q.dir === 'asc' ? asc : desc;
       const [items, [total]] = await Promise.all([
         ctx.db
@@ -905,6 +970,11 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
           album: z.string().trim().max(300).optional(),
           genre: z.string().trim().max(100).optional(),
           year: z.number().int().min(1000).max(2999).nullable().optional(),
+          /** With or without dashes; empty clears it. */
+          isrc: z.string().trim().max(20).optional(),
+          bpm: z.number().min(40).max(250).nullable().optional(),
+          /** "Am", "A minor", "8A" (Camelot) and the like; empty clears it. */
+          musicKey: z.string().trim().max(20).optional(),
           enabled: z.boolean().optional(),
           /** All five cue points at once; null clears one. */
           cues: z.object({ cueIn: cueSecond, cueIntro: cueSecond, cueSegue: cueSecond, cueFadeOut: cueSecond, cueOut: cueSecond }).optional(),
@@ -914,7 +984,17 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (req) => {
       const { station } = await radio(req, req.params.id, 'manager');
-      const { enabled, cues, ...tags } = req.body;
+      const { enabled, cues, isrc, musicKey, bpm, ...rest } = req.body;
+      const tags: Partial<typeof schema.mediaFiles.$inferInsert> = { ...rest };
+      if (isrc !== undefined) {
+        tags.isrc = normaliseIsrc(isrc);
+        if (isrc && !tags.isrc) throw badRequest('That is not an ISRC (two letters, three letters or digits, seven digits)');
+      }
+      if (musicKey !== undefined) {
+        tags.musicKey = normaliseKey(musicKey);
+        if (musicKey && !tags.musicKey) throw badRequest('Unknown key: use for example Am, F#, Bb minor or 8A');
+      }
+      if (bpm !== undefined) tags.bpm = bpm === null ? null : Math.round(bpm * 10) / 10;
       const tagged = Object.values(tags).some((v) => v !== undefined);
       if (cues) {
         const [m] = await ctx.db

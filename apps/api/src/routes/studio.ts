@@ -14,11 +14,13 @@ import { stationAccess } from './stations.js';
 
 const LINK_MINUTES = 10;
 const LIVE_TOKEN_HOURS = 12;
+/** The layout of a DJ profile stays small: a few switches and widths. */
+const PROFILE_BYTES = 16 * 1024;
 /**
  * What this server offers RHIS Studio beyond version 0.9 of the client. The client switches a feature off, and says the
  * server needs an update, when its name is missing here.
  */
-export const STUDIO_FEATURES = ['playout', 'rundown', 'play-now', 'jingles', 'one-queue', 'cues'] as const;
+export const STUDIO_FEATURES = ['playout', 'rundown', 'play-now', 'jingles', 'one-queue', 'cues', 'profile', 'history', 'station-carts', 'track-codes', 'news', 'log-editor'] as const;
 /** No 0/O, 1/I/L: the code is read from one screen and typed or compared on another. */
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
@@ -258,6 +260,43 @@ export const studioRoutes: FastifyPluginAsyncZod = async (app) => {
       const [k] = await ctx.db.select({ id: schema.apiKeys.id }).from(schema.apiKeys).where(eq(schema.apiKeys.hash, sha256(key)));
       if (k) await ctx.db.update(schema.studioLinks).set({ clientVersion: req.body.clientVersion }).where(eq(schema.studioLinks.apiKeyId, k.id));
       return hello;
+    },
+  );
+
+  // The DJ profile: the layout of Assist, the same on every studio PC of this user.
+
+  const profileOut = z.object({ layout: z.record(z.string(), z.unknown()), updatedAt: z.date().nullable() });
+
+  app.get(
+    '/profile',
+    { schema: { tags: ['Studio client'], summary: 'Your DJ profile: the layout of the Assist screen of RHIS Studio', response: { 200: profileOut } } },
+    async (req) => {
+      const auth = requireUser(req);
+      const [row] = await ctx.db.select().from(schema.studioProfiles).where(eq(schema.studioProfiles.userId, auth.user.id));
+      return { layout: row?.layout ?? {}, updatedAt: row?.updatedAt ?? null };
+    },
+  );
+
+  app.put(
+    '/profile',
+    {
+      schema: {
+        tags: ['Studio client'],
+        summary: 'Save the layout of your DJ profile (the client decides its shape)',
+        body: z.object({ layout: z.record(z.string(), z.unknown()) }),
+        response: { 200: profileOut },
+      },
+    },
+    async (req) => {
+      const auth = requireUser(req);
+      if (JSON.stringify(req.body.layout).length > PROFILE_BYTES) throw badRequest('The layout is too large');
+      const updatedAt = new Date();
+      const [row] = await ctx.db
+        .insert(schema.studioProfiles)
+        .values({ userId: auth.user.id, layout: req.body.layout, updatedAt })
+        .onConflictDoUpdate({ target: schema.studioProfiles.userId, set: { layout: req.body.layout, updatedAt } })
+        .returning();
+      return { layout: row!.layout, updatedAt: row!.updatedAt };
     },
   );
 

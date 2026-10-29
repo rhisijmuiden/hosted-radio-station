@@ -18,6 +18,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { registerAudit } from './lib/audit.js';
 import { DnsManager } from './services/dns/manager.js';
+import { AlertMonitor } from './services/alerts/monitor.js';
 import { registerAuth, API_KEY_PREFIX, SESSION_COOKIE } from './lib/auth.js';
 import type { AppContext } from './lib/context.js';
 import { HttpError } from './lib/errors.js';
@@ -30,11 +31,14 @@ import { billingPublicRoutes } from './routes/billing-public.js';
 import { provisioningRoutes } from './routes/provisioning.js';
 import { tenantStreamingRoutes } from './routes/domains.js';
 import { dnsRoutes, nodeDnsRoutes } from './routes/dns.js';
+import { alertRoutes } from './routes/alerts.js';
 import { healthRoutes } from './routes/health.js';
 import { internalRoutes } from './routes/internal.js';
 import { publicRoutes, renderPublicShell } from './routes/public.js';
 import { autodjRoutes } from './routes/autodj.js';
 import { schedulerRoutes } from './routes/scheduler.js';
+import { logRoutes } from './routes/log.js';
+import { newsRoutes } from './routes/news.js';
 import { stationPublicRoutes } from './routes/station-public.js';
 import { settingsRoutes } from './routes/settings.js';
 import { ssoAdminRoutes, ssoAuthRoutes } from './routes/sso.js';
@@ -66,6 +70,8 @@ declare module 'fastify' {
     nodeUpdates: NodeUpdater;
     /** Cloudflare DNS of the platform domain (phase 15); null on a station node. */
     dns: DnsManager | null;
+    /** Monitoring and alerts (phase 20); null on a station node. */
+    alerts: AlertMonitor | null;
     stationTunnels: StationTunnels;
     /** On a station node: the link with the main server (started by server.ts). */
     stationNode: StationNodeLink | null;
@@ -114,6 +120,12 @@ export async function buildApp(ctx: AppContext) {
     nodeHub.onChange = () => dns.nudge();
     if (config.NODE_ENV !== 'test') dns.start();
     app.addHook('onClose', async () => dns.stop());
+  }
+  const alerts = config.STATION_NODE ? null : new AlertMonitor(ctx, nodeHub, app.log);
+  app.decorate('alerts', alerts);
+  if (alerts) {
+    if (config.NODE_ENV !== 'test') alerts.start();
+    app.addHook('onClose', async () => alerts.stop());
   }
   const tunnels = new StationTunnels(app.log);
   app.decorate('stationTunnels', tunnels);
@@ -207,6 +219,8 @@ export async function buildApp(ctx: AppContext) {
   await app.register(stationPublicRoutes, { prefix: '/api/stations' });
   await app.register(autodjRoutes, { prefix: '/api/stations' });
   await app.register(schedulerRoutes, { prefix: '/api/stations' });
+  await app.register(newsRoutes, { prefix: '/api/stations' });
+  await app.register(logRoutes, { prefix: '/api/stations' });
   await app.register(tenantStreamingRoutes, { prefix: '/api/tenants' });
   await app.register(statsRoutes, { prefix: '/api/stats' });
   await app.register(studioRoutes, { prefix: '/api/studio' });
@@ -228,6 +242,7 @@ export async function buildApp(ctx: AppContext) {
   await app.register(stationConnectionRoutes, { prefix: '/api/stations' });
   await app.register(tenantStationNodeRoutes, { prefix: '/api/tenants' });
   await app.register(dnsRoutes, { prefix: '/api/dns' });
+  await app.register(alertRoutes, { prefix: '/api/alerts' });
   await app.register(internalRoutes, { prefix: '/api/internal' });
   if (link) await app.register(stationNodeInternalRoutes, { prefix: '/api/internal/station-node', link });
 

@@ -3555,7 +3555,7 @@ dependencies = [
 
 [[package]]
 name = "rhis-studio"
-version = "0.16.0"
+version = "0.21.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { api, type Account, type AutoDj, type Rundown, type StationDetail, type StationStatus } from './api';
+import { api, type Account, type AutoDj, type Played, type Rundown, type StationDetail, type StationStatus } from './api';
 
 export const useStationDetail = (id: string | undefined) =>
   useQuery({ queryKey: ['station', id], queryFn: () => api<StationDetail>(`/stations/${id}`), enabled: !!id, staleTime: 30_000 });
@@ -15,3 +15,7 @@ export const useRundown = (id: string | undefined, enabled = true) =>
 
 export const useAccounts = (id: string | undefined) =>
   useQuery({ queryKey: ['accounts', id], queryFn: () => api<Account[]>(`/stations/${id}/accounts`), enabled: !!id, staleTime: 60_000 });
+
+/** Last played, for the log of the OmniPlayer layout; refetched when the track on air changes. */
+export const useHistory = (id: string | undefined, onAir: string | undefined, enabled = true) =>
+  useQuery({ queryKey: ['history', id, onAir], queryFn: () => api<{ items: Played[] }>(`/stations/${id}/autodj/history?limit=8`), enabled: !!id && enabled, staleTime: 60_000, placeholderData: (prev) => prev });

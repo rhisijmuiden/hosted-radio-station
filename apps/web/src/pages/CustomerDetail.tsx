@@ -13,8 +13,8 @@ import { CustomerStationNodeCard } from '../components/station/CustomerNode';
 import { api, ApiError, type Member, type Role, type StationListItem, type Tenant } from '../lib/api';
 import { isAdmin, useMailConfigured, useMe } from '../lib/auth';
 import { formatDate } from '../lib/format';
-import { LimitsFields, PlanPicker } from './Customers';
-import { PlanBadge } from './Dashboard';
+import { LimitsFields } from './Customers';
+import { LimitsBadge } from './Dashboard';
 import { CreateStationDialog, StationsTable } from './Stations';
 
 const ROLES: Role[] = ['owner', 'manager', 'dj'];
@@ -31,7 +31,7 @@ function DetailsCard({ tenant, admin, canEdit }: { tenant: Tenant; admin: boolea
       api<Tenant>(`/tenants/${tenant.id}`, {
         method: 'PATCH',
         body: admin
-          ? { name: draft.name, slug: draft.slug, plan: draft.plan, limits: draft.limits, active: draft.active, externalRef: draft.externalRef || null }
+          ? { name: draft.name, slug: draft.slug, limits: draft.limits, active: draft.active, externalRef: draft.externalRef || null }
           : { name: draft.name },
       }),
     onSuccess: (res) => {
@@ -47,7 +47,6 @@ function DetailsCard({ tenant, admin, canEdit }: { tenant: Tenant; admin: boolea
     e.preventDefault();
     save.mutate();
   };
-  const upgrade = tenant.plan === 'distribution' && draft.plan === 'station';
 
   return (
     <Card>
@@ -61,9 +60,6 @@ function DetailsCard({ tenant, admin, canEdit }: { tenant: Tenant; admin: boolea
             <Input required disabled={!admin} value={draft.slug} onChange={(e) => setDraft({ ...draft, slug: e.target.value })} />
           </Field>
         </div>
-        <Field label={t('fields.plan')} hint={upgrade ? t('customers.upgradeHint') : undefined}>
-          {admin ? <PlanPicker value={draft.plan} onChange={(plan) => setDraft({ ...draft, plan })} /> : <PlanBadge plan={tenant.plan} />}
-        </Field>
         <div>
           <div className="mb-2 text-[13px] font-semibold">{t('customers.limits')}</div>
           <LimitsFields value={draft.limits} onChange={(limits) => setDraft({ ...draft, limits })} disabled={!admin} />
@@ -342,7 +338,7 @@ export function CustomerDetailPage() {
         title={c.name}
         description={
           <span className="inline-flex flex-wrap items-center gap-2">
-            <PlanBadge plan={c.plan} />
+            <LimitsBadge limits={c.limits} />
             <Badge tone={c.active ? 'online' : 'offline'} dot>
               {c.active ? t('common.active') : t('common.suspended')}
             </Badge>

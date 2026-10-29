@@ -28,26 +28,29 @@ export const JINGLE_SLOT = 48;
 const PER_PAGE = 6;
 const MAX_PAGES = 8;
 
-const base = (stationId: string) => `/studio/stations/${stationId}/jingles`;
-const extOf = (path: string) => (/\.([a-z0-9]{1,5})$/i.exec(path)?.[1] ?? 'mp3').toLowerCase();
+export const base = (stationId: string) => `/studio/stations/${stationId}/jingles`;
+export const extOf = (path: string) => (/\.([a-z0-9]{1,5})$/i.exec(path)?.[1] ?? 'mp3').toLowerCase();
 
 /** Plays (or stops) the jingle on a button. */
 export const triggerJingle = (position: number) => void call('play_cart', { slot: JINGLE_SLOT + position });
 
 /** Puts a file of this PC (or a network share) on a button: it goes to the DJ's profile on the server. */
-async function uploadJingle(stationId: string, position: number, path: string) {
+export async function uploadJingle(stationId: string, position: number, path: string) {
   return call<Jingle>('upload_file', { url: `${getSettings().server}/api${base(stationId)}?position=${position}`, token: getApiKey() ?? '', path });
 }
 
-/** Keeps the engine slots in step with the jingles on the server: each file is downloaded once and kept on this PC. */
-function useLoadJingles(stationId: string, jingles: Jingle[] | undefined) {
+/**
+ * Keeps engine slots in step with buttons on the server (the DJ's jingles, or the station carts at `slotBase` from
+ * `url`): each file is downloaded once and kept on this PC.
+ */
+export function useLoadJingles(stationId: string, jingles: Jingle[] | undefined, slotBase = JINGLE_SLOT, url = base) {
   const loaded = useRef(new Map<number, string>());
   useEffect(() => {
     if (!jingles) return;
     const want = new Map(jingles.map((j) => [j.position, j]));
     for (const [position] of loaded.current) {
       if (!want.has(position)) {
-        void call('clear_cart', { slot: JINGLE_SLOT + position });
+        void call('clear_cart', { slot: slotBase + position });
         loaded.current.delete(position);
       }
     }
@@ -55,26 +58,26 @@ function useLoadJingles(stationId: string, jingles: Jingle[] | undefined) {
       const key = `${j.id}:${j.looped}`;
       if (loaded.current.get(j.position) === key) continue;
       loaded.current.set(j.position, key);
-      clearCartError(JINGLE_SLOT + j.position);
-      void call<string>('cache_file', { url: `${getSettings().server}/api${base(stationId)}/${j.id}/audio`, token: getApiKey() ?? '', name: `${j.id}.${j.ext}` })
-        .then((path) => call('load_cart', { slot: JINGLE_SLOT + j.position, path, looped: j.looped }))
+      clearCartError(slotBase + j.position);
+      void call<string>('cache_file', { url: `${getSettings().server}/api${url(stationId)}/${j.id}/audio`, token: getApiKey() ?? '', name: `${j.id}.${j.ext}` })
+        .then((path) => call('load_cart', { slot: slotBase + j.position, path, looped: j.looped }))
         .catch((err) => {
           loaded.current.delete(j.position);
           toast.error(`${j.label}: ${(err as Error).message ?? err}`);
         });
     }
-  }, [stationId, jingles]);
+  }, [stationId, jingles, slotBase, url]);
   // Another station: its own buttons.
   useEffect(() => {
     const slots = loaded.current;
     return () => {
-      for (const [position] of slots) void call('clear_cart', { slot: JINGLE_SLOT + position });
+      for (const [position] of slots) void call('clear_cart', { slot: slotBase + position });
       slots.clear();
     };
   }, [stationId]);
 }
 
-function EditDialog({ stationId, jingle, onClose }: { stationId: string; jingle: Jingle | null; onClose: () => void }) {
+export function EditDialog({ stationId, jingle, onClose }: { stationId: string; jingle: Jingle | null; onClose: () => void }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [form, setForm] = useState({ label: '', color: COLORS[0]!, looped: false });

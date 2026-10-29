@@ -52,6 +52,8 @@ export interface Me {
 }
 export interface TenantLimits {
   maxStations: number;
+  /** Of those, how many may be a Radio station (AutoDJ); 0 = Distribution only. The edition belongs to each station. */
+  maxRadioStations: number;
   maxListeners: number;
   maxBitrateKbps: number;
   storageQuotaMb: number;
@@ -278,11 +280,15 @@ export interface Station {
   nodeOnline: boolean | null;
   nodeSeenAt: string | null;
   nodeMove: StationMove | null;
+  /** Back to Distribution only: the Radio station content is kept until `until`, so it can switch back. */
+  downgrade: { at: string; until: string; nodeId: string | null } | null;
   createdAt: string;
 }
 export interface StationMove {
   direction: 'to_node' | 'to_main';
   nodeId: string;
+  /** A move straight from one station node to another: the node it comes from. */
+  fromNodeId?: string;
   state: 'copying' | 'failed';
   files: number;
   filesDone: number;
@@ -355,6 +361,8 @@ export interface ConnectionInfo {
 }
 export interface StationDetail extends Station {
   tenantPlan: Plan;
+  radioStations: { used: number; max: number };
+  tenantStationNodeId: string | null;
   mounts: Mount[];
   outputs: Output[];
   connection: ConnectionInfo;
@@ -669,12 +677,16 @@ export interface AutodjSettings {
   artistSeparationMinutes: number;
   trackSeparationMinutes: number;
   pauseWhenLive: boolean;
+  /** Prefix of the track codes; empty = the initials of the station. */
+  codePrefix?: string;
+  /** Measure tempo and key where the tags have none. */
+  analyse?: boolean;
   requests: { fromLibrary: boolean; autoQueue: boolean; queue: QueueName; repeatMinutes: number };
 }
 export interface QueueRow {
   id: string;
   queue: QueueName;
-  state: 'queued' | 'cued' | 'playing';
+  state: 'queued' | 'cued' | 'loaded' | 'playing';
   origin: 'rotation' | 'request' | 'manual' | 'clock';
   addedBy: string | null;
   requestId: string | null;
@@ -707,6 +719,12 @@ export interface MediaFile {
   durationSeconds: number | null;
   bitrateKbps: number | null;
   gainDb: number | null;
+  /** The station's own number for the track, e.g. HF-03007 (null on servers before 1.4, or for a moment after a scan). */
+  code?: string | null;
+  isrc?: string;
+  bpm?: number | null;
+  /** "Am", "F#" or empty. */
+  musicKey?: string;
   sizeBytes: number;
   enabled: boolean;
   edited: boolean;
@@ -770,7 +788,8 @@ export interface MediaSource {
 
 export interface ClockItem {
   id: string;
-  kind: 'rotation' | 'playlist' | 'track';
+  /** news = the station's news bulletin (or its spare jingle), see the News page. */
+  kind: 'rotation' | 'playlist' | 'track' | 'news';
   label: string;
   playlistId: string | null;
   mediaId: string | null;
@@ -826,7 +845,7 @@ export interface SchedulerView {
 
 // Nodes (distribution network)
 
-export type NodeRole = 'relay' | 'source' | 'station' | 'fm';
+export type NodeRole = 'relay' | 'source' | 'station' | 'fm' | 'monitor';
 /** FM/MPX settings of a node (phase 11). Shares are 0..1 of 100% modulation. */
 export interface FmConfig {
   stationId: string | null;
@@ -1078,6 +1097,11 @@ export interface NodeProbe {
   checkedAt: string;
   lastOkAt: string | null;
   uptime24h: number | null;
+  bitrateKbps: number | null;
+  contentType: string | null;
+  title: string | null;
+  levelDb: number | null;
+  silent: boolean | null;
 }
 export interface NodesSettings {
   autoUpdate: boolean;
@@ -1157,12 +1181,18 @@ export interface NodeFirewall {
   dns: { host: string; state: 'ok' | 'stale' | 'missing'; checkedOn: string } | null;
   ports: FirewallPort[];
   checks: Record<string, { ok: boolean; message: string | null; ms: number | null; at: string }>;
+  /** Who ran the last check: a monitoring node outside (phase 20), or this server. */
+  checkedFrom: { kind: 'monitor'; nodeId: string; name: string } | { kind: 'server' } | null;
+  /** Old ports that still answer while they are switched off for the node. */
+  oldOpen: number[];
 }
 export interface TopologyNode {
   id: string;
   name: string;
   /** FM/MPX node: the station node of its studio, drawn beside it (null = none). */
   home?: string | null;
+  /** Station and FM/MPX nodes: the customer whose block they stand in (null = shared). */
+  customer?: string | null;
   /** Host name and address, for who manages the node. */
   hostname: string | null;
   ip: string | null;
@@ -1193,6 +1223,8 @@ export interface TopologyNode {
   relaysTotal: number;
   /** FM/MPX node with its station on air. */
   fmOnAir: boolean;
+  /** What the monitoring node heard on this node's streams lately (null = it does not check this node). */
+  check: 'ok' | 'failed' | null;
 }
 /** "local" = this server's own ingest; otherwise an ingest node id. */
 export type IngestRef = 'local' | string;
@@ -1233,6 +1265,8 @@ export interface TopologyStudio {
   id: string;
   station: string;
   stationId: string;
+  /** The customer whose block the studio stands in. */
+  customer?: string | null;
   account: string;
   mount: string;
   via: string;
@@ -1242,7 +1276,8 @@ export interface TopologyStudio {
 export interface TopologyLink {
   from: string;
   to: string;
-  kind: 'control' | 'stream';
+  /** check = a monitoring node listening to the streams of a node. */
+  kind: 'control' | 'stream' | 'check';
   active: boolean;
   degraded: boolean;
   rttMs: number | null;
@@ -1252,12 +1287,17 @@ export interface TopologyLink {
   kbps: number | null;
   /** A backup ingest feeding the relay on standby. */
   standby: boolean;
+  /** Audio: the stations on the line, each drawn in its own colour. */
+  stations?: { id: string; streams: number; kbps: number | null }[];
 }
 export type TopologyCell = 'onAir' | 'standby' | 'degraded' | 'down' | 'idle';
 export interface TopologyStation {
   id: string;
   name: string;
   tenantId: string | null;
+  customer?: string;
+  /** Index of the station's line colour (see stationColor). */
+  color?: number;
   edition: 'distribution' | 'station';
   stationNode: string | null;
   ingest: string | null;
@@ -1272,6 +1312,8 @@ export interface Topology {
   main: { id: 'main'; name: string; host: string | null; orchestratorOnly: boolean; version: string; commit: string | null; branch: string | null; listeners: number; stations: number };
   nodes: TopologyNode[];
   studios: TopologyStudio[];
+  /** Customers with a block of their own on the map; color indexes the station line colours. */
+  customers?: { id: string; name: string; color: number }[];
   links: TopologyLink[];
   stations: TopologyStation[];
   audience: { nodeId: string; stationId: string; country: string | null; listeners: number }[];
@@ -1513,6 +1555,8 @@ export const WEBHOOK_EVENTS = [
   'invoice.created',
   'invoice.paid',
   'invoice.overdue',
+  'alert.opened',
+  'alert.resolved',
 ] as const;
 
 // Phase 15: Cloudflare DNS
@@ -1569,4 +1613,60 @@ export interface NodeDns {
   host: string | null;
   ownHost: string | null;
   check: { ok: boolean; found: string[]; error?: string; at: string } | null;
+}
+
+// Phase 20: monitoring
+
+export type AlertKind = 'node_offline' | 'node_problem' | 'station_off_air' | 'station_silent' | 'stream_down' | 'stream_quality' | 'feed_lost' | 'updates_paused' | 'dns_error' | 'port_closed' | 'old_port_open' | 'dns_wrong';
+export interface Alert {
+  id: string;
+  key: string;
+  kind: AlertKind;
+  severity: 'critical' | 'warning';
+  nodeId: string | null;
+  stationId: string | null;
+  params: Record<string, string>;
+  message: string | null;
+  openedAt: string;
+  lastSeenAt: string;
+  resolvedAt: string | null;
+  notified: boolean;
+  acknowledgedAt: string | null;
+  acknowledgedBy: string | null;
+}
+export interface AlertSummary {
+  open: number;
+  critical: number;
+  unacknowledged: number;
+}
+export interface Maintenance {
+  kind: 'node' | 'station';
+  id: string;
+  until: string | null;
+  note: string;
+  by: string | null;
+}
+export interface AlertDelivery {
+  channel: 'email' | 'telegram';
+  ok: boolean;
+  error: string | null;
+  at?: string;
+}
+export interface AlertSettings {
+  graceSeconds: number;
+  recoverSeconds: number;
+  minSeverity: 'warning' | 'critical';
+  notifyRecovery: boolean;
+  language: 'en' | 'nl';
+  email: { enabled: boolean; to: string[] };
+  telegram: { enabled: boolean; botToken: string; chatId: string };
+  quietStations: string[];
+  maintenance: Maintenance[];
+  mailReady: boolean;
+  lastDelivery: AlertDelivery[];
+}
+export interface TelegramChat {
+  id: string;
+  name: string;
+  type: string;
 }

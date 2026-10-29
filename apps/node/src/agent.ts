@@ -6,6 +6,7 @@ import { icecastConfigPath, icecastSecrets, reloadIcecast, renderIcecastConfig, 
 import { FmManager } from './fm/manager.js';
 import { log } from './log.js';
 import { Prober } from './probe.js';
+import { checkPorts } from './portcheck.js';
 import { IngestManager } from './ingest.js';
 import { CLOSE, PROTOCOL_VERSION, type AgentLive, type AgentMessage, type AgentReport, type AuthResult, type NodePlan, type ServerMessage } from './protocol.js';
 import { RelayManager } from './relay.js';
@@ -245,6 +246,12 @@ export class Agent {
         this.relay?.drain(msg.seconds);
         if (msg.seconds > 0) this.event('draining', 'info', { seconds: msg.seconds, listeners: this.relay?.listenerCount ?? 0 });
         return;
+      case 'portcheck': {
+        // Only a monitoring node checks other servers' ports for the server.
+        if (!this.plan?.roles.includes('monitor')) return this.send({ t: 'portcheck_result', id: msg.id, address: null, results: [] });
+        const { address, results } = await checkPorts(String(msg.host).slice(0, 253), Array.isArray(msg.ports) ? msg.ports : []);
+        return this.send({ t: 'portcheck_result', id: msg.id, address, results });
+      }
       case 'fm':
         return this.fm.setContext({ dj: msg.dj, show: msg.show });
       case 'restart':
@@ -279,7 +286,8 @@ export class Agent {
       certHosts: [...new Set([plan.web.publicHost, ...(plan.source?.hosts ?? [])].filter((h): h is string => !!h))].sort(),
       dnsCerts: plan.web.dnsCerts ?? null,
       station: !!plan.station,
-      ffmpeg: !!plan.ingest?.stations.some((st) => st.mounts.some((m) => m.kind === 'transcode')),
+      // Converted mounts on an ingest, and the audio level checks of a monitoring node (phase 20).
+      ffmpeg: !!plan.ingest?.stations.some((st) => st.mounts.some((m) => m.kind === 'transcode')) || plan.roles.includes('monitor'),
       roles: [...plan.roles].sort(),
     });
     // Give Icecast a moment to read the new mounts before the streams come in.

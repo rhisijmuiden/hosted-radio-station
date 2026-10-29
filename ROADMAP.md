@@ -171,7 +171,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 17 | RHIS Studio 1.0 (Windows client) | Done (1.3.0) (fader start, step 4, parked until MIDI/GPIO hardware is available) |
 | 18 | Server names and topology views | Done (1.1.0) |
 | 19 | Clearer control panels and node assignment | Done (1.2.0) |
-| 20 | Monitoring node | Done on test (PRs #142–#145) |
+| 20 | Monitoring node | Done (1.4.0) |
 | 21 | Recorder node | Planned (step 8 in the order of work) |
 | 22 | Packaged installers and moving the orchestrator | Future (when the first customers come) |
 | 23 | Deployment wizard | Future (when the first customers come) |
@@ -181,18 +181,21 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 One thing at a time; each item starts when the previous one is finished and tested.
 
 1. **Release to production** (done, 1.3.0): everything on `test` (phase 17, the UI fixes, the port plan per role and routing via ingest) goes to `main` as one release.
-2. **Bug fix: two tracks "Cued" at once** (done on test, PRs #140 and #141; goes out with the next release): only one track can be cued at a time. This must be right before the Studio layout below, where player B is the cued track.
-3. **Phase 20: Monitoring node** (done on test, PRs #142–#145, tested with a real monitoring node): the monitoring node shows on the network map in bright green in its own lane, with moving check lines to the nodes it checks (red when a check fails) and a Checks switch; alerts when a node or relay goes down, instead of finding out from silence.
-4. **Network map: customer blocks** (done on test, PR #146): in the 2D and 3D map every customer becomes its own block, set apart from the shared infrastructure (station node, MPX, FM transmitter with its FM listeners, local recorder inside it), and every station gets its own line colour from studio through the shared ingests and relays to its listeners. Sketch: https://claude.ai/artifact/SmrKM7omutgpzMm5TWpa2w (approved 28 October 2026).
-5. **RHIS Studio: OmniPlayer-style layout** (in progress), in steps:
-   1. Players A and B, the log (playlist) and a dashboard.
-   2. Both jingle grids and a separate loose player.
-   3. Library with columns for the station's own item code, ISRC, BPM and key (taken from the tags first, otherwise calculated on the server in the background; an admin can correct them).
+   **Release 1.4.0** (29 October 2026): items 2 to 6 below go to `main` as one release.
+2. **Bug fix: two tracks "Cued" at once** (done, 1.4.0, PRs #140 and #141): only one track can be cued at a time. This must be right before the Studio layout below, where player B is the cued track.
+3. **Phase 20: Monitoring node** (done, 1.4.0, PRs #142–#145, tested with a real monitoring node): the monitoring node shows on the network map in bright green in its own lane, with moving check lines to the nodes it checks (red when a check fails) and a Checks switch; alerts when a node or relay goes down, instead of finding out from silence.
+4. **Network map: customer blocks** (done, 1.4.0, PR #146): in the 2D and 3D map every customer becomes its own block, set apart from the shared infrastructure (station node, MPX, FM transmitter with its FM listeners, local recorder inside it), and every station gets its own line colour from studio through the shared ingests and relays to its listeners. Sketch: https://claude.ai/artifact/SmrKM7omutgpzMm5TWpa2w (approved 28 October 2026).
+5. **RHIS Studio: OmniPlayer-style layout** (done, 1.4.0, PRs #147–#152, RHIS Studio 0.17–0.21), in steps:
+   1. Players A and B, the log (playlist) and a dashboard. *RHIS Studio 0.17.*
+   2. Both jingle grids and a separate loose player. *RHIS Studio 0.18.*
+   3. Library with columns for the station's own item code, ISRC, BPM and key (taken from the tags first, otherwise calculated on the server in the background; an admin can correct them). *RHIS Studio 0.19.*
    4. News player (source set per station: a file from a URL, a file over FTP/SFTP, or a live stream, at set times, with a spare jingle when the news is missing) and a log editor.
+      - 4a. News player: a file from a URL, FTP, FTPS or SFTP, placed with a News item in the hour clocks, spare jingle, news player in Studio. *RHIS Studio 0.20.* A live stream as source follows later, after testing on radiostation.
+      - 4b. Log editor: the coming hours as the server fills them, to place and swap tracks; locked blocks stay fixed. *Panel tab Log editor, RHIS Studio 0.21.*
    - Window size: designed for 1920×1080, usable down to 1280×720 (after Windows display scaling, so a laptop at 1920×1080 with 150% scaling still fits). Below that panels scroll or collapse instead of stretching; on wide screens the players keep a maximum width. A real full screen mode (F11).
    - The layout keeps the layout switch (Classic and this new layout). The working name "OmniPlayer layout" gets its own name before release, to avoid confusion with another product.
    - Free docking of panels comes later as a separate item.
-6. **Move stations between nodes** (higher priority, right after the layout): move a complete radio station from one node to another in one guided step: from the shared station node to a dedicated node, or to the customer's own node on site, and back. Library, playlists, clocks, schedule, history and settings go along; listeners and DJs follow to the new node without the station going silent. Today a station can only move between the main server and a node, and with "Orchestrator only" on it gets stuck. The bug "upgrading a station from Distribution to Radio station does nothing" is fixed together with this, by moving the edition from the customer to the station:
+6. **Move stations between nodes** (done, 1.4.0, PRs #153, #155 and #156): move a complete radio station from one node to another in one guided step: from the shared station node to a dedicated node, or to the customer's own node on site, and back. Library, playlists, clocks, schedule, history and settings go along; listeners and DJs follow to the new node without the station going silent. Today a station can only move between the main server and a node, and with "Orchestrator only" on it gets stuck. The bug "upgrading a station from Distribution to Radio station does nothing" is fixed together with this, by moving the edition from the customer to the station:
    - A **customer** has no edition any more. Instead it has limits: how many radio stations (and nodes) it may have. A customer can register its own nodes.
    - The choice is made per **radio station** when it is created (and can be changed later): **Distribution only** (the station gets the ingest endpoint to stream to) or **Radio station** (AutoDJ, clocks, library), and then where it runs: on the shared station node or on one of the customer's own nodes.
    - Switching a station between Distribution and Radio station happens on the station itself and really changes it (for Radio station: placement on a station node).

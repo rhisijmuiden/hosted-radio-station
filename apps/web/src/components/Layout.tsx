@@ -1,10 +1,10 @@
 import clsx from 'clsx';
-import { ArrowLeft, BarChart3, BookOpen, Building2, ChevronDown, ChevronUp, Cloud, CreditCard, DatabaseBackup, FileText, Globe, KeyRound, Landmark, LayoutDashboard, LogOut, Mail, Menu, MonitorSmartphone, Moon, Network, Package, Radio, RadioTower, Receipt, RefreshCw, ScrollText, Search, Server, Sun, Tag, UserRound, Users, Webhook, type LucideIcon } from 'lucide-react';
+import { Activity, ArrowLeft, BarChart3, BookOpen, Building2, ChevronDown, ChevronUp, Cloud, CreditCard, DatabaseBackup, FileText, Globe, KeyRound, Landmark, LayoutDashboard, LogOut, Mail, Menu, MonitorSmartphone, Moon, Network, Package, Radio, RadioTower, Receipt, RefreshCw, ScrollText, Search, Server, Sun, Tag, UserRound, Users, Webhook, type LucideIcon } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, NavLink, Outlet, useLocation, useMatch, useSearchParams } from 'react-router';
-import { api, type Me, type NodeRegistration, type StationDetail, type StationStatus } from '../lib/api';
+import { api, type AlertSummary, type Me, type NodeRegistration, type StationDetail, type StationStatus } from '../lib/api';
 import { isAdmin, useLogout, useMe } from '../lib/auth';
 import { useThemeContext } from '../lib/theme-context';
 import { setLanguage } from '../i18n';
@@ -203,6 +203,7 @@ function useMainMenu(): NavGroup[] {
   const admin = isAdmin(me);
   const notDj = admin || me.memberships.some((m) => m.role !== 'dj');
   const pending = useQuery({ queryKey: ['nodes', 'pending'], queryFn: () => api<NodeRegistration[]>('/nodes/pending'), enabled: admin, refetchInterval: 30_000 });
+  const alerts = useQuery({ queryKey: ['alerts', 'summary'], queryFn: () => api<AlertSummary>('/alerts/summary'), enabled: admin, refetchInterval: 30_000 });
   const info = useSystemInfo();
   const updateReady = admin && !!info.data?.lastCheck?.updateAvailable;
 
@@ -225,6 +226,7 @@ function useMainMenu(): NavGroup[] {
         items: [
           { to: '/nodes', label: t('nav.nodes'), icon: Server, badge: pending.data?.length || undefined },
           { to: '/topology', label: t('nav.topology'), icon: Network },
+          { to: '/monitoring', label: t('nav.monitoring'), icon: Activity, badge: alerts.data?.open || undefined, soft: !alerts.data?.critical },
           { to: '/nodes/names', label: t('nav.serverNames'), icon: Tag },
           { to: '/settings/dns', label: t('nav.dns'), icon: Cloud },
           { to: '/settings/streaming', label: t('nav.streamingDefaults'), icon: RadioTower },

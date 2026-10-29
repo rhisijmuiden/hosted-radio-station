@@ -3,6 +3,102 @@
 All notable changes to Hosted Radio Station. Versions follow [semantic versioning](https://semver.org). The
 [roadmap](ROADMAP.md) has the full description of each phase, with screenshots.
 
+## 1.4.0 (29 October 2026)
+
+Phase 20 (monitoring and alerts with a monitoring node), customer blocks on the network map, the OmniPlayer layout in
+RHIS Studio 0.17 to 0.21 with news and a log editor, one cued track at a time, and moving stations between nodes with
+the edition per station.
+
+- Move stations between nodes (step 1): a station moves straight from one station node to another, for example from
+  the shared station node to a dedicated node or to the customer's own node on site, and back. The new node copies the
+  library from the old one through this server (nothing is stored here) and starts the station while the old node
+  keeps it on air; the queue, history and everything made on the old node come along. Works with "Orchestrator only"
+  on, where a station on a node could not move at all before. Linking a customer to another station node now also
+  moves its stations that run on a node.
+- The edition belongs to the station (step 2): a customer no longer has an edition but a limit **Of which Radio
+  stations** next to *Stations* (existing customers keep what they had: all their stations with the Radio station
+  edition, none with Distribution). Packages use the same limit. A new station is Distribution only (it gets the
+  ingest to stream to) or a Radio station, and then you choose where it runs: the shared station node, a dedicated
+  node or the customer's own node. Upgrading a station to Radio station on its Settings tab now really works with
+  "Orchestrator only" on: you pick the station node and it starts there (before, it did nothing, e.g. Uptempo.fm). A
+  package change never turns stations back to Distribution by itself any more. Distribution stations never move to a
+  station node when the customer is linked to one.
+- Safe way back to Distribution only (step 3): **Back to Distribution** on the station's Settings tab explains what
+  it means (the station only plays the stream from your own software; AutoDJ, hour clocks, library and DJ logins stop)
+  and needs an explicit confirmation. The content is kept for 24 hours with a countdown and a **Switch back to Radio
+  station** button that restores it where it ran, also on its station node (which keeps the files, switched off).
+  After 24 hours the content is deleted. Over the API: `POST /api/stations/:id/downgrade` with `confirm: true`.
+- Monitoring and alerts (phase 20, step 1): a new **Monitoring** page under Network shows what is wrong now (a node
+  offline, a station off air, a relay without its feed, a node problem, paused node updates, Cloudflare DNS errors),
+  the history of the last 90 days and maintenance for nodes and stations. Alerts go to Telegram, e-mail and the new
+  webhook events `alert.opened` and `alert.resolved`, in English or Dutch, with one message per outage and one when
+  it is solved. See [monitoring](docs/monitoring.md).
+- Monitoring node (phase 20, step 2): a new node role **Monitoring** listens to every public stream from outside, on
+  this server and through each relay, and measures format, bitrate, title and sound level. New alerts *Station plays
+  silence* and *Stream does not sound as set*. While it is online the other nodes stop their own stream checks. The
+  network map shows it in a green band opposite the orchestrator, with check lines and a badge on every server it
+  checks (red when a check fails), and a **Checks** switch in the legend, in 2D and 3D.
+- A station that never played since it is checked (a distribution station without an encoder yet) no longer gives a
+  *Station is off air* alert.
+- Checks from outside (phase 20, step 3): **Check from outside** on the Firewall tab runs through the monitoring node
+  when one is online and also tries the old ports while they are switched off. Every 10 minutes the monitoring node
+  checks the ports of every node, and every 5 minutes the names of the Cloudflare sync are looked up in public DNS. New
+  alerts *Ports cannot be reached from outside*, *Old ports are still open* and *Name resolves wrong in public DNS*.
+- AutoDJ queue: only one track is *Cued* at a time, the one that goes on air next. When the player already loaded the
+  track after it (in Manual playout while it waits for Play, or when a track is played now), that one shows as loaded
+  right behind it and becomes cued once the track before it is on air. The panel and RHIS Studio list the cued track
+  first.
+- Network map: every customer is a block of its own, apart from the shared servers (ingest and relays, now framed as
+  *Shared infrastructure*). The block holds the customer's live studios, its station node and its FM/MPX node, with
+  the FM transmitter and the FM listeners right beside the MPX instead of a long line to the audience lane. Every
+  station has a line colour of its own from studio through ingest and relays to the listeners per country; several
+  stations on one line run side by side. The legend and the matrix show the colours. In 2D and 3D; a customer only
+  sees its own block.
+- RHIS Studio 0.17: a second layout for Live assist, **OmniPlayer**, chosen with the new **Layout** button in the top
+  bar (Classic stays the default). Players A and B side by side: one has the track on air, the other the cued track
+  that goes on air next, and they swap at every new track. Under them the **log**: the tracks that played last, the
+  track on air, the playlist with a header per hour (with the show or hour clock of that hour) and the cued track in
+  green. Next to it your jingles, a **dashboard** with a big clock and a red countdown to the next fixed block, the
+  end of the track or your own timer, and the library. Panels go on or off and the width of players A/B is dragged.
+  The layout is kept in your new **DJ profile** on the server, so it is the same on every studio PC. New API:
+  `GET`/`PUT /api/studio/profile` and `GET /api/stations/{id}/autodj/history`.
+- RHIS Studio 0.18, OmniPlayer layout step 2: two jingle grids of seven buttons with pages, **My jingles** (the same
+  buttons as in Classic, from your profile) and **Station carts**, and a **single player**. Station carts are new in
+  the panel under *Programme > Station carts*: managers put station IDs, traffic and beds on them, and every DJ of the
+  station gets the same buttons. The single player plays a short list of its own on the studio PC (tracks from the
+  library, a share or a USB stick), goes into the broadcast like the jingles, and goes 12 dB down while the microphone
+  has sound (*Settings > Audio*); with **Auto** it plays the list on by itself. New API: `/api/studio/stations/{id}/carts`.
+- Track codes, ISRC, tempo and key: every track in the library of a Radio station gets the station's own code, such as
+  **HF-03007** (the prefix is set in the AutoDJ settings under *Library*; empty uses the initials of the station). The
+  ISRC, the BPM and the key are read from the tags (keys in any notation, also Camelot and Open Key); where the tags
+  have no BPM or key the server measures them in the background at low priority (switch it off under *Library*).
+  Managers correct them in *Edit tags*. The library in the panel shows the code and BPM · key with the Camelot code,
+  and searches on code and ISRC. API: `code`, `isrc`, `bpm` and `musicKey` on library tracks, sorting by `code`,
+  `bpm` and `key`.
+- RHIS Studio 0.19, OmniPlayer layout step 3: the library under the players is a table with code, title and artist,
+  ISRC (when there is room), BPM and key with its Camelot code, and length; click a column to sort. Search finds
+  codes and ISRCs too. Classic shows BPM and key under the artist.
+- News bulletin (migration `0027_news`): a Radio station gets a **News** tab under *Programme*, where managers set
+  where the bulletin comes from (a web address, FTP, FTPS or SFTP, with `{YYYY}{MM}{DD}{HH}{mm}` for the time in the
+  name), how many minutes ahead the server fetches it (8), how old it may be (60 minutes) and a spare jingle. A new
+  hour clock item **News** places it: it plays there as a locked block, the fresh bulletin or else the spare jingle; a
+  bulletin that arrives later replaces a queued spare jingle. **Fetch now** tries the source. API:
+  `GET/PUT /api/stations/{id}/news` and `POST /api/stations/{id}/news/fetch`; the clock item kind `news`.
+- RHIS Studio 0.20, OmniPlayer layout step 4a: a **news player** next to the single player shows the next news time
+  with a countdown and whether the bulletin is ready or the spare jingle will play. While you are live it plays the
+  bulletin into the broadcast, at the news time with **Auto** or with **Start news**; only managers can stop it. Not
+  live, the AutoDJ plays the news.
+- Log editor (migration `0028_log_editor`): a new tab *Programme > Log editor* shows the coming 1 to 6 hours as the
+  AutoDJ will play them, hour by hour: the hour clocks are run ahead with the real tracks, with the fixed track, the
+  news and locked items in their place and a scissors mark on a track a hard item cuts. Drag a track onto another to
+  swap them, place another library track, or let it pick another one; locked parts of the format and the tracks the
+  player loaded stay as they are. Picks of clock playlists are kept, so the AutoDJ plays exactly the log; when the
+  timing shifts the log moves along and picks that no longer fit drop out. Without hour clocks the log is the queue.
+  API: `GET /api/stations/{id}/autodj/log`, `PUT` and `DELETE /api/stations/{id}/autodj/log/{itemId}`,
+  `POST /api/stations/{id}/autodj/log/swap`.
+- RHIS Studio 0.21, OmniPlayer layout step 4b: the library dock gets a **Log** tab with the same log editor. Drag a
+  track onto another to swap them; the arrows switch to the library, where **+** places the track you pick.
+
 ## 1.3.0 (28 October 2026)
 
 Phase 17 (RHIS Studio 1.0, fader start still parked), the port plan per role, station nodes sending through the

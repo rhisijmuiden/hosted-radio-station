@@ -4,7 +4,6 @@ import { schema } from '../../db/index.js';
 import type { BillingContact, InvoiceLine, InvoiceParty } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
 import { badRequest } from '../../lib/errors.js';
-import { downgradeStation } from '../autodj/edition.js';
 import { emailLocale, emailWords, fill, renderTemplate } from '../email-templates.js';
 import { mailConfigured, sendMail } from '../mail.js';
 import { getSetting, type BillingSettings } from '../settings.js';
@@ -103,24 +102,17 @@ async function billingRecipients(ctx: AppContext, tenantId: string, contact: { e
 
 // Packages on customers
 
-/** The edition and (unless set by hand) the limits of a package become the customer's. */
+/**
+ * The limits of a package become the customer's (unless set by hand). The edition belongs to each station: a package
+ * never turns a station back into Distribution by itself (that needs the owner's confirmation); a package with fewer
+ * Radio stations than the customer runs is refused up front (usageProblems).
+ */
 export async function applyPackageToTenant(ctx: AppContext, tenantId: string, pkg: Package, customLimits: boolean) {
-  const [before] = await ctx.db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId));
   await ctx.db
     .update(schema.tenants)
-    .set({ plan: pkg.edition, ...(customLimits ? {} : { limits: pkg.limits }) })
+    .set({ plan: pkg.limits.maxRadioStations > 0 ? 'station' : 'distribution', ...(customLimits ? {} : { limits: pkg.limits }) })
     .where(eq(schema.tenants.id, tenantId));
-  let changed = before?.plan !== pkg.edition;
-  if (pkg.edition === 'distribution') {
-    // Radio stations go back to Distribution: the AutoDJ stops, the music library stays.
-    const stations = await ctx.db
-      .select()
-      .from(schema.stations)
-      .where(and(eq(schema.stations.tenantId, tenantId), eq(schema.stations.edition, 'station')));
-    for (const s of stations) await downgradeStation(ctx, s);
-    changed ||= stations.length > 0;
-  }
-  if (changed || !customLimits) await applyStreams(ctx, { by: 'billing' }).catch(() => undefined);
+  if (!customLimits) await applyStreams(ctx, { by: 'billing' }).catch(() => undefined);
 }
 
 /** Does the customer's current use fit in the package? Returns the reasons it does not. */
@@ -128,6 +120,8 @@ export async function usageProblems(ctx: AppContext, tenantId: string, pkg: Pack
   const stations = await ctx.db.select().from(schema.stations).where(eq(schema.stations.tenantId, tenantId));
   const problems: string[] = [];
   if (stations.length > pkg.limits.maxStations) problems.push(`The customer has ${stations.length} stations; ${pkg.name} allows ${pkg.limits.maxStations}`);
+  const radio = stations.filter((s) => s.edition === 'station').length;
+  if (radio > pkg.limits.maxRadioStations) problems.push(`The customer has ${radio} Radio station(s); ${pkg.name} allows ${pkg.limits.maxRadioStations}. Switch stations back to Distribution first`);
   const storage = stations.reduce((n, s) => n + s.storageBytes, 0);
   if (storage > pkg.limits.storageQuotaMb * 1024 * 1024) problems.push(`The customer uses more storage than the ${pkg.limits.storageQuotaMb} MB of ${pkg.name}`);
   const [{ n }] = (await ctx.db.select({ n: count() }).from(schema.nodes).where(eq(schema.nodes.tenantId, tenantId))) as [{ n: number }];

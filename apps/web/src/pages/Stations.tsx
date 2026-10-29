@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { Badge, Button, Card, Dialog, EmptyState, Field, Input, PageHeader, Segmented, Select, Spinner, Table } from '../components/ui';
+import { RunsOnPicker } from '../components/station/Placement';
 import { api, ApiError, type Edition, type StationDetail, type StationListItem, type Tenant } from '../lib/api';
 import { isAdmin, useMe } from '../lib/auth';
 import { slugify } from './Customers';
@@ -39,21 +40,32 @@ export function CreateStationDialog({ open, onClose, tenantId }: { open: boolean
   const [form, setForm] = useState({ tenantId: '', name: '', slug: '', edition: 'distribution' as Edition, bitrateKbps: 128 });
   const [slugTouched, setSlugTouched] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Radio station: the station node it runs on (null = this server; undefined = not chosen yet).
+  const [nodeId, setNodeId] = useState<string | null | undefined>(undefined);
   useEffect(() => {
     if (open) {
       setForm({ tenantId: tenantId ?? '', name: '', slug: '', edition: 'distribution', bitrateKbps: 128 });
+      setNodeId(undefined);
       setSlugTouched(false);
       setError(null);
     }
   }, [open, tenantId]);
   const selected = tenants.find((x) => x.id === (form.tenantId || tenants[0]?.id));
   const maxBitrate = selected?.limits.maxBitrateKbps ?? 320;
+  const radioAllowed = (selected?.limits.maxRadioStations ?? 0) > 0;
 
   const create = useMutation({
     mutationFn: () =>
       api<StationDetail>('/stations', {
         method: 'POST',
-        body: { tenantId: selected?.id, name: form.name, slug: form.slug, edition: form.edition, bitrateKbps: Math.min(form.bitrateKbps, maxBitrate) },
+        body: {
+          tenantId: selected?.id,
+          name: form.name,
+          slug: form.slug,
+          edition: form.edition,
+          bitrateKbps: Math.min(form.bitrateKbps, maxBitrate),
+          ...(form.edition === 'station' && nodeId ? { nodeId } : {}),
+        },
       }),
     onSuccess: (s) => {
       void qc.invalidateQueries({ queryKey: ['stations'] });
@@ -88,7 +100,13 @@ export function CreateStationDialog({ open, onClose, tenantId }: { open: boolean
       >
         {!tenantId && (
           <Field label={t('fields.customer')}>
-            <Select value={selected?.id ?? ''} onChange={(e) => setForm({ ...form, tenantId: e.target.value, edition: 'distribution' })}>
+            <Select
+              value={selected?.id ?? ''}
+              onChange={(e) => {
+                setForm({ ...form, tenantId: e.target.value, edition: 'distribution' });
+                setNodeId(undefined);
+              }}
+            >
               {tenants.map((x) => (
                 <option key={x.id} value={x.id}>
                   {x.name}
@@ -118,16 +136,17 @@ export function CreateStationDialog({ open, onClose, tenantId }: { open: boolean
             />
           </Field>
         </div>
-        <Field label={t('stations.editionLabel')} hint={selected?.plan !== 'station' ? t('stations.editionNeedsPlan') : undefined}>
+        <Field label={t('stations.editionLabel')} hint={!radioAllowed ? t('stations.editionNeedsPlan') : form.edition === 'distribution' ? t('stations.distributionIngest') : undefined}>
           <Segmented
             value={form.edition}
-            onChange={(edition) => selected?.plan === 'station' && setForm({ ...form, edition })}
+            onChange={(edition) => (radioAllowed || edition === 'distribution') && setForm({ ...form, edition })}
             options={[
               { value: 'distribution', label: t('stations.edition.distribution'), description: t('stations.edition.distributionHint') },
               { value: 'station', label: t('stations.edition.station'), description: t('stations.edition.stationHint') },
             ]}
           />
         </Field>
+        {form.edition === 'station' && selected && <RunsOnPicker tenantId={selected.id} preferred={selected.stationNodeId} value={nodeId} onChange={setNodeId} />}
         <Field label={t('stations.liveBitrate')} hint={t('stations.liveBitrateHint', { max: maxBitrate })}>
           <Select value={Math.min(form.bitrateKbps, maxBitrate)} onChange={(e) => setForm({ ...form, bitrateKbps: Number(e.target.value) })}>
             {[64, 96, 128, 192, 256, 320].filter((b) => b <= maxBitrate).map((b) => (

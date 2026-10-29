@@ -150,7 +150,8 @@ export class StationNodeLink {
     this.pkg = pkg;
     this.revision = pkg.revision;
     this.state.lastPackageAt = new Date().toISOString();
-    for (const id of r.removed) {
+    // A parked station takes its tables from the main server again when it comes back.
+    for (const id of [...r.removed, ...r.parked]) {
       this.seeded.delete(id);
       this.warming.delete(id);
     }

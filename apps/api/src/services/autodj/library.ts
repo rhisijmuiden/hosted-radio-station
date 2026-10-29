@@ -1,6 +1,6 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { dirname, extname, join, relative, resolve, sep } from 'node:path';
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { parseFile } from 'music-metadata';
 import { schema } from '../../db/index.js';
 import type { MediaSourceStatus } from '../../db/schema.js';
@@ -13,6 +13,8 @@ export type MediaFile = typeof schema.mediaFiles.$inferSelect;
 
 /** The station's own media folder (uploads over SFTP/FTP and the panel). Other locations are media source ids. */
 export const STORAGE = 'storage';
+/** Library location of the news bulletin: a folder of the station of its own, never scanned, played or requested. */
+export const NEWS = 'news';
 /** Folder in the station's storage where uploads from the panel go by default. */
 export const MUSIC_FOLDER = 'music';
 
@@ -39,6 +41,7 @@ export async function readMountStatus(ctx: AppContext): Promise<Record<string, {
 /** Folder on disk of a location, or null when the source is unknown. */
 export function locationRoot(ctx: AppContext, stationId: string, location: string, source?: MediaSource | null): string | null {
   if (location === STORAGE) return mediaDir(ctx, stationId);
+  if (location === NEWS) return join(stationDir(ctx, stationId), NEWS);
   if (!source || source.id !== location) return null;
   if (source.type === 'local') return source.config.path ?? null;
   return sourceMountDir(ctx, stationId, source.id);
@@ -106,6 +109,9 @@ export interface Tags {
   durationSeconds: number | null;
   bitrateKbps: number | null;
   gainDb: number | null;
+  isrc: string;
+  bpm: number | null;
+  musicKey: string;
 }
 
 /** "Artist - Title.mp3" → artist and title; anything else → the file name as title. */
@@ -116,6 +122,63 @@ export function tagsFromFileName(path: string): { artist: string; title: string 
 }
 
 const clean = (v: unknown, max = 300) => (typeof v === 'string' ? v.replace(/\0/g, '').trim().slice(0, max) : '');
+
+const NOTES = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+const SEMITONE: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+/** Camelot wheel number of each major key (C = 8B) and minor key (Am = 8A), by semitone of the root. */
+const CAMELOT_MAJOR = [8, 3, 10, 5, 12, 7, 2, 9, 4, 11, 6, 1];
+const CAMELOT_MINOR = [5, 12, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10];
+
+/** A key as "Am" or "F#": the root (sharps for C#/F#, flats for the rest) with "m" for minor. */
+export const keyName = (root: number, minor: boolean) => `${NOTES[((root % 12) + 12) % 12]}${minor ? 'm' : ''}`;
+
+/**
+ * The key from a tag as "Am" or "F#". Tags write it in many ways: "A minor", "Amin", "a", "Bbm", "A#m", "8A" (Camelot) or
+ * "3d" (Open Key). Anything else gives an empty string.
+ */
+export function normaliseKey(raw: string): string {
+  const v = raw.trim().replace(/♯/g, '#').replace(/♭/g, 'b');
+  if (!v) return '';
+  const camelot = /^(1[0-2]|0?[1-9])\s*([ABab])$/.exec(v);
+  if (camelot) {
+    const n = Number(camelot[1]);
+    const minor = camelot[2]!.toUpperCase() === 'A';
+    return keyName((minor ? CAMELOT_MINOR : CAMELOT_MAJOR).indexOf(n), minor);
+  }
+  const open = /^(1[0-2]|0?[1-9])\s*([dmDM])$/.exec(v);
+  if (open) {
+    // Open Key 1d = C major and 1m = A minor; Camelot is Open Key moved by seven.
+    const n = ((Number(open[1]) + 6) % 12) + 1;
+    const minor = open[2]!.toLowerCase() === 'm';
+    return keyName((minor ? CAMELOT_MINOR : CAMELOT_MAJOR).indexOf(n), minor);
+  }
+  const m = /^([A-Ga-g])\s*(#|b|is|es|s)?\s*(m|min|minor|moll|mineur|maj|major|dur|majeur)?$/i.exec(v.replace(/\s+/g, ' '));
+  if (!m) return '';
+  let root = SEMITONE[m[1]!.toUpperCase()]!;
+  const acc = m[2]?.toLowerCase();
+  if (acc === '#' || acc === 'is') root += 1;
+  if (acc === 'b' || acc === 'es' || acc === 's') root -= 1;
+  const mode = m[3]?.toLowerCase() ?? '';
+  // A lower-case root on its own means minor ("a" = A minor).
+  const minor = mode.startsWith('m') && !mode.startsWith('maj') ? true : !mode && m[1] === m[1]!.toLowerCase();
+  return keyName(root, minor);
+}
+
+/** The Camelot code of a key ("Am" → "8A"), for mixing in key; empty when the key is unknown. */
+export function camelot(key: string): string {
+  const m = /^([A-G])(#|b)?(m)?$/.exec(key);
+  if (!m) return '';
+  const root = (SEMITONE[m[1]!]! + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0) + 12) % 12;
+  return m[3] ? `${CAMELOT_MINOR[root]}A` : `${CAMELOT_MAJOR[root]}B`;
+}
+
+/** An ISRC without its dashes and spaces (e.g. NLA1R2400123), or empty when the tag is not one. */
+export function normaliseIsrc(raw: unknown): string {
+  const v = typeof raw === 'string' ? raw.replace(/[\s-]/g, '').toUpperCase() : '';
+  return /^[A-Z]{2}[A-Z0-9]{3}\d{7}$/.test(v) ? v : '';
+}
+
+const bpmOf = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 40 && v <= 250 ? Math.round(v * 10) / 10 : null);
 
 /** Tags, length and ReplayGain of a file. Never throws: unreadable files get their name as title. */
 export async function readTags(full: string, path: string): Promise<Tags> {
@@ -135,9 +198,12 @@ export async function readTags(full: string, path: string): Promise<Tags> {
       durationSeconds: duration && Number.isFinite(duration) && duration > 0 ? Math.round(duration * 100) / 100 : null,
       bitrateKbps: bitrate && Number.isFinite(bitrate) ? Math.round(bitrate / 1000) : null,
       gainDb: typeof gain === 'number' && Number.isFinite(gain) && Math.abs(gain) < 30 ? gain : null,
+      isrc: normaliseIsrc(c.isrc?.[0]),
+      bpm: bpmOf(c.bpm),
+      musicKey: normaliseKey(clean(c.key, 20)),
     };
   } catch {
-    return { ...fallback, album: '', genre: '', year: null, durationSeconds: null, bitrateKbps: null, gainDb: null };
+    return { ...fallback, album: '', genre: '', year: null, durationSeconds: null, bitrateKbps: null, gainDb: null, isrc: '', bpm: null, musicKey: '' };
   }
 }
 
@@ -218,6 +284,11 @@ async function scanLocation(ctx: AppContext, stationId: string, location: string
           album: sql`case when ${schema.mediaFiles.edited} then ${schema.mediaFiles.album} else excluded.album end`,
           genre: sql`case when ${schema.mediaFiles.edited} then ${schema.mediaFiles.genre} else excluded.genre end`,
           year: sql`case when ${schema.mediaFiles.edited} then ${schema.mediaFiles.year} else excluded.year end`,
+          isrc: sql`case when ${schema.mediaFiles.edited} then ${schema.mediaFiles.isrc} else excluded.isrc end`,
+          bpm: sql`case when ${schema.mediaFiles.edited} then ${schema.mediaFiles.bpm} else excluded.bpm end`,
+          musicKey: sql`case when ${schema.mediaFiles.edited} then ${schema.mediaFiles.musicKey} else excluded.music_key end`,
+          // A changed file is measured again.
+          analysedAt: null,
           updatedAt: new Date(),
         },
       });
@@ -230,6 +301,7 @@ async function scanLocation(ctx: AppContext, stationId: string, location: string
     if (batch.length >= 200) await flush();
   });
   await flush();
+  await assignCodes(ctx, stationId);
   const gone = existing.filter((e) => !seen.has(e.path)).map((e) => e.id);
   for (let i = 0; i < gone.length; i += 500) {
     await ctx.db.delete(schema.mediaFiles).where(inArray(schema.mediaFiles.id, gone.slice(i, i + 500)));
@@ -238,6 +310,39 @@ async function scanLocation(ctx: AppContext, stationId: string, location: string
   if (source) {
     await ctx.db.update(schema.mediaSources).set({ fileCount: files.length, scannedAt: new Date() }).where(eq(schema.mediaSources.id, source.id));
   }
+}
+
+/** Prefix of the track codes: set in the AutoDJ settings, otherwise the initials of the station ("Harder.FM" → "HF"). */
+export function codePrefix(station: { name: string; autodj: Record<string, unknown> | null }): string {
+  const set = typeof station.autodj?.codePrefix === 'string' ? station.autodj.codePrefix : '';
+  if (set) return set;
+  const words = station.name.normalize('NFKD').toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
+  const initials = words.length > 1 ? words.map((w) => w[0]).join('') : (words[0] ?? 'TRK').slice(0, 3);
+  return initials.slice(0, 6) || 'TRK';
+}
+
+/**
+ * Gives every track without a code the next number of the station, in the order the files were found: "HF-03007".
+ * Numbers go on after the highest one so far, also when the prefix changes, so a code is never given twice.
+ */
+export async function assignCodes(ctx: AppContext, stationId: string) {
+  const mf = schema.mediaFiles;
+  const todo = await ctx.db.select({ id: mf.id }).from(mf).where(and(eq(mf.stationId, stationId), isNull(mf.code), ne(mf.location, NEWS))).orderBy(mf.createdAt, mf.path).limit(5000);
+  if (!todo.length) return 0;
+  const [station] = await ctx.db.select({ name: schema.stations.name, autodj: schema.stations.autodj }).from(schema.stations).where(eq(schema.stations.id, stationId));
+  if (!station) return 0;
+  const prefix = codePrefix(station);
+  const [top] = await ctx.db
+    .select({ n: sql<number | null>`max(substring(${mf.code} from '(\\d+)$')::int)` })
+    .from(mf)
+    .where(eq(mf.stationId, stationId));
+  let next = (top?.n ?? 0) + 1;
+  for (let i = 0; i < todo.length; i += 500) {
+    const part = todo.slice(i, i + 500).map((r) => ({ id: r.id, code: `${prefix}-${String(next++).padStart(5, '0')}` }));
+    const values = sql.join(part.map((r) => sql`(${r.id}::uuid, ${r.code})`), sql`, `);
+    await ctx.db.execute(sql`update media_files set code = v.code from (values ${values}) as v(id, code) where media_files.id = v.id and media_files.code is null`);
+  }
+  return todo.length;
 }
 
 /** Updates the stored status of the station's shares from the system helper's report. */

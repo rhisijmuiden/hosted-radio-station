@@ -13,6 +13,8 @@ export const WEBHOOK_EVENTS = [
   'invoice.created',
   'invoice.paid',
   'invoice.overdue',
+  'alert.opened',
+  'alert.resolved',
 ] as const;
 export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number] | 'webhook.test';
 

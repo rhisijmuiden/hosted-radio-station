@@ -130,11 +130,16 @@ export interface Media extends Cues {
   location: string;
   path: string;
   enabled: boolean;
+  /** The station's own number, e.g. HF-03007; ISRC, tempo and key ("Am"). Servers with `track-codes` only. */
+  code?: string | null;
+  isrc?: string;
+  bpm?: number | null;
+  musicKey?: string;
 }
 export interface QueueRow {
   id: string;
   queue: 'q1' | 'q2';
-  state: 'queued' | 'cued' | 'playing';
+  state: 'queued' | 'cued' | 'loaded' | 'playing';
   origin: string;
   addedBy: string | null;
   requestId: string | null;
@@ -165,7 +170,7 @@ export interface RundownRow {
   /** DJs cannot skip it or play something over it (server 1.3). */
   locked?: boolean;
   kind: 'music' | 'item';
-  source: 'queues' | 'playlist' | 'track';
+  source: 'queues' | 'playlist' | 'track' | 'news';
   label: string;
   count: number;
   /** Expected length of a format item in seconds (server 1.3; null = unknown). */
@@ -175,10 +180,51 @@ export interface RundownRow {
   current: boolean;
   past: boolean;
 }
+/** One row of the log editor (/autodj/log, servers with the `log-editor` feature). */
+export interface LogRow {
+  key: string;
+  at: string;
+  state: 'playing' | 'cued' | 'loaded' | 'planned';
+  source: 'queue' | 'playlist' | 'item' | 'track' | 'news';
+  itemId: string | null;
+  editable: boolean;
+  locked: boolean;
+  hard: boolean;
+  cut: boolean;
+  origin: string | null;
+  addedBy: string | null;
+  label: string | null;
+  media: { id: string; title: string; artist: string; durationSeconds: number | null; code: string | null; bpm: number | null; musicKey: string } | null;
+  seconds: number | null;
+}
+export interface LogPlan {
+  timezone: string;
+  scheduled: boolean;
+  until: string;
+  hours: { hour: string; clock: { id: string; name: string; color: string } | null; show: { id: string; name: string; live: boolean } | null }[];
+  rows: LogRow[];
+}
+/** The news bulletin of a Radio station, from /news (servers with the `news` feature). */
+export interface NewsView {
+  settings: { enabled: boolean; name: string; leadMinutes: number; maxAgeMinutes: number; fallbackMediaId: string | null };
+  status: { mediaId: string | null; durationSeconds: number | null; fetchedAt: string | null; sourceAt: string | null; slot: string | null; error: string | null; ext: string | null };
+  /** The coming news times from the hour clocks, with whether the bulletin may play then. */
+  slots: { at: string; fresh: boolean }[];
+  fallback: { id: string; title: string; artist: string; durationSeconds: number | null; ext: string } | null;
+}
 export interface Rundown {
   timezone: string;
   enabled: boolean;
   rows: RundownRow[];
+}
+/** A track the AutoDJ played, newest first (servers with the `history` feature). */
+export interface Played {
+  mediaId: string;
+  title: string;
+  artist: string;
+  path: string;
+  durationSeconds: number | null;
+  playedAt: string;
 }
 /** The answer to /studio/hello: servers before 1.1 answer only { ok }. */
 export interface Hello {

@@ -20,7 +20,7 @@ const color = z
 
 const clockItemSchema = z.object({
   id: z.string().trim().min(1).max(40),
-  kind: z.enum(['rotation', 'playlist', 'track']),
+  kind: z.enum(['rotation', 'playlist', 'track', 'news']),
   label: z.string().trim().max(60).default(''),
   playlistId: z.uuid().nullable().default(null),
   mediaId: z.uuid().nullable().default(null),

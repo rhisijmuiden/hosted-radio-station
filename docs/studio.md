@@ -39,6 +39,60 @@ A block on the minute (*hard*) cuts the track that runs into it; another block w
 **backtimes** to the next block: how much the track that runs into it is too long, or how much the playlist is too
 short to reach it. The lengths of news and commercials are estimates (the average track of their playlist).
 
+### OmniPlayer layout
+
+**Layout** in the top bar (on the Assist page) switches between **Classic**, described above, and **OmniPlayer**, a
+layout like the OmniPlayer playout software. The choice is kept in your **DJ profile** on the server, so every studio
+PC you sign in on shows the same layout (an older server keeps it on this PC only).
+
+- **Players A and B** follow the playlist on the server: one has the track on air (time left, intro counter, ends
+  at, **Next**, and **Stop** in Manual), the other the cued track that goes on air next (length, intro, start time).
+  At every new track they swap roles, like two players on a desk. **Start now** on the cued player starts it at
+  once; in Manual, while the player waits, it is **Play**. Drop a track on the player on air to play it now, or on
+  the cued player to put it at the top of the playlist.
+- The **log** under the players: the last five tracks played (fold them away with the arrow), the track on air in
+  coral, then the playlist with a header for every hour, with the show (or else the hour clock) planned then. The
+  cued track has a green edge. Everything else works as in the playlist of Classic.
+- The **dashboard**: a big clock and a big red countdown to the **next fixed block**, the **end of the track** on air,
+  or your own **timer** (set it with − and + in steps of 30 seconds, start, pause, reset). Your choice and the length
+  of the timer stay in your profile.
+- **My jingles**: your own jingle buttons, the same as in Classic, here as a column of seven with pages. Click to
+  play, again to stop; drop a file or a library track on a button, or click an empty one; the pencil edits it.
+- **Station carts**: the second grid, filled by a manager in the panel (*Programme > Station carts*) and the same for
+  every DJ of the station, such as station IDs, traffic and a weather bed. In Studio they only play.
+- The **single player**: a player of its own on this PC with a short list, for a bed under a talk or a track from a
+  USB stick. Drag tracks onto it from the library, a share or *This PC*. **Play** starts the first track, again stops
+  it; the next button goes to the next track. A track that ends leaves the list and the next one waits, or starts by
+  itself with **Auto**. Like the jingles it plays into the broadcast when you are live, and it goes 12 dB down while
+  the sound card input has sound (switch it off under *Settings > Audio*, *Single player under the mic*). The list
+  stays on this PC.
+- The **news player**: the next news time of the hour clocks with a countdown, and whether the bulletin is ready
+  (green) or the spare jingle will play (amber). While you are live it plays the news into the broadcast: with
+  **Auto** at the news time, otherwise with **Start news**. The news is a fixed block, so only managers and owners can
+  stop it. When you are not live the AutoDJ plays the news itself. The source, the times and the spare jingle are set
+  in the panel (*Programme > News* and a *News* item in the hour clocks). It needs a server with the news bulletin.
+- The **library** sits under them, as a table: the station's own **code** of the track (such as HF-03007), title and
+  artist, the **ISRC** when the window is wide enough, **BPM** and **key** with its Camelot code (8A, 5B: neighbours
+  on the wheel mix well), and the length. Click a column header to sort, again to turn the order around. The search
+  also finds codes and ISRCs. Codes, tempo and key come from the server: it reads them from the tags and measures
+  tempo and key where the tags have none; managers correct them in the panel (*Library > Edit tags*).
+- The **log editor** is the *Log* tab of the library: the coming three hours as the AutoDJ plays them, with the hour
+  clocks run ahead (the panel has the same under *Programme > Log editor*, up to six hours). Drag a track onto another
+  to swap them. The arrows of a row switch to the *Server* tab, where **+** places the track you pick on that row;
+  the dice pick another track, the cross takes a queue track out. Locked parts of the format (a lock) and what the
+  player loaded already stay as they are. The AutoDJ plays exactly the log; when the timing shifts (a live show, a
+  skip), it moves along. It needs a server with the log editor.
+
+  ![The log editor](screenshots/studio-log-en.png)
+
+In the **Layout** menu each panel goes on or off (last played, single player, news player, my jingles, station carts, dashboard,
+library). Drag the handle between
+the players and the panels to change their width (double-click it, or *Reset* in the menu, for the default). It
+needs a server that knows the DJ profile and the last played tracks; with an older one the log shows no last played
+tracks.
+
+![The OmniPlayer layout](screenshots/studio-omni-en.png)
+
 ### Locked blocks
 
 An item of the hour clock can be **locked** (panel: *Hour clocks*, the *Locked* box on a playlist or track item), for

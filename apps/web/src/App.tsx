@@ -29,6 +29,7 @@ import { StationsPage } from './pages/Stations';
 import { StatisticsPage } from './pages/Statistics';
 import { StatisticsSettingsPage } from './pages/StatisticsSettings';
 import { DnsPage } from './pages/Dns';
+import { MonitoringPage } from './pages/Monitoring';
 import { StreamingPage } from './pages/Streaming';
 import { StudioLinkPage, StudioPage } from './pages/Studio';
 import { TopologyPage } from './pages/Topology';
@@ -76,6 +77,7 @@ export function App() {
           <Route path="nodes/names" element={<RequireAuth admin><ServerNamesPage /></RequireAuth>} />
           <Route path="nodes/:id" element={<NodeDetailPage />} />
           <Route path="topology" element={<TopologyPage />} />
+          <Route path="monitoring" element={<RequireAuth admin><MonitoringPage /></RequireAuth>} />
           <Route path="studio" element={<StudioPage />} />
           <Route path="link" element={<StudioLinkPage />} />
           <Route path="billing" element={<RequireAuth admin><BillingPage /></RequireAuth>} />

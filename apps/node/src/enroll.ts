@@ -13,7 +13,7 @@ import { facts } from './system.js';
  */
 
 const AGENT = 'Hosted Radio Station node';
-export const ROLES = ['relay', 'source', 'station', 'fm'] as const;
+export const ROLES = ['relay', 'source', 'station', 'fm', 'monitor'] as const;
 export type Role = (typeof ROLES)[number];
 
 export interface Registration {

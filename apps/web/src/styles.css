@@ -227,10 +227,10 @@ body {
   stroke: color-mix(in srgb, var(--lucht) 30%, transparent);
 }
 .topo-edge.stream {
-  stroke: var(--koraal);
+  stroke: var(--edge, var(--koraal));
   stroke-dasharray: 6 16;
   animation: topo-flow 1.2s linear infinite;
-  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--koraal) 50%, transparent));
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--edge, var(--koraal)) 50%, transparent));
 }
 /* Control only (orchestrator to node): thin and dashed, never mistaken for audio. */
 .topo-edge.control {
@@ -246,7 +246,7 @@ body {
   animation: none;
 }
 .topo-edge.listen {
-  stroke: var(--lucht);
+  stroke: var(--edge, var(--lucht));
   stroke-dasharray: 2 8;
   opacity: 0.8;
   animation: topo-flow 1.6s linear infinite;
@@ -275,7 +275,7 @@ body {
 
 /* Topology phase 18: a backup feed on standby, location groups, the matrix. */
 .topo-edge.standby {
-  stroke: var(--lucht);
+  stroke: var(--edge, var(--lucht));
   stroke-dasharray: 5 6;
   opacity: 0.85;
   filter: none;
@@ -329,4 +329,148 @@ body {
 /* Server labels switched off in the 3D view: only the selected block keeps its label. */
 .topo-labels-off .topo-label:not(.selected) {
   display: none;
+}
+
+/* Monitoring (phase 20): the monitoring node in its band, its check lines and the badge on each server it checks. */
+:root {
+  --monitor: #39ff88;
+  --monitor-line: #14b866;
+}
+:root[data-theme='dark'] {
+  --monitor-line: #39ff88;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --monitor-line: #39ff88;
+  }
+}
+.topo-lane.monitor {
+  border-color: color-mix(in srgb, var(--monitor) 40%, transparent);
+  background: color-mix(in srgb, var(--monitor) 6%, transparent);
+}
+.topo-card.monitor {
+  border-color: var(--monitor-line);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--monitor) 35%, transparent), 0 6px 18px rgb(0 0 0 / 0.14);
+}
+.topo-card.monitor .topo-card-icon {
+  background: var(--monitor);
+  color: #0b1530;
+}
+.topo-card.monitor.selected {
+  box-shadow: 0 0 0 2px var(--monitor-line), 0 0 24px color-mix(in srgb, var(--monitor) 45%, transparent);
+}
+.topo-edge.check {
+  stroke: var(--monitor-line);
+  stroke-width: 1.75;
+  stroke-dasharray: 5 7;
+  opacity: 0.9;
+  animation: topo-flow 1.4s linear infinite reverse;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--monitor) 45%, transparent));
+}
+.topo-edge.check.degraded {
+  stroke: var(--status-offline);
+  filter: none;
+}
+.topo-edge.check.down {
+  stroke: var(--ink-muted);
+  filter: none;
+}
+.topo-badge {
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 999px;
+  border: 2px solid var(--surface-raised);
+  background: var(--monitor);
+  color: #0b1530;
+}
+.topo-badge.failed {
+  background: var(--status-offline);
+  color: #fff;
+}
+.topo-badge svg {
+  width: 10px;
+  height: 10px;
+  stroke-width: 3.5;
+}
+
+/* Customer blocks and station line colours: every customer's studio side in a block of its own, apart from the shared
+   servers, and every station in a colour of its own from studio to listener. */
+:root {
+  --station-0: #e5503c;
+  --station-1: #d93a7a;
+  --station-2: #7c5ce0;
+  --station-3: #0e8fc9;
+  --station-4: #c026d3;
+  --station-5: #0891b2;
+  --station-6: #4f5bd5;
+  --station-7: #db2777;
+}
+:root[data-theme='dark'] {
+  --station-0: #ff6b57;
+  --station-1: #ff5fa2;
+  --station-2: #a78bfa;
+  --station-3: #38bdf8;
+  --station-4: #e879f9;
+  --station-5: #22d3ee;
+  --station-6: #818cf8;
+  --station-7: #f9a8d4;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --station-0: #ff6b57;
+    --station-1: #ff5fa2;
+    --station-2: #a78bfa;
+    --station-3: #38bdf8;
+    --station-4: #e879f9;
+    --station-5: #22d3ee;
+    --station-6: #818cf8;
+    --station-7: #f9a8d4;
+  }
+}
+.topo-group.customer {
+  border: 1.5px solid color-mix(in srgb, var(--block) 70%, transparent);
+  background: color-mix(in srgb, var(--block) 6%, transparent);
+  overflow: hidden;
+}
+.topo-group.customer::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  background: var(--block);
+}
+.topo-group-title.customer {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--ink);
+}
+.topo-group-title.customer i {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--ink-muted);
+}
+.topo-shared {
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--lucht) 30%, transparent);
+  background: color-mix(in srgb, var(--lucht) 4%, transparent);
+}
+.topo-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--edge);
+}
+.topo-block-title {
+  padding: 2px 8px;
+  border-radius: 6px;
+  border-left: 3px solid var(--block);
+  background: color-mix(in srgb, var(--surface-raised) 85%, transparent);
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--ink);
+  white-space: nowrap;
+  pointer-events: none;
 }

@@ -6,8 +6,11 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import { AccountsCard } from '../components/station/Accounts';
 import { AutodjTab } from '../components/station/AutoDj';
+import { StationCartsTab } from '../components/station/Carts';
 import { ClocksTab } from '../components/station/Clocks';
 import { LibraryTab } from '../components/station/Library';
+import { LogTab } from '../components/station/Log';
+import { NewsTab } from '../components/station/News';
 import { PlaylistsTab } from '../components/station/Playlists';
 import { OnDemandTab } from '../components/station/OnDemand';
 import { PublicPageTab } from '../components/station/PublicPage';
@@ -17,8 +20,9 @@ import { ScheduleTab } from '../components/station/Schedule';
 import { StatisticsView } from '../components/stats/StatisticsView';
 import { formatLabel, MountsCard } from '../components/station/Mounts';
 import { OutputsCard, OutputStateBadge } from '../components/station/Outputs';
-import { NodeOfflineBanner, PlacementCard } from '../components/station/Placement';
-import { Badge, Button, Card, CardHeader, CopyField, Fact, Field, Input, PageHeader, Select, Spinner, Switch, Table, Textarea } from '../components/ui';
+import { NodeOfflineBanner, PlacementCard, RunsOnPicker, useStationNodes } from '../components/station/Placement';
+import { useServerNames } from '../lib/server';
+import { Badge, Button, Card, CardHeader, CopyField, Dialog, Fact, Field, Input, PageHeader, Select, Spinner, Switch, Table, Textarea } from '../components/ui';
 import { api, type LiveSession, type StationDetail, type StationStatus, type Tenant } from '../lib/api';
 import { formatBytes, formatDate, formatDuration } from '../lib/format';
 import { EditionBadge } from './Stations';
@@ -285,6 +289,49 @@ function HistoryCard({ station }: { station: StationDetail }) {
   );
 }
 
+/**
+ * Radio station → Distribution only: says plainly what that means and asks for an explicit confirmation. The content
+ * is kept for 24 hours, so the owner can switch back.
+ */
+/** "5 h 20 min": the time until a moment, for the 24-hour countdown. */
+function hoursLeft(until: string) {
+  const min = Math.max(0, Math.round((new Date(until).getTime() - Date.now()) / 60_000));
+  return `${Math.floor(min / 60)} h ${min % 60} min`;
+}
+
+function DowngradeDialog({ open, onClose, onConfirm, loading }: { open: boolean; onClose: () => void; onConfirm: () => void; loading: boolean }) {
+  const { t } = useTranslation();
+  const [sure, setSure] = useState(false);
+  useEffect(() => setSure(false), [open]);
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title={t('stations.downgradeTitle')}
+      description={t('stations.downgradeIntro')}
+      footer={
+        <>
+          <Button onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="danger" disabled={!sure} loading={loading} onClick={onConfirm}>
+            <ArrowDownCircle className="size-4" /> {t('stations.downgrade')}
+          </Button>
+        </>
+      }
+    >
+      <ul className="flex list-disc flex-col gap-1.5 pl-5 text-[13px]">
+        <li>{t('stations.downgradeStream')}</li>
+        <li>{t('stations.downgradeStops')}</li>
+        <li>{t('stations.downgradeNode')}</li>
+        <li className="font-semibold text-offline">{t('stations.downgradeKept')}</li>
+      </ul>
+      <label className="mt-4 flex items-start gap-2 text-[13px] font-semibold">
+        <input type="checkbox" checked={sure} onChange={(e) => setSure(e.target.checked)} className="mt-0.5 size-4 accent-[var(--koraal)]" />
+        {t('stations.downgradeSure')}
+      </label>
+    </Dialog>
+  );
+}
+
 function SettingsTab({ station }: { station: StationDetail }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -293,6 +340,13 @@ function SettingsTab({ station }: { station: StationDetail }) {
   const [draft, setDraft] = useState(station);
   useEffect(() => setDraft(station), [station]);
   const sources = station.mounts.filter((m) => m.kind === 'source');
+  // Upgrading: where the Radio station will run (null = this server; undefined = not chosen yet).
+  const [upgradeNode, setUpgradeNode] = useState<string | null | undefined>(undefined);
+  const stationNodes = useStationNodes(station.tenantId);
+  const server = useServerNames();
+  const roomForRadio = station.radioStations.used < station.radioStations.max;
+  const [downgradeOpen, setDowngradeOpen] = useState(false);
+  const kept = station.downgrade && new Date(station.downgrade.until).getTime() > Date.now() ? station.downgrade : null;
 
   const patch = useMutation({
     mutationFn: (body: Record<string, unknown>) => api<StationDetail>(`/stations/${station.id}`, { method: 'PATCH', body }),
@@ -310,7 +364,7 @@ function SettingsTab({ station }: { station: StationDetail }) {
     void qc.invalidateQueries({ queryKey: ['tenant', station.tenantId] });
   };
   const upgrade = useMutation({
-    mutationFn: (upgradeCustomer: boolean) => api(`/stations/${station.id}/upgrade`, { method: 'POST', body: { upgradeCustomer } }),
+    mutationFn: () => api(`/stations/${station.id}/upgrade`, { method: 'POST', body: !station.nodeId && upgradeNode ? { nodeId: upgradeNode } : {} }),
     onSuccess: () => {
       refresh();
       toast.success(t('stations.upgraded'));
@@ -318,8 +372,9 @@ function SettingsTab({ station }: { station: StationDetail }) {
     onError: (err) => toast.error((err as Error).message),
   });
   const downgrade = useMutation({
-    mutationFn: () => api(`/stations/${station.id}/downgrade`, { method: 'POST' }),
+    mutationFn: () => api(`/stations/${station.id}/downgrade`, { method: 'POST', body: { confirm: true } }),
     onSuccess: () => {
+      setDowngradeOpen(false);
       refresh();
       toast.success(t('stations.downgraded'));
     },
@@ -392,30 +447,46 @@ function SettingsTab({ station }: { station: StationDetail }) {
             </div>
             <EditionBadge edition={station.edition} />
           </div>
-          {owner && station.edition === 'distribution' && (
-            <div className="mt-4">
-              {station.tenantPlan === 'station' || station.role === 'superadmin' ? (
-                <Button
-                  variant="primary"
-                  loading={upgrade.isPending}
-                  onClick={() => {
-                    const withPlan = station.tenantPlan !== 'station';
-                    if (confirm(withPlan ? t('stations.upgradeWithPlanConfirm') : t('stations.upgradeConfirm'))) upgrade.mutate(withPlan);
-                  }}
-                >
-                  <ArrowUpCircle className="size-4" /> {t('stations.upgrade')}
-                </Button>
+          {owner && station.edition === 'distribution' && kept && (
+            <div className="mt-4 rounded-md border border-warning/50 bg-warning/10 p-3">
+              <div className="text-[13px] font-semibold">{t('stations.keptTitle')}</div>
+              <p className="mt-1 text-[13px]">{t('stations.keptText', { when: formatDate(kept.until), left: hoursLeft(kept.until) })}</p>
+              <Button className="mt-3" variant="primary" size="sm" loading={upgrade.isPending} onClick={() => upgrade.mutate()}>
+                <ArrowUpCircle className="size-4" /> {t('stations.switchBack')}
+              </Button>
+            </div>
+          )}
+          {owner && station.edition === 'distribution' && !kept && (
+            <div className="mt-4 flex flex-col gap-3">
+              {roomForRadio ? (
+                <>
+                  {/* A Radio station runs on a station node (or this server); a station already on a node stays there. */}
+                  {!station.nodeId && <RunsOnPicker tenantId={station.tenantId} preferred={station.tenantStationNodeId} value={upgradeNode} onChange={setUpgradeNode} />}
+                  <div>
+                    <Button
+                      variant="primary"
+                      loading={upgrade.isPending}
+                      disabled={!station.nodeId && (upgradeNode === undefined || (upgradeNode === null && !!server?.orchestratorOnly))}
+                      onClick={() => {
+                        const name = station.nodeId || !upgradeNode ? null : (stationNodes.find((n) => n.id === upgradeNode)?.name ?? null);
+                        if (confirm(name ? t('stations.upgradeOn', { name }) : station.nodeId ? t('stations.upgradeConfirm') : t('stations.upgradeOn', { name: server?.name ?? t('placement.mainServer') }))) upgrade.mutate();
+                      }}
+                    >
+                      <ArrowUpCircle className="size-4" /> {t('stations.upgrade')}
+                    </Button>
+                  </div>
+                </>
               ) : (
-                <p className="text-xs text-muted">{t('stations.upgradeNeedsPlan')}</p>
+                <p className="text-xs text-muted">{t('stations.upgradeNeedsPlan', station.radioStations)}</p>
               )}
-              {station.tenantPlan !== 'station' && station.role === 'superadmin' && <p className="mt-2 text-xs text-muted">{t('stations.upgradeWithPlan')}</p>}
             </div>
           )}
           {owner && station.edition === 'station' && (
             <div className="mt-4">
-              <Button loading={downgrade.isPending} onClick={() => confirm(t('stations.downgradeConfirm')) && downgrade.mutate()}>
+              <Button loading={downgrade.isPending} onClick={() => setDowngradeOpen(true)}>
                 <ArrowDownCircle className="size-4" /> {t('stations.downgrade')}
               </Button>
+              <DowngradeDialog open={downgradeOpen} onClose={() => setDowngradeOpen(false)} onConfirm={() => downgrade.mutate()} loading={downgrade.isPending} />
             </div>
           )}
         </Card>
@@ -566,6 +637,9 @@ export function StationDetailPage() {
       {tab === 'playlists' && <PlaylistsTab station={s} canEdit={manager} />}
       {tab === 'clocks' && <ClocksTab station={s} canEdit={manager} />}
       {tab === 'schedule' && <ScheduleTab station={s} canEdit={manager} />}
+      {tab === 'carts' && <StationCartsTab station={s} canEdit={manager} />}
+      {tab === 'news' && <NewsTab station={s} canEdit={manager} />}
+      {tab === 'log' && <LogTab station={s} />}
       {tab === 'statistics' && (
         <StatisticsView scope={{ stationId: s.id }} mounts={s.mounts.map((m) => m.path)} outputs={s.outputs.filter((o) => o.type !== 'local').map((o) => ({ id: o.id, name: o.name }))} showStation={false} />
       )}

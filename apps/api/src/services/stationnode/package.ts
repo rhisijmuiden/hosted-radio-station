@@ -4,6 +4,7 @@ import { schema } from '../../db/index.js';
 import type { OutputConfig } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
 import { nodeSettings, pushPortOf, pushToken, relaysByStation, type Node } from '../nodes/plan.js';
+import { openNews } from '../autodj/news.js';
 import { ingestTarget, STUDIO_USER, studioDelivery, studioToken } from '../nodes/delivery.js';
 import type { WireRow } from './tables.js';
 
@@ -34,6 +35,11 @@ export interface StationPackage {
   stations: PackageStation[];
   /** The node keeps its old ports open next to the new ones (port plan, 1.3); missing from servers before 1.3. */
   oldPorts?: boolean;
+  /**
+   * Stations that went back to Distribution only and left this node: it keeps their files and tables, switched off,
+   * until the 24 hours to switch back are over (then they drop from this list and the node removes them).
+   */
+  parked?: string[];
 }
 
 const wire = (row: Record<string, unknown>): WireRow => {
@@ -62,10 +68,21 @@ export async function nodeStations(ctx: AppContext, nodeId: string) {
     .orderBy(asc(schema.stations.slug));
 }
 
+/** Stations that went back to Distribution only from this node and are still within their 24 hours. */
+export async function parkedStations(ctx: AppContext, nodeId: string) {
+  return ctx.db
+    .select({ id: schema.stations.id, tenantId: schema.stations.tenantId })
+    .from(schema.stations)
+    .where(sql`${schema.stations.downgrade}->>'nodeId' = ${nodeId} and ${schema.stations.nodeId} is null`)
+    .orderBy(asc(schema.stations.id));
+}
+
 export async function buildPackage(ctx: AppContext, node: Node): Promise<StationPackage> {
   const stations = node.roles.includes('station') ? await nodeStations(ctx, node.id) : [];
+  const parked = node.roles.includes('station') ? await parkedStations(ctx, node.id) : [];
   const ids = stations.map((s) => s.id);
-  const tenantIds = [...new Set(stations.map((s) => s.tenantId))];
+  // A parked station keeps its customer on the node (removing the customer there would remove the station).
+  const tenantIds = [...new Set([...stations.map((s) => s.tenantId), ...parked.map((s) => s.tenantId)])];
   const [tenants, mounts, outputs, accounts, memberships, relays] = await Promise.all([
     tenantIds.length ? ctx.db.select().from(schema.tenants).where(inArray(schema.tenants.id, tenantIds)).orderBy(asc(schema.tenants.id)) : [],
     ids.length ? ctx.db.select().from(schema.stationMounts).where(inArray(schema.stationMounts.stationId, ids)).orderBy(asc(schema.stationMounts.id)) : [],
@@ -163,6 +180,9 @@ export async function buildPackage(ctx: AppContext, node: Node): Promise<Station
         nodeId: null,
         nodeRuntime: null,
         nodeMove: null,
+        downgrade: null,
+        // The node seals the news secrets with its own key.
+        news: openNews(ctx.box, s.news),
         icecastAdminPassword: open(s.icecastAdminPassword),
         icecastSourcePassword: open(s.icecastSourcePassword),
         storageBytes: 0,
@@ -183,6 +203,7 @@ export async function buildPackage(ctx: AppContext, node: Node): Promise<Station
     apiKeys: keys.map((k) => wire({ ...k, lastUsedAt: null })),
     stations: out,
     oldPorts: nodeSettings(node).oldPorts,
+    ...(parked.length ? { parked: parked.map((s) => s.id) } : {}),
   };
   return { ...body, revision: createHash('sha256').update(JSON.stringify(body)).digest('hex').slice(0, 20) };
 }

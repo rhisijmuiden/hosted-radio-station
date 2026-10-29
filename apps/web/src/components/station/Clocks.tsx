@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowDown, ArrowUp, Clock3, Disc3, ListMusic, Lock, Music2, Plus, Radio, Save, Search, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Clock3, Disc3, ListMusic, Lock, Music2, Newspaper, Plus, Radio, Save, Search, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -21,6 +21,9 @@ export const paint = (color: string) => (color.toUpperCase() === '#14213D' ? 'va
 const ITEM_COLORS = ['var(--ink)', '#9CC3FF', '#A86B00', '#8B5CF6', '#1C8A57', '#E11D74', '#0EA5E9'];
 /** Length of a track when nothing better is known. */
 const TRACK_SECONDS = 210;
+/** Expected length of a news bulletin on the dial. */
+const NEWS_SECONDS = 180;
+const NEWS_COLOR = '#B79CFF';
 
 type Draft = Pick<Clock, 'name' | 'color' | 'items'>;
 const newId = () => Math.random().toString(36).slice(2, 10);
@@ -52,7 +55,7 @@ export function clockLayout(items: ClockItem[], seconds: (item: ClockItem) => nu
         }
       }
       end = Math.max(start, next);
-    } else end = start + (seconds(item) * (item.kind === 'track' ? 1 : Math.max(1, item.count))) / 60;
+    } else end = start + (seconds(item) * (item.kind === 'track' || item.kind === 'news' ? 1 : Math.max(1, item.count))) / 60;
     out.push({ item, index, start, end: Math.min(60, end) });
     cursor = end;
   });
@@ -70,9 +73,13 @@ function useItemInfo(playlists: Playlist[] | undefined, tracks: SchedulerView['t
       playlist: (id: string | null) => (id ? lists.get(id) : undefined),
       track: (id: string | null) => (id ? media.get(id) : undefined),
       seconds: (item: ClockItem) =>
-        item.kind === 'track' ? (media.get(item.mediaId ?? '')?.durationSeconds ?? TRACK_SECONDS) : (lists.get(item.playlistId ?? '')?.averageSeconds ?? TRACK_SECONDS),
+        item.kind === 'news'
+          ? NEWS_SECONDS
+          : item.kind === 'track'
+            ? (media.get(item.mediaId ?? '')?.durationSeconds ?? TRACK_SECONDS)
+            : (lists.get(item.playlistId ?? '')?.averageSeconds ?? TRACK_SECONDS),
       color: (item: ClockItem, clockColor: string) =>
-        item.kind === 'rotation' ? paint(clockColor) : item.kind === 'track' ? '#4F5B73' : (palette.get(item.playlistId ?? '') ?? '#4F5B73'),
+        item.kind === 'rotation' ? paint(clockColor) : item.kind === 'news' ? NEWS_COLOR : item.kind === 'track' ? '#4F5B73' : (palette.get(item.playlistId ?? '') ?? '#4F5B73'),
     };
   }, [playlists, tracks, extra]);
 }
@@ -152,7 +159,7 @@ export function ClockDial({
   );
 }
 
-function TrackPicker({ station, open, onClose, onPick }: { station: StationDetail; open: boolean; onClose: () => void; onPick: (m: MediaFile) => void }) {
+export function TrackPicker({ station, open, onClose, onPick }: { station: StationDetail; open: boolean; onClose: () => void; onPick: (m: MediaFile) => void }) {
   const { t } = useTranslation();
   const [q, setQ] = useState('');
   const results = useQuery({
@@ -226,7 +233,8 @@ function ItemRow({
 }) {
   const { t } = useTranslation();
   const timed = item.at !== null || index === 0;
-  const icon = item.kind === 'rotation' ? <Radio className="size-4" /> : item.kind === 'track' ? <Music2 className="size-4" /> : <ListMusic className="size-4" />;
+  const icon =
+    item.kind === 'rotation' ? <Radio className="size-4" /> : item.kind === 'news' ? <Newspaper className="size-4" /> : item.kind === 'track' ? <Music2 className="size-4" /> : <ListMusic className="size-4" />;
   return (
     <div
       onFocusCapture={onFocus}
@@ -257,6 +265,7 @@ function ItemRow({
             <option value="rotation">{t('clocks.kinds.rotation')}</option>
             <option value="playlist">{t('clocks.kinds.playlist')}</option>
             <option value="track">{t('clocks.kinds.track')}</option>
+            <option value="news">{t('clocks.kinds.news')}</option>
           </Select>
         </span>
         {item.kind === 'playlist' && (
@@ -291,6 +300,7 @@ function ItemRow({
           </Button>
         )}
         {item.kind === 'rotation' && <span className="min-w-40 flex-1 text-[13px] text-muted">{t('clocks.rotationHint')}</span>}
+        {item.kind === 'news' && <span className="min-w-40 flex-1 text-[13px] text-muted">{t('clocks.newsHint')}</span>}
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 pl-10">
         <span className="w-56">
@@ -380,7 +390,11 @@ function ClockEditor({ station, clock, view, canEdit, onSaved }: { station: Stat
       return { ...d, items };
     });
   const add = (kind: ClockItem['kind']) =>
-    setDraft((d) => ({ ...d, items: [...d.items, { id: newId(), kind, label: '', playlistId: null, mediaId: null, count: 1, at: null, hard: false }] }));
+    setDraft((d) => ({
+      ...d,
+      // News is usually on the hour, cut in on time and locked.
+      items: [...d.items, { id: newId(), kind, label: '', playlistId: null, mediaId: null, count: 1, at: kind === 'news' ? 0 : null, hard: kind === 'news', locked: kind === 'news' }],
+    }));
   const usedBy = view.entries.filter((e) => clock && e.clockId === clock.id).length + (clock && view.settings.defaultClockId === clock.id ? 1 : 0);
 
   return (
@@ -444,7 +458,9 @@ function ClockEditor({ station, clock, view, canEdit, onSaved }: { station: Stat
                       <i className="size-2.5 shrink-0 rounded-full" style={{ background: info.color(x.item, draft.color) }} />
                       <span className="w-8 text-muted tabular-nums">{minuteLabel(x.start)}</span>
                       <span className="truncate">
-                        {x.item.label || (x.item.kind === 'track' ? info.track(x.item.mediaId)?.title : info.playlist(x.item.playlistId)?.name) || '—'}
+                        {x.item.label ||
+                          (x.item.kind === 'news' ? t('clocks.kinds.news') : x.item.kind === 'track' ? info.track(x.item.mediaId)?.title : info.playlist(x.item.playlistId)?.name) ||
+                          '—'}
                       </span>
                       {x.item.hard && <span className="text-[10px] font-bold text-offline uppercase">{t('clocks.hardShort')}</span>}
                       {x.item.locked && <Lock className="size-3 shrink-0 text-muted" aria-label={t('clocks.locked')} />}
@@ -488,6 +504,9 @@ function ClockEditor({ station, clock, view, canEdit, onSaved }: { station: Stat
               </Button>
               <Button size="sm" onClick={() => add('track')}>
                 <Music2 className="size-4" /> {t('clocks.addTrack')}
+              </Button>
+              <Button size="sm" onClick={() => add('news')}>
+                <Newspaper className="size-4" /> {t('clocks.addNews')}
               </Button>
             </div>
           )}

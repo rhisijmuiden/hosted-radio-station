@@ -10,9 +10,13 @@ import { mediaDir } from '../src/services/streaming/icecast.js';
 import { login, setup } from './helpers.js';
 
 const NODE_DB = process.env.TEST_NODE_DATABASE_URL ?? 'postgres://hosted_radio:dev@localhost/hosted_radio_node_test';
+const NODE2_DB = process.env.TEST_NODE2_DATABASE_URL ?? 'postgres://hosted_radio:dev@localhost/hosted_radio_node2_test';
 
 let main: Awaited<ReturnType<typeof setup>>;
 let node: Awaited<ReturnType<typeof setup>>;
+/** A second station node, for a move straight from one node to another. */
+let node2: Awaited<ReturnType<typeof setup>>;
+let node2Id: string;
 let admin: { cookie: string };
 let owner: { cookie: string };
 let tenantId: string;
@@ -85,11 +89,24 @@ beforeAll(async () => {
   node = await setup({ DATABASE_URL: NODE_DB, STATION_NODE: linkFile, PORT: String(port) });
   await node.app.listen({ port, host: '127.0.0.1' });
   await node.app.stationNode!.start();
+
+  const created2 = await main.app.inject({ method: 'POST', url: '/api/nodes', headers: admin, payload: { name: 'Own node', roles: ['station'] } });
+  node2Id = created2.json().node.id;
+  const paired2 = await main.app.inject({ method: 'POST', url: '/api/nodes/pair', payload: { code: created2.json().pairing.code.toLowerCase().replace(/-/g, ''), hostname: 'own-node' } });
+  expect(paired2.statusCode).toBe(200);
+  const linkFile2 = join(dir, 'station-node-2.json');
+  writeFileSync(linkFile2, JSON.stringify({ server: base, nodeId: node2Id, secret: paired2.json().secret }));
+  const port2 = await freePort();
+  node2 = await setup({ DATABASE_URL: NODE2_DB, STATION_NODE: linkFile2, PORT: String(port2) });
+  await node2.app.listen({ port: port2, host: '127.0.0.1' });
+  await node2.app.stationNode!.start();
 }, 60_000);
 
 afterAll(async () => {
   node?.app.stationNode?.stop();
+  node2?.app.stationNode?.stop();
   await node?.close();
+  await node2?.close();
   // Keep-alive connections of the node's requests would hold the server open.
   main?.app.server.closeAllConnections();
   await main?.close();
@@ -190,7 +207,50 @@ describe('station nodes', () => {
     expect(after[0]!.icecastSourcePassword).toBe(before[0]!.icecastSourcePassword);
   }, 30_000);
 
+  it('moves the station straight to another station node, library and tables included', async () => {
+    writeFileSync(join(mediaDir(node.ctx, stationId), 'music', 'made-on-node.mp3'), Buffer.alloc(2000, 3));
+    const res = await main.app.inject({ method: 'PUT', url: `/api/stations/${stationId}/placement`, headers: admin, payload: { nodeId: node2Id } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().move).toMatchObject({ direction: 'to_node', nodeId: node2Id, fromNodeId: nodeId });
+    // The old node keeps it on air until the switch.
+    expect((await mainStation()).nodeId).toBe(nodeId);
+    await until('the switch-over', async () => (await mainStation()).nodeId === node2Id && !(await mainStation()).nodeMove);
+    // The library came from the first node through this server, without landing here.
+    for (const [name, size] of [['song.mp3', 300_000], ['made-on-node.mp3', 2000]] as const) {
+      const file = join(mediaDir(node2.ctx, stationId), 'music', name);
+      expect(existsSync(file)).toBe(true);
+      expect(readFileSync(file).length).toBe(size);
+    }
+    expect(existsSync(join(mediaDir(main.ctx, stationId), 'music', 'made-on-node.mp3'))).toBe(false);
+    // The playlist made on the first node came along.
+    await until('the station on the new node', async () => (await node2.db.select().from(schema.stations).where(eq(schema.stations.id, stationId)))[0]?.enabled);
+    const playlists = await node2.db.select().from(schema.playlists).where(eq(schema.playlists.stationId, stationId));
+    expect(playlists.map((p) => p.name).sort()).toEqual(['All music', 'Night']);
+    // The first node lets go of it.
+    await until('the old node to remove it', async () => (await node.db.select().from(schema.stations)).length === 0);
+    await until('the first full report of the new node', async () => (await mainStation()).nodeRuntime?.syncedAt);
+  }, 90_000);
+
+  it('keeps a downgraded station parked on its node for 24 hours, and switches back without loss', async () => {
+    const down = await main.app.inject({ method: 'POST', url: `/api/stations/${stationId}/downgrade`, headers: owner, payload: { confirm: true } });
+    expect(down.statusCode, down.body).toBe(200);
+    // Distribution only never runs on a station node: it left the node...
+    expect(await mainStation()).toMatchObject({ nodeId: null, edition: 'distribution', downgrade: expect.objectContaining({ nodeId: node2Id }) });
+    // ...which keeps its files and tables, switched off.
+    await until('the node to park it', async () => (await node2.db.select().from(schema.stations).where(eq(schema.stations.id, stationId)))[0]?.enabled === false);
+    expect(existsSync(join(mediaDir(node2.ctx, stationId), 'music', 'song.mp3'))).toBe(true);
+    expect((await node2.db.select().from(schema.playlists).where(eq(schema.playlists.stationId, stationId))).length).toBe(2);
+    // Switching back puts it on the same node again.
+    const back = await main.app.inject({ method: 'POST', url: `/api/stations/${stationId}/upgrade`, headers: owner, payload: {} });
+    expect(back.statusCode, back.body).toBe(200);
+    expect(await mainStation()).toMatchObject({ nodeId: node2Id, edition: 'station', downgrade: null });
+    await until('the station running on the node again', async () => (await node2.db.select().from(schema.stations).where(eq(schema.stations.id, stationId)))[0]?.enabled);
+    expect((await node2.db.select().from(schema.playlists).where(eq(schema.playlists.stationId, stationId))).length).toBe(2);
+    await until('a full report after switching back', async () => (await mainStation()).nodeRuntime?.syncedAt);
+  }, 60_000);
+
   it('moves the station back with what was made on the node', async () => {
+    const node = node2;
     writeFileSync(join(mediaDir(node.ctx, stationId), 'music', 'new.mp3'), Buffer.alloc(1000, 1));
     const res = await main.app.inject({ method: 'PUT', url: `/api/stations/${stationId}/placement`, headers: admin, payload: { nodeId: null } });
     expect(res.statusCode).toBe(200);

@@ -195,6 +195,7 @@ export function SettingsPage() {
           <Switch checked={a.cartsToStream} onChange={(v) => set({ cartsToStream: v })} label={t('settings.cartsToStream')} description={t('settings.cartsToStreamHint')} />
           <Switch checked={a.cartsToOutput} onChange={(v) => set({ cartsToOutput: v })} label={t('settings.cartsToOutput')} description={t('settings.cartsToOutputHint')} />
           <Switch checked={a.monitorInput} onChange={(v) => set({ monitorInput: v })} label={t('settings.monitorInput')} description={t('settings.monitorInputHint')} />
+          <Switch checked={a.duckSingle !== false} onChange={(v) => set({ duckSingle: v })} label={t('settings.duckSingle')} description={t('settings.duckSingleHint')} />
         </div>
       </Card>
 

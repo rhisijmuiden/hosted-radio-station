@@ -29,6 +29,11 @@ export const memberRole = pgEnum('member_role', ['owner', 'manager', 'dj']);
 
 export interface TenantLimits {
   maxStations: number;
+  /**
+   * How many of those stations may be a Radio station (AutoDJ, clocks, library); the others are Distribution only.
+   * Replaces the customer's edition (`plan`, kept only for older API clients): the edition belongs to each station.
+   */
+  maxRadioStations: number;
   maxListeners: number;
   maxBitrateKbps: number;
   storageQuotaMb: number;
@@ -277,9 +282,11 @@ export interface StationNodeRuntime {
 
 /** Moving a station between this server and a station node, with its media files. */
 export interface StationNodeMove {
-  /** to_node: from this server to `nodeId`; to_main: back to this server. */
+  /** to_node: to `nodeId`, from this server or (with `fromNodeId`) straight from another station node; to_main: back to this server. */
   direction: 'to_node' | 'to_main';
   nodeId: string;
+  /** to_node between two station nodes: the node that runs the station until the switch. */
+  fromNodeId?: string;
   state: 'copying' | 'failed';
   files: number;
   filesDone: number;
@@ -289,6 +296,17 @@ export interface StationNodeMove {
   startedAt: string;
   /** to_main: this server already runs the station's Icecast and AutoDJ, just before it takes the station over. */
   warm?: boolean;
+}
+
+/**
+ * A Radio station that went back to Distribution only: its content (library, playlists, hour clocks, schedule) is kept
+ * until `until` (24 hours), so the owner can switch back without loss. On a station node (`nodeId`) the node keeps the
+ * station's files and tables, without running it, until then.
+ */
+export interface StationDowngrade {
+  at: string;
+  until: string;
+  nodeId: string | null;
 }
 
 /**
@@ -329,12 +347,16 @@ export const stations = pgTable(
     autodj: jsonb('autodj').$type<Record<string, unknown>>().notNull().default({}),
     /** Hour clocks and weekly schedule (phase 7). Read through schedulerSchema for defaults. */
     scheduler: jsonb('scheduler').$type<Record<string, unknown>>().notNull().default({}),
+    /** Where the news bulletin comes from (services/autodj/news.ts); its secrets are sealed. */
+    news: jsonb('news').$type<Record<string, unknown>>().notNull().default({}),
     /** Station node that runs this station (phase 12). Null = this server runs it. */
     nodeId: uuid('node_id').references((): AnyPgColumn => nodes.id, { onDelete: 'set null' }),
     /** What the station node reported last about the station: mounts on air, titles, AutoDJ, sync. */
     nodeRuntime: jsonb('node_runtime').$type<StationNodeRuntime>(),
     /** A move between this server and a station node that is under way or failed. */
     nodeMove: jsonb('node_move').$type<StationNodeMove>(),
+    /** Back to Distribution only, with the content kept for 24 hours (see StationDowngrade). */
+    downgrade: jsonb('downgrade').$type<StationDowngrade>(),
     /** Which ingest takes the encoders and which relays it feeds (phase 13). Read through routingSchema for defaults. */
     routing: jsonb('routing').$type<Record<string, unknown>>().notNull().default({}),
     createdAt: createdAt(),
@@ -758,6 +780,14 @@ export const mediaFiles = pgTable(
     bitrateKbps: integer('bitrate_kbps'),
     /** ReplayGain of the track in dB, from the file's tags; evens out loudness between tracks. */
     gainDb: doublePrecision('gain_db'),
+    /** The station's own number for the track (e.g. HF-03007): given once when the file is first found, never reused. */
+    code: text('code'),
+    isrc: text('isrc').notNull().default(''),
+    /** Tempo and musical key ("Am", "F#"): from the tags, otherwise measured by the server (`analysedAt`). */
+    bpm: doublePrecision('bpm'),
+    musicKey: text('music_key').notNull().default(''),
+    /** When the server measured tempo and key of the current file; null = not yet (or the file changed). */
+    analysedAt: timestamp('analysed_at', { withTimezone: true }),
     // Cue points, in seconds from the start of the file (null = not set): where the track starts and stops playing,
     // where the intro ends (the DJ talks up to it), where the next track starts and where the fade-out begins.
     cueIn: doublePrecision('cue_in'),
@@ -778,6 +808,7 @@ export const mediaFiles = pgTable(
     uniqueIndex('media_files_path_idx').on(t.stationId, t.location, t.path),
     index('media_files_artist_idx').on(t.stationId, t.artist),
     index('media_files_played_idx').on(t.stationId, t.lastPlayedAt),
+    uniqueIndex('media_files_code_idx').on(t.stationId, t.code),
   ],
 );
 
@@ -825,11 +856,12 @@ export const playlistItems = pgTable(
   (t) => [primaryKey({ columns: [t.playlistId, t.mediaId] }), index('playlist_items_media_idx').on(t.mediaId)],
 );
 
-export const queueState = pgEnum('queue_state', ['queued', 'cued', 'playing']);
+export const queueState = pgEnum('queue_state', ['queued', 'cued', 'playing', 'loaded']);
 
 /**
- * The two AutoDJ queues. `queued` items wait their turn, the `cued` item has been handed to the player (it loads one
- * track ahead) and the `playing` item is on air. Played items are removed; the play itself is in song_plays.
+ * The two AutoDJ queues. `queued` items wait their turn, the `cued` item has been handed to the player and goes on air
+ * next (only ever one), a `loaded` item has been handed to the player too but plays after the cued one (the player
+ * loads ahead while it holds a track in manual playout, or a track plays now before it), and the `playing` item is on air. Played items are removed; the play itself is in song_plays.
  */
 export const queueItems = pgTable(
   'queue_items',
@@ -851,9 +883,16 @@ export const queueItems = pgTable(
     addedBy: text('added_by'),
     cuedAt: timestamp('cued_at', { withTimezone: true }),
     startedAt: timestamp('started_at', { withTimezone: true }),
+    /**
+     * A pick the log editor planned ahead for one place in an hour clock (`hour:clock:step:done:n`): it waits outside
+     * the queue until the clock gets there. Null for the queue itself.
+     */
+    slot: text('slot'),
+    /** Start of the hour of the slot, to drop picks of hours that are over. */
+    slotHour: timestamp('slot_hour', { withTimezone: true }),
     createdAt: createdAt(),
   },
-  (t) => [index('queue_items_station_idx').on(t.stationId, t.queue, t.position)],
+  (t) => [index('queue_items_station_idx').on(t.stationId, t.queue, t.position), index('queue_items_slot_idx').on(t.stationId, t.slot)],
 );
 
 /** Running state of a station's AutoDJ: which queue played last, for the pick rules. */
@@ -871,6 +910,8 @@ export const autodjState = pgTable('autodj_state', {
   clockId: uuid('clock_id'),
   clockStep: integer('clock_step').notNull().default(0),
   clockDone: integer('clock_done').notNull().default(0),
+  /** Picks made in a row in the same clock state (music of a fill item), so each has its own place in the log. */
+  clockN: integer('clock_n').notNull().default(0),
   /**
    * Manual playout (RHIS Studio): after each track the player waits for Play. Holds while this lies in the future; the
    * client renews it every few seconds, so a client that drops away puts the station back on Auto by itself.
@@ -883,8 +924,11 @@ export const autodjState = pgTable('autodj_state', {
 export interface ClockItem {
   /** Stable id within the clock, chosen by the panel. */
   id: string;
-  /** rotation = music from the queues, playlist = tracks from one playlist, track = one library track. */
-  kind: 'rotation' | 'playlist' | 'track';
+  /**
+   * rotation = music from the queues, playlist = tracks from one playlist, track = one library track, news = the
+   * station's news bulletin (fetched by the server, or the spare jingle when it is missing).
+   */
+  kind: 'rotation' | 'playlist' | 'track' | 'news';
   label: string;
   playlistId: string | null;
   mediaId: string | null;
@@ -949,7 +993,7 @@ export const scheduleEntries = pgTable(
 
 // Phase 8: distribution network and orchestration
 
-export const NODE_ROLES = ['relay', 'source', 'station', 'fm'] as const;
+export const NODE_ROLES = ['relay', 'source', 'station', 'fm', 'monitor'] as const;
 export type NodeRole = (typeof NODE_ROLES)[number];
 
 /** Settings of a node, made in the panel. Read through nodeConfigSchema for defaults. */
@@ -1182,6 +1226,12 @@ export const nodeProbes = pgTable(
     lastOkAt: timestamp('last_ok_at', { withTimezone: true }),
     /** Checks and failures over the last 24 hours, kept as per-hour buckets [hour, checks, failures]. */
     buckets: jsonb('buckets').$type<[number, number, number][]>().notNull().default([]),
+    /** Deep checks of a monitoring node (phase 20): what it measured while it listened. */
+    bitrateKbps: integer('bitrate_kbps'),
+    contentType: text('content_type'),
+    title: text('title'),
+    levelDb: doublePrecision('level_db'),
+    silent: boolean('silent'),
   },
   (t) => [primaryKey({ columns: [t.nodeId, t.target] }), index('node_probes_station_idx').on(t.stationId)],
 );
@@ -1247,6 +1297,40 @@ export const studioJingles = pgTable(
   },
   (t) => [uniqueIndex('studio_jingles_button_idx').on(t.stationId, t.userId, t.position)],
 );
+
+/**
+ * The station carts of RHIS Studio (the second jingle grid of the OmniPlayer layout): station IDs, traffic, beds, filled
+ * by a manager per station and the same for every DJ. The client plays them itself, like the DJ's own jingles.
+ */
+export const stationCarts = pgTable(
+  'station_carts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    /** The button: page = position / 7. */
+    position: integer('position').notNull(),
+    label: text('label').notNull(),
+    color: text('color').notNull(),
+    looped: boolean('looped').notNull().default(false),
+    /** The file is jingles/station/<id>.<ext> in the station folder. */
+    ext: text('ext').notNull(),
+    size: integer('size').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('station_carts_button_idx').on(t.stationId, t.position)],
+);
+
+/**
+ * The DJ profile of RHIS Studio: the layout of the Assist screen (which layout, panels on or off, their widths, the
+ * countdown of the dashboard). The client owns its shape; it follows the DJ to every studio PC.
+ */
+export const studioProfiles = pgTable('studio_profiles', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  layout: jsonb('layout').$type<Record<string, unknown>>().notNull().default({}),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
 // Phase 10: hosted service (packages, subscriptions, invoices, webhooks)
 
@@ -1440,3 +1524,35 @@ export const idempotencyKeys = pgTable('idempotency_keys', {
   response: jsonb('response').notNull(),
   createdAt: createdAt(),
 });
+
+// Phase 20: monitoring
+
+/**
+ * A problem the orchestrator noticed (a node offline, a station off air, a relay without its feed), from the moment
+ * it lasted longer than the wait time until it was gone for a while. One row per outage: `key` names what is wrong,
+ * and only one open row per key exists. `params` carries the names for the messages, as they were at the time.
+ */
+export const alerts = pgTable(
+  'alerts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    key: text('key').notNull(),
+    /** node_offline | node_problem | station_off_air | stream_down | feed_lost | updates_paused | dns_error */
+    kind: text('kind').notNull(),
+    /** critical | warning */
+    severity: text('severity').notNull(),
+    nodeId: uuid('node_id').references(() => nodes.id, { onDelete: 'set null' }),
+    stationId: uuid('station_id').references(() => stations.id, { onDelete: 'set null' }),
+    params: jsonb('params').$type<Record<string, string>>().notNull().default({}),
+    /** What the check said last, such as "Timeout" or the node's own problem text. */
+    message: text('message'),
+    openedAt: timestamp('opened_at', { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    /** An alert went out when it opened, so its recovery is sent too. */
+    notified: boolean('notified').notNull().default(false),
+    acknowledgedAt: timestamp('acknowledged_at', { withTimezone: true }),
+    acknowledgedBy: text('acknowledged_by'),
+  },
+  (t) => [uniqueIndex('alerts_open_key_idx').on(t.key).where(sql`resolved_at is null`), index('alerts_opened_idx').on(t.openedAt)],
+);

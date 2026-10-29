@@ -38,6 +38,13 @@ export function PlanBadge({ plan }: { plan: Tenant['plan'] }) {
   return <Badge tone={plan === 'station' ? 'accent' : 'neutral'}>{t(`plans.${plan}`)}</Badge>;
 }
 
+/** What a customer may run: its stations, and how many of them may be a Radio station (the edition is per station). */
+export function LimitsBadge({ limits }: { limits: Tenant['limits'] }) {
+  const { t } = useTranslation();
+  const radio = limits.maxRadioStations ?? limits.maxStations;
+  return <Badge tone={radio > 0 ? 'accent' : 'neutral'}>{t('limits.badge', { count: limits.maxStations, radio })}</Badge>;
+}
+
 function AdminDashboard() {
   const { t } = useTranslation();
   const tenants = useQuery({ queryKey: ['tenants'], queryFn: () => api<Tenant[]>('/tenants') });
@@ -116,7 +123,7 @@ function AdminDashboard() {
               <p className="mt-1 max-w-sm text-[13px] text-muted">{t('dashboard.noCustomersText')}</p>
             </div>
           ) : (
-            <Table head={[t('fields.customer'), t('fields.plan'), t('fields.users'), t('fields.status')]}>
+            <Table head={[t('fields.customer'), t('limits.maxStations'), t('fields.users'), t('fields.status')]}>
               {list.slice(0, 6).map((c) => (
                 <tr key={c.id} className="hover:bg-hover/60">
                   <td>
@@ -131,7 +138,7 @@ function AdminDashboard() {
                     </Link>
                   </td>
                   <td>
-                    <PlanBadge plan={c.plan} />
+                    <LimitsBadge limits={c.limits} />
                   </td>
                   <td>{c.memberCount}</td>
                   <td>
@@ -230,7 +237,7 @@ function MemberDashboard() {
                     </div>
                   </div>
                   <div className="mt-4 flex items-center justify-between">
-                    <PlanBadge plan={m.plan} />
+                    <span />
                     <span className="inline-flex items-center gap-1 text-xs text-muted">
                       <Users className="size-3.5" /> {t('common.open')}
                     </span>

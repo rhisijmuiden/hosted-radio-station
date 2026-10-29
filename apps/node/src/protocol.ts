@@ -1,4 +1,4 @@
-export type NodeRole = 'relay' | 'source' | 'station' | 'fm';
+export type NodeRole = 'relay' | 'source' | 'station' | 'fm' | 'monitor';
 
 /**
  * The messages between the main server and the node agent. A copy of apps/api/src/services/nodes/protocol.ts: keep
@@ -34,6 +34,22 @@ export interface ProbeTarget {
   target: string;
   stationId: string;
   url: string;
+  /**
+   * Monitoring node (phase 20): listen for a few seconds and also measure bitrate, format, title and audio level.
+   * Older agents ignore it and do the short check.
+   */
+  deep?: { seconds: number } | null;
+}
+
+/** What a deep stream check measured (monitoring node, phase 20). */
+export interface ProbeMeasure {
+  bitrateKbps: number | null;
+  contentType: string | null;
+  title: string | null;
+  /** Loudest moment in dBFS over the check, from ffmpeg; null without ffmpeg. */
+  levelDb: number | null;
+  /** The stream plays, but nothing louder than the silence threshold was heard. */
+  silent: boolean | null;
 }
 
 /** Everything a node has to do. Sent on connect and whenever it changes. */
@@ -281,7 +297,25 @@ export interface AgentEvent {
   details?: Record<string, string | number | null>;
 }
 
-export type AgentMessage = AgentHello | AgentStats | AgentEvent | AgentAuth | AgentLive | AgentLiveSync | { t: 'pong'; seq: number };
+/** A port the server asked a monitoring node to try from outside (phase 20), with the outcome. */
+export interface PortCheckResult {
+  port: number;
+  ok: boolean;
+  /** refused, timeout, unreachable, dns or another error code. */
+  message: string | null;
+  ms: number | null;
+}
+
+/** The answer of a monitoring node to a port check. */
+export interface AgentPortCheckResult {
+  t: 'portcheck_result';
+  id: number;
+  /** The address it connected to (the name looked up there, or the address it was given). */
+  address: string | null;
+  results: PortCheckResult[];
+}
+
+export type AgentMessage = AgentHello | AgentStats | AgentEvent | AgentAuth | AgentLive | AgentLiveSync | AgentPortCheckResult | { t: 'pong'; seq: number };
 
 export type ServerMessage =
   | { t: 'welcome'; nodeId: string; name: string; serverTime: string }
@@ -296,6 +330,8 @@ export type ServerMessage =
    */
   | { t: 'drain'; seconds: number }
   | AuthResult
+  /** Monitoring node (phase 20): try these TCP ports of a node from outside and answer with portcheck_result. */
+  | { t: 'portcheck'; id: number; host: string; ports: number[] }
   /** FM/MPX: who is live and which show runs, for the RadioText (the song comes from the stream itself). */
   | { t: 'fm'; dj: string | null; show: string | null };
 
@@ -303,7 +339,7 @@ export type ServerMessage =
 export interface AgentReport {
   relays: { key: string; state: 'connecting' | 'connected' | 'error' | 'idle'; message?: string; bitrateKbps?: number | null; listeners?: number }[];
   clients: { key: string; id: string; ip: string | null; userAgent: string | null; referer: string | null; connectedSeconds: number }[];
-  probes: { target: string; stationId: string; url: string; ok: boolean; httpStatus: number | null; ttfbMs: number | null; message?: string; at: string }[];
+  probes: ({ target: string; stationId: string; url: string; ok: boolean; httpStatus: number | null; ttfbMs: number | null; message?: string; at: string } & Partial<ProbeMeasure>)[];
   /** Listeners that left since the last report, with the moment they left. */
   ended?: { key: string; id: string; endedAt: string }[];
 }

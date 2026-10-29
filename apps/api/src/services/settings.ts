@@ -406,6 +406,47 @@ export const nodeRolloutSchema = z.object({
 });
 export type NodeRollout = z.infer<typeof nodeRolloutSchema>;
 
+/** Monitoring (phase 20): when a problem counts as an outage, and who hears about it. */
+export const ALERT_KINDS = ['node_offline', 'node_problem', 'station_off_air', 'station_silent', 'stream_down', 'stream_quality', 'feed_lost', 'updates_paused', 'dns_error', 'port_closed', 'old_port_open', 'dns_wrong'] as const;
+export type AlertKind = (typeof ALERT_KINDS)[number];
+
+export const maintenanceSchema = z.object({
+  kind: z.enum(['node', 'station']),
+  id: z.uuid(),
+  /** Until when no alerts come for it; null = until it is taken off the list. */
+  until: z.string().nullable().default(null),
+  note: z.string().trim().max(200).default(''),
+  by: z.string().max(200).nullable().default(null),
+});
+export type Maintenance = z.infer<typeof maintenanceSchema>;
+
+export const alertSettingsSchema = z.object({
+  /** A problem has to last this long before it becomes an alert, so a short hiccup stays quiet. */
+  graceSeconds: z.number().int().min(15).max(3600).default(60),
+  /** And it has to be gone this long before it counts as solved: one outage that comes and goes gives one alert. */
+  recoverSeconds: z.number().int().min(15).max(3600).default(120),
+  /** Warnings and critical problems, or only critical ones (a node offline, a station off air). */
+  minSeverity: z.enum(['warning', 'critical']).default('warning'),
+  /** Also send a message when a problem is solved. */
+  notifyRecovery: z.boolean().default(true),
+  language: z.enum(['en', 'nl']).default('en'),
+  email: z.object({ enabled: z.boolean().default(false), to: z.array(z.email().trim().toLowerCase()).max(10).default([]) }).default({ enabled: false, to: [] }),
+  telegram: z
+    .object({
+      enabled: z.boolean().default(false),
+      /** From @BotFather. */
+      botToken: z.string().trim().max(200).default(''),
+      /** The chat (person or group) the bot writes to. */
+      chatId: z.string().trim().max(40).regex(/^$|^-?\d+$|^@[A-Za-z0-9_]{5,}$/, 'Use the numeric chat id or @channelname').default(''),
+    })
+    .default({ enabled: false, botToken: '', chatId: '' }),
+  /** Stations that may be off air without an alert, such as one that only streams during live shows. */
+  quietStations: z.array(z.uuid()).max(1000).default([]),
+  /** Nodes and stations in maintenance: no alerts for them until the end. */
+  maintenance: z.array(maintenanceSchema).max(200).default([]),
+});
+export type AlertSettings = z.infer<typeof alertSettingsSchema>;
+
 /** The hosted service: who sends the invoices, VAT, payment terms, dunning and online payments (phase 10). */
 export const billingSettingsSchema = z.object({
   /** Off = packages and subscriptions can be prepared, but no invoices are made and nobody is suspended. */
@@ -469,6 +510,7 @@ const registry = {
   billing: { schema: billingSettingsSchema, secrets: ['mollie.apiKey'] },
   cloudflare: { schema: cloudflareSchema, secrets: ['apiToken'] },
   dnsState: { schema: dnsStateSchema, secrets: [] },
+  alerts: { schema: alertSettingsSchema, secrets: ['telegram.botToken'] },
 } as const;
 type Registry = typeof registry;
 export type SettingKey = keyof Registry;

@@ -31,7 +31,10 @@ Harder.FM and Radio Schermer, and is also sold as a hosted service. Customers, s
 network that carries the audio are all managed from one panel. The panel is in English and Dutch, with a light and a
 dark theme.
 
-There are two editions per station. A station can move from Distribution to Radio station at any time.
+There are two editions, chosen per station (a customer only has limits: how many stations, and how many of them may
+be a Radio station). A station can move from Distribution to Radio station at any time. A Distribution station gets
+an ingest address to stream to; a Radio station runs on a station node: the shared one, a dedicated one or the
+customer's own node on site.
 
 | Edition | What you get |
 | --- | --- |

@@ -16,8 +16,11 @@ use symphonia::core::{
 
 use crate::resample::resample_all;
 
-/// 48 for the cart wall (F1–F12 on four pages), then 48 for the jingle buttons of Live assist.
-pub const SLOTS: usize = 96;
+/// 48 for the cart wall (F1–F12 on four pages), 48 for the DJ's jingle buttons, 49 for the station carts, then the
+/// single player (145) and the news player (146, never ducked) of the OmniPlayer layout.
+pub const SLOTS: usize = 147;
+/// The single player: it ducks under the microphone (see `Mixer::process_block`).
+pub const SINGLE_SLOT: usize = 145;
 /// Carts longer than this are refused, so the wall stays light on memory (10 minutes ≈ 230 MB at 48 kHz).
 const MAX_SECONDS: u64 = 10 * 60;
 
@@ -135,9 +138,10 @@ impl CartPlayer {
         self.slots.iter().flatten().any(|c| c.playing)
     }
 
-    /// Adds the playing carts into `out` (interleaved stereo).
-    pub fn render(&mut self, out: &mut [f32]) {
-        for c in self.slots.iter_mut().flatten().filter(|c| c.playing) {
+    /// Adds the playing carts into `out` (interleaved stereo); the single player at `duck` (1.0 = full level).
+    pub fn render(&mut self, out: &mut [f32], duck: f32) {
+        for (slot, c) in self.slots.iter_mut().enumerate().filter_map(|(i, c)| c.as_mut().map(|c| (i, c))).filter(|(_, c)| c.playing) {
+            let gain = if slot == SINGLE_SLOT { c.gain * duck } else { c.gain };
             let len = c.samples.len();
             let mut i = 0;
             while i < out.len() {
@@ -152,7 +156,7 @@ impl CartPlayer {
                 }
                 let n = (out.len() - i).min(len - c.pos);
                 for k in 0..n {
-                    out[i + k] += c.samples[c.pos + k] * c.gain;
+                    out[i + k] += c.samples[c.pos + k] * gain;
                 }
                 i += n;
                 c.pos += n;
