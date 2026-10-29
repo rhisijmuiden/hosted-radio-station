@@ -917,6 +917,7 @@ export interface NodeConfig {
   /** Station node: its address on the studio network, for encoders and RHIS Studio there. */
   lanAddress: string;
   fm: FmConfig;
+  firewall?: NodeFirewallConfig;
   updatePolicy: 'inherit' | UpdatePolicy;
   updateGroup: string | null;
   updateWindow: UpdateWindow | null;
@@ -1022,7 +1023,17 @@ export interface NodeStatus {
   ffmpeg?: boolean;
   soundcards?: { device: string; name: string }[];
   fm?: FmStatus | null;
+  /** What the node's software can do, such as "firewall". */
+  features?: string[];
+  /** The node's own firewall as the node reports it (security hardening for external nodes). */
+  firewall?: { state: string; message?: string; foreign?: string[]; ports?: { ssh: string[]; tcp: string[]; udp: string[] }; at?: string } | null;
   updatedAt?: string;
+}
+export type NodeFirewallState = 'off' | 'running' | 'pending' | 'active' | 'foreign' | 'rolledBack' | 'failed' | 'unsupported';
+export interface NodeFirewallConfig {
+  enabled: boolean;
+  takeOver: boolean;
+  extraPorts: { port: number; to: number | null; proto: 'tcp' | 'udp' }[];
 }
 export interface NodeItem {
   id: string;

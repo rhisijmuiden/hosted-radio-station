@@ -1,0 +1,10 @@
+[Unit]
+Description=Hosted Radio Station node: apply or confirm firewall rules on request
+
+[Path]
+PathExists=/var/lib/hrs-node/run/firewall-request.json
+PathExists=/var/lib/hrs-node/run/firewall-confirm.json
+Unit=hrs-node-firewall.service
+
+[Install]
+WantedBy=multi-user.target
