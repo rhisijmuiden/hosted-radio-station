@@ -76,7 +76,8 @@ function useDeliveryPath(station: StationDetail) {
     });
   if (!sources.length) sources.push({ id: 'none', kind: t('delivery.source'), name: t('delivery.noSource'), meta: [t('delivery.noSourceHint')], health: 'neutral', live: false, icon: <Mic /> });
 
-  // 2. The station node, or the main and backup ingest.
+  // 2. The station node (a step of its own), then the main and backup ingest it sends to.
+  let studio: Hop | null = null;
   const first: Hop[] = [];
   if (ts.stationNode) {
     const n = node(ts.stationNode);
@@ -84,7 +85,7 @@ function useDeliveryPath(station: StationDetail) {
     // By default the station node sends through the ingest(s), which feed the relays (1.3).
     const via = ts.ingest && ts.ingest !== ts.stationNode ? node(ts.ingest) : null;
     const live = via ? ts.cells[ts.stationNode] === 'onAir' : ts.active === ts.stationNode;
-    first.push({ id: ts.stationNode, kind: t('delivery.stationNode'), name: n?.name ?? '—', meta: [stateText(h, live), n?.location || null, ping(n), via ? t('delivery.viaIngest', { name: via.name }) : t('delivery.feedsRelays')].filter(Boolean) as string[], health: h, live, icon: <Server />, to: link(n) });
+    studio = { id: ts.stationNode, kind: t('delivery.stationNode'), name: n?.name ?? '—', meta: [stateText(h, live), n?.location || null, ping(n), via ? t('delivery.viaIngest', { name: via.name }) : t('delivery.feedsRelays')].filter(Boolean) as string[], health: h, live, icon: <Server />, to: link(n) };
     for (const [ref, kind] of [
       [via ? ts.ingest : null, t('delivery.mainIngest')],
       [via ? ts.backup : null, t('delivery.backupIngest')],
@@ -127,13 +128,13 @@ function useDeliveryPath(station: StationDetail) {
   const countries = [...byCountry.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c, n]) => `${c} ${total ? Math.round((n / total) * 100) : 0}%`);
 
   // One verdict for the whole route: the worst hop that carries (or should carry) the stream.
-  const carrying = [...first.filter((h) => h.live || h.id === ts.ingest || h.id === ts.stationNode), ...relays];
+  const carrying = [...(studio ? [studio] : []), ...first.filter((h) => h.live || h.id === ts.ingest), ...relays];
   // Without a relay nothing reaches the listeners, whatever the rest says.
   const overall: Health = !relays.length ? 'offline' : carrying.some((h) => h.health === 'offline') ? (relays.some((r) => r.health === 'online') ? 'warning' : 'offline') : carrying.some((h) => h.health === 'warning') ? 'warning' : ts.active ? 'online' : 'neutral';
   const problems = carrying.filter((h) => h.health === 'offline' || h.health === 'warning').length || (relays.length ? 0 : 1);
-  const links = d.links.filter((l) => l.kind === 'stream' && first.some((f) => f.id === l.from) && ts.relays.includes(l.to));
+  const links = d.links.filter((l) => l.kind === 'stream' && (first.some((f) => f.id === l.from) || l.from === studio?.id) && ts.relays.includes(l.to));
   const kbps = links.reduce((x, l) => x + (l.kbps ?? 0), 0);
-  return { loading: false, error: null, path: { sources, first, relays, total, countries, overall, problems, kbps, onAir: !!ts.active } };
+  return { loading: false, error: null, path: { sources, studio, first, relays, total, countries, overall, problems, kbps, onAir: !!ts.active } };
 }
 
 function HopCard({ hop }: { hop: Hop }) {
@@ -196,18 +197,36 @@ export function DeliveryPathCard({ station }: { station: StationDetail }) {
         <p className="p-5 text-[13px] text-muted">{error?.message ?? t('delivery.noRoute')}</p>
       ) : (
         <>
-          <div className="grid gap-1 p-5 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1.25fr)_auto_minmax(0,0.8fr)] md:items-center">
+          <div
+            className={clsx(
+              'grid gap-1 p-5 md:items-center',
+              // With a station node and an ingest each gets its own column: source → studio node → ingest → relays → listeners.
+              path.studio && path.first.length
+                ? 'md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1.25fr)_auto_minmax(0,0.8fr)]'
+                : 'md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1.25fr)_auto_minmax(0,0.8fr)]',
+            )}
+          >
             <Column>
               {path.sources.map((h) => (
                 <HopCard key={h.id} hop={h} />
               ))}
             </Column>
             <Arrow />
-            <Column>
-              {path.first.map((h) => (
-                <HopCard key={h.id} hop={h} />
-              ))}
-            </Column>
+            {path.studio && (
+              <>
+                <Column>
+                  <HopCard hop={path.studio} />
+                </Column>
+                {path.first.length > 0 && <Arrow />}
+              </>
+            )}
+            {(path.first.length > 0 || !path.studio) && (
+              <Column>
+                {path.first.map((h) => (
+                  <HopCard key={h.id} hop={h} />
+                ))}
+              </Column>
+            )}
             <Arrow label={path.kbps ? `${path.kbps} kbps` : undefined} />
             <Column>
               {path.relays.length ? path.relays.map((h) => <HopCard key={h.id} hop={h} />) : <p className="rounded-lg border border-dashed border-offline/50 px-3 py-4 text-center text-[13px] text-offline">{t('delivery.noRelays')}</p>}
@@ -270,6 +289,12 @@ export function DeliveryPathSummary({ station, to }: { station: StationDetail; t
       <div className="flex flex-wrap items-center gap-1.5 px-5 py-4">
         {(liveSources.length ? liveSources : path.sources.slice(0, 1)).map(pill)}
         {arrow}
+        {path.studio && (
+          <>
+            {pill(path.studio)}
+            {path.first.length > 0 && arrow}
+          </>
+        )}
         {path.first.filter((h) => h.live || path.first.length === 1).map(pill)}
         {!path.first.some((h) => h.live) && path.first.length > 1 && pill(path.first[0]!)}
         {arrow}
