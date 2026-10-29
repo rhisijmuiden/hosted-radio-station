@@ -30,10 +30,28 @@ export const firewallPortSchema = z
  * The node's own firewall (security hardening for external nodes): an nftables table that lets in only SSH and the
  * ports of the node's roles. takeOver = replace firewall rules of something else found on the server.
  */
+/** An address or network SSH is let in from: 203.0.113.5, 198.51.100.0/24 or 2001:db8::/32. */
+export const sshSourceSchema = z
+  .string()
+  .trim()
+  .max(50)
+  .refine((v) => {
+    const [ip, bits, ...rest] = v.split('/');
+    const family = net.isIP(ip ?? '');
+    if (!family || rest.length) return false;
+    if (bits === undefined) return true;
+    const n = Number(bits);
+    return /^\d{1,3}$/.test(bits) && n >= 0 && n <= (family === 4 ? 32 : 128);
+  }, 'Use an IP address or a network such as 198.51.100.0/24');
+
 export const firewallConfigSchema = z.object({
   enabled: z.boolean().default(false),
   takeOver: z.boolean().default(false),
   extraPorts: z.array(firewallPortSchema).max(50).default([]),
+  /** SSH only from these addresses or networks; empty = from anywhere. */
+  sshFrom: z.array(sshSourceSchema).max(50).default([]),
+  /** Limits new SSH connections per address (against password guessing). */
+  sshLimit: z.boolean().default(true),
 });
 
 export const nodeConfigSchema = z.object({

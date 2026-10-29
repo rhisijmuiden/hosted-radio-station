@@ -5,6 +5,10 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 
 ## Unreleased
 
+- Security hardening for external nodes (step 3): SSH through the node firewall only from admin addresses or networks
+  (IPv4 and IPv6), with a button to add your own address and a warning when the list leaves it out, and a limit on new
+  SSH connections per address against password guessing (on by default). The panel says when the node's SSH server
+  still takes passwords.
 - Security hardening for external nodes (step 2): extra ports for the node firewall (TCP or UDP, single or a range)
   in the panel. The outside check also tries SSH and well-known ports a node does not need (databases, mail, admin
   pages, 8080 and so on) and warns when one of them answers. The firewall log on the node keeps earlier runs.

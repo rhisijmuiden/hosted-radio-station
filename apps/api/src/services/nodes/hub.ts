@@ -356,6 +356,7 @@ export class NodeHub {
         message: typeof f.message === 'string' ? f.message.slice(0, 300) : undefined,
         foreign: list(f.foreign, 20),
         ports: f.ports && typeof f.ports === 'object' ? { ssh: list(f.ports.ssh, 10), tcp: list(f.ports.tcp, 500), udp: list(f.ports.udp, 500) } : undefined,
+        ssh: f.ssh && typeof f.ssh === 'object' ? { from: list(f.ssh.from, 100), limit: f.ssh.limit !== false, password: String(f.ssh.password ?? 'unknown').slice(0, 20) } : undefined,
         at: typeof f.at === 'string' ? f.at.slice(0, 40) : undefined,
       };
     } else if (m.firewall === null) s.firewall = null;

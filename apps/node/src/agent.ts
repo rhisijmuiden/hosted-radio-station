@@ -359,7 +359,7 @@ export class Agent {
         certs: await this.source.certificateNames(),
         ingest: this.ingest?.status() ?? [],
         fm: this.fm.status(),
-        firewall: firewall ? { state: firewall.state, message: firewall.message, foreign: firewall.foreign, ports: firewall.ports, at: firewall.at } : null,
+        firewall: firewall ? { state: firewall.state, message: firewall.message, foreign: firewall.foreign, ports: firewall.ports, ssh: firewall.ssh, at: firewall.at } : null,
       });
     })().catch((err) => log.debug('sending stats failed', { err }));
   }

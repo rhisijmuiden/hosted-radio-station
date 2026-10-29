@@ -72,6 +72,7 @@ const statusOut = z
         message: z.string().optional(),
         foreign: z.array(z.string()).optional(),
         ports: z.object({ ssh: z.array(z.string()), tcp: z.array(z.string()), udp: z.array(z.string()) }).optional(),
+        ssh: z.object({ from: z.array(z.string()), limit: z.boolean(), password: z.string() }).optional(),
         at: z.string().optional(),
       })
       .nullish(),

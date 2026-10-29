@@ -30,12 +30,12 @@ describe('node firewall (security hardening for external nodes)', () => {
   it('is off by default, so nothing changes on nodes after the update', async () => {
     ingest = await pair({ name: 'ingest-fw', roles: ['source'] });
     const plan = await buildPlan(t.ctx, await nodeRow(ingest));
-    expect(plan.firewall).toEqual({ enabled: false, takeOver: false, tcp: [], udp: [] });
+    expect(plan.firewall).toEqual({ enabled: false, takeOver: false, tcp: [], udp: [], sshFrom: [], sshLimit: true });
   });
 
   it('lets in the ports of the node\'s roles once it is switched on', async () => {
     expect((await patch(ingest, { firewall: { enabled: true } })).statusCode).toBe(200);
-    expect((await buildPlan(t.ctx, await nodeRow(ingest))).firewall).toEqual({ enabled: true, takeOver: false, tcp: ['8200', '8201'], udp: [] });
+    expect((await buildPlan(t.ctx, await nodeRow(ingest))).firewall).toEqual({ enabled: true, takeOver: false, tcp: ['8200', '8201'], udp: [], sshFrom: [], sshLimit: true });
 
     relay = await pair({ name: 'relay-fw', roles: ['relay'] });
     await t.db.update(schema.nodes).set({ status: { online: true, caddy: true } }).where(eq(schema.nodes.id, relay));
@@ -49,7 +49,7 @@ describe('node firewall (security hardening for external nodes)', () => {
     await patch(ingest, { firewall: { extraPorts: [{ port: 9000, to: 9010 }, { port: 5353, proto: 'udp' }] } });
     const c = (await nodeRow(ingest)).config.firewall;
     expect(c).toMatchObject({ enabled: true, takeOver: true });
-    expect((await buildPlan(t.ctx, await nodeRow(ingest))).firewall).toEqual({ enabled: true, takeOver: true, tcp: ['8200', '8201', '9000-9010'], udp: ['5353'] });
+    expect((await buildPlan(t.ctx, await nodeRow(ingest))).firewall).toEqual({ enabled: true, takeOver: true, tcp: ['8200', '8201', '9000-9010'], udp: ['5353'], sshFrom: [], sshLimit: true });
   });
 
   it('refuses invalid extra ports', async () => {
@@ -57,8 +57,16 @@ describe('node firewall (security hardening for external nodes)', () => {
     expect((await patch(ingest, { firewall: { extraPorts: [{ port: 70000 }] } })).statusCode).toBe(400);
   });
 
+  it('limits SSH to admin addresses and networks, and checks them', async () => {
+    expect((await patch(ingest, { firewall: { sshFrom: ['203.0.113.5', '198.51.100.0/24', '2001:db8::/32'], sshLimit: false } })).statusCode).toBe(200);
+    expect((await buildPlan(t.ctx, await nodeRow(ingest))).firewall).toMatchObject({ sshFrom: ['203.0.113.5', '198.51.100.0/24', '2001:db8::/32'], sshLimit: false });
+    for (const bad of ['203.0.113.5/33', 'relay.example.com', '10.0.0.0/8/1', '2001:db8::/129', '1.2.3.4; drop']) {
+      expect((await patch(ingest, { firewall: { sshFrom: [bad] } })).statusCode, bad).toBe(400);
+    }
+  });
+
   it('sends nothing to let in once it is switched off again', async () => {
     await patch(ingest, { firewall: { enabled: false } });
-    expect((await buildPlan(t.ctx, await nodeRow(ingest))).firewall).toEqual({ enabled: false, takeOver: false, tcp: [], udp: [] });
+    expect((await buildPlan(t.ctx, await nodeRow(ingest))).firewall).toEqual({ enabled: false, takeOver: false, tcp: [], udp: [], sshFrom: [], sshLimit: true });
   });
 });
