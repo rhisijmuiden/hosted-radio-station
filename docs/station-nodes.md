@@ -72,6 +72,13 @@ On the station's Settings tab, **Where it runs** shows the current place and mov
   without sending its streams out yet, and only then reports that it is ready. At the switch the relays hand the open stream
   over to the node's push, so listeners stay connected; they may hear a short jump in the audio. After the switch the
   node takes the latest state of the tables once more.
+- **To another node** (for example from the shared station node to a dedicated node, or to the customer's own node
+  on site, and back): the same steps, straight from node to node. The new node copies the library from the old one;
+  the files pass through the main server as they come and are not stored there. The old node keeps the station on air
+  while the copy runs and while the new node warms up. Just before the switch the old node reports its tables once
+  more, so the queue, history and everything made there come along; after the switch it removes the station and its
+  files. Both nodes must be online for this; customers move their stations to their own nodes, administrators also
+  to and from shared ones. This also works with "Orchestrator only" on.
 - **Back to this server**: the main server fetches the files the node has and this server misses, asks the node for one
   last full report, and then starts the station here (Icecast and AutoDJ) while the node still plays it. It switches
   over once the station is on air here (at most a minute), so the relays find it at once. The relays keep their
@@ -80,7 +87,8 @@ On the station's Settings tab, **Where it runs** shows the current place and mov
   node made since its last report is lost; use it when a node is gone for good.
 
 A customer can be linked to a station node (Customers → the customer → *Station node of this customer*): new stations
-of that customer start on the node, and with one switch all its existing stations move there as well.
+of that customer start on the node, and with one switch all its existing stations move there as well, also those that
+run on another node.
 
 ## While a node is offline
 
@@ -130,6 +138,7 @@ their services restart, so updating during a maintenance window is wise.
 
 - A station node needs at least one relay node; without one it has no listeners. Sending through an ingest also needs
   an ingest node that may carry the station; without one the node sends straight to the relays.
-- A station cannot hop straight from one node to another: move it back to the main server first.
+- A move straight from one node to another needs both nodes online. When the old node is gone for good, use
+  **Take over here** first (not possible with "Orchestrator only").
 - A node that still runs stations cannot be removed, and cannot lose its station node role.
 - The main server itself cannot be a station node; a station node needs a container of its own.

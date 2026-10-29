@@ -5,6 +5,12 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 
 ## Unreleased
 
+- Move stations between nodes (step 1): a station moves straight from one station node to another, for example from
+  the shared station node to a dedicated node or to the customer's own node on site, and back. The new node copies the
+  library from the old one through this server (nothing is stored here) and starts the station while the old node
+  keeps it on air; the queue, history and everything made on the old node come along. Works with "Orchestrator only"
+  on, where a station on a node could not move at all before. Linking a customer to another station node now also
+  moves its stations that run on a node.
 - Monitoring and alerts (phase 20, step 1): a new **Monitoring** page under Network shows what is wrong now (a node
   offline, a station off air, a relay without its feed, a node problem, paused node updates, Cloudflare DNS errors),
   the history of the last 90 days and maintenance for nodes and stations. Alerts go to Telegram, e-mail and the new
