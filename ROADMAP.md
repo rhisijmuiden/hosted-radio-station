@@ -586,6 +586,8 @@ The customer side has many buttons in one row. It gets a small, logical structur
 - **Audience and statistics**, **Settings**.
 - The orchestrator admin panel gets the same clear grouping check (topology and monitoring stay as they are).
 - Short built-in explanations where things are not obvious, for example what an hour clock does and how clock items, locked blocks and the weekly schedule work together (the colours of clock items stay).
+- **Customer permissions in the admin panel**: per customer a clear overview of what they may do. Own nodes on or off; when on, a station node is allowed by default and other roles (FM/MPX, ingest, relay, recorder, monitoring) are switched on one by one; a total number of own nodes (for example 10), so a customer can run their own distribution network. The main limit for licensing is the number of radio stations; node limits come on top.
+- **Routing for customers**: a Routing menu where customers decide themselves which of their stations uses which of their own nodes (and the shared ones), and how (via ingest or direct, which relays).
 - A sketch first, for Reinder's choice, before building.
 
 ### Small fixes (own thread, done in between)
