@@ -11,6 +11,7 @@ import { hourStart } from '../scheduler/time.js';
 import { filePath, locationRoot, type MediaFile, type MediaSource } from './library.js';
 import { autodjSettings, type AutodjSettings } from './settings.js';
 import { cueAnnotations, playSeconds, type Cues } from './cues.js';
+import { newsTrack } from './news.js';
 
 /** What a queue entry needs to know when the next track starts. */
 const playTimes = {
@@ -183,7 +184,7 @@ interface ClockPick {
  * clock's playlist on top of Q1, loaded right away. Returns null when the queues play (rotation), as without a clock.
  * The clock's progress is stored as it goes, so an item whose playlist is empty is skipped.
  */
-async function clockPick(tx: Tx, station: Station, s: AutodjSettings, musicSeconds: number, skipped: string[]): Promise<ClockPick | null> {
+async function clockPick(ctx: AppContext, tx: Tx, station: Station, s: AutodjSettings, musicSeconds: number, skipped: string[]): Promise<ClockPick | null> {
   const schedule = await loadSchedule(tx, station);
   if (!schedule.settings.enabled) return null;
   const now = Date.now();
@@ -222,7 +223,16 @@ async function clockPick(tx: Tx, station: Station, s: AutodjSettings, musicSecon
       playlistId = p.id;
     } else {
       const { item } = d;
-      if (item.kind === 'track' && item.mediaId) {
+      let news: Awaited<ReturnType<typeof newsTrack>> = null;
+      if (item.kind === 'news') {
+        // The bulletin for the news at the item's minute, or the spare jingle.
+        const hour = d.state.hour ?? at;
+        const clock = d.state.clockId ? schedule.clocks.get(d.state.clockId) : undefined;
+        let slot = hour;
+        if (clock) for (let k = 0; k <= d.state.step; k++) if (anchorOf(clock.items, k) !== null) slot = hour + anchorOf(clock.items, k)! * 60_000;
+        news = await newsTrack(ctx, tx, station, slot);
+        track = news?.media ?? null;
+      } else if (item.kind === 'track' && item.mediaId) {
         [track = null] = await tx
           .select()
           .from(schema.mediaFiles)
@@ -237,7 +247,7 @@ async function clockPick(tx: Tx, station: Station, s: AutodjSettings, musicSecon
         continue;
       }
       await save(state);
-      label = item.label || (playlistId ? playlists.get(playlistId)!.name : null);
+      label = item.label || news?.label || (playlistId ? playlists.get(playlistId)!.name : null);
       locked = !!item.locked;
     }
     const [queued] = await tx
@@ -276,7 +286,7 @@ export async function nextTrack(
         .orderBy(asc(schema.queueItems.position))
         .limit(200);
       let pick = heads[0];
-      const scheduled = await clockPick(tx, station, s, pick?.media.durationSeconds ?? 210, skipped);
+      const scheduled = await clockPick(ctx, tx, station, s, pick?.media.durationSeconds ?? 210, skipped);
       if (scheduled) pick = scheduled;
       if (!pick) {
         // The queue is empty (no playlists, or nothing left in them): any track from the library.

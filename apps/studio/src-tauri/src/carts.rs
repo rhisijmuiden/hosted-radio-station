@@ -16,9 +16,9 @@ use symphonia::core::{
 
 use crate::resample::resample_all;
 
-/// 48 for the cart wall (F1–F12 on four pages), 48 for the DJ's jingle buttons, 49 for the station carts, and the
-/// single player of the OmniPlayer layout last.
-pub const SLOTS: usize = 146;
+/// 48 for the cart wall (F1–F12 on four pages), 48 for the DJ's jingle buttons, 49 for the station carts, then the
+/// single player (145) and the news player (146, never ducked) of the OmniPlayer layout.
+pub const SLOTS: usize = 147;
 /// The single player: it ducks under the microphone (see `Mixer::process_block`).
 pub const SINGLE_SLOT: usize = 145;
 /// Carts longer than this are refused, so the wall stays light on memory (10 minutes ≈ 230 MB at 48 kHz).

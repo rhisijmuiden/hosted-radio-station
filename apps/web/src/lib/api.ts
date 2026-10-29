@@ -780,7 +780,8 @@ export interface MediaSource {
 
 export interface ClockItem {
   id: string;
-  kind: 'rotation' | 'playlist' | 'track';
+  /** news = the station's news bulletin (or its spare jingle), see the News page. */
+  kind: 'rotation' | 'playlist' | 'track' | 'news';
   label: string;
   playlistId: string | null;
   mediaId: string | null;

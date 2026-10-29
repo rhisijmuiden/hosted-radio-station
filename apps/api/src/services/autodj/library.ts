@@ -1,6 +1,6 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { dirname, extname, join, relative, resolve, sep } from 'node:path';
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { parseFile } from 'music-metadata';
 import { schema } from '../../db/index.js';
 import type { MediaSourceStatus } from '../../db/schema.js';
@@ -13,6 +13,8 @@ export type MediaFile = typeof schema.mediaFiles.$inferSelect;
 
 /** The station's own media folder (uploads over SFTP/FTP and the panel). Other locations are media source ids. */
 export const STORAGE = 'storage';
+/** Library location of the news bulletin: a folder of the station of its own, never scanned, played or requested. */
+export const NEWS = 'news';
 /** Folder in the station's storage where uploads from the panel go by default. */
 export const MUSIC_FOLDER = 'music';
 
@@ -39,6 +41,7 @@ export async function readMountStatus(ctx: AppContext): Promise<Record<string, {
 /** Folder on disk of a location, or null when the source is unknown. */
 export function locationRoot(ctx: AppContext, stationId: string, location: string, source?: MediaSource | null): string | null {
   if (location === STORAGE) return mediaDir(ctx, stationId);
+  if (location === NEWS) return join(stationDir(ctx, stationId), NEWS);
   if (!source || source.id !== location) return null;
   if (source.type === 'local') return source.config.path ?? null;
   return sourceMountDir(ctx, stationId, source.id);
@@ -324,7 +327,7 @@ export function codePrefix(station: { name: string; autodj: Record<string, unkno
  */
 export async function assignCodes(ctx: AppContext, stationId: string) {
   const mf = schema.mediaFiles;
-  const todo = await ctx.db.select({ id: mf.id }).from(mf).where(and(eq(mf.stationId, stationId), isNull(mf.code))).orderBy(mf.createdAt, mf.path).limit(5000);
+  const todo = await ctx.db.select({ id: mf.id }).from(mf).where(and(eq(mf.stationId, stationId), isNull(mf.code), ne(mf.location, NEWS))).orderBy(mf.createdAt, mf.path).limit(5000);
   if (!todo.length) return 0;
   const [station] = await ctx.db.select({ name: schema.stations.name, autodj: schema.stations.autodj }).from(schema.stations).where(eq(schema.stations.id, stationId));
   if (!station) return 0;

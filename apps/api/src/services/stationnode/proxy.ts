@@ -9,12 +9,12 @@ import type { StationTunnels } from './hub.js';
 /**
  * Panel and public routes whose data belongs to the station node of a station (its library, queues, playlists, hour
  * clocks, schedule, requests, on-demand, live broadcasts). For a station on a node they are answered by the node.
- * The station settings themselves (PUT /autodj and PUT /scheduler) stay here: the node gets them with its package.
+ * The station settings themselves (PUT /autodj, PUT /scheduler and PUT /news) stay here: the node gets them with its package.
  */
 const STATION_ROUTE =
-  /^\/api\/stations\/([0-9a-f-]{36})\/(autodj(?:\/[^?]*)?|library(?:\/[^?]*)?|playlists(?:\/[^?]*)?|sources(?:\/[^?]*)?|clocks(?:\/[^?]*)?|schedule(?:\/[^?]*)?|scheduler|requests(?:\/[^?]*)?|ondemand(?:\/[^?]*)?|live|status|mounts\/[0-9a-f-]{36}\/disconnect)(?:\?.*)?$/;
+  /^\/api\/stations\/([0-9a-f-]{36})\/(autodj(?:\/[^?]*)?|library(?:\/[^?]*)?|playlists(?:\/[^?]*)?|sources(?:\/[^?]*)?|clocks(?:\/[^?]*)?|schedule(?:\/[^?]*)?|scheduler|news(?:\/[^?]*)?|requests(?:\/[^?]*)?|ondemand(?:\/[^?]*)?|live|status|mounts\/[0-9a-f-]{36}\/disconnect)(?:\?.*)?$/;
 const PUBLIC_ROUTE = /^\/api\/public\/stations\/([a-z0-9-]{1,48})\/(library|requests|ondemand(?:\/[^?]*)?)(?:\?.*)?$/;
-const KEPT_HERE = new Set(['PUT autodj', 'PUT scheduler']);
+const KEPT_HERE = new Set(['PUT autodj', 'PUT scheduler', 'PUT news']);
 
 /** Headers that tell the node who the caller is; the node only believes them from its own tunnel. */
 export const TUNNEL_HEADERS = {

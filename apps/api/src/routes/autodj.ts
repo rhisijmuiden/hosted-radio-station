@@ -3,7 +3,7 @@ import { mkdir, rename, rm, stat } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import fastifyMultipart from '@fastify/multipart';
-import { and, asc, count, desc, eq, ilike, inArray, isNotNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, inArray, isNotNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { FastifyRequest } from 'fastify';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -25,6 +25,7 @@ import {
   type MediaSource,
 } from '../services/autodj/library.js';
 import { clearQueue, dropDisabled, enqueue, fillQueues, inPlaylist, mediaPath, moveItem, playNow, queueRows } from '../services/autodj/planner.js';
+import { NEWS, newsSettings, readNewsStatus } from '../services/autodj/news.js';
 import { autodjSchema, autodjSettings, queueRuleSchema } from '../services/autodj/settings.js';
 import { anchorOf, isFill } from '../services/scheduler/clock.js';
 import { hourStart } from '../services/scheduler/time.js';
@@ -220,7 +221,7 @@ const rundownRowOut = z.object({
   locked: z.boolean(),
   /** music = from the queues or a playlist until the next timed item; item = tracks the format puts in. */
   kind: z.enum(['music', 'item']),
-  source: z.enum(['queues', 'playlist', 'track']),
+  source: z.enum(['queues', 'playlist', 'track', 'news']),
   label: z.string(),
   count: z.number().int(),
   /** Expected length of a format item in seconds: its track, or count × the average of its playlist (null = unknown). */
@@ -319,7 +320,7 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
       ctx.db
         .select({ tracks: count(), enabled: sql<number>`count(*) filter (where ${schema.mediaFiles.enabled})::int` })
         .from(schema.mediaFiles)
-        .where(eq(schema.mediaFiles.stationId, station.id)),
+        .where(and(eq(schema.mediaFiles.stationId, station.id), ne(schema.mediaFiles.location, NEWS))),
       ctx.db.select({ n: count() }).from(schema.playlists).where(eq(schema.playlists.stationId, station.id)),
       readStreamsStatus(ctx),
     ]);
@@ -624,6 +625,8 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
         }),
       ),
     );
+    const news = newsSettings(station);
+    const bulletin = news.enabled ? await readNewsStatus(ctx, station.id) : null;
     const rows: z.infer<typeof rundownRowOut>[] = [];
     const first = hourStart(now, tz);
     for (let h = 0; h < hours; h++) {
@@ -645,10 +648,13 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
         const a = anchorOf(clock.items, i);
         if (a !== null) start = hour + a * 60_000;
         const source = item.kind === 'rotation' ? 'queues' : item.kind;
-        const label = item.label || (item.kind === 'playlist' ? (listName.get(item.playlistId ?? '') ?? '') : item.kind === 'track' ? (trackName.get(item.mediaId ?? '') ?? '') : '');
+        const label =
+          item.label ||
+          (item.kind === 'playlist' ? (listName.get(item.playlistId ?? '') ?? '') : item.kind === 'track' ? (trackName.get(item.mediaId ?? '') ?? '') : item.kind === 'news' ? news.name : '');
         const current = !!st?.clockHour && st.clockHour.getTime() === hour && st.clockId === clock.id && st.clockStep === i;
-        const count = item.kind === 'track' ? 1 : item.count;
-        const each = item.kind === 'track' ? trackSeconds.get(item.mediaId ?? '') : item.kind === 'playlist' ? listSeconds.get(item.playlistId ?? '') : null;
+        const count = item.kind === 'track' || item.kind === 'news' ? 1 : item.count;
+        const each =
+          item.kind === 'track' ? trackSeconds.get(item.mediaId ?? '') : item.kind === 'playlist' ? listSeconds.get(item.playlistId ?? '') : item.kind === 'news' ? (bulletin?.durationSeconds ?? null) : null;
         const kind = isFill(item) ? 'music' : 'item';
         const seconds = kind === 'item' && each != null ? Math.round(each * count) : null;
         rows.push({ ...base, startsAt: new Date(start), timed: a !== null, hard: item.hard, locked: kind === 'item' && !!item.locked, kind, source, label, count, seconds, current });
@@ -762,7 +768,8 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
       const { station } = await radio(req, req.params.id, 'dj');
       const q = req.query;
       const mf = schema.mediaFiles;
-      const where: (SQL | undefined)[] = [eq(mf.stationId, station.id)];
+      // The news bulletin is not part of the library.
+      const where: (SQL | undefined)[] = [eq(mf.stationId, station.id), ne(mf.location, NEWS)];
       if (q.q) {
         const like = `%${q.q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
         where.push(or(ilike(mf.title, like), ilike(mf.artist, like), ilike(mf.album, like), ilike(mf.path, like), ilike(mf.code, like), ilike(mf.isrc, like.replace(/[\s-]/g, ''))));

@@ -4,6 +4,7 @@ import { schema } from '../../db/index.js';
 import type { OutputConfig } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
 import { nodeSettings, pushPortOf, pushToken, relaysByStation, type Node } from '../nodes/plan.js';
+import { openNews } from '../autodj/news.js';
 import { ingestTarget, STUDIO_USER, studioDelivery, studioToken } from '../nodes/delivery.js';
 import type { WireRow } from './tables.js';
 
@@ -163,6 +164,8 @@ export async function buildPackage(ctx: AppContext, node: Node): Promise<Station
         nodeId: null,
         nodeRuntime: null,
         nodeMove: null,
+        // The node seals the news secrets with its own key.
+        news: openNews(ctx.box, s.news),
         icecastAdminPassword: open(s.icecastAdminPassword),
         icecastSourcePassword: open(s.icecastSourcePassword),
         storageBytes: 0,
