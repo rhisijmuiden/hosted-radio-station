@@ -845,7 +845,7 @@ export interface SchedulerView {
 
 // Nodes (distribution network)
 
-export type NodeRole = 'relay' | 'source' | 'station' | 'fm' | 'monitor';
+export type NodeRole = 'relay' | 'source' | 'station' | 'fm' | 'monitor' | 'recorder';
 /** FM/MPX settings of a node (phase 11). Shares are 0..1 of 100% modulation. */
 export interface FmConfig {
   stationId: string | null;
@@ -933,6 +933,8 @@ export interface NodeConfig {
   dedication: NodeDedication;
   dedicatedTenantId: string | null;
   dedicatedStationId: string | null;
+  /** Recorder (phase 21): the stations it records, "all" = every station it serves. */
+  recordStations: 'all' | string[];
 }
 export type NodeDedication = 'auto' | 'shared' | 'customer' | 'station';
 /** Who a node serves: everyone, one customer, one station, or the stations that run on it (a station node). */
@@ -1027,7 +1029,46 @@ export interface NodeStatus {
   features?: string[];
   /** The node's own firewall as the node reports it (security hardening for external nodes). */
   firewall?: { state: string; message?: string; foreign?: string[]; ports?: { ssh: string[]; tcp: string[]; udp: string[] }; ssh?: { from: string[]; limit: boolean; password: string }; at?: string } | null;
+  /** Recorder (phase 21): what it records per station, and its disk. */
+  recorder?: { stations: { stationId: string; kind: 'log'; state: RecorderState; message?: string; since?: string }[]; disk: RecorderDisk | null } | null;
   updatedAt?: string;
+}
+export type RecorderState = 'starting' | 'recording' | 'waiting' | 'error';
+export interface RecorderDisk {
+  totalBytes: number;
+  freeBytes: number;
+  usedBytes: number;
+}
+/** Logging settings of a station (phase 21). */
+export interface StationRecordingSettings {
+  logging: boolean;
+  loggingKbps: number;
+  loggingDays: number;
+}
+export interface StationRecording {
+  settings: StationRecordingSettings;
+  recorders: { id: string; name: string; location: string; online: boolean; own: boolean; state: RecorderState | null; message: string | null; disk: RecorderDisk | null }[];
+  bitrates: number[];
+  canEdit: boolean;
+}
+export interface RecordingFile {
+  id: string;
+  nodeId: string;
+  nodeName: string;
+  kind: 'log';
+  startedAt: string;
+  durationSeconds: number;
+  sizeBytes: number;
+  open: boolean;
+  available: boolean;
+}
+export interface RecordingSong {
+  title: string;
+  startedAt: string;
+  endedAt: string | null;
+  offsetSeconds: number;
+  live: boolean;
+  dj: string | null;
 }
 export type NodeFirewallState = 'off' | 'running' | 'pending' | 'active' | 'foreign' | 'rolledBack' | 'failed' | 'unsupported';
 export interface NodeFirewallConfig {

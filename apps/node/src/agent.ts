@@ -6,6 +6,7 @@ import { icecastConfigPath, icecastSecrets, reloadIcecast, renderIcecastConfig, 
 import { FmManager } from './fm/manager.js';
 import { log } from './log.js';
 import { Prober } from './probe.js';
+import { RecorderManager } from './recorder.js';
 import { checkPorts } from './portcheck.js';
 import { IngestManager } from './ingest.js';
 import { CLOSE, PROTOCOL_VERSION, type AgentLive, type AgentMessage, type AgentReport, type AuthResult, type NodePlan, type ServerMessage } from './protocol.js';
@@ -36,6 +37,7 @@ export class Agent {
   private ready = false;
   private prober = new Prober();
   private fm: FmManager;
+  private recorder: RecorderManager;
   private sampler = new Sampler();
   private hooks: http.Server | null = null;
   private timers: NodeJS.Timeout[] = [];
@@ -57,6 +59,7 @@ export class Agent {
   constructor(private readonly file: NodeFile) {
     this.source = new SourceForwarder({ nodeId: file.nodeId, secret: file.secret });
     this.fm = new FmManager(file.nodeId);
+    this.recorder = new RecorderManager(file.nodeId, (kind, level, details) => this.event(kind, level, details));
   }
 
   async start() {
@@ -95,6 +98,7 @@ export class Agent {
     this.source.stop();
     this.prober.stop();
     this.fm.stop();
+    this.recorder.stop();
     this.hooks?.close();
   }
 
@@ -170,6 +174,7 @@ export class Agent {
         void this.source.apply(null);
         this.prober.stop();
         this.fm.stop();
+        this.recorder.stop();
         delay = 5 * 60_000;
       } else if (ev.code === CLOSE.protocol) {
         log.error('the main server speaks another protocol version; update this node', { reason: ev.reason });
@@ -256,6 +261,15 @@ export class Agent {
       }
       case 'fm':
         return this.fm.setContext({ dj: msg.dj, show: msg.show });
+      case 'rec_send': {
+        const id = String(msg.id).slice(0, 64);
+        try {
+          await this.recorder.send(this.file.server, this.authHeader, id, String(msg.file), Number(msg.start) || 0, msg.end == null ? null : Number(msg.end));
+        } catch (err) {
+          this.send({ t: 'rec_error', id, message: (err as Error).message.slice(0, 200) });
+        }
+        return;
+      }
       case 'restart':
         log.info('the main server restarts; reconnecting');
         this.retries = 0;
@@ -288,8 +302,9 @@ export class Agent {
       certHosts: [...new Set([plan.web.publicHost, ...(plan.source?.hosts ?? [])].filter((h): h is string => !!h))].sort(),
       dnsCerts: plan.web.dnsCerts ?? null,
       station: !!plan.station,
-      // Converted mounts on an ingest, and the audio level checks of a monitoring node (phase 20).
-      ffmpeg: !!plan.ingest?.stations.some((st) => st.mounts.some((m) => m.kind === 'transcode')) || plan.roles.includes('monitor'),
+      // Converted mounts on an ingest, the audio level checks of a monitoring node (phase 20) and the recordings of a
+      // recorder (phase 21).
+      ffmpeg: !!plan.ingest?.stations.some((st) => st.mounts.some((m) => m.kind === 'transcode')) || plan.roles.includes('monitor') || plan.roles.includes('recorder'),
       roles: [...plan.roles].sort(),
     });
     // Give Icecast a moment to read the new mounts before the streams come in.
@@ -306,6 +321,7 @@ export class Agent {
     this.prober.apply(plan.probes);
     // Plans of older main servers have no fm field.
     this.fm.apply(plan.roles.includes('fm') ? (plan.fm ?? null) : null);
+    this.recorder.apply(plan.roles.includes('recorder') ? (plan.recorder ?? null) : null);
     log.info('plan applied', { revision: plan.revision, roles: plan.roles.join(',') || 'none', mounts: mounts.length, probes: plan.probes?.targets.length ?? 0 });
   }
 
@@ -352,13 +368,14 @@ export class Agent {
         encoders: this.source.encoders,
         icmp: this.icmp,
         applyLog: apply?.state === 'failed' && apply.log?.length ? apply.log.slice(-20) : undefined,
-        problems: [...(apply?.problems ?? []), ...this.source.problems, ...(this.relay?.push.problems ?? []), ...(this.ingest?.problems() ?? []), ...this.fm.problemList].slice(0, 10),
+        problems: [...(apply?.problems ?? []), ...this.source.problems, ...(this.relay?.push.problems ?? []), ...(this.ingest?.problems() ?? []), ...this.fm.problemList, ...this.recorder.problems].slice(0, 10),
         update: this.update ? { state: this.update.state, message: this.update.message, at: this.update.at } : null,
         revision: this.plan?.revision ?? null,
         publicIp: publicIp(),
         certs: await this.source.certificateNames(),
         ingest: this.ingest?.status() ?? [],
         fm: this.fm.status(),
+        recorder: await this.recorder.status(),
         firewall: firewall ? { state: firewall.state, message: firewall.message, foreign: firewall.foreign, ports: firewall.ports, ssh: firewall.ssh, at: firewall.at } : null,
       });
     })().catch((err) => log.debug('sending stats failed', { err }));
@@ -381,19 +398,25 @@ export class Agent {
     }
   }
 
+  private get authHeader() {
+    return `Node ${this.file.nodeId}.${this.file.secret}`;
+  }
+
   private async report() {
     const probes = this.prober.drain();
     const ended = this.relay?.drainEnded() ?? [];
-    const body: AgentReport = { relays: this.relay?.states() ?? [], clients: this.relay?.reportClients() ?? [], probes, ended };
+    const recordings = await this.recorder.report().catch(() => undefined);
+    const body: AgentReport = { relays: this.relay?.states() ?? [], clients: this.relay?.reportClients() ?? [], probes, ended, ...(recordings ? { recordings } : {}) };
     try {
       const res = await fetch(`${this.file.server}/api/nodes/agent/report`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Node ${this.file.nodeId}.${this.file.secret}`, 'user-agent': 'Hosted Radio Station node' },
+        headers: { 'content-type': 'application/json', authorization: this.authHeader, 'user-agent': 'Hosted Radio Station node' },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(15_000),
       });
       if (!res.ok) throw new Error(`answered ${res.status}`);
       await res.body?.cancel();
+      this.recorder.reported(recordings);
       return true;
     } catch (err) {
       this.prober.restore(probes);

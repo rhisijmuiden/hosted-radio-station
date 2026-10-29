@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { Activity, Building2, Check, Cpu, Globe2, Headphones, Maximize2, Mic, Minus, Plus, Radio, RadioTower, Server, Users, X } from 'lucide-react';
+import { Activity, Building2, Check, Cpu, Disc3, Globe2, Headphones, Maximize2, Mic, Minus, Plus, Radio, RadioTower, Server, Users, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Topology, TopologyCell, TopologyLink, TopologyNode, TopologyStation } from '../../lib/api';
@@ -193,6 +193,8 @@ export default function TopologyFlat({
       const relay = n.roles.includes('relay');
       const fm = !relay && n.roles.includes('fm');
       const monitor = !ingest && !relay && !fm && n.roles.includes('monitor');
+      // A recorder (phase 21) of a customer stands in the customer's block, next to the studio it records.
+      const recorder = !ingest && !relay && !fm && !monitor && n.roles.includes('recorder');
       const common = { select: n.id, title: nodeName(t, n, customer), health: healthOf(n), own: customer && n.own, dim: off(n.id), check: n.check };
       if (ingest) {
         const role = focus && focus.ingest === n.id ? 'main' : focus && focus.backup === n.id ? 'backup' : null;
@@ -215,15 +217,17 @@ export default function TopologyFlat({
             ? n.fmOnAir
               ? t('topology.fmOnAir')
               : t('topology.fmOff')
-            : n.location || t('nodes.noRoles');
+            : recorder
+              ? [t('nodes.roles.recorder'), n.location].filter(Boolean).join(' · ')
+              : n.location || t('nodes.noRoles');
         const home = fm ? homeOf(n.id) : undefined;
-        const block = fm ? blockOf(n.customer) : undefined;
+        const block = fm || recorder ? blockOf(n.customer) : undefined;
         add({
           ...common,
           key: `${n.id}#out`,
           lane: home || block ? 'studios' : 'distribution',
-          icon: relay ? <Radio /> : fm ? <RadioTower /> : <Server />,
-          tag: relay ? t('topology.tags.relay') : fm ? 'FM' : undefined,
+          icon: relay ? <Radio /> : fm ? <RadioTower /> : recorder ? <Disc3 /> : <Server />,
+          tag: relay ? t('topology.tags.relay') : fm ? 'FM' : recorder ? 'REC' : undefined,
           meta: meta(n, text),
           group: block ?? (home ? studioGroup(home) : relay && !focus && n.location ? `loc:${n.location}` : undefined),
         });

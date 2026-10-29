@@ -10,6 +10,7 @@ import { FmOnAir, FmSettingsCards } from '../components/nodes/FmPanel';
 import { DedicationCard, scopeOf, serves } from '../components/nodes/Dedication';
 import { NodeDnsCard } from '../components/nodes/NodeDns';
 import { NodeFirewallCard } from '../components/nodes/NodeFirewall';
+import { RecorderOverview, RecorderSettingsCard } from '../components/nodes/RecorderPanel';
 import { NodeUpdateCard, NodeUpdateSettings } from '../components/nodes/updates';
 import { AreaChart, ChartLegend } from '../components/stats/charts';
 import { Badge, Button, Card, CardHeader, Dialog, EmptyState, Fact, Field, Input, PageHeader, Spinner, Switch, Table, Tabs } from '../components/ui';
@@ -258,6 +259,7 @@ function Overview({ node, warnMs, canEdit }: { node: NodeItem; warnMs: number; c
         </Card>
       )}
       {node.roles.includes('station') && <NodeStations node={node} />}
+      {node.roles.includes('recorder') && <RecorderOverview node={node} />}
       <Charts node={node} />
     </div>
   );
@@ -469,6 +471,15 @@ function SettingsForm({ node, admin }: { node: NodeItem; admin: boolean }) {
         </Card>
       )}
       {roles.includes('fm') && <FmSettingsCards node={node} value={c.fm} onChange={(fm) => set({ fm })} stations={pick} />}
+      {roles.includes('recorder') && (
+        <RecorderSettingsCard
+          node={node}
+          value={c}
+          onChange={set}
+          stations={pick}
+          allLabel={node.tenantId ? t('nodes.fields.allOwnStations') : scopeOf({ id: node.id, tenantId: null, roles, config: c }).kind === 'shared' ? t('nodes.fields.allStations') : t('nodes.dedication.allServed')}
+        />
+      )}
       {roles.includes('source') && (
         <Card>
           <CardHeader title={t('nodes.detail.sourceSettings')} description={t('nodes.detail.sourceSettingsHint')} />

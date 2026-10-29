@@ -172,7 +172,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 18 | Server names and topology views | Done (1.1.0) |
 | 19 | Clearer control panels and node assignment | Done (1.2.0) |
 | 20 | Monitoring node | Done (1.4.0) |
-| 21 | Recorder node | Next (step 8 in the order of work) |
+| 21 | Recorder node | In progress (step 8 in the order of work) |
 | 22 | Packaged installers and moving the orchestrator | Future (when the first customers come) |
 | 23 | Deployment wizard | Future (when the first customers come) |
 
@@ -202,7 +202,12 @@ One thing at a time; each item starts when the previous one is finished and test
    - **Downgrading safely**: going from Radio station back to Distribution only needs an explicit confirmation that explains what it means (from then on the station only receives a stream from the customer's own software; AutoDJ, clocks, library and DJ logins stop). The station's content is kept in the background for 24 hours, with a clear warning and countdown, so the customer can switch back without loss. After 24 hours the content is deleted.
 7. **Security hardening for external nodes** (done, 1.5.0, PRs #160–#165): see the item below. On by default for nodes with a public address; pub-relay-01 has it on since 29 October 2026.
    **Release 1.5.0** (29 October 2026): item 7 and the small fixes (PRs #159 and #166–#171) go to `main` as one release.
-8. **Phase 21: Recorder node**: recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download.
+8. **Phase 21: Recorder node** (in progress): recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download. In steps:
+   1. The role **Recorder**, linked to stations, with continuous logging in files of one hour (bitrate and retention per station), the play log, and the station page **Recordings** to listen back and download. *On test.*
+   2. Live shows: the station node (or ingest) signals the start and end of Go Live or an encoder; the recorder records the show in high quality straight from the station node, one file per show, offered as an on-demand item.
+   3. Upload targets per station: OneDrive or FTP/FTPS/SFTP, with retries and the option to delete the local copy after a confirmed upload.
+   4. RHIS Studio: start/stop controls and the list of recordings; cutting a recording in the panel.
+   5. Reports: CSV per period for Buma/Stemra and SENA, also in the API.
 
 Later: phase 14 (orchestrator redundancy) just before sales start; phases 22 and 23 when the first customers come.
 

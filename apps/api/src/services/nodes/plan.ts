@@ -11,6 +11,7 @@ import { platformHost } from '../streaming/state.js';
 import { runningVersion } from '../system.js';
 import { DEDICATIONS, scopeOf, serves } from './dedication.js';
 import { buildFmPlan, fmConfigSchema } from './fm.js';
+import { recorderPlan } from '../recorder/plan.js';
 import { firewallPlan } from './firewall-plan.js';
 import { plannedIngests } from './delivery.js';
 import { OLD_PORTS, PORTS } from './portplan.js';
@@ -126,6 +127,8 @@ export const nodeConfigSchema = z.object({
   dedicatedTenantId: z.uuid().nullable().default(null),
   /** Dedicated to this station (dedication "station"). */
   dedicatedStationId: z.uuid().nullable().default(null),
+  /** Recorder (phase 21): the stations it records, "all" = every station it serves. None until they are chosen. */
+  recordStations: z.union([z.literal('all'), z.array(z.uuid()).max(500)]).default([]),
   /** Set by the DNS manager, not by hand: the node's platform name while its record exists. */
   dnsHost: z.string().default(''),
   /** Set by the DNS manager: the check of the node's own host name (publicHost) when it is not a platform name. */
@@ -186,7 +189,7 @@ export function relayBaseUrl(node: Pick<Node, 'config' | 'status'>): string | nu
   return port === 80 ? `http://${h}` : `http://${h}:${port}`;
 }
 
-type StationRow = { id: string; slug: string; tenantId: string; name: string; nodeId: string | null; edition: string; routing: Record<string, unknown> };
+type StationRow = { id: string; slug: string; tenantId: string; name: string; nodeId: string | null; edition: string; routing: Record<string, unknown>; recording: Record<string, unknown> };
 
 const stationColumns = {
   id: schema.stations.id,
@@ -196,6 +199,7 @@ const stationColumns = {
   nodeId: schema.stations.nodeId,
   edition: schema.stations.edition,
   routing: schema.stations.routing,
+  recording: schema.stations.recording,
 };
 
 /** Active stations a node may serve: all of them, or only its customer's. */
@@ -415,6 +419,7 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
       : base;
   const fm = fmStation ? await buildFmPlan(ctx, c.fm, fmBase, stations) : null;
   const firewall = await firewallPlan(ctx, node);
+  const recorder = roles.includes('recorder') ? recorderPlan(c, stations, allMounts, base) : null;
 
   const plan: Omit<NodePlan, 'revision'> = {
     nodeId: node.id,
@@ -428,6 +433,7 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
     station,
     fm,
     firewall,
+    recorder,
     // Never true: agents up to this version update themselves as soon as it is, all at the same time. The update
     // planner (updates.ts) sends each node an update message when its turn comes.
     update: { branch: v.branch, commit: v.commit, auto: false },
