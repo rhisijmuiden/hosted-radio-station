@@ -1,6 +1,7 @@
+import { createHash } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { mkdir, rename, rm, stat } from 'node:fs/promises';
-import { extname, join } from 'node:path';
+import { mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
+import { dirname, extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import fastifyMultipart from '@fastify/multipart';
 import { and, asc, count, desc, eq, ilike, inArray, isNotNull, ne, or, sql, type SQL } from 'drizzle-orm';
@@ -43,6 +44,14 @@ import { cueProblem, playSeconds } from '../services/autodj/cues.js';
 import { stationRouting } from '../services/nodes/routing-rules.js';
 
 const stationParams = z.object({ id: z.uuid() });
+
+/** Upload in parts: at most this much per request (under the 100 MB body limit of Cloudflare), and per file. */
+const UPLOAD_PART = 16 * 1024 * 1024;
+const UPLOAD_MAX = 8 * 1024 * 1024 * 1024;
+/** Uploads in parts that were started: id → where the file goes. A restart forgets them; the client starts again and resumes. */
+const uploads = new Map<string, { stationId: string; rel: string; size: number }>();
+/** After a batch of uploads, one library scan instead of one per file. */
+const scanTimers = new Map<string, NodeJS.Timeout>();
 const queueSchema = z.enum(['q1', 'q2']);
 /** Since 1.3 there is one queue, `q1`; `q2` from older clients means the same queue. */
 const queueIn = queueSchema.transform(() => 'q1' as const).default('q1');
@@ -953,6 +962,111 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
       req.auditInfo.details = { files: saved.length, folder };
       if (saved.length) void scanLibrary(ctx, station.id, STORAGE).then(() => fillQueues(ctx, station.id)).catch(() => undefined);
       return { saved, skipped };
+    },
+  );
+
+  // Uploads in parts (1.4): one file in pieces of at most UPLOAD_PART bytes, so a big file (a DJ set) gets through a
+  // proxy with a body limit (Cloudflare: 100 MB), shows its progress and picks up where it stopped after a broken
+  // connection. A folder upload sends every file with its path below the chosen folder.
+  const uploadOut = z.object({ id: z.string(), offset: z.number(), size: z.number(), done: z.boolean(), path: z.string() });
+  const uploadTarget = (folder: string, path: string) => {
+    const clean = (s: string) => s.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    const parts = [...clean(folder || MUSIC_FOLDER).split('/'), ...clean(path).split('/')].filter(Boolean);
+    if (parts.length < 2 || parts.some((p) => p === '..' || p.startsWith('.') || /[\0\r\n]/.test(p) || p.length > 255)) throw badRequest('Invalid folder or file name');
+    if (['ondemand', 'recordings'].includes(parts[0]!)) throw badRequest('That folder is not part of the music library');
+    const name = parts.at(-1)!;
+    if (!MEDIA_EXTENSIONS.has(extname(name).toLowerCase())) throw badRequest(`${name}: not an audio file`);
+    return { rel: parts.join('/'), name };
+  };
+  const uploadFile = (stationId: string, rel: string, size: number) => {
+    const target = filePath(mediaDir(ctx, stationId), rel);
+    const id = createHash('sha256').update(`${stationId}:${rel}:${size}`).digest('base64url').slice(0, 24);
+    // Hidden next to the target, so the scanner skips it; the same file and size always find the same part file.
+    return { id, target, tmp: join(dirname(target), `.${id}.upload`) };
+  };
+  const partSize = async (f: string) => (await stat(f).catch(() => null))?.size ?? 0;
+  const scheduleScan = (stationId: string) => {
+    clearTimeout(scanTimers.get(stationId));
+    const timer = setTimeout(() => {
+      scanTimers.delete(stationId);
+      void scanLibrary(ctx, stationId, STORAGE)
+        .then(() => fillQueues(ctx, stationId))
+        .catch(() => undefined);
+    }, 5000);
+    timer.unref();
+    scanTimers.set(stationId, timer);
+  };
+
+  app.post(
+    '/:id/library/uploads',
+    {
+      config: { audit: 'library.upload' },
+      schema: {
+        tags: ['AutoDJ'],
+        summary: `Start or resume an upload in parts: returns how much of the file is already here. Then send the rest with PUT …/uploads/:upload in parts of at most ${UPLOAD_PART / 1024 / 1024} MB.`,
+        params: stationParams,
+        body: z.object({ folder: z.string().trim().max(300).default(MUSIC_FOLDER), path: z.string().trim().min(1).max(600), size: z.number().int().min(1).max(UPLOAD_MAX) }),
+        response: { 200: uploadOut },
+      },
+    },
+    async (req) => {
+      const { station, tenant } = await radio(req, req.params.id, 'manager');
+      const { rel } = uploadTarget(req.body.folder, req.body.path);
+      const f = uploadFile(station.id, rel, req.body.size);
+      await mkdir(dirname(f.tmp), { recursive: true, mode: 0o775 });
+      // Parts nobody came back for in two days are left-overs.
+      for (const e of await readdir(dirname(f.tmp)).catch(() => [] as string[])) {
+        if (!e.endsWith('.upload') || !e.startsWith('.')) continue;
+        const p = join(dirname(f.tmp), e);
+        const s = await stat(p).catch(() => null);
+        if (s && Date.now() - s.mtimeMs > 2 * 86_400_000) await rm(p, { force: true });
+      }
+      const offset = await partSize(f.tmp);
+      const quota = tenant.limits.storageQuotaMb * 1024 * 1024;
+      if (quota > 0 && (await tenantStorageUsage(ctx, tenant.id)) + req.body.size - offset > quota) throw new HttpError(413, 'storage_full', 'Storage limit reached');
+      req.auditInfo.details = { path: rel, size: req.body.size, offset };
+      uploads.set(f.id, { stationId: station.id, rel, size: req.body.size });
+      return { id: f.id, offset, size: req.body.size, done: false, path: rel };
+    },
+  );
+
+  app.addContentTypeParser('application/octet-stream', (_req, payload, done) => done(null, payload));
+  app.put(
+    '/:id/library/uploads/:upload',
+    {
+      bodyLimit: UPLOAD_PART + 1024,
+      schema: {
+        tags: ['AutoDJ'],
+        summary: 'Send the next part of an upload (application/octet-stream) at the offset the server has; the last part puts the file in the library',
+        params: stationParams.extend({ upload: z.string().regex(/^[A-Za-z0-9_-]{24}$/) }),
+        querystring: z.object({ offset: z.coerce.number().int().min(0) }),
+        response: { 200: uploadOut },
+      },
+    },
+    async (req) => {
+      const { station } = await radio(req, req.params.id, 'manager');
+      const u = uploads.get(req.params.upload);
+      if (!u || u.stationId !== station.id) throw notFound('Upload not found: start it again');
+      const f = uploadFile(station.id, u.rel, u.size);
+      const have = await partSize(f.tmp);
+      // A part that arrived twice or got lost: the client goes on from what is here.
+      if (req.query.offset !== have) throw new HttpError(409, 'offset_mismatch', `The server has ${have} bytes of this file`);
+      // The body arrives as a stream, so Fastify's own limit does not count it.
+      if (Number(req.headers['content-length'] ?? 0) > UPLOAD_PART) throw new HttpError(413, 'part_too_large', `Send at most ${UPLOAD_PART / 1024 / 1024} MB per part`);
+      const body = req.body as NodeJS.ReadableStream;
+      await pipeline(body, createWriteStream(f.tmp, { flags: 'a', mode: 0o664 }));
+      const offset = await partSize(f.tmp);
+      if (offset > u.size) {
+        await rm(f.tmp, { force: true });
+        uploads.delete(req.params.upload);
+        throw badRequest('More data than the file size');
+      }
+      if (offset < u.size) return { id: req.params.upload, offset, size: u.size, done: false, path: u.rel };
+      await rename(f.tmp, f.target);
+      uploads.delete(req.params.upload);
+      void scanStationStorage(ctx, station.id).catch(() => undefined);
+      scheduleScan(station.id);
+      return { id: req.params.upload, offset, size: u.size, done: true, path: u.rel };
     },
   );
 

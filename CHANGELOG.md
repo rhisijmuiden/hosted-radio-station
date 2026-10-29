@@ -5,6 +5,10 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 
 ## Unreleased
 
+- Media library uploads: many files, whole folders (picked or dropped, subfolders kept) and big files (a full DJ set)
+  in one go. Every file goes up in parts of 16 MB, one after the other, with its own progress bar, so the 100 MB body
+  limit of Cloudflare in front of the panel no longer stops big files; a broken upload resumes where it stopped (API:
+  POST /stations/:id/library/uploads and PUT …/uploads/:upload). Up to 8 GB per file.
 - The "old ports still open" and "ports cannot be reached" alerts no longer flap around a node update: the port check
   from outside skips a node while it is being updated, and its alert holds as it was instead of being solved and
   opened again after the update.
