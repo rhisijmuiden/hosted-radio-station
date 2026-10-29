@@ -526,6 +526,11 @@ export default function TopologyFlat({
   const touches = (key: string) => !!selected && (key === selected || key.startsWith(`${selected}#`));
   const shown = (e: Edge) =>
     e.kind === 'check' ? showChecks || touches(e.from) || touches(e.to) : e.kind !== 'control' || showControl || selected === 'main' || (!!selected && e.to.startsWith(`${selected}#`));
+  // The badge names the checks that fail: the stream, and silence or what the check got.
+  const checkTitle = (id: string | null) => {
+    const list = (id && data.checkFailures?.[id]) || [];
+    return [t('topology.checkFailed'), ...list.map((f) => `${f.stream}: ${f.silent ? t('topology.checkSilent') : f.message || t('topology.checkNoAnswer')}`)].join('\n');
+  };
   // Where a check line ends: the badge on the lower corner of the card, on the side away from the incoming audio.
   const badgeAt = (p: { x: number; y: number }) => (lr ? { x: p.x + cardW / 2, y: p.y + CARD_H / 2 - 8 } : { x: p.x + cardW / 2 - 8, y: p.y + CARD_H / 2 });
   // A check line: from the monitoring node into the gap after the card's lane, along it, and into the badge. Worked out
@@ -693,8 +698,8 @@ export default function TopologyFlat({
                   return (
                     <span
                       key={`b:${c.key}`}
-                      title={t(c.check === 'ok' ? 'topology.checkOk' : 'topology.checkFailed')}
-                      className={clsx('topo-badge pointer-events-none absolute -translate-x-1/2 -translate-y-1/2', c.check, c.dim && 'opacity-30')}
+                      title={c.check === 'ok' ? t('topology.checkOk') : checkTitle(c.select)}
+                      className={clsx('topo-badge absolute -translate-x-1/2 -translate-y-1/2 cursor-help', c.check, c.dim && 'opacity-30')}
                       style={{ left: b.x, top: b.y }}
                     >
                       {c.check === 'ok' ? <Check /> : <X />}

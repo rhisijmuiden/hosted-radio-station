@@ -2783,6 +2783,8 @@ export const nl: Translation = {
     checkLinesHide: 'Verberg de controlelijnen',
     checkOk: 'De monitoring-node hoort hier elke stream spelen',
     checkFailed: 'Een controle van de monitoring-node mislukt hier',
+    checkSilent: 'speelt stilte',
+    checkNoAnswer: 'geen antwoord',
     checksCount_one: 'Controleert {{count}} server',
     checksCount_other: 'Controleert {{count}} servers',
     controlOnly: 'Alleen besturing',

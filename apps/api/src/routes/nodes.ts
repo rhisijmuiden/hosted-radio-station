@@ -1157,13 +1157,14 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         });
       }
     }
+    const checkFailures: Record<string, { stream: string; silent: boolean; message: string | null }[]> = {};
     // Monitoring nodes (phase 20): a check line to every server they listen on, red when a check there fails or hears
     // silence. Only the checks of the stations in view count.
     const monitors = nodeOutList.filter((n) => n.paired && n.roles.includes('monitor'));
     if (monitors.length && stationIds.length) {
       const fresh = new Date(Date.now() - (settings.probeIntervalSeconds * 3 + 30) * 1000);
       const rows = await ctx.db
-        .select({ nodeId: schema.nodeProbes.nodeId, target: schema.nodeProbes.target, ok: schema.nodeProbes.ok, silent: schema.nodeProbes.silent, lastOkAt: schema.nodeProbes.lastOkAt })
+        .select({ nodeId: schema.nodeProbes.nodeId, target: schema.nodeProbes.target, ok: schema.nodeProbes.ok, silent: schema.nodeProbes.silent, lastOkAt: schema.nodeProbes.lastOkAt, message: schema.nodeProbes.message })
         .from(schema.nodeProbes)
         .where(and(inArray(schema.nodeProbes.nodeId, monitors.map((m) => m.id)), inArray(schema.nodeProbes.stationId, stationIds), gt(schema.nodeProbes.checkedAt, fresh)));
       const pairs = new Map<string, boolean>();
@@ -1177,6 +1178,14 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         const good = r.ok && r.silent !== true;
         pairs.set(`${r.nodeId}>${to}`, (pairs.get(`${r.nodeId}>${to}`) ?? true) && good);
         heard.set(to, (heard.get(to) ?? true) && good);
+        if (!good) {
+          // Which check failed, for the badge's tooltip: the stream (station and mount) and what was wrong.
+          const key = r.target.slice(0, r.target.lastIndexOf('@'));
+          const slug = key.split('/')[0]!;
+          const stream = `${stations.find((s) => s.slug === slug)?.name ?? slug} ${key.slice(slug.length)}`;
+          const list = (checkFailures[to] ??= []);
+          if (!list.some((x) => x.stream === stream)) list.push({ stream, silent: r.ok && r.silent === true, message: r.ok ? null : r.message });
+        }
       }
       for (const [key, good] of pairs) {
         const [from, to] = key.split('>') as [string, string];
@@ -1237,6 +1246,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       links,
       stations: stationsOut,
       audience,
+      checkFailures,
       kpis: {
         nodesOnline: online.length,
         nodesTotal: remote.filter((n) => n.paired).length,
@@ -1355,6 +1365,8 @@ const topologyOut = z.object({
   ),
   /** Listeners now per relay (local:relay = this server), station and country. */
   audience: z.array(z.object({ nodeId: z.string(), stationId: z.string(), country: z.string().nullable(), listeners: z.number() })),
+  /** Server id → the checks of the monitoring nodes that fail there: the stream, and silence or the error. */
+  checkFailures: z.record(z.string(), z.array(z.object({ stream: z.string(), silent: z.boolean(), message: z.string().nullable() }))).optional(),
   kpis: z.object({
     nodesOnline: z.number(),
     nodesTotal: z.number(),

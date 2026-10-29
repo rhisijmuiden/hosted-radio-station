@@ -2781,6 +2781,8 @@ export const en = {
     checkLinesHide: 'Hide the check lines',
     checkOk: 'The monitoring node hears every stream here play',
     checkFailed: 'A check of the monitoring node fails here',
+    checkSilent: 'plays silence',
+    checkNoAnswer: 'no answer',
     checksCount_one: 'Checks {{count}} server',
     checksCount_other: 'Checks {{count}} servers',
     controlOnly: 'Control only',

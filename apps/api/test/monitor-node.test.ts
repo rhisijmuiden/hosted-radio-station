@@ -94,6 +94,9 @@ describe('monitoring node', () => {
     await report(true);
     await report(false);
     expect(await check()).toBe('failed');
+    // The badge names the check that fails.
+    const topo = (await t.app.inject({ method: 'GET', url: '/api/nodes/topology', headers: admin })).json();
+    expect(topo.checkFailures[relay]).toEqual([{ stream: expect.stringMatching(/ \/low$/), silent: false, message: 'HTTP 404' }]);
   });
 });
 
