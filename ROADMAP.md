@@ -172,7 +172,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 18 | Server names and topology views | Done (1.1.0) |
 | 19 | Clearer control panels and node assignment | Done (1.2.0) |
 | 20 | Monitoring node | Done on test (PRs #142–#145) |
-| 21 | Recorder node | Planned (step 7 in the order of work) |
+| 21 | Recorder node | Planned (step 8 in the order of work) |
 | 22 | Packaged installers and moving the orchestrator | Future (when the first customers come) |
 | 23 | Deployment wizard | Future (when the first customers come) |
 
@@ -192,8 +192,9 @@ One thing at a time; each item starts when the previous one is finished and test
    - Window size: designed for 1920×1080, usable down to 1280×720 (after Windows display scaling, so a laptop at 1920×1080 with 150% scaling still fits). Below that panels scroll or collapse instead of stretching; on wide screens the players keep a maximum width. A real full screen mode (F11).
    - The layout keeps the layout switch (Classic and this new layout). The working name "OmniPlayer layout" gets its own name before release, to avoid confusion with another product.
    - Free docking of panels comes later as a separate item.
-6. **Security hardening for external nodes**: see the queued item below. (For now the one external server was closed by hand.)
-7. **Phase 21: Recorder node**: recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download.
+6. **Move stations between nodes** (higher priority, right after the layout): move a complete radio station from one node to another in one guided step: from the shared station node to a dedicated node, or to the customer's own node on site, and back. Library, playlists, clocks, schedule, history and settings go along; listeners and DJs follow to the new node without the station going silent. Today a station can only move between the main server and a node, and with "Orchestrator only" on it gets stuck. The bug "upgrading a station from Distribution to Radio station does nothing" is fixed together with this.
+7. **Security hardening for external nodes**: see the queued item below. (For now the one external server was closed by hand.)
+8. **Phase 21: Recorder node**: recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download.
 
 Later: phase 14 (orchestrator redundancy) just before sales start; phases 22 and 23 when the first customers come.
 
@@ -567,7 +568,7 @@ Small fixes planned for a patch release, one at a time after the current phase.
 | ![3D network map with control lines](docs/screenshots/pr-128-129-3d-control-on.png) | ![2D layers with lines around servers](docs/screenshots/pr-128-129-2d-layers.png) |
 | ![Customer page, station node of this customer](docs/screenshots/pr-128-129-customer-station-node-harder-fm.png) | ![Customer page, the chosen station node shown after loading](docs/screenshots/pr-128-129-customer-station-node-radio-schermer.png) |
 
-### Security hardening for external nodes (step 6 in the order of work)
+### Security hardening for external nodes (step 7 in the order of work)
 
 Nodes with a direct public IP address get a firewall that is closed by default.
 
