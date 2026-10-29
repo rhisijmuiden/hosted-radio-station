@@ -577,6 +577,17 @@ Nodes with a direct public IP address get a firewall that is closed by default.
 - Safe apply: new rules roll back by themselves when the node loses its connection to the orchestrator within a minute, so a mistake never locks a node out.
 - Hardening is on by default for nodes that detect a public IP, and can be turned on for nodes behind NAT as well. The panel shows the firewall state per node, and the external port check confirms that only the expected ports answer.
 
+### Clear navigation for customers and station managers (queued, not scheduled yet; own thread)
+
+The customer side has many buttons in one row. It gets a small, logical structure with drop-down menus from the top menu:
+
+- **My node(s)**: the customer's own station node(s) with all node settings, ports and firewall, and how the audio is routed (delivery path, routing choice).
+- **Radio station**: Programme (hour clocks, clock items, weekly schedule, playlists), **Media library** (upload, folders, linked NAS/SMB/NFS shares made much clearer), DJs and live access, Public pages.
+- **Audience and statistics**, **Settings**.
+- The orchestrator admin panel gets the same clear grouping check (topology and monitoring stay as they are).
+- Short built-in explanations where things are not obvious, for example what an hour clock does and how clock items, locked blocks and the weekly schedule work together (the colours of clock items stay).
+- A sketch first, for Reinder's choice, before building.
+
 ### Small fixes (own thread, done in between)
 
 Small fixes are collected here and handled one at a time in a separate thread, next to the main item in the order of work.
@@ -584,6 +595,7 @@ Small fixes are collected here and handled one at a time in a separate thread, n
 - **Direct fallback visible**: when a station node bypasses the ingest and pushes directly to the relays (fallback), the network map and the Monitoring page say so.
 - **Failing check by name**: the check badge on a relay names the check that failed in its tooltip.
 - **Upgrading a station does nothing**: switching a station (for example Uptempo.fm) from Distribution to Radio station has no effect.
+- **Bulk and large uploads in the media library**: upload many files at once and whole folders, and large files (a full DJ set of about 800 MB) without having to do them one by one; with a progress bar and resume on a broken connection.
 - **Orchestrator in the node overview**: the Nodes page opens with a pinned card for the server that hosts the orchestrator: its server name, hostname, internal and public address, version, uptime, CPU/RAM/disk, and which roles it still runs itself (local ingest or relay, or "Orchestrator only"). In the node list it is the first row with an "Orchestrator" badge, so it is never confused with a normal node. Later a standby orchestrator (phase 14) shows next to it.
 - **Quiet during updates**: the "old port open" check no longer flaps while a node is being updated.
 
