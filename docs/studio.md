@@ -76,6 +76,14 @@ PC you sign in on shows the same layout (an older server keeps it on this PC onl
   on the wheel mix well), and the length. Click a column header to sort, again to turn the order around. The search
   also finds codes and ISRCs. Codes, tempo and key come from the server: it reads them from the tags and measures
   tempo and key where the tags have none; managers correct them in the panel (*Library > Edit tags*).
+- The **log editor** is the *Log* tab of the library: the coming three hours as the AutoDJ plays them, with the hour
+  clocks run ahead (the panel has the same under *Programme > Log editor*, up to six hours). Drag a track onto another
+  to swap them. The arrows of a row switch to the *Server* tab, where **+** places the track you pick on that row;
+  the dice pick another track, the cross takes a queue track out. Locked parts of the format (a lock) and what the
+  player loaded already stay as they are. The AutoDJ plays exactly the log; when the timing shifts (a live show, a
+  skip), it moves along. It needs a server with the log editor.
+
+  ![The log editor](screenshots/studio-log-en.png)
 
 In the **Layout** menu each panel goes on or off (last played, single player, news player, my jingles, station carts, dashboard,
 library). Drag the handle between

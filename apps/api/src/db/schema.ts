@@ -863,9 +863,16 @@ export const queueItems = pgTable(
     addedBy: text('added_by'),
     cuedAt: timestamp('cued_at', { withTimezone: true }),
     startedAt: timestamp('started_at', { withTimezone: true }),
+    /**
+     * A pick the log editor planned ahead for one place in an hour clock (`hour:clock:step:done:n`): it waits outside
+     * the queue until the clock gets there. Null for the queue itself.
+     */
+    slot: text('slot'),
+    /** Start of the hour of the slot, to drop picks of hours that are over. */
+    slotHour: timestamp('slot_hour', { withTimezone: true }),
     createdAt: createdAt(),
   },
-  (t) => [index('queue_items_station_idx').on(t.stationId, t.queue, t.position)],
+  (t) => [index('queue_items_station_idx').on(t.stationId, t.queue, t.position), index('queue_items_slot_idx').on(t.stationId, t.slot)],
 );
 
 /** Running state of a station's AutoDJ: which queue played last, for the pick rules. */
@@ -883,6 +890,8 @@ export const autodjState = pgTable('autodj_state', {
   clockId: uuid('clock_id'),
   clockStep: integer('clock_step').notNull().default(0),
   clockDone: integer('clock_done').notNull().default(0),
+  /** Picks made in a row in the same clock state (music of a fill item), so each has its own place in the log. */
+  clockN: integer('clock_n').notNull().default(0),
   /**
    * Manual playout (RHIS Studio): after each track the player waits for Play. Holds while this lies in the future; the
    * client renews it every few seconds, so a client that drops away puts the station back on Auto by itself.

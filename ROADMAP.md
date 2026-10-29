@@ -189,7 +189,7 @@ One thing at a time; each item starts when the previous one is finished and test
    3. Library with columns for the station's own item code, ISRC, BPM and key (taken from the tags first, otherwise calculated on the server in the background; an admin can correct them). *Built 2026-10-28 (RHIS Studio 0.19, on test).*
    4. News player (source set per station: a file from a URL, a file over FTP/SFTP, or a live stream, at set times, with a spare jingle when the news is missing) and a log editor.
       - 4a. News player: a file from a URL, FTP, FTPS or SFTP, placed with a News item in the hour clocks, spare jingle, news player in Studio. *Built 2026-10-29 (RHIS Studio 0.20, on test).* A live stream as source follows later, after testing on radiostation.
-      - 4b. Log editor: the coming hours as the server fills them, to place and swap tracks; locked blocks stay fixed.
+      - 4b. Log editor: the coming hours as the server fills them, to place and swap tracks; locked blocks stay fixed. *Built 2026-10-29 (panel tab Log editor, RHIS Studio 0.21, on test).*
    - Free docking of panels comes later as a separate item.
 5. **Phase 21: Recorder node**: recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download.
 
