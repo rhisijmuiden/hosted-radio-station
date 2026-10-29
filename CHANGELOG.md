@@ -5,6 +5,9 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 
 ## Unreleased
 
+- A station node that bypasses its ingest and feeds the relays itself (fallback: ingest offline, unreachable, no
+  certificate, or node software too old) is now visible: the network map shows a warning with the reason per
+  station (and a badge in the per-station view), and Monitoring opens a warning alert "sends straight to the relays".
 - Nodes opens with a pinned card for the server that hosts the orchestrator: its name, host name, internal and
   public address, version, uptime, CPU, memory and disk, and its own roles (own ingest and relay, or "Orchestrator
   only"). It is also the first row of the node list, with an "Orchestrator" badge.

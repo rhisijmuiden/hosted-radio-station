@@ -604,7 +604,7 @@ The customer side has many buttons in one row. It gets a small, logical structur
 
 Small fixes are collected here and handled one at a time in a separate thread, next to the main item in the order of work.
 
-- **Direct fallback visible**: when a station node bypasses the ingest and pushes directly to the relays (fallback), the network map and the Monitoring page say so.
+- **Direct fallback visible** (fixed, on test): when a station node bypasses the ingest and pushes directly to the relays (fallback), the network map and the Monitoring page say so.
 - **Failing check by name**: the check badge on a relay names the check that failed in its tooltip.
 - **Upgrading a station does nothing**: switching a station (for example Uptempo.fm) from Distribution to Radio station has no effect.
 - **Bulk and large uploads in the media library**: upload many files at once and whole folders, and large files (a full DJ set of about 800 MB) without having to do them one by one; with a progress bar and resume on a broken connection.

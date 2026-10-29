@@ -139,6 +139,9 @@ describe('station node through the ingest (1.3)', () => {
     const out = await pushes();
     expect(out).toHaveLength(2);
     expect(out.every((o) => o.relayNodeId === relay && o.port === 8301)).toBe(true);
+    // The map says the studio bypasses the ingest.
+    const topo = (await t.app.inject({ method: 'GET', url: '/api/nodes/topology', headers: admin })).json();
+    expect(topo.stations.find((s: { id: string }) => s.id === stationId).direct).toBe('offline');
     await setOnline(ingest, true);
     await setOnline(backup, true, '192.0.2.11');
   });

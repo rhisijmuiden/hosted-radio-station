@@ -2711,6 +2711,7 @@ export const nl: Translation = {
     nodeSwitchHint: 'Neem naast de nieuwe poorten ook encoders aan op 8010/8443, pushes op 8001 en SFTP op 2022 (station node). Voor nodes van vóór het poortenplan; zet uit zodra de firewall de nieuwe poorten doorlaat.',
   },
   topology: {
+    direct: { badge: 'Rechtstreeks naar de relays (fallback)', title: 'Studio slaat de ingest over' },
     title: 'Topologie',
     subtitle: 'Live kaart van elke node, stream en luisteraarsroute. Sleep om te draaien, scroll om te zoomen.',
     myTitle: 'Mijn setup',
@@ -3135,6 +3136,7 @@ export const nl: Translation = {
       port_closed: 'Poorten {{ports}} van {{node}} zijn van buitenaf niet bereikbaar',
       old_port_open: 'Oude poorten {{ports}} van {{node}} staan nog open',
       dns_wrong: '{{name}} wijst in de publieke DNS naar het verkeerde adres',
+      studio_direct: '{{node}} stuurt {{station}} rechtstreeks naar de relays (ingest-fallback)',
     },
     maintenanceTitle: 'Onderhoud',
     maintenanceSubtitle: 'Bezig met een node of station? Zet hem in onderhoud, dan komen er tot het einde geen meldingen voor.',

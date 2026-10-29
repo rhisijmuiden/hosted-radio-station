@@ -33,6 +33,7 @@ const TITLES: Record<Lang, Record<AlertKind, string>> = {
     port_closed: 'Ports {ports} of {node} cannot be reached from outside',
     old_port_open: 'Old ports {ports} of {node} are still open',
     dns_wrong: '{name} resolves wrong in public DNS',
+    studio_direct: '{node} sends {station} straight to the relays (ingest fallback)',
   },
   nl: {
     node_offline: 'Node {node} is offline',
@@ -47,6 +48,7 @@ const TITLES: Record<Lang, Record<AlertKind, string>> = {
     port_closed: 'Poorten {ports} van {node} zijn van buitenaf niet bereikbaar',
     old_port_open: 'Oude poorten {ports} van {node} staan nog open',
     dns_wrong: '{name} wijst in de publieke DNS naar het verkeerde adres',
+    studio_direct: '{node} stuurt {station} rechtstreeks naar de relays (ingest-fallback)',
   },
 };
 

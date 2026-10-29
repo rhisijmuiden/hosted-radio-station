@@ -30,6 +30,9 @@ export interface StudioDelivery {
   error?: string | null;
 }
 
+/** The node feeds the relays itself although the station is routed through an ingest. */
+export const directFallback = (d: StudioDelivery['direct']) => !!d && d !== 'chosen';
+
 /**
  * The ingests a station on a station node is routed through, whether or not the node sends there right now: these
  * nodes take the station in their plan and accept its node, so they are ready the moment it starts sending (the node

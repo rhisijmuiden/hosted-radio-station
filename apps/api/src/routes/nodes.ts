@@ -1111,7 +1111,8 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         const rt = runtime.find((x) => x.id === s.id)?.runtime ?? null;
         const relayIds = (relayMap.get(s.id) ?? []).map((r: Node) => r.id).filter((id) => byId.has(id));
         const cells: Record<string, Cell> = { [n.id]: !n.online ? 'down' : rt?.mounts.length ? 'onAir' : 'idle' };
-        const via = studioDelivery({ ...s, nodeRuntime: rt }, liveNodes).ingests.map((i) => i.node.id).filter((id) => byId.has(id));
+        const delivery = studioDelivery({ ...s, nodeRuntime: rt }, liveNodes);
+        const via = delivery.ingests.map((i) => i.node.id).filter((id) => byId.has(id));
         let from: string | null = n.online && rt?.mounts.length ? n.id : null;
         if (via.length) {
           for (const [i, id] of via.entries()) {
@@ -1151,6 +1152,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
           active: from,
           relays: relayIds,
           listeners: listenersOf(s.id),
+          direct: delivery.direct && delivery.direct !== 'chosen' ? delivery.direct : null,
           cells,
         });
       }
@@ -1345,6 +1347,8 @@ const topologyOut = z.object({
       active: z.string().nullable(),
       relays: z.array(z.string()),
       listeners: z.number(),
+      /** A station node that feeds the relays itself although it is routed through an ingest: why (fallback). */
+      direct: z.enum(['update', 'none', 'offline', 'nocert', 'failing']).nullable().optional(),
       /** Server id → onAir, standby (backup feed), degraded, down, idle (carries it, nothing on air). */
       cells: z.record(z.string(), z.enum(['onAir', 'standby', 'degraded', 'down', 'idle'])),
     }),
