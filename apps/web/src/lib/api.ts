@@ -1349,6 +1349,8 @@ export interface TopologyStation {
   active: string | null;
   relays: string[];
   listeners: number;
+  /** The station node feeds the relays itself although it is routed through an ingest: why (fallback). */
+  direct?: 'update' | 'none' | 'offline' | 'nocert' | 'failing' | null;
   cells: Record<string, TopologyCell>;
 }
 export interface Topology {
@@ -1661,7 +1663,7 @@ export interface NodeDns {
 
 // Phase 20: monitoring
 
-export type AlertKind = 'node_offline' | 'node_problem' | 'station_off_air' | 'station_silent' | 'stream_down' | 'stream_quality' | 'feed_lost' | 'updates_paused' | 'dns_error' | 'port_closed' | 'old_port_open' | 'dns_wrong';
+export type AlertKind = 'node_offline' | 'node_problem' | 'station_off_air' | 'station_silent' | 'stream_down' | 'stream_quality' | 'feed_lost' | 'updates_paused' | 'dns_error' | 'port_closed' | 'old_port_open' | 'dns_wrong' | 'studio_direct';
 export interface Alert {
   id: string;
   key: string;

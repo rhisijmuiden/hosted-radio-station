@@ -38,6 +38,8 @@ export interface RulesInput {
   firewall?: { nodeId: string; closed: string[]; oldOpen: number[] }[];
   /** Names that resolve wrong in public DNS for a while. */
   dnsWrong?: { name: string; message: string }[];
+  /** Stations whose station node bypasses the ingest and feeds the relays itself, not by choice (fallback). */
+  studioDirect?: { stationId: string; nodeId: string; reason: string; message: string | null }[];
 }
 
 /** The content types a player gets per stream format. */
@@ -170,6 +172,15 @@ export function evaluate(input: RulesInput): Condition[] {
       if (!s || !watchedStation(s.id) || offAir.has(s.id)) continue;
       out.push({ key: `feed_lost:${n.id}:${r.key}`, kind: 'feed_lost', severity: 'warning', nodeId: n.id, stationId: s.id, params: { node: n.name, station: s.name, mount: r.key }, message: r.message ?? null });
     }
+  }
+
+  // A station node that feeds the relays itself instead of through its ingest (fallback): still on air, but with more
+  // upload from the studio and without the ingest's other bitrates.
+  for (const d of input.studioDirect ?? []) {
+    const n = nodes.get(d.nodeId);
+    const s = stations.get(d.stationId);
+    if (!n || !s || !n.online || !watchedNode(n.id) || !watchedStation(s.id) || offAir.has(s.id)) continue;
+    out.push({ key: `studio_direct:${s.id}`, kind: 'studio_direct', severity: 'warning', nodeId: n.id, stationId: s.id, params: { node: n.name, station: s.name, reason: d.reason }, message: d.message });
   }
 
   if (input.rollout.paused) {

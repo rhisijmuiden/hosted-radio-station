@@ -2,6 +2,7 @@ import { desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import { schema } from '../../db/index.js';
 import type { AppContext } from '../../lib/context.js';
+import { directFallback, studioDelivery } from '../nodes/delivery.js';
 import type { NodeHub } from '../nodes/hub.js';
 import { serverNames } from '../nodes/names.js';
 import { getSetting, type AlertKind, type AlertSettings } from '../settings.js';
@@ -64,8 +65,10 @@ export class AlertMonitor {
       .select({ stationId: schema.stationMounts.stationId, path: schema.stationMounts.path, format: schema.stationMounts.format, kind: schema.stationMounts.kind, bitrateKbps: schema.stationMounts.bitrateKbps })
       .from(schema.stationMounts);
     const [nodes, stations, probes, nodeSettings, rollout, dns, settings, names] = await Promise.all([
-      this.ctx.db.select({ id: schema.nodes.id, name: schema.nodes.name, roles: schema.nodes.roles, pairedAt: schema.nodes.pairedAt, status: schema.nodes.status }).from(schema.nodes),
-      this.ctx.db.select({ id: schema.stations.id, name: schema.stations.name, slug: schema.stations.slug, enabled: schema.stations.enabled }).from(schema.stations),
+      this.ctx.db.select({ id: schema.nodes.id, name: schema.nodes.name, roles: schema.nodes.roles, pairedAt: schema.nodes.pairedAt, status: schema.nodes.status, tenantId: schema.nodes.tenantId, config: schema.nodes.config }).from(schema.nodes),
+      this.ctx.db
+        .select({ id: schema.stations.id, name: schema.stations.name, slug: schema.stations.slug, enabled: schema.stations.enabled, tenantId: schema.stations.tenantId, nodeId: schema.stations.nodeId, routing: schema.stations.routing, nodeRuntime: schema.stations.nodeRuntime })
+        .from(schema.stations),
       this.ctx.db
         .select({
           nodeId: schema.nodeProbes.nodeId,
@@ -86,9 +89,17 @@ export class AlertMonitor {
       getSetting(this.ctx, 'alerts'),
       serverNames(this.ctx),
     ]);
+    const live = nodes.map((n) => ({ ...n, online: this.hub.isOnline(n.id), status: { ...(this.hub.liveStatus(n.id) ?? n.status), online: this.hub.isOnline(n.id) } }));
+    // Station nodes that bypass their ingest (fallback). "No ingest can carry it" is how the station is set up, not a fault.
+    const studioDirect = stations.flatMap((s) => {
+      if (!s.nodeId) return [];
+      const d = studioDelivery(s, live);
+      return directFallback(d.direct) && d.direct !== 'none' ? [{ stationId: s.id, nodeId: s.nodeId, reason: d.direct!, message: d.error ?? null }] : [];
+    });
     return evaluate({
       now,
-      nodes: nodes.map((n) => ({ ...n, online: this.hub.isOnline(n.id), status: this.hub.liveStatus(n.id) ?? n.status })),
+      nodes: live,
+      studioDirect,
       stations,
       probes,
       mounts,

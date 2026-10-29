@@ -80,6 +80,7 @@ function OpenAlerts({ alerts }: { alerts: Alert[] | undefined }) {
                     </Badge>
                   )}
                 </div>
+                {a.kind === 'studio_direct' && a.params.reason && <p className="mt-0.5 text-[13px] text-muted">{t(`routing.delivery.now.${a.params.reason}`)}</p>}
                 {a.message && <p className="mt-0.5 text-[13px] break-words text-muted">{a.message}</p>}
                 <p className="mt-1 text-xs text-muted">
                   {t('monitoring.since', { time: new Date(a.openedAt).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' }), duration: span(a.openedAt, null) })}

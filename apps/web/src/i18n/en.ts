@@ -2709,6 +2709,7 @@ export const en = {
     nodeSwitchHint: 'Also take encoders on 8010/8443, pushes on 8001 and SFTP on 2022 (station node), next to the new ports. For nodes set up before the port plan; switch off once the firewall lets the new ports in.',
   },
   topology: {
+    direct: { badge: 'Straight to the relays (fallback)', title: 'Studio bypasses the ingest' },
     title: 'Topology',
     subtitle: 'Live map of every node, stream and listener path. Drag to rotate, scroll to zoom.',
     myTitle: 'My setup',
@@ -3133,6 +3134,7 @@ export const en = {
       port_closed: 'Ports {{ports}} of {{node}} cannot be reached from outside',
       old_port_open: 'Old ports {{ports}} of {{node}} are still open',
       dns_wrong: '{{name}} resolves wrong in public DNS',
+      studio_direct: '{{node}} sends {{station}} straight to the relays (ingest fallback)',
     },
     maintenanceTitle: 'Maintenance',
     maintenanceSubtitle: 'Working on a node or station? Put it in maintenance and no alerts come for it until the end.',

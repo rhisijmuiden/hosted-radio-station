@@ -74,6 +74,13 @@ describe('alert rules', () => {
     expect(evaluate(input({ nodes, probes: [probe(RELAY, false)] })).map((c) => c.kind)).toEqual(['station_off_air']);
   });
 
+  it('reports a station node that bypasses its ingest, unless the station is off air anyway', () => {
+    const studioDirect = [{ stationId: HARDER, nodeId: INGEST, reason: 'offline', message: null }];
+    expect(evaluate(input({ studioDirect })).map((c) => [c.key, c.severity, c.params.reason])).toEqual([[`studio_direct:${HARDER}`, 'warning', 'offline']]);
+    expect(evaluate(input({ studioDirect, probes: [probe(RELAY, false), probe('main', false)] })).map((c) => c.kind)).toEqual(['station_off_air']);
+    expect(evaluate(input({ studioDirect, settings: { quietStations: [HARDER], maintenance: [] } }))).toEqual([]);
+  });
+
   it('reports paused node updates and a failing Cloudflare sync', () => {
     const out = evaluate(input({ rollout: { current: null, paused: { reason: 'health check failed', nodeId: RELAY, at: '' } }, dns: { mode: 'on', error: 'bad token' } }));
     expect(out.map((c) => c.kind)).toEqual(['updates_paused', 'dns_error']);
