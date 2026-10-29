@@ -106,12 +106,17 @@ describe('planner helpers', () => {
 });
 
 describe('upgrade to Radio station', () => {
-  it('needs the Radio station plan, which administrators can grant in the same step', async () => {
+  it('needs room in the customer\'s limit of Radio stations', async () => {
     expect((await api('GET', '/autodj')).json().edition).toBe('distribution');
     expect((await api('GET', '/library')).statusCode).toBe(400);
-    const denied = await api('POST', '/upgrade', { upgradeCustomer: true });
+    // Created with the old edition "distribution": no Radio stations allowed.
+    const denied = await api('POST', '/upgrade', {});
     expect(denied.statusCode).toBe(400);
-    const res = await api('POST', '/upgrade', { upgradeCustomer: true }, admin);
+    const [before] = await t.db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId));
+    expect(before!.limits.maxRadioStations).toBe(0);
+    const raised = await t.app.inject({ method: 'PATCH', url: `/api/tenants/${tenantId}`, headers: admin, payload: { limits: { ...before!.limits, maxRadioStations: 1 } } });
+    expect(raised.statusCode).toBe(200);
+    const res = await api('POST', '/upgrade', {});
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.edition).toBe('station');
@@ -598,18 +603,46 @@ describe('shares', () => {
 });
 
 describe('downgrade', () => {
-  it('stops the AutoDJ and removes the fallback, keeping the library', async () => {
-    const res = await api('POST', '/downgrade');
+  it('needs a confirmation, stops the AutoDJ and keeps the content for 24 hours', async () => {
+    expect((await api('POST', '/downgrade')).statusCode).toBe(400);
+    expect((await t.app.inject({ method: 'PATCH', url: `/api/stations/${stationId}`, headers: owner, payload: { edition: 'distribution' } })).statusCode).toBe(400);
+    const res = await api('POST', '/downgrade', { confirm: true });
     expect(res.statusCode).toBe(200);
+    const until = new Date(res.json().until).getTime();
+    expect(until - Date.now()).toBeGreaterThan(23.9 * 3600_000);
     const view = (await api('GET', '/autodj')).json();
     expect(view.edition).toBe('distribution');
     expect(view.settings.enabled).toBe(false);
     expect(view.coveredMounts).toEqual([]);
     await expect(readFile(autodjScriptPath(t.ctx, stationId))).rejects.toThrow();
     expect((await buildStreamsState(t.ctx)).autodj).toEqual([]);
-    // Upgrading again restores it, now through the station settings.
+    const detail = (await t.app.inject({ url: `/api/stations/${stationId}`, headers: owner })).json();
+    expect(detail.downgrade).toMatchObject({ nodeId: null });
+    // Within the 24 hours nothing is deleted.
+    const { purgeDowngrades } = await import('../src/services/autodj/edition.js');
+    expect(await purgeDowngrades(t.ctx)).toBe(0);
+    expect((await t.db.select().from(schema.playlists).where(eq(schema.playlists.stationId, stationId))).length).toBeGreaterThan(0);
+    // Switching back restores it, now through the station settings.
     const again = await t.app.inject({ method: 'PATCH', url: `/api/stations/${stationId}`, headers: owner, payload: { edition: 'station' } });
     expect(again.statusCode).toBe(200);
+    expect(again.json().downgrade).toBeNull();
     expect((await api('GET', '/autodj')).json()).toMatchObject({ edition: 'station', coveredMounts: ['/live'] });
+  });
+
+  it('deletes the content once the 24 hours are over', async () => {
+    const playlists = (await t.db.select().from(schema.playlists).where(eq(schema.playlists.stationId, stationId))).length;
+    expect(playlists).toBeGreaterThan(0);
+    expect((await api('POST', '/downgrade', { confirm: true })).statusCode).toBe(200);
+    const { purgeDowngrades } = await import('../src/services/autodj/edition.js');
+    expect(await purgeDowngrades(t.ctx, new Date(Date.now() + 25 * 3600_000))).toBe(1);
+    expect((await t.db.select().from(schema.playlists).where(eq(schema.playlists.stationId, stationId))).length).toBe(0);
+    expect((await t.db.select().from(schema.mediaFiles).where(eq(schema.mediaFiles.stationId, stationId))).length).toBe(0);
+    const [s] = await t.db.select().from(schema.stations).where(eq(schema.stations.id, stationId));
+    expect(s!.downgrade).toBeNull();
+    expect(s!.edition).toBe('distribution');
+    // Upgrading afterwards starts fresh.
+    const again = await api('POST', '/upgrade', {});
+    expect(again.statusCode).toBe(200);
+    expect(again.json()).toMatchObject({ edition: 'station', coveredMounts: ['/live'] });
   });
 });

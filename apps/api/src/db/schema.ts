@@ -29,6 +29,11 @@ export const memberRole = pgEnum('member_role', ['owner', 'manager', 'dj']);
 
 export interface TenantLimits {
   maxStations: number;
+  /**
+   * How many of those stations may be a Radio station (AutoDJ, clocks, library); the others are Distribution only.
+   * Replaces the customer's edition (`plan`, kept only for older API clients): the edition belongs to each station.
+   */
+  maxRadioStations: number;
   maxListeners: number;
   maxBitrateKbps: number;
   storageQuotaMb: number;
@@ -294,6 +299,17 @@ export interface StationNodeMove {
 }
 
 /**
+ * A Radio station that went back to Distribution only: its content (library, playlists, hour clocks, schedule) is kept
+ * until `until` (24 hours), so the owner can switch back without loss. On a station node (`nodeId`) the node keeps the
+ * station's files and tables, without running it, until then.
+ */
+export interface StationDowngrade {
+  at: string;
+  until: string;
+  nodeId: string | null;
+}
+
+/**
  * A radio station. Every station has its own Icecast server on this machine (bound to localhost, port `icecastPort`).
  * Encoders deliver through the ingest gateway; listeners connect through the web server or the station's outputs.
  */
@@ -339,6 +355,8 @@ export const stations = pgTable(
     nodeRuntime: jsonb('node_runtime').$type<StationNodeRuntime>(),
     /** A move between this server and a station node that is under way or failed. */
     nodeMove: jsonb('node_move').$type<StationNodeMove>(),
+    /** Back to Distribution only, with the content kept for 24 hours (see StationDowngrade). */
+    downgrade: jsonb('downgrade').$type<StationDowngrade>(),
     /** Which ingest takes the encoders and which relays it feeds (phase 13). Read through routingSchema for defaults. */
     routing: jsonb('routing').$type<Record<string, unknown>>().notNull().default({}),
     createdAt: createdAt(),

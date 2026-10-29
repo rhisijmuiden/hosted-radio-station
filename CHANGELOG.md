@@ -11,6 +11,19 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   keeps it on air; the queue, history and everything made on the old node come along. Works with "Orchestrator only"
   on, where a station on a node could not move at all before. Linking a customer to another station node now also
   moves its stations that run on a node.
+- The edition belongs to the station (step 2): a customer no longer has an edition but a limit **Of which Radio
+  stations** next to *Stations* (existing customers keep what they had: all their stations with the Radio station
+  edition, none with Distribution). Packages use the same limit. A new station is Distribution only (it gets the
+  ingest to stream to) or a Radio station, and then you choose where it runs: the shared station node, a dedicated
+  node or the customer's own node. Upgrading a station to Radio station on its Settings tab now really works with
+  "Orchestrator only" on: you pick the station node and it starts there (before, it did nothing, e.g. Uptempo.fm). A
+  package change never turns stations back to Distribution by itself any more. Distribution stations never move to a
+  station node when the customer is linked to one.
+- Safe way back to Distribution only (step 3): **Back to Distribution** on the station's Settings tab explains what
+  it means (the station only plays the stream from your own software; AutoDJ, hour clocks, library and DJ logins stop)
+  and needs an explicit confirmation. The content is kept for 24 hours with a countdown and a **Switch back to Radio
+  station** button that restores it where it ran, also on its station node (which keeps the files, switched off).
+  After 24 hours the content is deleted. Over the API: `POST /api/stations/:id/downgrade` with `confirm: true`.
 - Monitoring and alerts (phase 20, step 1): a new **Monitoring** page under Network shows what is wrong now (a node
   offline, a station off air, a relay without its feed, a node problem, paused node updates, Cloudflare DNS errors),
   the history of the last 90 days and maintenance for nodes and stations. Alerts go to Telegram, e-mail and the new

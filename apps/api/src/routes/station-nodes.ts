@@ -331,7 +331,7 @@ export const tenantStationNodeRoutes: FastifyPluginAsyncZod = async (app) => {
       schema: {
         tags: ['Customers'],
         summary:
-          'Link a customer to a station node (or null for this server). New stations of the customer start there; with moveStations its existing stations move too, library included.',
+          'Link a customer to a station node (or null for this server). New Radio stations of the customer start there; with moveStations its existing Radio stations move too, library included. Distribution stations never run on a station node.',
         params: stationParams,
         body: z.object({ nodeId: z.uuid().nullable(), moveStations: z.boolean().default(false) }),
         response: { 200: z.object({ stationNodeId: z.uuid().nullable(), moving: z.number().int(), skipped: z.array(z.string()) }) },
@@ -358,6 +358,8 @@ export const tenantStationNodeRoutes: FastifyPluginAsyncZod = async (app) => {
       if (req.body.moveStations) {
         const stations = await ctx.db.select().from(schema.stations).where(eq(schema.stations.tenantId, tenant.id));
         for (const s of stations) {
+          // Distribution only never runs on a station node: its encoders send to an ingest.
+          if (s.edition !== 'station' && !s.nodeId) continue;
           if (s.nodeId === target || s.nodeMove?.state === 'copying') {
             if (s.nodeId !== target) skipped.push(s.slug);
             continue;

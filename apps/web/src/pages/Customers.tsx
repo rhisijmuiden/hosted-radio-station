@@ -4,13 +4,13 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
-import { Badge, Button, Card, Dialog, EmptyState, Field, Input, PageHeader, Segmented, Spinner, Switch, Table } from '../components/ui';
-import { api, ApiError, type Plan, type Tenant, type TenantLimits } from '../lib/api';
+import { Badge, Button, Card, Dialog, EmptyState, Field, Input, PageHeader, Spinner, Switch, Table } from '../components/ui';
+import { api, ApiError, type Tenant, type TenantLimits } from '../lib/api';
 import { isAdmin, useMailConfigured, useMe } from '../lib/auth';
 import { formatDate } from '../lib/format';
-import { PlanBadge } from './Dashboard';
+import { LimitsBadge } from './Dashboard';
 
-export const defaultLimits: TenantLimits = { maxStations: 1, maxListeners: 100, maxBitrateKbps: 192, storageQuotaMb: 10240, maxNodes: 0 };
+export const defaultLimits: TenantLimits = { maxStations: 1, maxRadioStations: 1, maxListeners: 100, maxBitrateKbps: 192, storageQuotaMb: 10240, maxNodes: 0 };
 
 export const slugify = (s: string) =>
   s
@@ -35,6 +35,9 @@ export function LimitsFields({ value, onChange, disabled }: { value: TenantLimit
       <Field label={t('limits.maxStations')}>
         <Input {...num('maxStations')} />
       </Field>
+      <Field label={t('limits.maxRadioStations')} hint={t('limits.maxRadioStationsHint')}>
+        <Input {...num('maxRadioStations')} max={value.maxStations} />
+      </Field>
       <Field label={t('limits.maxListeners')}>
         <Input {...num('maxListeners')} />
       </Field>
@@ -51,20 +54,6 @@ export function LimitsFields({ value, onChange, disabled }: { value: TenantLimit
   );
 }
 
-export function PlanPicker({ value, onChange }: { value: Plan; onChange: (p: Plan) => void }) {
-  const { t } = useTranslation();
-  return (
-    <Segmented
-      value={value}
-      onChange={onChange}
-      options={[
-        { value: 'distribution', label: t('plans.distribution'), description: t('plans.distributionHint') },
-        { value: 'station', label: t('plans.station'), description: t('plans.stationHint') },
-      ]}
-    />
-  );
-}
-
 function NewCustomerDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -72,7 +61,6 @@ function NewCustomerDialog({ open, onClose }: { open: boolean; onClose: () => vo
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [slugTouched, setSlugTouched] = useState(false);
-  const [plan, setPlan] = useState<Plan>('distribution');
   const [limits, setLimits] = useState(defaultLimits);
   const [withOwner, setWithOwner] = useState(true);
   const mail = useMailConfigured();
@@ -84,7 +72,6 @@ function NewCustomerDialog({ open, onClose }: { open: boolean; onClose: () => vo
     setName('');
     setSlug('');
     setSlugTouched(false);
-    setPlan('distribution');
     setLimits(defaultLimits);
     setOwner({ name: '', email: '', password: '', sendInvite: mail });
     setError(null);
@@ -97,7 +84,6 @@ function NewCustomerDialog({ open, onClose }: { open: boolean; onClose: () => vo
         body: {
           name,
           slug,
-          plan,
           limits,
           owner: withOwner ? { name: owner.name, email: owner.email, password: owner.password || undefined, sendInvite: owner.sendInvite } : undefined,
         },
@@ -158,9 +144,6 @@ function NewCustomerDialog({ open, onClose }: { open: boolean; onClose: () => vo
             />
           </Field>
         </div>
-        <Field label={t('fields.plan')}>
-          <PlanPicker value={plan} onChange={setPlan} />
-        </Field>
         <div>
           <div className="mb-2 text-[13px] font-semibold">{t('customers.limits')}</div>
           <LimitsFields value={limits} onChange={setLimits} />
@@ -247,7 +230,7 @@ export function CustomersPage() {
             action={!query && admin ? <Button variant="primary" onClick={() => setOpen(true)}>+ {t('customers.new')}</Button> : undefined}
           />
         ) : (
-          <Table head={[t('fields.customer'), t('fields.plan'), t('fields.users'), t('fields.listeners'), t('fields.created'), t('fields.status')]}>
+          <Table head={[t('fields.customer'), t('limits.maxStations'), t('fields.users'), t('fields.listeners'), t('fields.created'), t('fields.status')]}>
             {list.map((c) => (
               <tr key={c.id} className="hover:bg-hover/60">
                 <td>
@@ -262,7 +245,7 @@ export function CustomersPage() {
                   </Link>
                 </td>
                 <td>
-                  <PlanBadge plan={c.plan} />
+                  <LimitsBadge limits={c.limits} />
                 </td>
                 <td>{c.memberCount}</td>
                 <td className="text-muted">≤ {c.limits.maxListeners.toLocaleString()}</td>

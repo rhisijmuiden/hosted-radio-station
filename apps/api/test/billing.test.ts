@@ -380,7 +380,7 @@ describe('hosted service', () => {
   });
 
   it('refuses a package the customer has outgrown', async () => {
-    await t.db.update(schema.tenants).set({ limits: { maxStations: 5, maxListeners: 1000, maxBitrateKbps: 128, storageQuotaMb: 1024, maxNodes: 0 } }).where(eq(schema.tenants.id, tenantId));
+    await t.db.update(schema.tenants).set({ limits: { maxStations: 5, maxRadioStations: 5, maxListeners: 1000, maxBitrateKbps: 128, storageQuotaMb: 1024, maxNodes: 0 } }).where(eq(schema.tenants.id, tenantId));
     for (const name of ['Zeezicht Two']) {
       const r = await t.app.inject({ method: 'POST', url: '/api/stations', headers: admin, payload: { tenantId, name, slug: 'zeezicht-two' } });
       expect(r.statusCode, r.body).toBe(201);

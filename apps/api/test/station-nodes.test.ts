@@ -231,6 +231,24 @@ describe('station nodes', () => {
     await until('the first full report of the new node', async () => (await mainStation()).nodeRuntime?.syncedAt);
   }, 90_000);
 
+  it('keeps a downgraded station parked on its node for 24 hours, and switches back without loss', async () => {
+    const down = await main.app.inject({ method: 'POST', url: `/api/stations/${stationId}/downgrade`, headers: owner, payload: { confirm: true } });
+    expect(down.statusCode, down.body).toBe(200);
+    // Distribution only never runs on a station node: it left the node...
+    expect(await mainStation()).toMatchObject({ nodeId: null, edition: 'distribution', downgrade: expect.objectContaining({ nodeId: node2Id }) });
+    // ...which keeps its files and tables, switched off.
+    await until('the node to park it', async () => (await node2.db.select().from(schema.stations).where(eq(schema.stations.id, stationId)))[0]?.enabled === false);
+    expect(existsSync(join(mediaDir(node2.ctx, stationId), 'music', 'song.mp3'))).toBe(true);
+    expect((await node2.db.select().from(schema.playlists).where(eq(schema.playlists.stationId, stationId))).length).toBe(2);
+    // Switching back puts it on the same node again.
+    const back = await main.app.inject({ method: 'POST', url: `/api/stations/${stationId}/upgrade`, headers: owner, payload: {} });
+    expect(back.statusCode, back.body).toBe(200);
+    expect(await mainStation()).toMatchObject({ nodeId: node2Id, edition: 'station', downgrade: null });
+    await until('the station running on the node again', async () => (await node2.db.select().from(schema.stations).where(eq(schema.stations.id, stationId)))[0]?.enabled);
+    expect((await node2.db.select().from(schema.playlists).where(eq(schema.playlists.stationId, stationId))).length).toBe(2);
+    await until('a full report after switching back', async () => (await mainStation()).nodeRuntime?.syncedAt);
+  }, 60_000);
+
   it('moves the station back with what was made on the node', async () => {
     const node = node2;
     writeFileSync(join(mediaDir(node.ctx, stationId), 'music', 'new.mp3'), Buffer.alloc(1000, 1));

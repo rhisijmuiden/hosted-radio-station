@@ -52,6 +52,8 @@ export interface Me {
 }
 export interface TenantLimits {
   maxStations: number;
+  /** Of those, how many may be a Radio station (AutoDJ); 0 = Distribution only. The edition belongs to each station. */
+  maxRadioStations: number;
   maxListeners: number;
   maxBitrateKbps: number;
   storageQuotaMb: number;
@@ -278,6 +280,8 @@ export interface Station {
   nodeOnline: boolean | null;
   nodeSeenAt: string | null;
   nodeMove: StationMove | null;
+  /** Back to Distribution only: the Radio station content is kept until `until`, so it can switch back. */
+  downgrade: { at: string; until: string; nodeId: string | null } | null;
   createdAt: string;
 }
 export interface StationMove {
@@ -357,6 +361,8 @@ export interface ConnectionInfo {
 }
 export interface StationDetail extends Station {
   tenantPlan: Plan;
+  radioStations: { used: number; max: number };
+  tenantStationNodeId: string | null;
   mounts: Mount[];
   outputs: Output[];
   connection: ConnectionInfo;

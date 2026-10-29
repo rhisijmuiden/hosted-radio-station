@@ -36,7 +36,7 @@ export function CustomerStationNodeCard({ tenant, canEdit }: { tenant: Tenant; c
   });
 
   // Distribution only never has a studio: its encoders send to an ingest node.
-  if ((tenant.plan === 'distribution' || !nodes.length) && !tenant.stationNodeId) return null;
+  if (((tenant.limits.maxRadioStations ?? tenant.limits.maxStations) === 0 || !nodes.length) && !tenant.stationNodeId) return null;
   const current = nodes.find((n) => n.id === tenant.stationNodeId);
   return (
     <Card className="p-5">
