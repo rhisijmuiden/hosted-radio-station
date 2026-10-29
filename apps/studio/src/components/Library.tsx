@@ -1,15 +1,16 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowDown, ArrowUp, Folder, HardDrive, Headphones, ListMusic, Network, Pause, Play, Plus, Search, Server, Square, X } from 'lucide-react';
+import { ArrowDown, ArrowLeftRight, ArrowUp, Folder, HardDrive, Headphones, ListMusic, ListOrdered, Network, Pause, Play, Plus, Search, Server, Square, X } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { api, getApiKey, type Media } from '../lib/api';
+import { api, getApiKey, type LogRow, type Media } from '../lib/api';
 import { camelot, duration } from '../lib/format';
 import { call, type Folder as FolderData, type FolderEntry, type PreviewState } from '../lib/native';
 import { useCanUpload, useSession } from '../lib/session';
 import { getSettings, useSettings } from '../lib/settings';
 import { CueButton, CueEditor, hasCues, useCanCue } from './CueEditor';
+import { LogEditor, usePlaceInLog } from './LogEditor';
 import { Card, EmptyState, Input, Spinner } from './ui';
 
 /** Since server 1.3 there is one queue; the API still names it `q1`. */
@@ -414,12 +415,22 @@ function PreviewBar({ state, run }: { state: PreviewState; run: (cmd: string, ar
   );
 }
 
-type Source = 'server' | 'network' | 'pc';
+type Source = 'server' | 'network' | 'pc' | 'log';
 
 /** The right-hand panel of Live assist: the server library, network shares and this PC, with pre-listen. */
-export function LibraryPanel({ stationId, add, wide }: { stationId: string; add: AddToQueue; wide?: boolean }) {
+export function LibraryPanel({ stationId, add: addToQueue, wide }: { stationId: string; add: AddToQueue; wide?: boolean }) {
   const { t } = useTranslation();
+  const { supports } = useSession();
   const [source, setSource] = useState<Source>('server');
+  // The log editor waits for a track for this row: the + of the library places it there instead of in the queue.
+  const [placing, setPlacing] = useState<(LogRow & { time: string }) | null>(null);
+  const place = usePlaceInLog(stationId);
+  const add: AddToQueue = (v) => {
+    if (!placing?.itemId) return addToQueue(v);
+    place.mutate({ itemId: placing.itemId, mediaId: v.mediaId });
+    setPlacing(null);
+    setSource('log');
+  };
   const [current, setCurrent] = useState<string | null>(null);
   const { state, run } = usePreview();
   const playing = state?.loaded ? current : null;
@@ -440,16 +451,20 @@ export function LibraryPanel({ stationId, add, wide }: { stationId: string; add:
     { value: 'server', label: t('library.server'), icon: <Server className="size-3.5" /> },
     { value: 'network', label: t('library.network'), icon: <Network className="size-3.5" /> },
     { value: 'pc', label: t('library.pc'), icon: <HardDrive className="size-3.5" /> },
+    ...(wide && supports('log-editor') ? [{ value: 'log' as const, label: t('logEditor.tab'), icon: <ListOrdered className="size-3.5" /> }] : []),
   ];
   return (
     <Card className={clsx('flex min-h-0 flex-col overflow-hidden', wide && '@container flex-1')}>
-      <div role="tablist" aria-label={t('library.sources')} className="grid grid-cols-3 border-b border-line">
+      <div role="tablist" aria-label={t('library.sources')} className={clsx('grid border-b border-line', tabs.length === 4 ? 'grid-cols-4' : 'grid-cols-3')}>
         {tabs.map((tab) => (
           <button
             key={tab.value}
             role="tab"
             aria-selected={source === tab.value}
-            onClick={() => setSource(tab.value)}
+            onClick={() => {
+              setSource(tab.value);
+              if (tab.value === 'log') setPlacing(null);
+            }}
             className={clsx(
               '-mb-px flex items-center justify-center gap-1.5 border-b-2 py-2.5 text-[12px] font-bold transition-colors',
               source === tab.value ? 'border-koraal text-ink' : 'border-transparent text-muted hover:text-ink',
@@ -460,10 +475,35 @@ export function LibraryPanel({ stationId, add, wide }: { stationId: string; add:
           </button>
         ))}
       </div>
+      {placing && source !== 'log' && (
+        <div className="flex items-center gap-2 border-b border-line bg-[color-mix(in_srgb,var(--color-koraal)_12%,transparent)] px-3 py-2 text-[12px]">
+          <ArrowLeftRight className="size-3.5 shrink-0 text-accent-text" />
+          <span className="min-w-0 flex-1 truncate">{t('logEditor.placing', { time: placing.time, title: placing.media?.title ?? '' })}</span>
+          <button
+            type="button"
+            onClick={() => {
+              setPlacing(null);
+              setSource('log');
+            }}
+            className="shrink-0 font-semibold text-accent-text hover:underline"
+          >
+            {t('common.cancel')}
+          </button>
+        </div>
+      )}
+      {source === 'log' && (
+        <LogEditor
+          stationId={stationId}
+          onPlace={(row, time) => {
+            setPlacing({ ...row, time });
+            setSource('server');
+          }}
+        />
+      )}
       {source === 'server' && <ServerList stationId={stationId} add={add} preview={previewServer} playing={playing} wide={wide} />}
       {source === 'network' && <Shares stationId={stationId} add={add} preview={previewFile} playing={playing} />}
       {source === 'pc' && <FolderList start={null} stationId={stationId} add={add} preview={previewFile} playing={playing} />}
-      {state?.loaded ? <PreviewBar state={state} run={run} /> : <div className="border-t border-line px-3 py-2 text-[11px] text-muted">{t('assist.libraryHint')}</div>}
+      {state?.loaded ? <PreviewBar state={state} run={run} /> : source !== 'log' && <div className="border-t border-line px-3 py-2 text-[11px] text-muted">{t('assist.libraryHint')}</div>}
     </Card>
   );
 }

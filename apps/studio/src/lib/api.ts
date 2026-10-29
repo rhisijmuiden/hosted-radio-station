@@ -180,6 +180,30 @@ export interface RundownRow {
   current: boolean;
   past: boolean;
 }
+/** One row of the log editor (/autodj/log, servers with the `log-editor` feature). */
+export interface LogRow {
+  key: string;
+  at: string;
+  state: 'playing' | 'cued' | 'loaded' | 'planned';
+  source: 'queue' | 'playlist' | 'item' | 'track' | 'news';
+  itemId: string | null;
+  editable: boolean;
+  locked: boolean;
+  hard: boolean;
+  cut: boolean;
+  origin: string | null;
+  addedBy: string | null;
+  label: string | null;
+  media: { id: string; title: string; artist: string; durationSeconds: number | null; code: string | null; bpm: number | null; musicKey: string } | null;
+  seconds: number | null;
+}
+export interface LogPlan {
+  timezone: string;
+  scheduled: boolean;
+  until: string;
+  hours: { hour: string; clock: { id: string; name: string; color: string } | null; show: { id: string; name: string; live: boolean } | null }[];
+  rows: LogRow[];
+}
 /** The news bulletin of a Radio station, from /news (servers with the `news` feature). */
 export interface NewsView {
   settings: { enabled: boolean; name: string; leadMinutes: number; maxAgeMinutes: number; fallbackMediaId: string | null };

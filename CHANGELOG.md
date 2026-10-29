@@ -65,6 +65,16 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   with a countdown and whether the bulletin is ready or the spare jingle will play. While you are live it plays the
   bulletin into the broadcast, at the news time with **Auto** or with **Start news**; only managers can stop it. Not
   live, the AutoDJ plays the news.
+- Log editor (migration `0028_log_editor`): a new tab *Programme > Log editor* shows the coming 1 to 6 hours as the
+  AutoDJ will play them, hour by hour: the hour clocks are run ahead with the real tracks, with the fixed track, the
+  news and locked items in their place and a scissors mark on a track a hard item cuts. Drag a track onto another to
+  swap them, place another library track, or let it pick another one; locked parts of the format and the tracks the
+  player loaded stay as they are. Picks of clock playlists are kept, so the AutoDJ plays exactly the log; when the
+  timing shifts the log moves along and picks that no longer fit drop out. Without hour clocks the log is the queue.
+  API: `GET /api/stations/{id}/autodj/log`, `PUT` and `DELETE /api/stations/{id}/autodj/log/{itemId}`,
+  `POST /api/stations/{id}/autodj/log/swap`.
+- RHIS Studio 0.21, OmniPlayer layout step 4b: the library dock gets a **Log** tab with the same log editor. Drag a
+  track onto another to swap them; the arrows switch to the library, where **+** places the track you pick.
 
 ## 1.3.0 (28 October 2026)
 
