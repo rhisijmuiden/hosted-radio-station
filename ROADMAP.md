@@ -196,6 +196,7 @@ One thing at a time; each item starts when the previous one is finished and test
    - A **customer** has no edition any more. Instead it has limits: how many radio stations (and nodes) it may have. A customer can register its own nodes.
    - The choice is made per **radio station** when it is created (and can be changed later): **Distribution only** (the station gets the ingest endpoint to stream to) or **Radio station** (AutoDJ, clocks, library), and then where it runs: on the shared station node or on one of the customer's own nodes.
    - Switching a station between Distribution and Radio station happens on the station itself and really changes it (for Radio station: placement on a station node).
+   - **Downgrading safely**: going from Radio station back to Distribution only needs an explicit confirmation that explains what it means (from then on the station only receives a stream from the customer's own software; AutoDJ, clocks, library and DJ logins stop). The station's content is kept in the background for 24 hours, with a clear warning and countdown, so the customer can switch back without loss. After 24 hours the content is deleted.
 7. **Security hardening for external nodes**: see the queued item below. (For now the one external server was closed by hand.)
 8. **Phase 21: Recorder node**: recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download.
 
