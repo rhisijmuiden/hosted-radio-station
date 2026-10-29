@@ -283,6 +283,8 @@ export interface Station {
 export interface StationMove {
   direction: 'to_node' | 'to_main';
   nodeId: string;
+  /** A move straight from one station node to another: the node it comes from. */
+  fromNodeId?: string;
   state: 'copying' | 'failed';
   files: number;
   filesDone: number;

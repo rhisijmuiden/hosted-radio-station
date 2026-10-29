@@ -133,7 +133,7 @@ function NodeStations({ node }: { node: NodeItem }) {
                 <td>
                   {m ? (
                     <Badge tone={m.state === 'failed' ? 'offline' : 'accent'} dot>
-                      {m.state === 'failed' ? t('nodes.detail.moveFailed') : m.direction === 'to_node' ? t('nodes.detail.movingHere', { pct: pct ?? 0 }) : t('nodes.detail.movingAway', { pct: pct ?? 0 })}
+                      {m.state === 'failed' ? t('nodes.detail.moveFailed') : m.direction === 'to_node' ? (m.nodeId === node.id ? t('nodes.detail.movingHere', { pct: pct ?? 0 }) : t('nodes.detail.movingOn', { pct: pct ?? 0 })) : t('nodes.detail.movingAway', { pct: pct ?? 0 })}
                     </Badge>
                   ) : (
                     <Badge tone={s.nodeOnline ? 'online' : 'warning'} dot>

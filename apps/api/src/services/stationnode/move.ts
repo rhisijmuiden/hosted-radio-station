@@ -13,13 +13,27 @@ import { nodeRequest, readJson } from './proxy.js';
 /**
  * The last step of a move to a station node: the node has the library and says it is ready. From now on it runs the
  * station; this server stops its own Icecast and AutoDJ for it, and the relays take the streams from the node.
+ * Straight from another station node: that node first reports its tables once more, so the new node takes over the
+ * latest queue, history and library; it stops the station when it no longer finds it in its package.
  */
-export async function finishMoveToNode(ctx: AppContext, s: Station, nodeId: string) {
+export async function finishMoveToNode(ctx: AppContext, tunnels: StationTunnels, s: Station, nodeId: string, log: FastifyBaseLogger) {
+  if (s.nodeId && s.nodeId !== nodeId) {
+    try {
+      await readJson(await nodeRequest(tunnels, s.nodeId, 'POST', `/api/internal/station-node/flush/${s.id}`, { body: '{}', timeoutMs: 600_000 }));
+    } catch (err) {
+      // An offline node keeps what it changed since its last report; the move goes on with the copy here.
+      log.warn({ err, station: s.slug }, 'the station node the station leaves did not report its tables; switching over with the last copy');
+    }
+    const [now] = await ctx.db.select({ move: schema.stations.nodeMove }).from(schema.stations).where(eq(schema.stations.id, s.id));
+    // Cancelled in the meantime.
+    if (now?.move?.direction !== 'to_node' || now.move.nodeId !== nodeId) return false;
+  }
   await ctx.db
     .update(schema.stations)
     .set({ nodeId, nodeMove: null, nodeRuntime: { updatedAt: new Date().toISOString(), mounts: [], autodj: null, encoders: 0, relays: {}, revision: null, syncedAt: null } })
     .where(eq(schema.stations.id, s.id));
   await applyStreams(ctx, { stationIds: [s.id], by: 'station node' });
+  return true;
 }
 
 /** Waits until the station's Icecast here plays `mount` (or, without an AutoDJ, answers at all). */

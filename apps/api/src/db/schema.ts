@@ -277,9 +277,11 @@ export interface StationNodeRuntime {
 
 /** Moving a station between this server and a station node, with its media files. */
 export interface StationNodeMove {
-  /** to_node: from this server to `nodeId`; to_main: back to this server. */
+  /** to_node: to `nodeId`, from this server or (with `fromNodeId`) straight from another station node; to_main: back to this server. */
   direction: 'to_node' | 'to_main';
   nodeId: string;
+  /** to_node between two station nodes: the node that runs the station until the switch. */
+  fromNodeId?: string;
   state: 'copying' | 'failed';
   files: number;
   filesDone: number;

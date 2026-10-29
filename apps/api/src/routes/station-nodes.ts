@@ -15,6 +15,9 @@ import { applyStreams } from '../services/streaming/state.js';
 import { insideRoot, listFiles } from '../services/stationnode/files.js';
 import { applyMirror, mirrorSchema } from '../services/stationnode/mirror.js';
 import { moveToMain, finishMoveToNode } from '../services/stationnode/move.js';
+import { nodeRequest, readJson } from '../services/stationnode/proxy.js';
+import type { FileEntry } from '../services/stationnode/files.js';
+import type { Station } from '../services/streaming/state.js';
 import { buildPackage } from '../services/stationnode/package.js';
 import { NODE_TABLES, nodeTable, rowKey, toWire, type WireRow } from '../services/stationnode/tables.js';
 import { assertAudioAllowedHere } from '../services/nodes/orchestrator.js';
@@ -116,15 +119,32 @@ export const stationNodeAgentRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   );
 
+  /** A station that moves here straight from another station node: its library comes from that node, through this server. */
+  const fromNode = (s: Station, nodeId: string) => (s.nodeId && s.nodeId !== nodeId ? s.nodeId : null);
+
   app.get('/files/:id', { schema: { hide: true, params: stationParams } }, async (req) => {
     const node = await stationNode(req.headers.authorization);
     const s = await movingTo(node.id, req.params.id);
+    const from = fromNode(s, node.id);
+    if (from) return readJson<{ files: FileEntry[] }>(await nodeRequest(app.stationTunnels, from, 'GET', `/api/internal/station-node/files/${s.id}`, { timeoutMs: 300_000 }));
     return { files: await listFiles(mediaDir(ctx, s.id)) };
   });
 
   app.get('/files/:id/file', { schema: { hide: true, params: stationParams, querystring: z.object({ path: z.string().min(1).max(1000) }) } }, async (req, reply) => {
     const node = await stationNode(req.headers.authorization);
     const s = await movingTo(node.id, req.params.id);
+    const from = fromNode(s, node.id);
+    if (from) {
+      // Passed on as it comes, so this server needs no room for the library.
+      const res = await nodeRequest(app.stationTunnels, from, 'GET', `/api/internal/station-node/files/${s.id}/file?${new URLSearchParams({ path: req.query.path })}`, { timeoutMs: 120_000 });
+      if (res.status !== 200) {
+        res.body.resume();
+        throw notFound('File');
+      }
+      const length = res.headers['content-length'];
+      if (length) reply.header('content-length', length);
+      return reply.type('application/octet-stream').send(res.body);
+    }
     let full: string;
     try {
       full = insideRoot(mediaDir(ctx, s.id), req.query.path);
@@ -158,7 +178,10 @@ export const stationNodeAgentRoutes: FastifyPluginAsyncZod = async (app) => {
       if (!s?.nodeMove || s.nodeMove.direction !== 'to_node' || s.nodeMove.nodeId !== node.id) throw notFound('Station');
       const b = req.body;
       if (b.state === 'ready') {
-        await finishMoveToNode(ctx, s, node.id);
+        // Straight from another node: that node reports its tables first, which can take a while.
+        const done = finishMoveToNode(ctx, app.stationTunnels, s, node.id, req.log);
+        if (s.nodeId) void done.catch((err: Error) => req.log.warn({ err, station: s.slug }, 'switching a station over to its new node failed'));
+        else await done;
         return { ok: true as const };
       }
       const move: StationNodeMove = { ...s.nodeMove, state: b.state, files: b.files, filesDone: b.filesDone, bytes: b.bytes, bytesDone: b.bytesDone, message: b.message };
@@ -209,6 +232,7 @@ const moveOut = z
   .object({
     direction: z.enum(['to_node', 'to_main']),
     nodeId: z.uuid(),
+    fromNodeId: z.uuid().optional(),
     state: z.enum(['copying', 'failed']),
     files: z.number(),
     filesDone: z.number(),
@@ -230,7 +254,7 @@ export const stationPlacementRoutes: FastifyPluginAsyncZod = async (app) => {
       schema: {
         tags: ['Stations'],
         summary:
-          'Move a station to a station node (nodeId) or back to this server (null). The library is copied first; the station switches over when it is complete. force = switch back at once without copying (when the node is lost).',
+          'Move a station to a station node (nodeId), also straight from another station node, or back to this server (null). The library is copied first; the station switches over when it is complete. force = switch back at once without copying (when the node is lost), or retry a failed move.',
         params: stationParams,
         body: z.object({ nodeId: z.uuid().nullable(), force: z.boolean().default(false) }),
         response: { 200: z.object({ nodeId: z.uuid().nullable(), move: moveOut }) },
@@ -253,8 +277,10 @@ export const stationPlacementRoutes: FastifyPluginAsyncZod = async (app) => {
         if (access.role !== 'superadmin' && node.tenantId !== s.tenantId) throw forbidden('Only administrators can place a station on a shared node');
         if (!node.pairedAt) throw badRequest('Pair the node first');
         if (s.nodeId === target) return { nodeId: s.nodeId, move: s.nodeMove };
-        if (s.nodeId) throw badRequest('Move the station back to this server first');
-        const move: StationNodeMove = { direction: 'to_node', nodeId: target, state: 'copying', files: 0, filesDone: 0, bytes: 0, bytesDone: 0, startedAt: new Date().toISOString() };
+        // Straight from one station node to another: the new node copies the library from the old one (through this
+        // server) and warms up, while the old one keeps the station on air until the switch.
+        if (s.nodeId && !app.stationTunnels.online(s.nodeId)) throw conflict('The station node the station runs on is offline; the library can only move while it is online');
+        const move: StationNodeMove = { direction: 'to_node', nodeId: target, ...(s.nodeId ? { fromNodeId: s.nodeId } : {}), state: 'copying', files: 0, filesDone: 0, bytes: 0, bytesDone: 0, startedAt: new Date().toISOString() };
         await ctx.db.update(schema.stations).set({ nodeMove: move }).where(eq(schema.stations.id, s.id));
         return { nodeId: s.nodeId, move };
       }
@@ -336,13 +362,23 @@ export const tenantStationNodeRoutes: FastifyPluginAsyncZod = async (app) => {
             if (s.nodeId !== target) skipped.push(s.slug);
             continue;
           }
-          if (target && s.nodeId) {
-            // On another node: it comes back here first; move it on afterwards.
+          // On another node that is offline: its library cannot move now.
+          if (target && s.nodeId && !app.stationTunnels.online(s.nodeId)) {
             skipped.push(s.slug);
             continue;
           }
           const direction = target ? 'to_node' : 'to_main';
-          const move: StationNodeMove = { direction, nodeId: (target ?? s.nodeId)!, state: 'copying', files: 0, filesDone: 0, bytes: 0, bytesDone: 0, startedAt: new Date().toISOString() };
+          const move: StationNodeMove = {
+            direction,
+            nodeId: (target ?? s.nodeId)!,
+            ...(target && s.nodeId ? { fromNodeId: s.nodeId } : {}),
+            state: 'copying',
+            files: 0,
+            filesDone: 0,
+            bytes: 0,
+            bytesDone: 0,
+            startedAt: new Date().toISOString(),
+          };
           await ctx.db.update(schema.stations).set({ nodeMove: move }).where(eq(schema.stations.id, s.id));
           if (direction === 'to_main') void moveToMain(ctx, app.stationTunnels, s.id, req.log, req.auth?.user.email);
           moving++;

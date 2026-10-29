@@ -67,6 +67,7 @@ const stationOut = z.object({
     .object({
       direction: z.enum(['to_node', 'to_main']),
       nodeId: z.uuid(),
+      fromNodeId: z.uuid().optional(),
       state: z.enum(['copying', 'failed']),
       files: z.number(),
       filesDone: z.number(),
