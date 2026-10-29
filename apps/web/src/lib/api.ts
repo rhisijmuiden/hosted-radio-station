@@ -1363,6 +1363,8 @@ export interface Topology {
   links: TopologyLink[];
   stations: TopologyStation[];
   audience: { nodeId: string; stationId: string; country: string | null; listeners: number }[];
+  /** Server id → the checks of the monitoring nodes that fail there. */
+  checkFailures?: Record<string, { stream: string; silent: boolean; message: string | null }[]>;
   kpis: {
     nodesOnline: number;
     nodesTotal: number;

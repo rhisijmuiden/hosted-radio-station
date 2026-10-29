@@ -5,6 +5,8 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 
 ## Unreleased
 
+- The check badge of the monitoring node on the 2D map now names the checks that fail in its tooltip (station,
+  mount, and silence or the error), and the tooltip shows at all (the badge ignored the mouse before).
 - A station node that bypasses its ingest and feeds the relays itself (fallback: ingest offline, unreachable, no
   certificate, or node software too old) is now visible: the network map shows a warning with the reason per
   station (and a badge in the per-station view), and Monitoring opens a warning alert "sends straight to the relays".
