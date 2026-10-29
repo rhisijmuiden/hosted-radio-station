@@ -589,6 +589,31 @@ Small fixes are collected here and handled one at a time in a separate thread, n
 
 Not scheduled in a phase yet.
 
+### Schedule and "on air now" from the station node
+
+Public schedule data served straight from the customer's station node, so the orchestrator is not loaded by website traffic.
+
+- The station node publishes a small read-only public API and embeds: the weekly schedule (time slots, shows, when non-stop runs), "on air now" (which DJ or show is live, or non-stop/AutoDJ), now playing and up next.
+- The orchestrator only answers where to go: a public lookup returns the address of the right station node (or a relay or ingest for stations without one), the same way RHIS Studio finds its node. After that, websites talk to the node directly. Responses are cached on the node and safe to call often.
+- Embeds: a code include (one `<script>` or `<iframe>` line) for any website, showing the schedule, a week overview, and who is live. The existing public pages get these views too.
+- The port plan gets one extra public port on the station node for this (or it is served on the node's HTTPS port), and the firewall checklist and port check include it.
+
+### WordPress plugin
+
+A WordPress plugin for customer websites, built on the station node API above.
+
+- Connect with the station's public address (or slug), the plugin finds the right node through the orchestrator lookup.
+- Blocks and shortcodes: weekly schedule, today's schedule, "on air now / who is live", now playing with player, recently played.
+- Creates a schedule page in one click; follows the site's theme; caches on the WordPress side.
+
+### Several RHIS Studio clients at once (remote broadcasts)
+
+For broadcasts from remote locations: RHIS Studio may be open on several PCs for the same station at the same time.
+
+- One client is **in control** (master); the others follow along (slave) and see the same playlist, players and state.
+- Control can be handed over or requested, with a clear indicator of which client has control; Go Live comes from the client in control.
+- If the master drops out, control falls back by a set rule (to a chosen backup client or to AutoDJ).
+
 ### Sound processor per station
 
 Audio processing for the station's output, set per radio station (not per studio PC).
