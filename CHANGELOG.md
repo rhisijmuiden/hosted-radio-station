@@ -5,6 +5,8 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 
 ## Unreleased
 
+- Delivery path of a station on a station node: the ingest is its own step to the right of the studio node (source →
+  studio node → ingest → relays → listeners) instead of stacked under it, on the Delivery page and in the summary.
 - Media library uploads: many files, whole folders (picked or dropped, subfolders kept) and big files (a full DJ set)
   in one go. Every file goes up in parts of 16 MB, one after the other, with its own progress bar, so the 100 MB body
   limit of Cloudflare in front of the panel no longer stops big files; a broken upload resumes where it stopped (API:
