@@ -3,7 +3,11 @@
 All notable changes to Hosted Radio Station. Versions follow [semantic versioning](https://semver.org). The
 [roadmap](ROADMAP.md) has the full description of each phase, with screenshots.
 
-## Unreleased
+## 1.4.0 (29 October 2026)
+
+Phase 20 (monitoring and alerts with a monitoring node), customer blocks on the network map, the OmniPlayer layout in
+RHIS Studio 0.17 to 0.21 with news and a log editor, one cued track at a time, and moving stations between nodes with
+the edition per station.
 
 - Move stations between nodes (step 1): a station moves straight from one station node to another, for example from
   the shared station node to a dedicated node or to the customer's own node on site, and back. The new node copies the
