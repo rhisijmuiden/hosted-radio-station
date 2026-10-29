@@ -74,7 +74,7 @@ function History({ items, show, onAir, grid }: { items: Played[]; show: boolean;
 /** The kind of a fixed item, in words. */
 function useItemKind() {
   const { t } = useTranslation();
-  return (source: Block['items'][number]['source']) => (source === 'track' ? t('rundown.track') : t('rundown.playlist'));
+  return (source: Block['items'][number]['source']) => (source === 'news' ? t('rundown.news') : source === 'track' ? t('rundown.track') : t('rundown.playlist'));
 }
 
 /**

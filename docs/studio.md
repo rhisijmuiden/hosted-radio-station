@@ -66,13 +66,18 @@ PC you sign in on shows the same layout (an older server keeps it on this PC onl
   itself with **Auto**. Like the jingles it plays into the broadcast when you are live, and it goes 12 dB down while
   the sound card input has sound (switch it off under *Settings > Audio*, *Single player under the mic*). The list
   stays on this PC.
+- The **news player**: the next news time of the hour clocks with a countdown, and whether the bulletin is ready
+  (green) or the spare jingle will play (amber). While you are live it plays the news into the broadcast: with
+  **Auto** at the news time, otherwise with **Start news**. The news is a fixed block, so only managers and owners can
+  stop it. When you are not live the AutoDJ plays the news itself. The source, the times and the spare jingle are set
+  in the panel (*Programme > News* and a *News* item in the hour clocks). It needs a server with the news bulletin.
 - The **library** sits under them, as a table: the station's own **code** of the track (such as HF-03007), title and
   artist, the **ISRC** when the window is wide enough, **BPM** and **key** with its Camelot code (8A, 5B: neighbours
   on the wheel mix well), and the length. Click a column header to sort, again to turn the order around. The search
   also finds codes and ISRCs. Codes, tempo and key come from the server: it reads them from the tags and measures
   tempo and key where the tags have none; managers correct them in the panel (*Library > Edit tags*).
 
-In the **Layout** menu each panel goes on or off (last played, single player, my jingles, station carts, dashboard,
+In the **Layout** menu each panel goes on or off (last played, single player, news player, my jingles, station carts, dashboard,
 library). Drag the handle between
 the players and the panels to change their width (double-click it, or *Reset* in the menu, for the default). It
 needs a server that knows the DJ profile and the last played tracks; with an older one the log shows no last played

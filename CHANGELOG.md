@@ -55,6 +55,16 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 - RHIS Studio 0.19, OmniPlayer layout step 3: the library under the players is a table with code, title and artist,
   ISRC (when there is room), BPM and key with its Camelot code, and length; click a column to sort. Search finds
   codes and ISRCs too. Classic shows BPM and key under the artist.
+- News bulletin (migration `0027_news`): a Radio station gets a **News** tab under *Programme*, where managers set
+  where the bulletin comes from (a web address, FTP, FTPS or SFTP, with `{YYYY}{MM}{DD}{HH}{mm}` for the time in the
+  name), how many minutes ahead the server fetches it (8), how old it may be (60 minutes) and a spare jingle. A new
+  hour clock item **News** places it: it plays there as a locked block, the fresh bulletin or else the spare jingle; a
+  bulletin that arrives later replaces a queued spare jingle. **Fetch now** tries the source. API:
+  `GET/PUT /api/stations/{id}/news` and `POST /api/stations/{id}/news/fetch`; the clock item kind `news`.
+- RHIS Studio 0.20, OmniPlayer layout step 4a: a **news player** next to the single player shows the next news time
+  with a countdown and whether the bulletin is ready or the spare jingle will play. While you are live it plays the
+  bulletin into the broadcast, at the news time with **Auto** or with **Start news**; only managers can stop it. Not
+  live, the AutoDJ plays the news.
 
 ## 1.3.0 (28 October 2026)
 

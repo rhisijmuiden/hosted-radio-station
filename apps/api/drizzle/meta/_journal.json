@@ -183,6 +183,13 @@
       "when": 1793170800000,
       "tag": "0026_media_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1793174400000,
+      "tag": "0027_news",
+      "breakpoints": true
     }
   ]
 }

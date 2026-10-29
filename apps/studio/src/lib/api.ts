@@ -170,7 +170,7 @@ export interface RundownRow {
   /** DJs cannot skip it or play something over it (server 1.3). */
   locked?: boolean;
   kind: 'music' | 'item';
-  source: 'queues' | 'playlist' | 'track';
+  source: 'queues' | 'playlist' | 'track' | 'news';
   label: string;
   count: number;
   /** Expected length of a format item in seconds (server 1.3; null = unknown). */
@@ -179,6 +179,14 @@ export interface RundownRow {
   show: { id: string; name: string; live: boolean } | null;
   current: boolean;
   past: boolean;
+}
+/** The news bulletin of a Radio station, from /news (servers with the `news` feature). */
+export interface NewsView {
+  settings: { enabled: boolean; name: string; leadMinutes: number; maxAgeMinutes: number; fallbackMediaId: string | null };
+  status: { mediaId: string | null; durationSeconds: number | null; fetchedAt: string | null; sourceAt: string | null; slot: string | null; error: string | null; ext: string | null };
+  /** The coming news times from the hour clocks, with whether the bulletin may play then. */
+  slots: { at: string; fresh: boolean }[];
+  fallback: { id: string; title: string; artist: string; durationSeconds: number | null; ext: string } | null;
 }
 export interface Rundown {
   timezone: string;

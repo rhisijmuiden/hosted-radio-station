@@ -4,6 +4,7 @@ import { schema, type Db } from '../../db/index.js';
 import type { OutputConfig } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
 import { STORAGE } from '../autodj/library.js';
+import { sealNews } from '../autodj/news.js';
 import { stationDir } from '../streaming/icecast.js';
 import type { StationPackage } from './package.js';
 import { fromWire, upsertRows, type NodeTable, type WireRow } from './tables.js';
@@ -61,7 +62,7 @@ export async function applyPackage(ctx: AppContext, pkg: StationPackage, ready: 
   await ctx.db.transaction(async (tx) => {
     const db = tx as unknown as Db;
     const before = await tx
-      .select({ id: schema.stations.id, edition: schema.stations.edition, admin: schema.stations.icecastAdminPassword, source: schema.stations.icecastSourcePassword })
+      .select({ id: schema.stations.id, edition: schema.stations.edition, admin: schema.stations.icecastAdminPassword, source: schema.stations.icecastSourcePassword, news: schema.stations.news })
       .from(schema.stations);
     const prevStation = new Map(before.map((s) => [s.id, s]));
     const prevOutputs = new Map((await tx.select({ id: schema.stationOutputs.id, config: schema.stationOutputs.config }).from(schema.stationOutputs)).map((o) => [o.id, o.config]));
@@ -89,6 +90,7 @@ export async function applyPackage(ctx: AppContext, pkg: StationPackage, ready: 
       const prev = prevStation.get(id);
       station.icecastAdminPassword = reseal(p.station.icecastAdminPassword, prev?.admin) ?? prev?.admin ?? box.encrypt(crypto.randomUUID());
       station.icecastSourcePassword = reseal(p.station.icecastSourcePassword, prev?.source) ?? prev?.source ?? box.encrypt(crypto.randomUUID());
+      station.news = sealNews(box, (p.station.news as Record<string, unknown> | undefined) ?? {}, prev?.news);
       // A station that is moving here runs only once its library and tables are here (it then warms up while the main
       // server still has it on air), and a station that switched over only once this node took its latest tables.
       const moving = p.state === 'moving';

@@ -37,6 +37,7 @@ import { internalRoutes } from './routes/internal.js';
 import { publicRoutes, renderPublicShell } from './routes/public.js';
 import { autodjRoutes } from './routes/autodj.js';
 import { schedulerRoutes } from './routes/scheduler.js';
+import { newsRoutes } from './routes/news.js';
 import { stationPublicRoutes } from './routes/station-public.js';
 import { settingsRoutes } from './routes/settings.js';
 import { ssoAdminRoutes, ssoAuthRoutes } from './routes/sso.js';
@@ -217,6 +218,7 @@ export async function buildApp(ctx: AppContext) {
   await app.register(stationPublicRoutes, { prefix: '/api/stations' });
   await app.register(autodjRoutes, { prefix: '/api/stations' });
   await app.register(schedulerRoutes, { prefix: '/api/stations' });
+  await app.register(newsRoutes, { prefix: '/api/stations' });
   await app.register(tenantStreamingRoutes, { prefix: '/api/tenants' });
   await app.register(statsRoutes, { prefix: '/api/stats' });
   await app.register(studioRoutes, { prefix: '/api/studio' });

@@ -6,6 +6,7 @@ import { addLocalFile, DRAG_FILE, DRAG_MEDIA, LibraryPanel, useCanUpload } from 
 import { JingleBar } from '../components/Jingles';
 import { Dashboard } from '../components/Dashboard';
 import { JingleGrid, StationCartGrid } from '../components/Grids';
+import { NewsPlayer } from '../components/NewsPlayer';
 import { SinglePlayer } from '../components/SinglePlayer';
 import { Decks, ModeSwitch } from '../components/Decks';
 import { PlaylistCard, type LogView } from '../components/Playlist';
@@ -255,7 +256,8 @@ export function AssistPage() {
     const p = layout.panels;
     const jingles = p.jingles && supports('jingles');
     const carts = p.stationCarts && supports('station-carts');
-    const top = p.single || jingles || carts || p.dashboard;
+    const news = p.news && supports('news');
+    const top = p.single || news || jingles || carts || p.dashboard;
     const right = top || p.library;
     const log: LogView = { history: history.data?.items ?? [], showHistory: p.history, hours: rundown.data?.enabled ? rundown.data.rows : [], onAir: holding ? null : np, now };
     return (
@@ -271,6 +273,7 @@ export function AssistPage() {
               {top && (
                 <div className="flex shrink-0 flex-wrap items-stretch gap-3">
                   {p.single && <SinglePlayer stationId={station.id} />}
+                  {news && <NewsPlayer stationId={station.id} />}
                   {jingles && <JingleGrid stationId={station.id} />}
                   {carts && <StationCartGrid stationId={station.id} />}
                   {p.dashboard && <Dashboard data={data} stationId={station.id} blocks={blocks} />}

@@ -329,6 +329,8 @@ export const stations = pgTable(
     autodj: jsonb('autodj').$type<Record<string, unknown>>().notNull().default({}),
     /** Hour clocks and weekly schedule (phase 7). Read through schedulerSchema for defaults. */
     scheduler: jsonb('scheduler').$type<Record<string, unknown>>().notNull().default({}),
+    /** Where the news bulletin comes from (services/autodj/news.ts); its secrets are sealed. */
+    news: jsonb('news').$type<Record<string, unknown>>().notNull().default({}),
     /** Station node that runs this station (phase 12). Null = this server runs it. */
     nodeId: uuid('node_id').references((): AnyPgColumn => nodes.id, { onDelete: 'set null' }),
     /** What the station node reported last about the station: mounts on air, titles, AutoDJ, sync. */
@@ -893,8 +895,11 @@ export const autodjState = pgTable('autodj_state', {
 export interface ClockItem {
   /** Stable id within the clock, chosen by the panel. */
   id: string;
-  /** rotation = music from the queues, playlist = tracks from one playlist, track = one library track. */
-  kind: 'rotation' | 'playlist' | 'track';
+  /**
+   * rotation = music from the queues, playlist = tracks from one playlist, track = one library track, news = the
+   * station's news bulletin (fetched by the server, or the spare jingle when it is missing).
+   */
+  kind: 'rotation' | 'playlist' | 'track' | 'news';
   label: string;
   playlistId: string | null;
   mediaId: string | null;
