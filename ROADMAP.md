@@ -171,8 +171,8 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 17 | RHIS Studio 1.0 (Windows client) | Done (1.3.0) (fader start, step 4, parked until MIDI/GPIO hardware is available) |
 | 18 | Server names and topology views | Done (1.1.0) |
 | 19 | Clearer control panels and node assignment | Done (1.2.0) |
-| 20 | Monitoring node | Next (step 3 in the order of work) |
-| 21 | Recorder node | Planned (step 5 in the order of work) |
+| 20 | Monitoring node | Done (1.4.0) |
+| 21 | Recorder node | Planned (step 8 in the order of work) |
 | 22 | Packaged installers and moving the orchestrator | Future (when the first customers come) |
 | 23 | Deployment wizard | Future (when the first customers come) |
 
@@ -181,17 +181,27 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 One thing at a time; each item starts when the previous one is finished and tested.
 
 1. **Release to production** (done, 1.3.0): everything on `test` (phase 17, the UI fixes, the port plan per role and routing via ingest) goes to `main` as one release.
-2. **Bug fix: two tracks "Cued" at once**: only one track can be cued at a time. This must be right before the Studio layout below, where player B is the cued track.
-3. **Phase 20: Monitoring node**: alerts when a node or relay goes down, instead of finding out from silence.
-4. **RHIS Studio: OmniPlayer-style layout**, in steps:
-   1. Players A and B, the log (playlist) and a dashboard. *Built 2026-10-28 (RHIS Studio 0.17, on test).*
-   2. Both jingle grids and a separate loose player. *Built 2026-10-28 (RHIS Studio 0.18, on test).*
-   3. Library with columns for the station's own item code, ISRC, BPM and key (taken from the tags first, otherwise calculated on the server in the background; an admin can correct them). *Built 2026-10-28 (RHIS Studio 0.19, on test).*
+   **Release 1.4.0** (29 October 2026): items 2 to 6 below go to `main` as one release.
+2. **Bug fix: two tracks "Cued" at once** (done, 1.4.0, PRs #140 and #141): only one track can be cued at a time. This must be right before the Studio layout below, where player B is the cued track.
+3. **Phase 20: Monitoring node** (done, 1.4.0, PRs #142–#145, tested with a real monitoring node): the monitoring node shows on the network map in bright green in its own lane, with moving check lines to the nodes it checks (red when a check fails) and a Checks switch; alerts when a node or relay goes down, instead of finding out from silence.
+4. **Network map: customer blocks** (done, 1.4.0, PR #146): in the 2D and 3D map every customer becomes its own block, set apart from the shared infrastructure (station node, MPX, FM transmitter with its FM listeners, local recorder inside it), and every station gets its own line colour from studio through the shared ingests and relays to its listeners. Sketch: https://claude.ai/artifact/SmrKM7omutgpzMm5TWpa2w (approved 28 October 2026).
+5. **RHIS Studio: OmniPlayer-style layout** (done, 1.4.0, PRs #147–#152, RHIS Studio 0.17–0.21), in steps:
+   1. Players A and B, the log (playlist) and a dashboard. *RHIS Studio 0.17.*
+   2. Both jingle grids and a separate loose player. *RHIS Studio 0.18.*
+   3. Library with columns for the station's own item code, ISRC, BPM and key (taken from the tags first, otherwise calculated on the server in the background; an admin can correct them). *RHIS Studio 0.19.*
    4. News player (source set per station: a file from a URL, a file over FTP/SFTP, or a live stream, at set times, with a spare jingle when the news is missing) and a log editor.
-      - 4a. News player: a file from a URL, FTP, FTPS or SFTP, placed with a News item in the hour clocks, spare jingle, news player in Studio. *Built 2026-10-29 (RHIS Studio 0.20, on test).* A live stream as source follows later, after testing on radiostation.
-      - 4b. Log editor: the coming hours as the server fills them, to place and swap tracks; locked blocks stay fixed. *Built 2026-10-29 (panel tab Log editor, RHIS Studio 0.21, on test).*
+      - 4a. News player: a file from a URL, FTP, FTPS or SFTP, placed with a News item in the hour clocks, spare jingle, news player in Studio. *RHIS Studio 0.20.* A live stream as source follows later, after testing on radiostation.
+      - 4b. Log editor: the coming hours as the server fills them, to place and swap tracks; locked blocks stay fixed. *Panel tab Log editor, RHIS Studio 0.21.*
+   - Window size: designed for 1920×1080, usable down to 1280×720 (after Windows display scaling, so a laptop at 1920×1080 with 150% scaling still fits). Below that panels scroll or collapse instead of stretching; on wide screens the players keep a maximum width. A real full screen mode (F11).
+   - The layout keeps the layout switch (Classic and this new layout). The working name "OmniPlayer layout" gets its own name before release, to avoid confusion with another product.
    - Free docking of panels comes later as a separate item.
-5. **Phase 21: Recorder node**: recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download.
+6. **Move stations between nodes** (done, 1.4.0, PRs #153, #155 and #156): move a complete radio station from one node to another in one guided step: from the shared station node to a dedicated node, or to the customer's own node on site, and back. Library, playlists, clocks, schedule, history and settings go along; listeners and DJs follow to the new node without the station going silent. Today a station can only move between the main server and a node, and with "Orchestrator only" on it gets stuck. The bug "upgrading a station from Distribution to Radio station does nothing" is fixed together with this, by moving the edition from the customer to the station:
+   - A **customer** has no edition any more. Instead it has limits: how many radio stations (and nodes) it may have. A customer can register its own nodes.
+   - The choice is made per **radio station** when it is created (and can be changed later): **Distribution only** (the station gets the ingest endpoint to stream to) or **Radio station** (AutoDJ, clocks, library), and then where it runs: on the shared station node or on one of the customer's own nodes.
+   - Switching a station between Distribution and Radio station happens on the station itself and really changes it (for Radio station: placement on a station node).
+   - **Downgrading safely**: going from Radio station back to Distribution only needs an explicit confirmation that explains what it means (from then on the station only receives a stream from the customer's own software; AutoDJ, clocks, library and DJ logins stop). The station's content is kept in the background for 24 hours, with a clear warning and countdown, so the customer can switch back without loss. After 24 hours the content is deleted.
+7. **Security hardening for external nodes**: see the queued item below. (For now the one external server was closed by hand.)
+8. **Phase 21: Recorder node**: recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download.
 
 Later: phase 14 (orchestrator redundancy) just before sales start; phases 22 and 23 when the first customers come.
 
@@ -565,9 +575,82 @@ Small fixes planned for a patch release, one at a time after the current phase.
 | ![3D network map with control lines](docs/screenshots/pr-128-129-3d-control-on.png) | ![2D layers with lines around servers](docs/screenshots/pr-128-129-2d-layers.png) |
 | ![Customer page, station node of this customer](docs/screenshots/pr-128-129-customer-station-node-harder-fm.png) | ![Customer page, the chosen station node shown after loading](docs/screenshots/pr-128-129-customer-station-node-radio-schermer.png) |
 
+### Security hardening for external nodes (step 7 in the order of work)
+
+Nodes with a direct public IP address get a firewall that is closed by default.
+
+- The node agent manages an nftables firewall: all incoming traffic is dropped except the ports of the node's own roles (from the port plan per role), SSH, and replies to connections the node opened itself (to the orchestrator, relays and ingests).
+- The rules follow the node: when a role or port changes in the panel, the agent updates the firewall by itself.
+- SSH stays open, optionally limited to set admin IP addresses, with protection against password guessing (fail2ban or rate limits).
+- Safe apply: new rules roll back by themselves when the node loses its connection to the orchestrator within a minute, so a mistake never locks a node out.
+- Hardening is on by default for nodes that detect a public IP, and can be turned on for nodes behind NAT as well. The panel shows the firewall state per node, and the external port check confirms that only the expected ports answer.
+
+### Clear navigation for customers and station managers (queued, not scheduled yet; own thread)
+
+The customer side has many buttons in one row. It gets a small, logical structure with drop-down menus from the top menu:
+
+- **My node(s)**: the customer's own station node(s) with all node settings, ports and firewall, and how the audio is routed (delivery path, routing choice).
+- **Radio station**: Programme (hour clocks, clock items, weekly schedule, playlists), **Media library** (upload, folders, linked NAS/SMB/NFS shares made much clearer), DJs and live access, Public pages.
+- **Audience and statistics**, **Settings**.
+- The orchestrator admin panel gets the same clear grouping check (topology and monitoring stay as they are).
+- Short built-in explanations where things are not obvious, for example what an hour clock does and how clock items, locked blocks and the weekly schedule work together (the colours of clock items stay).
+- **Customer permissions in the admin panel**: per customer a clear overview of what they may do. Own nodes on or off; when on, a station node is allowed by default and other roles (FM/MPX, ingest, relay, recorder, monitoring) are switched on one by one; a total number of own nodes (for example 10), so a customer can run their own distribution network. The main limit for licensing is the number of radio stations; node limits come on top.
+- **Routing for customers**: a Routing menu where customers decide themselves which of their stations uses which of their own nodes (and the shared ones), and how (via ingest or direct, which relays).
+- A sketch first, for Reinder's choice, before building.
+
+### Small fixes (own thread, done in between)
+
+Small fixes are collected here and handled one at a time in a separate thread, next to the main item in the order of work.
+
+- **Direct fallback visible**: when a station node bypasses the ingest and pushes directly to the relays (fallback), the network map and the Monitoring page say so.
+- **Failing check by name**: the check badge on a relay names the check that failed in its tooltip.
+- **Upgrading a station does nothing**: switching a station (for example Uptempo.fm) from Distribution to Radio station has no effect.
+- **Bulk and large uploads in the media library**: upload many files at once and whole folders, and large files (a full DJ set of about 800 MB) without having to do them one by one; with a progress bar and resume on a broken connection.
+- **Orchestrator in the node overview**: the Nodes page opens with a pinned card for the server that hosts the orchestrator: its server name, hostname, internal and public address, version, uptime, CPU/RAM/disk, and which roles it still runs itself (local ingest or relay, or "Orchestrator only"). In the node list it is the first row with an "Orchestrator" badge, so it is never confused with a normal node. Later a standby orchestrator (phase 14) shows next to it.
+- **Quiet during updates**: the "old port open" check no longer flaps while a node is being updated.
+- **Ingest as its own step in the delivery path**: a station node that sends through an ingest now shows that ingest stacked under it in the same column; the ingest gets its own step to the right (source → station node → ingest → relays → listeners).
+- **Station node silent with a chosen main ingest**: when a station on a station node has a specific main ingest chosen (not Automatic), the node sends no audio at all, because the station's routing goes along in its package and the node then thinks it is not the ingest itself. The package should not carry that routing choice. Workaround until then: keep the main ingest on Automatic.
+
 ## Future ideas
 
 Not scheduled in a phase yet.
+
+### Schedule and "on air now" from the station node
+
+Public schedule data served straight from the customer's station node, so the orchestrator is not loaded by website traffic.
+
+- The station node publishes a small read-only public API and embeds: the weekly schedule (time slots, shows, when non-stop runs), "on air now" (which DJ or show is live, or non-stop/AutoDJ), now playing and up next.
+- The orchestrator only answers where to go: a public lookup returns the address of the right station node (or a relay or ingest for stations without one), the same way RHIS Studio finds its node. After that, websites talk to the node directly. Responses are cached on the node and safe to call often.
+- Embeds: a code include (one `<script>` or `<iframe>` line) for any website, showing the schedule, a week overview, and who is live. The existing public pages get these views too.
+- The port plan gets one extra public port on the station node for this (or it is served on the node's HTTPS port), and the firewall checklist and port check include it.
+
+### WordPress plugin
+
+A WordPress plugin for customer websites, built on the station node API above.
+
+- Connect with the station's public address (or slug), the plugin finds the right node through the orchestrator lookup.
+- Blocks and shortcodes: weekly schedule, today's schedule, "on air now / who is live", now playing with player, recently played.
+- Creates a schedule page in one click; follows the site's theme; caches on the WordPress side.
+
+### RHIS Studio on a second screen, Stream Deck and a viewer screen
+
+- **Second screen (optional)**: spread RHIS Studio over two monitors and choose per screen what it shows (extra jingle grids, library, log, clock), building on free docking of panels.
+- **Stream Deck support**: hot keys on an Elgato Stream Deck (or similar button panel) for jingles, players, Next and Go Live, with the button labels and colours taken from the jingle grid.
+- **Viewer screen for sidekicks**: a stripped-down read-only screen (a second monitor in the studio, or a browser on a tablet) showing what is on air, the next tracks, time to the next ad block or news, and who is live. No controls; locked blocks such as ads are clearly marked.
+
+### Reporter mode (remote contributions)
+
+- A reporter on location joins the broadcast from a phone: a simple web page on the station node (later a small Android app; iOS is harder) that uses the phone's microphone, like a phone call but in better quality (WebRTC/Opus), with a talk-back channel from the studio.
+- The DJ invites the reporter with a one-time link or code. In RHIS Studio a small reporter panel (that can be minimised or hidden) shows who is waiting, lets the DJ talk to them off air first, and puts them on air, like the SIP caller flow.
+- Later: a whole outside-broadcast set signs in the same way and can take over the broadcast (see "Several RHIS Studio clients at once").
+
+### Several RHIS Studio clients at once (remote broadcasts)
+
+For broadcasts from remote locations: RHIS Studio may be open on several PCs for the same station at the same time.
+
+- One client is **in control** (master); the others follow along (slave) and see the same playlist, players and state.
+- Control can be handed over or requested, with a clear indicator of which client has control; Go Live comes from the client in control.
+- If the master drops out, control falls back by a set rule (to a chosen backup client or to AutoDJ).
 
 ### Sound processor per station
 
@@ -578,6 +661,17 @@ Audio processing for the station's output, set per radio station (not per studio
 - Processing runs **once per station**, where the audio is made (the station node, or the server running its AutoDJ), before the encoders, so every mount and relay gets the same processed sound.
 - **System resources first**: off by default; a CPU limit per processor (systemd quota), live CPU and RAM use shown in the panel, and a warning before turning it on when the node does not have enough headroom. The plan or node limits decide who may use the heavy processor.
 - Live DJs and AutoDJ both go through it; an FM/MPX node with its own processing can skip it.
+
+### Standard library folders and smarter clock items
+
+- Every station starts with four fixed folders in its media library: **Music**, **Jingles**, **News** and **Ads**.
+- A clock item of a given type is linked to its folder by itself: a news item takes from News, a jingle from Jingles, an ad block from Ads. Quicker to build an hour clock.
+- Per clock item: a **fixed file** (for example a good sponsor's ad) or a **random item** from the folder. When the folder is empty, the item is skipped.
+- The free time between the fixed items is filled with music by category (see the format builder below).
+
+### DJ web portal
+
+DJs sign in with their own DJ username and password on a small web portal on their station's node, to upload their own jingle pack and manage their own jingles and profile, without access to the rest of the station.
 
 ### Format builder for non-stop
 
