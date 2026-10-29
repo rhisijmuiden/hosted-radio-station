@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { api, SECRET_MASK, type LibraryFolders, type MediaFile, type MediaSource, type MediaSourceType, type Playlist, type ScanProgress, type StationDetail } from '../../lib/api';
 import { useMe, isAdmin } from '../../lib/auth';
 import { camelot, formatRelative, formatSeconds } from '../../lib/format';
+import { droppedItems, isAudio, uploadInParts, type UploadItem } from '../../lib/upload';
 import { Badge, Button, Card, CardHeader, Dialog, EmptyState, Field, Input, Segmented, Select, Spinner, Switch } from '../ui';
 
 const PAGE = 100;
@@ -148,82 +149,186 @@ function TagsDialog({ station, file, onClose }: { station: StationDetail; file: 
   );
 }
 
+type UploadState = 'waiting' | 'uploading' | 'done' | 'failed';
+interface UploadRow extends UploadItem {
+  key: string;
+  state: UploadState;
+  sent: number;
+  error?: string;
+}
+
+/**
+ * Upload many files or whole folders at once, also big ones (a DJ set): every file goes in parts, one file after the
+ * other, with its own progress. A file that broke off resumes where it stopped.
+ */
 function UploadDialog({ station, open, onClose, folder }: { station: StationDetail; open: boolean; onClose: () => void; folder: string }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [target, setTarget] = useState(folder);
-  const [files, setFiles] = useState<File[]>([]);
-  const [progress, setProgress] = useState<number | null>(null);
+  const [rows, setRows] = useState<UploadRow[]>([]);
+  const [skipped, setSkipped] = useState<string[]>([]);
+  const [running, setRunning] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const abort = useRef<AbortController | null>(null);
   useEffect(() => {
     if (open) {
       setTarget(folder);
-      setFiles([]);
-      setProgress(null);
+      setRows([]);
+      setSkipped([]);
     }
   }, [open, folder]);
-  const total = files.reduce((n, f) => n + f.size, 0);
-  const start = () => {
-    const form = new FormData();
-    for (const f of files) form.append('files', f, f.name);
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', `/api/stations/${station.id}/library/upload?${new URLSearchParams({ folder: target })}`);
-    xhr.upload.onprogress = (e) => setProgress(e.lengthComputable ? Math.round((e.loaded / e.total) * 100) : null);
-    xhr.onload = () => {
-      setProgress(null);
-      const body = JSON.parse(xhr.responseText || '{}');
-      if (xhr.status !== 200) {
-        toast.error(body?.error?.message ?? xhr.statusText);
-        return;
-      }
-      toast.success(t('library.uploaded', { count: body.saved.length }));
-      for (const s of body.skipped as { name: string; reason: string }[]) toast.warning(`${s.name}: ${s.reason}`);
-      void qc.invalidateQueries({ queryKey: ['library-scan', station.id] });
-      onClose();
-    };
-    xhr.onerror = () => {
-      setProgress(null);
-      toast.error(t('library.uploadFailed'));
-    };
-    setProgress(0);
-    xhr.send(form);
+
+  const add = (items: UploadItem[]) => {
+    const audio = items.filter((i) => isAudio(i.file.name));
+    setSkipped((s) => [...s, ...items.filter((i) => !isAudio(i.file.name)).map((i) => i.path)]);
+    setRows((r) => {
+      const have = new Set(r.map((x) => x.key));
+      const next = audio.map((i) => ({ ...i, key: `${i.path}:${i.file.size}`, state: 'waiting' as UploadState, sent: 0 })).filter((x) => !have.has(x.key));
+      return [...r, ...next];
+    });
   };
+  const fromInput = (list: FileList | null) => add([...(list ?? [])].map((file) => ({ file, path: file.webkitRelativePath || file.name })));
+  const update = (key: string, patch: Partial<UploadRow>) => setRows((r) => r.map((x) => (x.key === key ? { ...x, ...patch } : x)));
+
+  const start = async () => {
+    const ctl = new AbortController();
+    abort.current = ctl;
+    setRunning(true);
+    let done = 0;
+    let failed = 0;
+    for (const row of rows.filter((r) => r.state !== 'done')) {
+      if (ctl.signal.aborted) break;
+      update(row.key, { state: 'uploading', error: undefined });
+      try {
+        await uploadInParts(station.id, target, row, (sent) => update(row.key, { sent }), ctl.signal);
+        update(row.key, { state: 'done', sent: row.file.size });
+        done++;
+      } catch (err) {
+        if (ctl.signal.aborted) {
+          update(row.key, { state: 'waiting' });
+          break;
+        }
+        update(row.key, { state: 'failed', error: (err as Error).message });
+        failed++;
+      }
+    }
+    setRunning(false);
+    abort.current = null;
+    void qc.invalidateQueries({ queryKey: ['library-scan', station.id] });
+    void qc.invalidateQueries({ queryKey: ['library-folders', station.id] });
+    if (done) toast.success(t('library.uploaded', { count: done }));
+    if (failed) toast.error(t('library.uploadSomeFailed', { count: failed }));
+  };
+
+  const total = rows.reduce((n, r) => n + r.file.size, 0);
+  const sent = rows.reduce((n, r) => n + r.sent, 0);
+  const pct = total ? Math.round((sent / total) * 100) : 0;
+  const left = rows.filter((r) => r.state !== 'done').length;
+  const anyFailed = rows.some((r) => r.state === 'failed');
+  const mb = (n: number) => `${(n / 1024 / 1024).toFixed(1)} MB`;
+  const folderProps = { webkitdirectory: '', directory: '' } as Record<string, string>;
+
   return (
     <Dialog
       open={open}
-      onClose={() => progress === null && onClose()}
+      onClose={() => !running && onClose()}
+      wide
       title={t('library.upload')}
       description={t('library.uploadHint')}
       footer={
         <>
-          <Button variant="ghost" disabled={progress !== null} onClick={onClose}>
-            {t('common.cancel')}
-          </Button>
-          <Button variant="primary" disabled={!files.length} loading={progress !== null} onClick={start}>
-            <Upload className="size-4" /> {progress !== null ? `${progress}%` : t('library.uploadCount', { count: files.length })}
+          {running ? (
+            <Button variant="ghost" onClick={() => abort.current?.abort()}>
+              <Square className="size-4" /> {t('library.uploadStop')}
+            </Button>
+          ) : (
+            <Button variant="ghost" onClick={onClose}>
+              {rows.length && !left ? t('common.close') : t('common.cancel')}
+            </Button>
+          )}
+          <Button variant="primary" disabled={!left || running} loading={running} onClick={() => void start()}>
+            <Upload className="size-4" /> {running ? `${pct}%` : anyFailed ? t('library.uploadResume', { count: left }) : t('library.uploadCount', { count: left })}
           </Button>
         </>
       }
     >
       <div className="flex flex-col gap-4">
         <Field label={t('library.folder')} hint={t('library.folderHint')}>
-          <Input className="font-mono" value={target} onChange={(e) => setTarget(e.target.value)} placeholder="music/hardstyle" />
+          <Input className="font-mono" value={target} disabled={running} onChange={(e) => setTarget(e.target.value)} placeholder="music/hardstyle" />
         </Field>
-        <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-line px-4 py-8 text-center hover:bg-hover">
+        <div
+          className={clsx('flex flex-col items-center gap-3 rounded-lg border-2 border-dashed px-4 py-7 text-center', dragging ? 'border-koraal bg-koraal/8' : 'border-line')}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            if (!running) void droppedItems(e.dataTransfer).then(add);
+          }}
+        >
           <Upload className="size-6 text-accent-text" />
           <span className="text-sm font-semibold">{t('library.chooseFiles')}</span>
-          <span className="text-xs text-muted">MP3, AAC, M4A, OGG, Opus, FLAC, WAV</span>
-          <input type="file" multiple accept=".mp3,.aac,.m4a,.mp4,.ogg,.oga,.opus,.flac,.wav,audio/*" className="hidden" onChange={(e) => setFiles([...(e.target.files ?? [])])} />
-        </label>
-        {files.length > 0 && (
-          <p className="text-[13px]">
-            {t('library.selected', { count: files.length })} · {(total / 1024 / 1024).toFixed(1)} MB
-          </p>
-        )}
-        {progress !== null && (
-          <div className="h-2 overflow-hidden rounded-full bg-chip">
-            <div className="h-full bg-koraal transition-[width]" style={{ width: `${progress}%` }} />
+          <span className="text-xs text-muted">{t('library.uploadLarge')}</span>
+          <div className="flex flex-wrap justify-center gap-2">
+            <label className={clsx('inline-flex', running && 'pointer-events-none opacity-50')}>
+              <span className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-line bg-raised px-3 text-[13px] font-semibold hover:bg-hover">
+                <Music2 className="size-4" /> {t('library.pickFiles')}
+              </span>
+              <input type="file" multiple accept=".mp3,.aac,.m4a,.mp4,.ogg,.oga,.opus,.flac,.wav,audio/*" className="hidden" onChange={(e) => (fromInput(e.target.files), (e.target.value = ''))} />
+            </label>
+            <label className={clsx('inline-flex', running && 'pointer-events-none opacity-50')}>
+              <span className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-line bg-raised px-3 text-[13px] font-semibold hover:bg-hover">
+                <FolderOpen className="size-4" /> {t('library.pickFolder')}
+              </span>
+              <input type="file" multiple {...folderProps} className="hidden" onChange={(e) => (fromInput(e.target.files), (e.target.value = ''))} />
+            </label>
           </div>
+        </div>
+        {rows.length > 0 && (
+          <>
+            <div className="flex items-center justify-between gap-3 text-[13px]">
+              <span>
+                {t('library.selected', { count: rows.length })} · {mb(total)}
+              </span>
+              {(running || sent > 0) && (
+                <span className="tabular-nums text-muted">
+                  {mb(sent)} / {mb(total)} · {pct}%
+                </span>
+              )}
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-chip">
+              <div className="h-full bg-koraal transition-[width]" style={{ width: `${pct}%` }} />
+            </div>
+            <ul className="flex max-h-64 flex-col divide-y divide-line overflow-y-auto rounded-md border border-line">
+              {rows.map((r) => (
+                <li key={r.key} className="flex items-center gap-3 px-3 py-2 text-[13px]">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-mono text-[12px]" title={r.path}>
+                      {r.path}
+                    </div>
+                    {r.state === 'uploading' && (
+                      <div className="mt-1 h-1 overflow-hidden rounded-full bg-chip">
+                        <div className="h-full bg-koraal" style={{ width: `${r.file.size ? (r.sent / r.file.size) * 100 : 0}%` }} />
+                      </div>
+                    )}
+                    {r.error && <div className="text-xs text-offline">{r.error}</div>}
+                  </div>
+                  <span className="shrink-0 text-xs text-muted tabular-nums">{mb(r.file.size)}</span>
+                  <Badge tone={r.state === 'done' ? 'online' : r.state === 'failed' ? 'offline' : r.state === 'uploading' ? 'accent' : 'neutral'}>{t(`library.uploadState.${r.state}`)}</Badge>
+                  {!running && r.state !== 'done' && (
+                    <button type="button" className="text-muted hover:text-ink" title={t('common.remove')} onClick={() => setRows((x) => x.filter((y) => y.key !== r.key))}>
+                      <Trash2 className="size-4" />
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </>
         )}
+        {skipped.length > 0 && <p className="text-xs text-warning">{t('library.uploadSkipped', { count: skipped.length, names: skipped.slice(0, 3).join(', ') })}</p>}
       </div>
     </Dialog>
   );
