@@ -605,6 +605,7 @@ Small fixes are collected here and handled one at a time in a separate thread, n
 - **Bulk and large uploads in the media library**: upload many files at once and whole folders, and large files (a full DJ set of about 800 MB) without having to do them one by one; with a progress bar and resume on a broken connection.
 - **Orchestrator in the node overview**: the Nodes page opens with a pinned card for the server that hosts the orchestrator: its server name, hostname, internal and public address, version, uptime, CPU/RAM/disk, and which roles it still runs itself (local ingest or relay, or "Orchestrator only"). In the node list it is the first row with an "Orchestrator" badge, so it is never confused with a normal node. Later a standby orchestrator (phase 14) shows next to it.
 - **Quiet during updates**: the "old port open" check no longer flaps while a node is being updated.
+- **Ingest as its own step in the delivery path**: a station node that sends through an ingest now shows that ingest stacked under it in the same column; the ingest gets its own step to the right (source → station node → ingest → relays → listeners).
 
 ## Future ideas
 
