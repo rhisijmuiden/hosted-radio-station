@@ -140,7 +140,7 @@ Every node has a **Firewall** tab listing exactly which ports to open or forward
 
 ## Node firewall
 
-A node can close itself off with its own firewall (Firewall tab → **Firewall on this node**). A node added after this update gets it switched on at its first connection when it has a public address on its own interface (a server in a data centre); a node behind a router keeps it off. Nodes from before keep what they have. The
+A node can close itself off with its own firewall (Firewall tab → **Firewall on this node**). Every node gets it switched on at its next connection when it has a public address on its own interface (a server in a data centre); a node behind a router keeps it off. A firewall switched on or off by hand after that is never changed again. Existing firewall rules on the server (iptables, ufw, …) still stop it until you choose to take over. The
 agent hands the ports of the node's roles (the same list as the checklist above, plus port 80 for certificates behind
 its own web server and any extra ports in its settings) to the root helper `hrs-node-firewall`, which sets one
 nftables table `inet hrs_node`: incoming traffic is dropped except loopback, replies to connections the node opened

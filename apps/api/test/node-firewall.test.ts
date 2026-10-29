@@ -1,4 +1,5 @@
-import { eq } from 'drizzle-orm';
+import { readFileSync } from 'node:fs';
+import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { schema } from '../src/db/index.js';
 import { buildPlan } from '../src/services/nodes/plan.js';
@@ -116,18 +117,29 @@ describe('firewall by default for new nodes (step 4)', () => {
     a.close();
   });
 
-  it('waits for software that has a firewall, and never touches nodes from before', async () => {
+  it('waits for software that has a firewall', async () => {
     const n = await created('old-agent-fw');
     const a = agent(n.id, n.secret, ['198.51.100.10'], []);
     await a.welcomed;
     expect(await firewallOf(n.id)).toMatchObject({ auto: true });
     a.close();
+  });
 
-    const before = await created('existing-fw');
-    await t.db.update(schema.nodes).set({ config: {} }).where(eq(schema.nodes.id, before.id));
-    const b = agent(before.id, before.secret, ['198.51.100.11'], ['firewall']);
+  it('gives nodes from before the same default, except a firewall switched on by hand', async () => {
+    const untouched = await created('existing-fw');
+    const off = await created('existing-off-fw');
+    const on = await created('existing-on-fw');
+    await t.db.update(schema.nodes).set({ config: {} }).where(eq(schema.nodes.id, untouched.id));
+    await t.db.update(schema.nodes).set({ config: { firewall: { enabled: false, takeOver: false, extraPorts: [] } } as never }).where(eq(schema.nodes.id, off.id));
+    await t.db.update(schema.nodes).set({ config: { firewall: { enabled: true, takeOver: true, extraPorts: [] } } as never }).where(eq(schema.nodes.id, on.id));
+    await t.db.execute(sql.raw(readFileSync(new URL('../drizzle/0031_node_firewall_existing.sql', import.meta.url), 'utf8')));
+    expect(await firewallOf(untouched.id)).toEqual({ auto: true });
+    expect(await firewallOf(off.id)).toMatchObject({ enabled: false, auto: true });
+    expect(await firewallOf(on.id)).toEqual({ enabled: true, takeOver: true, extraPorts: [] });
+
+    const b = agent(untouched.id, untouched.secret, ['198.51.100.11'], ['firewall']);
     await b.welcomed;
-    expect(await firewallOf(before.id)).toBeUndefined();
+    expect(await firewallOf(untouched.id)).toMatchObject({ enabled: true, auto: false });
     b.close();
   });
 

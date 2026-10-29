@@ -2612,7 +2612,7 @@ export const en = {
         password: 'The SSH server of this node still takes passwords. Logging in with keys only (PasswordAuthentication no) is safer.',
         safety: 'Locked yourself out? The firewall can always be switched off here: the node keeps its connection to the orchestrator.',
       },
-      auto: 'Decided at the first connection: on when the node has a public address of its own (a server in a data centre), off behind a router.',
+      auto: 'Decided at the next connection: on when the node has a public address of its own (a server in a data centre), off behind a router.',
       letIn: 'Let in',
       always: 'Also always let in: replies to the node\'s own connections, ping (ICMP) and DHCP.',
       state: { off: 'Off', running: 'Applying', pending: 'On trial', active: 'Active', foreign: 'Other rules found', rolledBack: 'Rolled back', failed: 'Failed', unsupported: 'Not supported' },

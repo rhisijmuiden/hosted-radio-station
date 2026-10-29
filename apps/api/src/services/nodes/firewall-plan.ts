@@ -9,7 +9,7 @@ import type { NodePlan } from './protocol.js';
 export const NEW_NODE_FIREWALL = { firewall: { auto: true } } as const;
 
 /**
- * The firewall default (security hardening for external nodes, step 4), once per new node: on for a node with a
+ * The firewall default (security hardening for external nodes, step 4), once per node (new nodes, and nodes from before it whose firewall was not switched on by hand): on for a node with a
  * public address on its own interface (a server in a data centre), off for a node behind a router. Returns the new
  * stored settings, or null when there is nothing to decide (yet): the node's software has no firewall, or it was
  * decided before.

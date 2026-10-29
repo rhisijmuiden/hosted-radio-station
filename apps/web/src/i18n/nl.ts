@@ -2614,7 +2614,7 @@ export const nl: Translation = {
         password: 'De SSH-server van deze node accepteert nog wachtwoorden. Alleen inloggen met sleutels (PasswordAuthentication no) is veiliger.',
         safety: 'Jezelf buitengesloten? De firewall kun je hier altijd uitzetten: de node houdt zijn verbinding met de orchestrator.',
       },
-      auto: 'Wordt bepaald bij de eerste verbinding: aan als de node een eigen publiek adres heeft (een server in een datacenter), uit achter een router.',
+      auto: 'Wordt bepaald bij de volgende verbinding: aan als de node een eigen publiek adres heeft (een server in een datacenter), uit achter een router.',
       letIn: 'Toegelaten',
       always: 'Ook altijd toegelaten: antwoorden op verbindingen van de node zelf, ping (ICMP) en DHCP.',
       state: { off: 'Uit', running: 'Bezig', pending: 'Op proef', active: 'Actief', foreign: 'Andere regels gevonden', rolledBack: 'Teruggedraaid', failed: 'Mislukt', unsupported: 'Niet ondersteund' },
