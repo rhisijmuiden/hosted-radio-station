@@ -105,7 +105,39 @@ export interface NodePlan {
    * ports ("8200" or "8210-8299"). Missing in plans of older main servers: the node leaves its firewall alone.
    */
   firewall?: { enabled: boolean; takeOver: boolean; tcp: string[]; udp: string[]; sshFrom?: string[]; sshLimit?: boolean };
+  /** Recorder (phase 21). Missing in plans of older main servers. */
+  recorder?: RecorderPlan | null;
   update: { branch: string | null; commit: string | null; auto: boolean };
+}
+
+/** What a recorder node records (phase 21). */
+export interface RecorderPlan {
+  stations: {
+    stationId: string;
+    slug: string;
+    name: string;
+    /** Continuous recording in files of one hour: where to listen, the MP3 bitrate, and how many days to keep. */
+    logging: { url: string; kbps: number; days: number } | null;
+  }[];
+}
+
+/** What a recorder node is doing, in every stats message. */
+export interface RecorderStatus {
+  stations: { stationId: string; kind: 'log'; state: 'starting' | 'recording' | 'waiting' | 'error'; message?: string; since?: string }[];
+  /** The disk of the recordings folder. */
+  disk: { totalBytes: number; freeBytes: number; usedBytes: number } | null;
+}
+
+/** A file on a recorder node, in the bulk report. `file` is relative to its recordings folder. */
+export interface RecordingFile {
+  stationId: string;
+  kind: 'log';
+  file: string;
+  startedAt: string;
+  seconds: number;
+  bytes: number;
+  /** Still being written. */
+  open: boolean;
 }
 
 /** A mount of a station on an ingest node (phase 13). */
@@ -301,6 +333,7 @@ export interface AgentStats {
   fm?: FmStatus | null;
   /** The node's firewall as its root helper reports it. */
   firewall?: NodeFirewallStatus | null;
+  recorder?: RecorderStatus | null;
 }
 
 export interface NodeFirewallStatus {
@@ -340,7 +373,14 @@ export interface AgentPortCheckResult {
   results: PortCheckResult[];
 }
 
-export type AgentMessage = AgentHello | AgentStats | AgentEvent | AgentAuth | AgentLive | AgentLiveSync | AgentPortCheckResult | { t: 'pong'; seq: number };
+/** A recorder node cannot send a file the server asked for (rec_send). */
+export interface AgentRecordingError {
+  t: 'rec_error';
+  id: string;
+  message: string;
+}
+
+export type AgentMessage = AgentHello | AgentStats | AgentEvent | AgentAuth | AgentLive | AgentLiveSync | AgentPortCheckResult | AgentRecordingError | { t: 'pong'; seq: number };
 
 export type ServerMessage =
   | { t: 'welcome'; nodeId: string; name: string; serverTime: string }
@@ -358,7 +398,12 @@ export type ServerMessage =
   /** Monitoring node (phase 20): try these TCP ports of a node from outside and answer with portcheck_result. */
   | { t: 'portcheck'; id: number; host: string; ports: number[] }
   /** FM/MPX: who is live and which show runs, for the RadioText (the song comes from the stream itself). */
-  | { t: 'fm'; dj: string | null; show: string | null };
+  | { t: 'fm'; dj: string | null; show: string | null }
+  /**
+   * Recorder (phase 21): post bytes start..end (end exclusive, null = up to the end) of this file to
+   * POST /api/nodes/agent/recordings/<id>, or answer with rec_error.
+   */
+  | { t: 'rec_send'; id: string; file: string; start: number; end: number | null };
 
 /** The bulk report a node posts every 30 seconds (POST /api/nodes/agent/report). */
 export interface AgentReport {
@@ -367,4 +412,6 @@ export interface AgentReport {
   probes: ({ target: string; stationId: string; url: string; ok: boolean; httpStatus: number | null; ttfbMs: number | null; message?: string; at: string } & Partial<ProbeMeasure>)[];
   /** Listeners that left since the last report, with the moment they left. */
   ended?: { key: string; id: string; endedAt: string }[];
+  /** Recorder: every file it has, when that changed (or now and then). Missing = no news. */
+  recordings?: RecordingFile[];
 }

@@ -3,6 +3,19 @@
 All notable changes to Hosted Radio Station. Versions follow [semantic versioning](https://semver.org). The
 [roadmap](ROADMAP.md) has the full description of each phase, with screenshots.
 
+## Unreleased
+
+- Recorder node (phase 21, step 1): a new node role **Recorder** records stations. Choose the stations it records
+  under the node's settings (none until chosen; a dedicated or customer recorder only offers its own stations). It
+  listens to each station's default stream through the nearest relay and makes a continuous **logging** recording in
+  MP3 files of one clock hour, at the bitrate and for the number of days set per station (default 64 kbps, 31 days).
+  When its disk runs full, the oldest logging files go first. The files stay on the recorder: the new station page
+  **Recordings** lists them per day, plays an hour with its play log (every song, live with the DJ or AutoDJ; a click
+  jumps to it) and downloads it, fetched from the recorder on demand, also when it sits behind NAT at a customer's
+  site. The node page shows what it records per station and its disk; on the 2D map a customer's recorder stands in
+  the customer's block. API: GET/PUT /stations/:id/recording, GET /stations/:id/recordings, …/:rid/songs and
+  …/:rid/audio. See [recorder](docs/recorder.md).
+
 ## 1.5.0 (29 October 2026)
 
 Security hardening for external nodes (a node firewall with nftables, on by default for nodes with a public address,

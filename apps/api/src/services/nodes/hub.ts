@@ -1,10 +1,11 @@
-import { timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import net from 'node:net';
+import type { Readable } from 'node:stream';
 import { and, eq, gt, lt, sql } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import type { WebSocket } from 'ws';
 import { schema } from '../../db/index.js';
-import type { NodeStatus } from '../../db/schema.js';
+import type { NodeRecorderStatus, NodeStatus } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
 import { isCloudflareAddress } from '../../lib/cloudflare-ips.js';
 import { isPublicAddress } from '../dns/records.js';
@@ -86,6 +87,32 @@ export function sanitizeFm(f: FmStatus): FmStatus {
   };
 }
 
+/** The recorder status of a node, checked field by field (phase 21). */
+export function sanitizeRecorder(r: unknown): NodeRecorderStatus | null {
+  if (!r || typeof r !== 'object') return null;
+  const v = r as { stations?: unknown; disk?: unknown };
+  const states = ['starting', 'recording', 'waiting', 'error'] as const;
+  const d = v.disk && typeof v.disk === 'object' ? (v.disk as Record<string, unknown>) : null;
+  return {
+    stations: (Array.isArray(v.stations) ? v.stations : []).slice(0, 500).map((x: Record<string, unknown>) => ({
+      stationId: String(x?.stationId ?? '').slice(0, 36),
+      kind: 'log' as const,
+      state: states.includes(x?.state as never) ? (x.state as (typeof states)[number]) : 'error',
+      message: str(x?.message, 300),
+      since: str(x?.since, 40),
+    })),
+    disk: d ? { totalBytes: Math.max(0, num(d.totalBytes)), freeBytes: Math.max(0, num(d.freeBytes)), usedBytes: Math.max(0, num(d.usedBytes)) } : null,
+  };
+}
+
+/** A part of a file a recorder node sends (phase 21): its bytes, where they start, and the size of the whole file. */
+export interface RecordingPart {
+  body: Readable;
+  start: number;
+  length: number;
+  size: number;
+}
+
 export async function nodeEvent(ctx: AppContext, nodeId: string, kind: string, level: 'info' | 'warning' | 'error' = 'info', details: Record<string, string | number | null> = {}) {
   await ctx.db.insert(schema.nodeEvents).values({ nodeId, kind, level, details }).catch(() => undefined);
 }
@@ -106,6 +133,8 @@ export class NodeHub {
   /** Port checks a monitoring node is busy with (phase 20), by id. */
   private portChecks = new Map<number, { nodeId: string; done: (r: { address: string | null; results: PortCheckResult[] } | null) => void }>();
   private portCheckSeq = 0;
+  /** Files asked of recorder nodes (phase 21), by id, until the node posts them. */
+  private recordingJobs = new Map<string, { nodeId: string; done: (r: RecordingPart | Error) => void }>();
 
   constructor(
     private readonly ctx: AppContext,
@@ -308,6 +337,9 @@ export class NodeHub {
         address: typeof msg.address === 'string' ? msg.address.slice(0, 100) : null,
         results: (Array.isArray(msg.results) ? msg.results : []).slice(0, 200).map((r) => ({ port: Number(r.port), ok: r.ok === true, message: r.message == null ? null : String(r.message).slice(0, 60), ms: num(r.ms) })),
       });
+    } else if (msg.t === 'rec_error') {
+      const job = this.recordingJobs.get(String(msg.id));
+      if (job?.nodeId === c.nodeId) job.done(new Error(String(msg.message ?? 'The recorder could not send the file').slice(0, 200)));
     } else if (msg.t === 'event' && typeof msg.kind === 'string' && /^[a-z_]{1,40}$/.test(msg.kind)) {
       const level = msg.level === 'warning' || msg.level === 'error' ? msg.level : 'info';
       const details: Record<string, string | number | null> = {};
@@ -376,6 +408,7 @@ export class NodeHub {
       }
     }
     s.fm = m.fm && typeof m.fm === 'object' ? sanitizeFm(m.fm) : null;
+    s.recorder = sanitizeRecorder(m.recorder);
     s.updatedAt = new Date().toISOString();
     // Ingest status feeds now playing on this server, so it is saved more often.
     if (Date.now() - c.savedAt > (s.ingest?.length ? 3000 : 10_000)) void this.save(c);
@@ -572,6 +605,42 @@ export class NodeHub {
       this.portChecks.set(id, { nodeId, done: finish });
       this.send(c, { t: 'portcheck', id, host, ports });
     });
+  }
+
+  /** Whether a connected node can record and send recordings (phase 21). */
+  canRecord(nodeId: string) {
+    return !!this.conns.get(nodeId)?.status.features?.includes('recorder');
+  }
+
+  /**
+   * Asks a recorder node for bytes start..end (end exclusive, null = to the end) of one of its files (phase 21). The
+   * node posts them to /api/nodes/agent/recordings/<id> (it may sit behind NAT, so it sends instead of being fetched);
+   * that request hands them over with recordingArrived. Rejects when the node is offline, answers with an error, or
+   * does not start sending in time.
+   */
+  fetchRecording(nodeId: string, file: string, start: number, end: number | null, timeoutMs = 20_000): Promise<RecordingPart> {
+    const c = this.conns.get(nodeId);
+    if (!c) return Promise.reject(new Error('The recorder is offline'));
+    const id = randomUUID();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => finish(new Error('The recorder did not answer in time')), timeoutMs);
+      const finish = (r: RecordingPart | Error) => {
+        clearTimeout(timer);
+        this.recordingJobs.delete(id);
+        if (r instanceof Error) reject(r);
+        else resolve(r);
+      };
+      this.recordingJobs.set(id, { nodeId, done: finish });
+      this.send(c, { t: 'rec_send', id, file, start, end });
+    });
+  }
+
+  /** The node posted the file it was asked for. False when nobody waits for it (any more). */
+  recordingArrived(nodeId: string, id: string, part: RecordingPart) {
+    const job = this.recordingJobs.get(id);
+    if (!job || job.nodeId !== nodeId) return false;
+    job.done(part);
+    return true;
   }
 
   /** Closes the connection of a node that was unpaired or removed; the agent stops trying. */

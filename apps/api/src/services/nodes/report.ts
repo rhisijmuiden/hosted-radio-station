@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lt, notInArray, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema } from '../../db/index.js';
 import type { NodeClient, NodeStatus } from '../../db/schema.js';
@@ -61,6 +61,21 @@ export const reportSchema = z.object({
     )
     .max(2000)
     .default([]),
+  // Recorder (phase 21): every file it has; missing = no news since the last list.
+  recordings: z
+    .array(
+      z.object({
+        stationId: z.uuid(),
+        kind: z.literal('log'),
+        file: z.string().max(300).regex(/^[0-9a-f-]{36}\/log\/[A-Za-z0-9_.-]{1,100}$/),
+        startedAt: z.iso.datetime(),
+        seconds: z.number().int().min(0).max(366 * 86400),
+        bytes: z.number().int().min(0),
+        open: z.boolean(),
+      }),
+    )
+    .max(20_000)
+    .optional(),
 });
 export type Report = z.infer<typeof reportSchema>;
 
@@ -179,5 +194,38 @@ export async function storeReport(ctx: AppContext, hub: NodeHub, node: Node, rep
         or(sql`${schema.nodeProbes.checkedAt} < now() - interval '1 day'`, allowedStations.size ? notInArray(schema.nodeProbes.stationId, [...allowedStations]) : sql`true`),
       ),
     );
+  if (report.recordings) await storeRecordings(ctx, node, report.recordings, allowedStations);
   return { clients: clients.length, relays: relays.length, probes: probes.length };
+}
+
+/**
+ * The files a recorder node has (phase 21): rows are added or updated, and the ones it no longer has go away. Files of
+ * stations the node does not serve are left out, so a node cannot put recordings on someone else's station.
+ */
+async function storeRecordings(ctx: AppContext, node: Node, files: NonNullable<Report['recordings']>, allowed: Set<string>) {
+  const at = new Date();
+  const rows = files
+    .filter((f) => allowed.has(f.stationId) && f.file.startsWith(`${f.stationId}/`))
+    .map((f) => ({
+      nodeId: node.id,
+      stationId: f.stationId,
+      kind: f.kind,
+      file: f.file,
+      contentType: 'audio/mpeg',
+      startedAt: new Date(f.startedAt),
+      durationSeconds: f.seconds,
+      sizeBytes: f.bytes,
+      open: f.open,
+      updatedAt: at,
+    }));
+  for (let i = 0; i < rows.length; i += 500) {
+    await ctx.db
+      .insert(schema.recordings)
+      .values(rows.slice(i, i + 500))
+      .onConflictDoUpdate({
+        target: [schema.recordings.nodeId, schema.recordings.file],
+        set: { stationId: sql`excluded.station_id`, startedAt: sql`excluded.started_at`, durationSeconds: sql`excluded.duration_seconds`, sizeBytes: sql`excluded.size_bytes`, open: sql`excluded.open`, updatedAt: sql`excluded.updated_at` },
+      });
+  }
+  await ctx.db.delete(schema.recordings).where(and(eq(schema.recordings.nodeId, node.id), lt(schema.recordings.updatedAt, at)));
 }

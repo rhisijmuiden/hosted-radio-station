@@ -96,6 +96,13 @@ const statusOut = z
         groups: z.record(z.string(), z.number()),
       })
       .nullish(),
+    /** Recorder (phase 21): what it records per station, and its disk. */
+    recorder: z
+      .object({
+        stations: z.array(z.object({ stationId: z.string(), kind: z.literal('log'), state: z.enum(['starting', 'recording', 'waiting', 'error']), message: z.string().optional(), since: z.string().optional() })),
+        disk: z.object({ totalBytes: z.number(), freeBytes: z.number(), usedBytes: z.number() }).nullable(),
+      })
+      .nullish(),
     updatedAt: z.string().optional(),
   });
 
@@ -326,6 +333,9 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
     const named = patch.relayStations && patch.relayStations !== 'all' ? new Set(patch.relayStations) : new Set<string>();
     if (c.relayStations !== 'all' && c.relayStations.some((id) => (byId.has(id) ? !serves(next, byId.get(id)!) : named.has(id))))
       throw badRequest(node.tenantId ? 'A node of a customer can only carry that customer\'s stations' : 'This node is dedicated: it can only carry the stations it is dedicated to');
+    const namedRec = patch.recordStations && patch.recordStations !== 'all' ? new Set(patch.recordStations) : new Set<string>();
+    if (c.recordStations !== 'all' && c.recordStations.some((id) => (byId.has(id) ? !serves(next, byId.get(id)!) : namedRec.has(id))))
+      throw badRequest(node.tenantId ? 'A node of a customer can only record that customer\'s stations' : 'This node is dedicated: it can only record the stations it is dedicated to');
     if (c.fm.stationId) {
       const st = byId.get(c.fm.stationId);
       if (!st) throw badRequest('Unknown station');

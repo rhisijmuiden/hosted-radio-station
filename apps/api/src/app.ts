@@ -56,6 +56,7 @@ import { NodeUpdater } from './services/nodes/updates.js';
 import { forgetMissingStations } from './services/nodes/routing.js';
 import { listenFallbackRoutes, listenRedirectRoutes, nodeAgentRoutes, nodeRoutes } from './routes/nodes.js';
 import { orchestratorRoutes, stationConnectionRoutes } from './routes/orchestrator.js';
+import { recordingAgentRoutes, stationRecordingRoutes } from './routes/recordings.js';
 import { stationNodeAgentRoutes, stationPlacementRoutes, tenantStationNodeRoutes } from './routes/station-nodes.js';
 import { stationNodeInternalRoutes } from './routes/station-node-internal.js';
 import { StationTunnels } from './services/stationnode/hub.js';
@@ -240,6 +241,8 @@ export async function buildApp(ctx: AppContext) {
   await app.register(stationPlacementRoutes, { prefix: '/api/stations' });
   await app.register(stationRoutingRoutes, { prefix: '/api/stations' });
   await app.register(stationConnectionRoutes, { prefix: '/api/stations' });
+  await app.register(stationRecordingRoutes, { prefix: '/api/stations' });
+  await app.register(recordingAgentRoutes, { prefix: '/api/nodes' });
   await app.register(tenantStationNodeRoutes, { prefix: '/api/tenants' });
   await app.register(dnsRoutes, { prefix: '/api/dns' });
   await app.register(alertRoutes, { prefix: '/api/alerts' });

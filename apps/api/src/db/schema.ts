@@ -359,6 +359,8 @@ export const stations = pgTable(
     downgrade: jsonb('downgrade').$type<StationDowngrade>(),
     /** Which ingest takes the encoders and which relays it feeds (phase 13). Read through routingSchema for defaults. */
     routing: jsonb('routing').$type<Record<string, unknown>>().notNull().default({}),
+    /** What a recorder node records of this station (phase 21). Read through recordingSchema for defaults. */
+    recording: jsonb('recording').$type<Record<string, unknown>>().notNull().default({}),
     createdAt: createdAt(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -993,7 +995,7 @@ export const scheduleEntries = pgTable(
 
 // Phase 8: distribution network and orchestration
 
-export const NODE_ROLES = ['relay', 'source', 'station', 'fm', 'monitor'] as const;
+export const NODE_ROLES = ['relay', 'source', 'station', 'fm', 'monitor', 'recorder'] as const;
 export type NodeRole = (typeof NODE_ROLES)[number];
 
 /** Settings of a node, made in the panel. Read through nodeConfigSchema for defaults. */
@@ -1035,6 +1037,8 @@ export interface NodeConfig {
   dedication?: 'auto' | 'shared' | 'customer' | 'station';
   dedicatedTenantId?: string | null;
   dedicatedStationId?: string | null;
+  /** Recorder (phase 21): the stations it records, "all" = every station it serves. */
+  recordStations?: 'all' | string[];
 }
 
 /** What a node reported last, kept with the node so every process (API, streams) can read it. */
@@ -1090,9 +1094,17 @@ export interface NodeStatus {
   fm?: FmStatus | null;
   /** The node's firewall as the node reports it (security hardening for external nodes). */
   firewall?: { state: string; message?: string; foreign?: string[]; ports?: { ssh: string[]; tcp: string[]; udp: string[] }; ssh?: { from: string[]; limit: boolean; password: string }; at?: string } | null;
+  /** Recorder (phase 21): what it records per station, and the room left on its disk. */
+  recorder?: NodeRecorderStatus | null;
   updatedAt?: string;
   /** When the last bulk report (relays, listeners) came in. */
   reportedAt?: string;
+}
+
+/** What a recorder node reports (phase 21). */
+export interface NodeRecorderStatus {
+  stations: { stationId: string; kind: 'log'; state: 'starting' | 'recording' | 'waiting' | 'error'; message?: string; since?: string }[];
+  disk: { totalBytes: number; freeBytes: number; usedBytes: number } | null;
 }
 
 /** A mount on air on an ingest node. */
@@ -1238,6 +1250,30 @@ export const nodeProbes = pgTable(
     silent: boolean('silent'),
   },
   (t) => [primaryKey({ columns: [t.nodeId, t.target] }), index('node_probes_station_idx').on(t.stationId)],
+);
+
+/**
+ * A file on a recorder node (phase 21), as the node reported it: an hour of logging (`log`). The audio stays on the
+ * node; the panel fetches it from there when someone listens or downloads. `file` is relative to the node's recordings
+ * folder. Rows go away when the node no longer has the file (retention, or the station left the node).
+ */
+export const recordings = pgTable(
+  'recordings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    nodeId: uuid('node_id').notNull().references(() => nodes.id, { onDelete: 'cascade' }),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    file: text('file').notNull(),
+    contentType: text('content_type').notNull(),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+    durationSeconds: integer('duration_seconds').notNull().default(0),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull().default(0),
+    /** The node is still writing it. */
+    open: boolean('open').notNull().default(false),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('recordings_node_file_idx').on(t.nodeId, t.file), index('recordings_station_idx').on(t.stationId, t.kind, t.startedAt)],
 );
 
 /**
