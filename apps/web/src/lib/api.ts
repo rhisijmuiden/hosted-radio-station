@@ -1164,6 +1164,23 @@ export interface OrchestratorView {
   ingestNodes: number;
   stationNodes: number;
   relayNodes: number;
+  /** The server that hosts the orchestrator itself. */
+  host: OrchestratorHost;
+}
+export interface OrchestratorHost {
+  name: string;
+  hostname: string;
+  addresses: string[];
+  publicHost: string;
+  version: string;
+  commit: string | null;
+  uptimeSeconds: number;
+  /** Load per core, 0..1. */
+  cpu: number;
+  memory: { used: number; total: number };
+  disk: { used: number; total: number } | null;
+  /** Its own audio roles; empty when orchestrator only. */
+  roles: ('ingest' | 'relay')[];
 }
 export interface FirewallPort {
   service: PortService;
