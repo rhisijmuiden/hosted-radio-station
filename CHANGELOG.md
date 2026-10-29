@@ -3,6 +3,12 @@
 All notable changes to Hosted Radio Station. Versions follow [semantic versioning](https://semver.org). The
 [roadmap](ROADMAP.md) has the full description of each phase, with screenshots.
 
+## Unreleased
+
+- Fix: a station on a station node with a chosen main ingest (not Automatic) went silent: the node got the route along
+  with the station, read it as "this server is not the ingest" and sent nothing. The route now stays on the
+  orchestrator; the node only follows the pushes it is handed.
+
 ## 1.4.0 (29 October 2026)
 
 Phase 20 (monitoring and alerts with a monitoring node), customer blocks on the network map, the OmniPlayer layout in
