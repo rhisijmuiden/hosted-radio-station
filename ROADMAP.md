@@ -657,7 +657,9 @@ Audio processing for the station's output, set per radio station (not per studio
 - **Stereo Tool**: load Thimeo Stereo Tool (Linux command-line version, the station's own licence key), upload or import a preset (`.sts`) and tweak it from the panel.
 - Processing runs **once per station**, where the audio is made (the station node, or the server running its AutoDJ), before the encoders, so every mount and relay gets the same processed sound.
 - **System resources first**: off by default; a CPU limit per processor (systemd quota), live CPU and RAM use shown in the panel, and a warning before turning it on when the node does not have enough headroom. The plan or node limits decide who may use the heavy processor.
-- Live DJs and AutoDJ both go through it; an FM/MPX node with its own processing can skip it.
+- Live DJs and AutoDJ both go through it.
+- **FM processing lives on the FM/MPX node**, not at the station: right before the stereo encoder, after decoding, because a lossy stream codec (MP3/AAC) breaks peak control. The chain there: 50 µs pre-emphasis (Europe), 15 kHz low-pass, AGC and multiband limiter, a pre-emphasis-aware clipper, composite clipper, deviation limit (75 kHz) and MPX power limit (ITU-R BS.412). Option: Stereo Tool's FM version does processing and the stereo/MPX encoder in one, with our RDS added.
+- The MPX node then takes a lossless or high-bitrate feed (FLAC or PCM over the LAN from the station node next to it, otherwise a high-bitrate stream from a relay), and the station's own stream processing stays light or is bypassed for that feed, so audio is not processed twice.
 
 ### Standard library folders and smarter clock items
 
