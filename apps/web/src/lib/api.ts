@@ -1193,13 +1193,15 @@ export interface NodeFirewall {
   ports: FirewallPort[];
   checks: Record<string, { ok: boolean; message: string | null; ms: number | null; at: string }>;
   /** Who ran the last check: a monitoring node outside (phase 20), or this server. */
-  checkedFrom: { kind: 'monitor'; nodeId: string; name: string } | { kind: 'server' } | null;
+  checkedFrom: { kind: 'monitor'; nodeId: string; name: string; sameNetwork?: boolean } | { kind: 'server' } | null;
   /** Old ports that still answer while they are switched off for the node. */
   oldOpen: number[];
   /** SSH per port at the last check. */
   ssh: Record<string, { ok: boolean; message: string | null; ms: number | null; at: string }>;
   /** Well-known ports the node does not need that still answered at the last check. */
   unexpected: number[];
+  /** The checked address is not on the node itself (a router, NAT). */
+  behindNat: boolean;
   /** The node's own firewall as it reports it. */
   nodeFirewall: NodeStatus['firewall'] | null;
 }

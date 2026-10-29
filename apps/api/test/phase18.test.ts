@@ -205,6 +205,8 @@ describe('firewall checklist (phase 18)', () => {
     expect(Object.keys(checked.ssh)).toEqual(['22']);
     expect(checked.unexpected).toContain(5432);
     expect(checked.unexpected).not.toContain(open);
+    // The node's own interfaces do not carry the checked address: it sits behind a router, so those may not be its ports.
+    expect(checked.behindNat).toBe(true);
     // Another customer's node is not yours to see.
     expect((await t.app.inject({ method: 'GET', url: `/api/nodes/${node.id}/firewall`, headers: { cookie: '' } })).statusCode).toBe(401);
     a.close();

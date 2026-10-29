@@ -2624,6 +2624,8 @@ export const en = {
     fromMonitor: 'Checked from the monitoring node {{name}}, outside your network, as a listener or encoder would connect.',
     fromServer: 'Checked from this server. A server in the same network may see more than the outside world does; a monitoring node checks from really outside.',
     unexpected: 'These ports answer from outside although the node does not need them: {{ports}}. Close them, for example by switching on the node firewall.',
+    unexpectedNat: 'These ports answer on {{address}}: {{ports}}. This node shares that address through a router (NAT), so they may belong to the router or to another machine behind it rather than to this node. Check the port forwards in the router.',
+    fromMonitorSame: 'Checked from the monitoring node {{name}}. It shares this node\'s public address, so it is in the same network and checks through the router, not from really outside.',
     oldStillOpen: 'Old ports {{ports}} still answer while the old ports are switched off for this node. Close them in the firewall.',
     open: 'Open · {{ms}} ms',
     closed: { dns: 'Name not found in DNS', idle: 'Not in use yet: opens once an ingest pushes here', timeout: 'No answer (filtered)', refused: 'Closed (refused)', unreachable: 'Not reachable', other: 'Not reachable' },

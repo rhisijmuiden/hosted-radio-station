@@ -8,6 +8,9 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 - Security hardening for external nodes (step 2): extra ports for the node firewall (TCP or UDP, single or a range)
   in the panel. The outside check also tries SSH and well-known ports a node does not need (databases, mail, admin
   pages, 8080 and so on) and warns when one of them answers. The firewall log on the node keeps earlier runs.
+- The outside check says when a node sits behind a router (NAT): open ports found on the shared public address may
+  belong to the router or another machine, not to the node. A monitoring node in the same network is named as such
+  instead of "outside your network".
 - Security hardening for external nodes (step 1): a node can close itself off with its own firewall (nftables). It
   lets in only SSH, the ports of its roles from the port plan, ping, DHCP and replies to its own connections. Before
   it sets anything it looks for firewall rules of something else (iptables, ufw, firewalld, other nftables tables);
