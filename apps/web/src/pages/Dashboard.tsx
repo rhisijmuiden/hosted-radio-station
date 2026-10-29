@@ -42,7 +42,7 @@ export function PlanBadge({ plan }: { plan: Tenant['plan'] }) {
 export function LimitsBadge({ limits }: { limits: Tenant['limits'] }) {
   const { t } = useTranslation();
   const radio = limits.maxRadioStations ?? limits.maxStations;
-  return <Badge tone={radio > 0 ? 'accent' : 'neutral'}>{t('limits.badge', { stations: limits.maxStations, radio })}</Badge>;
+  return <Badge tone={radio > 0 ? 'accent' : 'neutral'}>{t('limits.badge', { count: limits.maxStations, radio })}</Badge>;
 }
 
 function AdminDashboard() {
