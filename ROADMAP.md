@@ -200,7 +200,7 @@ One thing at a time; each item starts when the previous one is finished and test
    - The choice is made per **radio station** when it is created (and can be changed later): **Distribution only** (the station gets the ingest endpoint to stream to) or **Radio station** (AutoDJ, clocks, library), and then where it runs: on the shared station node or on one of the customer's own nodes.
    - Switching a station between Distribution and Radio station happens on the station itself and really changes it (for Radio station: placement on a station node).
    - **Downgrading safely**: going from Radio station back to Distribution only needs an explicit confirmation that explains what it means (from then on the station only receives a stream from the customer's own software; AutoDJ, clocks, library and DJ logins stop). The station's content is kept in the background for 24 hours, with a clear warning and countdown, so the customer can switch back without loss. After 24 hours the content is deleted.
-7. **Security hardening for external nodes**: see the queued item below. (For now the one external server was closed by hand.)
+7. **Security hardening for external nodes** (done on test, PRs #160–#165; goes out with the next release): see the item below.
 8. **Phase 21: Recorder node**: recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download.
 
 Later: phase 14 (orchestrator redundancy) just before sales start; phases 22 and 23 when the first customers come.
@@ -575,7 +575,7 @@ Small fixes planned for a patch release, one at a time after the current phase.
 | ![3D network map with control lines](docs/screenshots/pr-128-129-3d-control-on.png) | ![2D layers with lines around servers](docs/screenshots/pr-128-129-2d-layers.png) |
 | ![Customer page, station node of this customer](docs/screenshots/pr-128-129-customer-station-node-harder-fm.png) | ![Customer page, the chosen station node shown after loading](docs/screenshots/pr-128-129-customer-station-node-radio-schermer.png) |
 
-### Security hardening for external nodes (step 7 in the order of work)
+### Security hardening for external nodes (done on test, PRs #160–#165)
 
 Nodes with a direct public IP address get a firewall that is closed by default.
 
