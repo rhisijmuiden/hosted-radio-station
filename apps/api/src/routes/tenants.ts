@@ -2,6 +2,7 @@ import { and, asc, count, eq, inArray } from 'drizzle-orm';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { schema } from '../db/index.js';
+import type { TenantLimits } from '../db/schema.js';
 import { canGrant, hashPassword, requireSuperadmin, requireTenantRole, requireUser } from '../lib/auth.js';
 import { badRequest, conflict, forbidden, isUniqueViolation, notFound } from '../lib/errors.js';
 import { sendInvite } from '../services/accounts.js';
@@ -19,6 +20,7 @@ import {
   roleSchema,
   slugSchema,
   tenantLimitsSchema,
+  withRadioLimit,
   tenantOut,
   userOut,
   toUserOut,
@@ -81,6 +83,7 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
         body: z.object({
           name: z.string().trim().min(1).max(120),
           slug: slugSchema,
+          /** Old: the customer's edition. Only fills in limits.maxRadioStations when that is left out. */
           plan: planSchema.default('distribution'),
           limits: tenantLimitsSchema.default(tenantLimitsSchema.parse({})),
           externalRef: z.string().trim().max(200).nullish(),
@@ -98,7 +101,9 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (req, reply) => {
       const auth = requireSuperadmin(req);
-      const { owner, ...data } = req.body;
+      const { owner, plan, ...rest } = req.body;
+      const limits = withRadioLimit(rest.limits, plan);
+      const data = { ...rest, limits, plan: limits.maxRadioStations > 0 ? ('station' as const) : ('distribution' as const) };
       if (owner?.sendInvite && !(await mailConfigured(ctx))) throw badRequest('Set up the mail server first to send invitations');
       let ownerUser: typeof schema.users.$inferSelect | undefined;
       try {
@@ -151,7 +156,7 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
       config: { audit: 'tenant.update' },
       schema: {
         tags: ['Customers'],
-        summary: 'Update a customer. Owners may rename; plan, limits and status are for administrators.',
+        summary: 'Update a customer. Owners may rename; limits and status are for administrators. `plan` is only read by older clients: it sets the number of Radio stations to all or none.',
         params: idParam,
         body: z.object({
           name: z.string().trim().min(1).max(120).optional(),
@@ -166,9 +171,18 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (req) => {
       const access = await requireTenantRole(ctx, req, req.params.id, 'owner');
-      const { name, ...adminOnly } = req.body;
-      const touchesAdminFields = Object.values(adminOnly).some((v) => v !== undefined);
+      const { name, limits: sentLimits, ...rest } = req.body;
+      const adminOnly: Omit<typeof rest, 'plan'> & { plan?: 'distribution' | 'station'; limits?: TenantLimits } = { ...rest };
+      const touchesAdminFields = sentLimits !== undefined || Object.values(adminOnly).some((v) => v !== undefined);
       if (touchesAdminFields && access.role !== 'superadmin') throw forbidden('Only administrators can change these fields');
+      if (sentLimits || adminOnly.plan) {
+        const [cur] = await ctx.db.select().from(schema.tenants).where(eq(schema.tenants.id, req.params.id));
+        if (!cur) throw notFound('Customer');
+        const base = sentLimits ?? (adminOnly.plan ? { ...cur.limits, maxRadioStations: adminOnly.plan === 'distribution' ? 0 : Math.max(cur.limits.maxRadioStations ?? 0, cur.limits.maxStations) } : cur.limits);
+        const limits = withRadioLimit(base, adminOnly.plan ?? cur.plan);
+        adminOnly.limits = limits;
+        adminOnly.plan = limits.maxRadioStations > 0 ? 'station' : 'distribution';
+      }
       try {
         const [t] = await ctx.db
           .update(schema.tenants)

@@ -6,7 +6,7 @@ import { schema } from '../db/index.js';
 import { requireSuperadmin, requireTenantRole, requireUser } from '../lib/auth.js';
 import { randomToken } from '../lib/crypto.js';
 import { badRequest, conflict, forbidden, isUniqueViolation, notFound } from '../lib/errors.js';
-import { idParam, okOut, planSchema, tenantLimitsSchema } from '../lib/schemas.js';
+import { idParam, okOut, planSchema, tenantLimitsSchema, withRadioLimit } from '../lib/schemas.js';
 import {
   billingOverview,
   billingTick,
@@ -39,6 +39,9 @@ import { billingSettingsSchema, getMaskedSetting, getSetting, putSetting, SECRET
 const localized = z.object({ en: z.string().trim().max(2000).default(''), nl: z.string().trim().max(2000).default('') });
 const cents = z.number().int().min(0).max(100_000_000);
 
+/** A package with Radio stations is shown as the Radio station edition (older API clients and the website read it). */
+const editionOf = (limits: { maxRadioStations?: number }) => ((limits.maxRadioStations ?? 0) > 0 ? ('station' as const) : ('distribution' as const));
+
 export const packageIn = z.object({
   code: z
     .string()
@@ -48,7 +51,8 @@ export const packageIn = z.object({
   name: z.string().trim().min(1).max(80),
   description: localized.default({ en: '', nl: '' }),
   features: z.array(localized).max(20).default([]),
-  edition: planSchema,
+  /** No longer set by hand: follows limits.maxRadioStations (0 = distribution). Kept for older API clients. */
+  edition: planSchema.optional(),
   limits: tenantLimitsSchema,
   currency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/).default('EUR'),
   priceMonthCents: cents,
@@ -365,7 +369,8 @@ export const billingRoutes: FastifyPluginAsyncZod = async (app) => {
     async (req, reply) => {
       requireSuperadmin(req);
       try {
-        const [p] = await ctx.db.insert(schema.packages).values(req.body).returning();
+        const limits = withRadioLimit(req.body.limits, req.body.edition);
+        const [p] = await ctx.db.insert(schema.packages).values({ ...req.body, limits, edition: editionOf(limits) }).returning();
         req.auditInfo = { targetId: p!.id, details: { code: p!.code, name: p!.name } };
         reply.status(201);
         return toPackageOut(p!, new Map());
@@ -392,7 +397,13 @@ export const billingRoutes: FastifyPluginAsyncZod = async (app) => {
       requireSuperadmin(req);
       const { applyToSubscribers, ...body } = req.body;
       // Partial of a schema with defaults would reset fields; keep only what was sent.
-      const sent = Object.fromEntries(Object.keys(req.body).filter((k) => k !== 'applyToSubscribers').map((k) => [k, body[k as keyof typeof body]]));
+      const sent = Object.fromEntries(Object.keys(req.body).filter((k) => k !== 'applyToSubscribers' && k !== 'edition').map((k) => [k, body[k as keyof typeof body]]));
+      if (body.limits || body.edition) {
+        const [cur] = await ctx.db.select().from(schema.packages).where(eq(schema.packages.id, req.params.id));
+        if (!cur) throw notFound('Package');
+        const limits = withRadioLimit(body.limits ?? { ...cur.limits, maxRadioStations: body.edition === 'distribution' ? 0 : undefined }, body.edition ?? cur.edition);
+        Object.assign(sent, { limits, edition: editionOf(limits) });
+      }
       try {
         const [p] = await ctx.db.update(schema.packages).set({ ...sent, updatedAt: new Date() }).where(eq(schema.packages.id, req.params.id)).returning();
         if (!p) throw notFound('Package');

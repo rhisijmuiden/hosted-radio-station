@@ -9,7 +9,7 @@ import { hashPassword, requireTenantRole, requireUser, type Role } from '../lib/
 import type { AppContext } from '../lib/context.js';
 import { badRequest, conflict, forbidden, isUniqueViolation, notFound } from '../lib/errors.js';
 import { okOut, slugSchema } from '../lib/schemas.js';
-import { downgradeStation, upgradeStation } from '../services/autodj/edition.js';
+import { assertRadioStationAllowed, downgradeStation, makeRadioStation, radioStationNode } from '../services/autodj/edition.js';
 import { autodjSettings } from '../services/autodj/settings.js';
 import { getSetting, SECRET_MASK } from '../services/settings.js';
 import { killSource, stationDir } from '../services/streaming/icecast.js';
@@ -189,7 +189,11 @@ const connectionOut = z.object({
   panelUrl: z.string(),
 });
 const stationDetailOut = stationOut.extend({
+  /** Old: the customer's edition, derived from its limit of Radio stations. */
   tenantPlan: z.enum(['distribution', 'station']),
+  /** The customer's Radio stations: how many it has and may have; the customer's station node (default place). */
+  radioStations: z.object({ used: z.number().int(), max: z.number().int() }),
+  tenantStationNodeId: z.uuid().nullable(),
   mounts: z.array(mountOut),
   outputs: z.array(outputOut),
   connection: connectionOut,
@@ -306,6 +310,11 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
     return {
       ...toStationOut(loaded.station, tenant!.name, (id) => app.stationTunnels.online(id)),
       tenantPlan: tenant!.plan,
+      radioStations: {
+        used: ((await ctx.db.select({ n: count() }).from(schema.stations).where(and(eq(schema.stations.tenantId, tenant!.id), eq(schema.stations.edition, 'station')))) as [{ n: number }])[0].n,
+        max: tenant!.limits.maxRadioStations ?? tenant!.limits.maxStations,
+      },
+      tenantStationNodeId: tenant!.stationNodeId,
       mounts: loaded.mounts.map(toMountOut),
       outputs: loaded.outputs.map(toOutputOut),
       connection: {
@@ -374,7 +383,8 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
       config: { audit: 'station.create' },
       schema: {
         tags: ['Stations'],
-        summary: 'Create a station with a /live mount and listening on this server. Owners and administrators.',
+        summary:
+          'Create a station with a /live mount. Distribution only gets the ingest to stream to; a Radio station (AutoDJ) also runs on a station node (nodeId, else the customer\'s station node) or on this server. Owners and administrators.',
         body: z.object({
           tenantId: z.uuid(),
           name: z.string().trim().min(1).max(120),
@@ -387,6 +397,8 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
           bitrateKbps: z.number().int().min(16).max(512).optional(),
           /** Orchestrator only (phase 18): the ingest node that takes the encoders. Default: the first one available. */
           ingestNodeId: z.uuid().optional(),
+          /** Radio station: the station node it runs on. Default: the customer's station node, else this server. */
+          nodeId: z.uuid().optional(),
         }),
         response: { 201: stationDetailOut },
       },
@@ -395,7 +407,8 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
       const access = await requireTenantRole(ctx, req, req.body.tenantId, 'owner');
       const [tenant] = await ctx.db.select().from(schema.tenants).where(eq(schema.tenants.id, req.body.tenantId));
       if (!tenant) throw notFound('Customer');
-      if (req.body.edition === 'station' && tenant.plan !== 'station') throw badRequest('The customer has the Distribution plan; upgrade the customer first');
+      if (req.body.edition === 'station') await assertRadioStationAllowed(ctx, tenant);
+      else if (req.body.nodeId) throw badRequest('A Distribution station does not run on a station node');
       const [{ n }] = (await ctx.db.select({ n: count() }).from(schema.stations).where(eq(schema.stations.tenantId, tenant.id))) as [{ n: number }];
       if (n >= tenant.limits.maxStations) throw badRequest(`This customer may have ${tenant.limits.maxStations} station(s)`);
       const [{ used }] = (await ctx.db.select({ used: sum(schema.stations.maxListeners) }).from(schema.stations).where(eq(schema.stations.tenantId, tenant.id))) as [{ used: string | null }];
@@ -404,13 +417,13 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
       const bitrate = Math.min(req.body.bitrateKbps ?? 192, tenant.limits.maxBitrateKbps);
       checkBitrate(tenant, bitrate);
       const streaming = await getSetting(ctx, 'streaming');
-      const [stationNode] = tenant.stationNodeId ? await ctx.db.select().from(schema.nodes).where(eq(schema.nodes.id, tenant.stationNodeId)) : [];
-      const onStationNode = !!stationNode?.pairedAt && stationNode.roles.includes('station');
-      // Orchestrator only (phase 18): this server carries no audio, so a new station needs a station node or an
-      // ingest node from the start.
+      // A Radio station runs on a station node (or this server); Distribution only never does.
+      const stationNode = req.body.edition === 'station' ? await radioStationNode(ctx, { tenant, stationId: '', nodeId: req.body.nodeId, admin: access.role === 'superadmin' }) : null;
+      const onStationNode = !!stationNode;
+      // Orchestrator only (phase 18): this server carries no audio, so a new Distribution station gets an ingest node
+      // from the start.
       let routing: Record<string, unknown> = {};
       if ((await getSetting(ctx, 'orchestrator')).only && !onStationNode) {
-        if (req.body.edition === 'station') throw conflict('This server is orchestrator only: a Radio station runs on a station node. Link the customer to a station node first.');
         const ingests = (await ctx.db.select().from(schema.nodes).where(isNotNull(schema.nodes.pairedAt)).orderBy(asc(schema.nodes.name))).filter(
           // A new station has no id yet: a node dedicated to one station is never picked for it.
           (n) => n.roles.includes('source') && serves(n, { id: '', tenantId: tenant.id }),
@@ -452,14 +465,8 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
         if (isUniqueViolation(err)) throw conflict('A station with this short name already exists');
         throw err;
       }
-      if (station.edition === 'station') station = (await upgradeStation(ctx, station)).station;
-      // A customer with a station node: new stations run there from the start (there is no library to copy yet).
-      if (onStationNode) {
-        await ctx.db
-          .update(schema.stations)
-          .set({ nodeId: stationNode!.id, nodeRuntime: { updatedAt: new Date().toISOString(), mounts: [], autodj: null, encoders: 0, relays: {}, revision: null, syncedAt: null } })
-          .where(eq(schema.stations.id, station.id));
-      }
+      // On a station node it runs there from the start (there is no library to copy yet).
+      if (station.edition === 'station') station = await makeRadioStation(ctx, station, stationNode);
       Object.assign(req.auditInfo, { tenantId: tenant.id, targetId: station.id, details: { name: station.name, slug: station.slug } });
       await apply(req, station.id);
       reply.status(201);
@@ -482,12 +489,15 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
       config: { audit: 'station.update' },
       schema: {
         tags: ['Stations'],
-        summary: 'Update a station. Managers change the details; owners also the short name, edition and legacy port.',
+        summary:
+          'Update a station. Managers change the details; owners also the short name, edition and legacy port. To a Radio station: nodeId = the station node it runs on (default: the customer\'s station node).',
         params: stationParams,
         body: z.object({
           name: z.string().trim().min(1).max(120).optional(),
           slug: slugSchema.optional(),
           edition: editionSchema.optional(),
+          /** With edition "station": the station node the Radio station runs on. */
+          nodeId: z.uuid().optional(),
           description: z.string().trim().max(1000).optional(),
           genre: z.string().trim().max(100).optional(),
           website: urlOrEmpty.optional(),
@@ -501,14 +511,15 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (req) => {
       const { station, tenant, access } = await stationAccess(ctx, req, req.params.id, 'manager');
-      const { legacy, ...body } = req.body;
+      const { legacy, nodeId, ...body } = req.body;
       const ownerOnly = body.slug !== undefined || body.edition !== undefined || legacy !== undefined;
       if (ownerOnly && access.role === 'manager') throw forbidden('Only the customer owner can change these fields');
-      // Orchestrator only (phase 18): the AutoDJ of a Radio station plays on a station node, and legacy ports are encoder ports here.
-      if (!station.nodeId && ((body.edition === 'station' && station.edition !== 'station') || legacy?.enabled)) await assertAudioAllowedHere(ctx, body.edition === 'station' ? 'a Radio station runs on a station node; move it there first' : 'it has no Shoutcast ports');
-      if (body.edition === 'station' && station.edition !== 'station' && tenant.plan !== 'station') {
-        throw badRequest('The Radio station edition needs the Radio station plan for this customer');
-      }
+      // Orchestrator only (phase 18): legacy ports are encoder ports here.
+      if (!station.nodeId && legacy?.enabled) await assertAudioAllowedHere(ctx, 'it has no Shoutcast ports');
+      const upgrading = body.edition === 'station' && station.edition !== 'station';
+      if (upgrading) await assertRadioStationAllowed(ctx, tenant, station.id);
+      // Where the Radio station will run; checked before anything changes.
+      const target = upgrading && !station.nodeId ? await radioStationNode(ctx, { tenant, stationId: station.id, nodeId, admin: access.role === 'superadmin' }) : null;
       if (body.maxListeners !== undefined) await checkListenerBudget(ctx, tenant, body.maxListeners, station.id);
       const { edition, ...details } = body;
       const set: Partial<typeof schema.stations.$inferInsert> = { ...details, updatedAt: new Date() };
@@ -536,8 +547,9 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
         if (edition === 'station') {
           // The AutoDJ plays on this server, so it becomes the main ingest again (an ingest node can stay as backup).
           const r = stationRouting(fresh!);
-          if (r.ingest !== 'local') await ctx.db.update(schema.stations).set({ routing: { ...r, ingest: 'local', backupIngest: r.backupIngest ?? r.ingest } }).where(eq(schema.stations.id, station.id));
-          await upgradeStation(ctx, fresh!);
+          if (!target && !fresh!.nodeId && r.ingest !== 'local') await ctx.db.update(schema.stations).set({ routing: { ...r, ingest: 'local', backupIngest: r.backupIngest ?? r.ingest } }).where(eq(schema.stations.id, station.id));
+          await makeRadioStation(ctx, fresh!, target);
+          if (target) req.auditInfo.details.nodeId = target.id;
         }
         else await downgradeStation(ctx, fresh!);
         req.auditInfo.details.edition = { from: station.edition, to: edition };

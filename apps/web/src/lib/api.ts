@@ -52,6 +52,8 @@ export interface Me {
 }
 export interface TenantLimits {
   maxStations: number;
+  /** Of those, how many may be a Radio station (AutoDJ); 0 = Distribution only. The edition belongs to each station. */
+  maxRadioStations: number;
   maxListeners: number;
   maxBitrateKbps: number;
   storageQuotaMb: number;
@@ -357,6 +359,8 @@ export interface ConnectionInfo {
 }
 export interface StationDetail extends Station {
   tenantPlan: Plan;
+  radioStations: { used: number; max: number };
+  tenantStationNodeId: string | null;
   mounts: Mount[];
   outputs: Output[];
   connection: ConnectionInfo;

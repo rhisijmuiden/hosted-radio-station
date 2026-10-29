@@ -11,7 +11,7 @@ import { schema } from '../db/index.js';
 import type { MediaSourceConfig } from '../db/schema.js';
 import { badRequest, forbidden, HttpError, notFound } from '../lib/errors.js';
 import { okOut } from '../lib/schemas.js';
-import { downgradeStation, upgradeStation } from '../services/autodj/edition.js';
+import { assertRadioStationAllowed, downgradeStation, makeRadioStation, radioStationNode } from '../services/autodj/edition.js';
 import {
   filePath,
   MEDIA_EXTENSIONS,
@@ -40,7 +40,7 @@ import { AUTODJ_CHANNEL } from '../streams/autodj.js';
 import { sendFile } from './public.js';
 import { stationAccess } from './stations.js';
 import { cueProblem, playSeconds } from '../services/autodj/cues.js';
-import { assertAudioAllowedHere } from '../services/nodes/orchestrator.js';
+import { stationRouting } from '../services/nodes/routing-rules.js';
 
 const stationParams = z.object({ id: z.uuid() });
 const queueSchema = z.enum(['q1', 'q2']);
@@ -267,24 +267,35 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
       schema: {
         tags: ['AutoDJ'],
         summary:
-          'Upgrade a station to the Radio station edition in one step: AutoDJ mount, fallback of the default mount, a first playlist and the AutoDJ switched on. Owners; administrators can upgrade the customer plan at the same time.',
+          'Upgrade a station to the Radio station edition in one step: AutoDJ mount, fallback of the default mount, a first playlist and the AutoDJ switched on. It runs on the station node `nodeId` (default: the customer\'s station node) or on this server. Owners, within the customer\'s limit of Radio stations.',
         params: stationParams,
-        body: z.object({ upgradeCustomer: z.boolean().default(false) }).default({ upgradeCustomer: false }),
+        body: z
+          .object({
+            nodeId: z.uuid().optional(),
+            /** No longer used: customers have no edition any more, only a limit of Radio stations. */
+            upgradeCustomer: z.boolean().optional(),
+          })
+          .default({}),
         response: { 200: autodjOut },
       },
     },
     async (req) => {
       const { station, tenant, access } = await stationAccess(ctx, req, req.params.id, 'owner');
-      if (!station.nodeId) await assertAudioAllowedHere(ctx, 'a Radio station runs on a station node; move it there first');
-      if (tenant.plan !== 'station') {
-        if (!req.body.upgradeCustomer || access.role !== 'superadmin') throw badRequest('The customer has the Distribution plan; an administrator upgrades the customer first');
-        await ctx.db.update(schema.tenants).set({ plan: 'station' }).where(eq(schema.tenants.id, tenant.id));
+      if (station.edition === 'station') return describe(station);
+      await assertRadioStationAllowed(ctx, tenant, station.id);
+      const node = station.nodeId ? null : await radioStationNode(ctx, { tenant, stationId: station.id, nodeId: req.body.nodeId, admin: access.role === 'superadmin' });
+      if (!node && !station.nodeId) {
+        // The AutoDJ plays on this server, so it becomes the main ingest again (an ingest node can stay as backup).
+        const r = stationRouting(station);
+        if (r.ingest !== 'local') await ctx.db.update(schema.stations).set({ routing: { ...r, ingest: 'local', backupIngest: r.backupIngest ?? r.ingest } }).where(eq(schema.stations.id, station.id));
       }
-      const { station: updated } = await upgradeStation(ctx, station);
-      req.auditInfo.details = { from: station.edition, to: 'station', customerUpgraded: tenant.plan !== 'station' };
+      const updated = await makeRadioStation(ctx, station, node);
+      req.auditInfo.details = { from: station.edition, to: 'station', nodeId: node?.id ?? station.nodeId };
       await apply(req, station.id);
-      await fillQueues(ctx, station.id).catch(() => undefined);
-      void scanLibrary(ctx, station.id).catch(() => undefined);
+      if (!updated.nodeId) {
+        await fillQueues(ctx, station.id).catch(() => undefined);
+        void scanLibrary(ctx, station.id).catch(() => undefined);
+      }
       return describe(updated);
     },
   );

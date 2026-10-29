@@ -20,7 +20,8 @@ import { ScheduleTab } from '../components/station/Schedule';
 import { StatisticsView } from '../components/stats/StatisticsView';
 import { formatLabel, MountsCard } from '../components/station/Mounts';
 import { OutputsCard, OutputStateBadge } from '../components/station/Outputs';
-import { NodeOfflineBanner, PlacementCard } from '../components/station/Placement';
+import { NodeOfflineBanner, PlacementCard, RunsOnPicker, useStationNodes } from '../components/station/Placement';
+import { useServerNames } from '../lib/server';
 import { Badge, Button, Card, CardHeader, CopyField, Fact, Field, Input, PageHeader, Select, Spinner, Switch, Table, Textarea } from '../components/ui';
 import { api, type LiveSession, type StationDetail, type StationStatus, type Tenant } from '../lib/api';
 import { formatBytes, formatDate, formatDuration } from '../lib/format';
@@ -296,6 +297,11 @@ function SettingsTab({ station }: { station: StationDetail }) {
   const [draft, setDraft] = useState(station);
   useEffect(() => setDraft(station), [station]);
   const sources = station.mounts.filter((m) => m.kind === 'source');
+  // Upgrading: where the Radio station will run (null = this server; undefined = not chosen yet).
+  const [upgradeNode, setUpgradeNode] = useState<string | null | undefined>(undefined);
+  const stationNodes = useStationNodes(station.tenantId);
+  const server = useServerNames();
+  const roomForRadio = station.radioStations.used < station.radioStations.max;
 
   const patch = useMutation({
     mutationFn: (body: Record<string, unknown>) => api<StationDetail>(`/stations/${station.id}`, { method: 'PATCH', body }),
@@ -313,7 +319,7 @@ function SettingsTab({ station }: { station: StationDetail }) {
     void qc.invalidateQueries({ queryKey: ['tenant', station.tenantId] });
   };
   const upgrade = useMutation({
-    mutationFn: (upgradeCustomer: boolean) => api(`/stations/${station.id}/upgrade`, { method: 'POST', body: { upgradeCustomer } }),
+    mutationFn: () => api(`/stations/${station.id}/upgrade`, { method: 'POST', body: !station.nodeId && upgradeNode ? { nodeId: upgradeNode } : {} }),
     onSuccess: () => {
       refresh();
       toast.success(t('stations.upgraded'));
@@ -396,22 +402,28 @@ function SettingsTab({ station }: { station: StationDetail }) {
             <EditionBadge edition={station.edition} />
           </div>
           {owner && station.edition === 'distribution' && (
-            <div className="mt-4">
-              {station.tenantPlan === 'station' || station.role === 'superadmin' ? (
-                <Button
-                  variant="primary"
-                  loading={upgrade.isPending}
-                  onClick={() => {
-                    const withPlan = station.tenantPlan !== 'station';
-                    if (confirm(withPlan ? t('stations.upgradeWithPlanConfirm') : t('stations.upgradeConfirm'))) upgrade.mutate(withPlan);
-                  }}
-                >
-                  <ArrowUpCircle className="size-4" /> {t('stations.upgrade')}
-                </Button>
+            <div className="mt-4 flex flex-col gap-3">
+              {roomForRadio ? (
+                <>
+                  {/* A Radio station runs on a station node (or this server); a station already on a node stays there. */}
+                  {!station.nodeId && <RunsOnPicker tenantId={station.tenantId} preferred={station.tenantStationNodeId} value={upgradeNode} onChange={setUpgradeNode} />}
+                  <div>
+                    <Button
+                      variant="primary"
+                      loading={upgrade.isPending}
+                      disabled={!station.nodeId && (upgradeNode === undefined || (upgradeNode === null && !!server?.orchestratorOnly))}
+                      onClick={() => {
+                        const name = station.nodeId || !upgradeNode ? null : (stationNodes.find((n) => n.id === upgradeNode)?.name ?? null);
+                        if (confirm(name ? t('stations.upgradeOn', { name }) : station.nodeId ? t('stations.upgradeConfirm') : t('stations.upgradeOn', { name: server?.name ?? t('placement.mainServer') }))) upgrade.mutate();
+                      }}
+                    >
+                      <ArrowUpCircle className="size-4" /> {t('stations.upgrade')}
+                    </Button>
+                  </div>
+                </>
               ) : (
-                <p className="text-xs text-muted">{t('stations.upgradeNeedsPlan')}</p>
+                <p className="text-xs text-muted">{t('stations.upgradeNeedsPlan', station.radioStations)}</p>
               )}
-              {station.tenantPlan !== 'station' && station.role === 'superadmin' && <p className="mt-2 text-xs text-muted">{t('stations.upgradeWithPlan')}</p>}
             </div>
           )}
           {owner && station.edition === 'station' && (

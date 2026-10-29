@@ -106,12 +106,17 @@ describe('planner helpers', () => {
 });
 
 describe('upgrade to Radio station', () => {
-  it('needs the Radio station plan, which administrators can grant in the same step', async () => {
+  it('needs room in the customer\'s limit of Radio stations', async () => {
     expect((await api('GET', '/autodj')).json().edition).toBe('distribution');
     expect((await api('GET', '/library')).statusCode).toBe(400);
-    const denied = await api('POST', '/upgrade', { upgradeCustomer: true });
+    // Created with the old edition "distribution": no Radio stations allowed.
+    const denied = await api('POST', '/upgrade', {});
     expect(denied.statusCode).toBe(400);
-    const res = await api('POST', '/upgrade', { upgradeCustomer: true }, admin);
+    const [before] = await t.db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId));
+    expect(before!.limits.maxRadioStations).toBe(0);
+    const raised = await t.app.inject({ method: 'PATCH', url: `/api/tenants/${tenantId}`, headers: admin, payload: { limits: { ...before!.limits, maxRadioStations: 1 } } });
+    expect(raised.statusCode).toBe(200);
+    const res = await api('POST', '/upgrade', {});
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.edition).toBe('station');

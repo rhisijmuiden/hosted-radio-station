@@ -20,6 +20,40 @@ export function useStationNodes(tenantId: string) {
   return (nodes.data ?? []).filter((n) => n.roles.includes('station') && n.paired && (n.tenantId === tenantId || (admin && !n.tenantId)));
 }
 
+/**
+ * Where a new Radio station runs: one of the station nodes the customer may use, or this server (not when it is set
+ * to orchestrator only). `value` is a node id, or null for this server.
+ */
+export function RunsOnPicker({ tenantId, preferred, value, onChange }: { tenantId: string; preferred?: string | null; value: string | null | undefined; onChange: (nodeId: string | null) => void }) {
+  const { t } = useTranslation();
+  const nodes = useStationNodes(tenantId);
+  const server = useServerNames();
+  const mainAllowed = !server?.orchestratorOnly;
+  // Until a choice is made: the customer's station node, else the first one, else this server.
+  const fallback = nodes.find((n) => n.id === preferred)?.id ?? nodes[0]?.id ?? null;
+  useEffect(() => {
+    if (value === undefined || (value === null && !mainAllowed) || (value && !nodes.some((n) => n.id === value))) {
+      const next = fallback ?? null;
+      if (next !== value) onChange(next);
+    }
+  }, [value, fallback, mainAllowed, nodes, onChange]);
+  const none = !nodes.length && !mainAllowed;
+  return (
+    <Field label={t('placement.runsOnNew')} hint={none ? t('placement.noNodesRadio') : t('placement.runsOnNewHint')}>
+      <Select value={value ?? MAIN} onChange={(e) => onChange(e.target.value === MAIN ? null : e.target.value)} disabled={none}>
+        {mainAllowed && <option value={MAIN}>{server?.name ?? t('placement.mainServer')}</option>}
+        {nodes.map((n) => (
+          <option key={n.id} value={n.id}>
+            {n.name}
+            {n.location ? ` · ${n.location}` : ''}
+            {n.tenantId ? '' : ` · ${t('placement.shared')}`}
+          </option>
+        ))}
+      </Select>
+    </Field>
+  );
+}
+
 /** A line under the page header while the station node of a station cannot be reached. */
 export function NodeOfflineBanner({ station }: { station: Station }) {
   const { t } = useTranslation();

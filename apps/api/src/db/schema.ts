@@ -29,6 +29,11 @@ export const memberRole = pgEnum('member_role', ['owner', 'manager', 'dj']);
 
 export interface TenantLimits {
   maxStations: number;
+  /**
+   * How many of those stations may be a Radio station (AutoDJ, clocks, library); the others are Distribution only.
+   * Replaces the customer's edition (`plan`, kept only for older API clients): the edition belongs to each station.
+   */
+  maxRadioStations: number;
   maxListeners: number;
   maxBitrateKbps: number;
   storageQuotaMb: number;

@@ -7,7 +7,7 @@ import { PackageCard } from '../components/billing';
 import { Badge, Button, Card, Dialog, EmptyState, Field, Input, PageHeader, Spinner, Switch, Tabs } from '../components/ui';
 import { api, ApiError, type BillingInterval, type Package, type PackageInput } from '../lib/api';
 import { formatMoney } from '../lib/format';
-import { LimitsFields, PlanPicker } from './Customers';
+import { LimitsFields } from './Customers';
 
 const blank = (): PackageInput => ({
   code: '',
@@ -15,7 +15,7 @@ const blank = (): PackageInput => ({
   description: { en: '', nl: '' },
   features: [],
   edition: 'distribution',
-  limits: { maxStations: 1, maxListeners: 100, maxBitrateKbps: 192, storageQuotaMb: 10240, maxNodes: 0 },
+  limits: { maxStations: 1, maxRadioStations: 1, maxListeners: 100, maxBitrateKbps: 192, storageQuotaMb: 10240, maxNodes: 0 },
   currency: 'EUR',
   priceMonthCents: 0,
   priceYearCents: null,
@@ -95,9 +95,6 @@ function PackageDialog({ pkg, open, onClose }: { pkg: Package | null; open: bool
             <Input required className="font-mono" value={form.code} onChange={(e) => set('code', e.target.value)} placeholder="radio-basic" />
           </Field>
         </div>
-        <Field label={t('fields.plan')}>
-          <PlanPicker value={form.edition} onChange={(edition) => set('edition', edition)} />
-        </Field>
         <div className="grid gap-3 sm:grid-cols-4">
           <Field label={t('billing.packages.priceMonth')} hint={t('billing.exclVat')}>
             <Input required inputMode="decimal" value={prices.month} onChange={(e) => setPrices({ ...prices, month: e.target.value })} placeholder="19,95" />

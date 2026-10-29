@@ -8,9 +8,12 @@ Everything is under **Hosted service** in the left menu (Overview, Packages, Inv
 
 ## Packages
 
-A package is an edition (**Distribution** or **Radio station**) with limits (stations, listeners, bitrate, storage,
-own nodes), a monthly and a yearly price (excl. VAT), an optional setup fee and trial period, and a list of features
-for the website. Hidden packages can still be sold through the API, for example a partner deal.
+A package is a set of limits (stations, of which Radio stations, listeners, bitrate, storage, own nodes), a monthly and a yearly price (excl. VAT), an optional setup fee and trial period, and a list of features
+for the website. The edition belongs to each station, not to the customer: **Of which Radio stations** says how many
+of the customer's stations may be a Radio station (AutoDJ); 0 means Distribution only. Over the API a package still
+shows `edition` (`station` when it allows Radio stations) for older clients. A package with fewer Radio stations
+than the customer runs cannot be chosen until stations are switched back to Distribution; a package never does that
+by itself. Hidden packages can still be sold through the API, for example a partner deal.
 
 When you change a package you can apply the new limits to every customer on it right away. A customer with custom
 limits keeps them.

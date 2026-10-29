@@ -138,6 +138,22 @@ describe('orchestrator only (phase 18)', () => {
     expect(r.routing.ingest).toBe(ingest.id);
     const radio = await t.app.inject({ method: 'POST', url: '/api/stations', headers: owner, payload: { tenantId, name: 'Auto FM', slug: 'auto-fm', edition: 'station', maxListeners: 10 } });
     expect(radio.statusCode).toBe(409);
+    // On a station node it can: chosen when it is created...
+    const studio = await pair({ name: 'studio-shared', roles: ['station'] });
+    const placed = await t.app.inject({ method: 'POST', url: '/api/stations', headers: admin, payload: { tenantId, name: 'Auto FM', slug: 'auto-fm', edition: 'station', maxListeners: 10, nodeId: studio.id } });
+    expect(placed.statusCode, placed.body).toBe(201);
+    expect(placed.json()).toMatchObject({ edition: 'station', nodeId: studio.id });
+    // ...or when a Distribution station becomes a Radio station (this did nothing before).
+    expect((await t.app.inject({ method: 'PATCH', url: `/api/stations/${created.json().id}`, headers: owner, payload: { edition: 'station' } })).statusCode).toBe(409);
+    const shared = await t.app.inject({ method: 'PATCH', url: `/api/stations/${created.json().id}`, headers: owner, payload: { edition: 'station', nodeId: studio.id } });
+    expect(shared.statusCode).toBe(403);
+    const upgraded = await t.app.inject({ method: 'PATCH', url: `/api/stations/${created.json().id}`, headers: admin, payload: { edition: 'station', nodeId: studio.id } });
+    expect(upgraded.statusCode, upgraded.body).toBe(200);
+    expect(upgraded.json()).toMatchObject({ edition: 'station', nodeId: studio.id });
+    // A Distribution station never runs on a station node.
+    const dist = await t.app.inject({ method: 'POST', url: '/api/stations', headers: admin, payload: { tenantId, name: 'Dist FM', slug: 'dist-fm', nodeId: studio.id, maxListeners: 10 } });
+    expect(dist.statusCode).toBe(400);
+    for (const id of [placed.json().id, created.json().id]) await t.app.inject({ method: 'DELETE', url: `/api/stations/${id}`, headers: admin });
     // Listeners never come here: no relay has the stream, so there is nothing to hear.
     forgetRelays();
     expect((await t.app.inject({ method: 'GET', url: '/api/public/stations/schermer-fm/listen/live' })).statusCode).toBe(503);

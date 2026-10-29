@@ -73,7 +73,7 @@ export const billingPublicRoutes: FastifyPluginAsyncZod = async (app) => {
                 edition: z.enum(['distribution', 'station']),
                 description: localized,
                 features: z.array(localized),
-                limits: z.object({ maxStations: z.number(), maxListeners: z.number(), maxBitrateKbps: z.number(), storageQuotaMb: z.number(), maxNodes: z.number() }),
+                limits: z.object({ maxStations: z.number(), maxRadioStations: z.number(), maxListeners: z.number(), maxBitrateKbps: z.number(), storageQuotaMb: z.number(), maxNodes: z.number() }),
                 currency: z.string(),
                 priceMonthCents: z.number().int(),
                 priceYearCents: z.number().int().nullable(),

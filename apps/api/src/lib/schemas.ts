@@ -9,11 +9,21 @@ export const okOut = z.object({ ok: z.literal(true) });
 
 export const tenantLimitsSchema = z.object({
   maxStations: z.number().int().min(0).max(1000).default(1),
+  /**
+   * Of those, how many may be a Radio station (AutoDJ). 0 = Distribution only. Left out (older API clients): all of
+   * them, or none with the old edition "distribution" (see withRadioLimit).
+   */
+  maxRadioStations: z.number().int().min(0).max(1000).optional(),
   maxListeners: z.number().int().min(0).max(1_000_000).default(100),
   maxBitrateKbps: z.number().int().min(32).max(512).default(192),
   storageQuotaMb: z.number().int().min(0).max(10_000_000).default(10_240),
   maxNodes: z.number().int().min(0).max(100).default(0),
 });
+
+/** Limits as stored: the number of Radio stations filled in from the old edition when a client left it out. */
+export function withRadioLimit(limits: z.infer<typeof tenantLimitsSchema>, edition?: 'distribution' | 'station'): z.infer<typeof tenantLimitsSchema> & { maxRadioStations: number } {
+  return { ...limits, maxRadioStations: limits.maxRadioStations ?? (edition === 'distribution' ? 0 : limits.maxStations) };
+}
 
 export const roleSchema = z.enum(['owner', 'manager', 'dj']);
 export const planSchema = z.enum(['distribution', 'station']);
