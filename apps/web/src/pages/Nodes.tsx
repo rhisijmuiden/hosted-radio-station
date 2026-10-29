@@ -13,7 +13,7 @@ import { Badge, Button, Card, Dialog, EmptyState, Field, Input, PageHeader, Sele
 import { api, ApiError, type NodeItem, type NodePairing, type NodeRole, type NodesSettings, type StationListItem, type Tenant } from '../lib/api';
 import { isAdmin, useMe } from '../lib/auth';
 import { PortPlanCard } from '../components/nodes/PortPlan';
-import { OrchestratorOnlyCard } from '../components/nodes/OrchestratorOnly';
+import { OrchestratorOnlyCard, OrchestratorRoles, useOrchestratorView } from '../components/nodes/OrchestratorOnly';
 import { PendingNodesCard } from '../components/nodes/PendingNodes';
 
 export const ROLES: NodeRole[] = ['relay', 'source', 'station', 'fm', 'monitor'];
@@ -223,6 +223,8 @@ export function NodesPage() {
   const nodes = useQuery({ queryKey: ['nodes'], queryFn: () => api<NodeItem[]>('/nodes'), refetchInterval: 5000 });
   const settings = useQuery({ queryKey: ['nodes', 'settings'], queryFn: () => api<NodesSettings>('/nodes/settings'), enabled: admin });
   const stationList = useQuery({ queryKey: ['stations', 'all'], queryFn: () => api<StationListItem[]>('/stations'), enabled: admin });
+  const orchestrator = useOrchestratorView();
+  const host = admin ? orchestrator.data?.host : undefined;
   const warnMs = settings.data?.latencyWarnMs ?? 150;
   const canAdd = admin || me.memberships.some((m) => m.role === 'owner');
   const list = nodes.data ?? [];
@@ -309,6 +311,39 @@ export function NodesPage() {
               t('nodes.cols.bandwidth'),
             ]}
           >
+            {/* The server that hosts the orchestrator always comes first, so it is never taken for a normal node. */}
+            {host && (
+              <tr className="bg-koraal/5">
+                <td>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="font-semibold">{host.name}</span>
+                    <Badge tone="accent" dot>
+                      {t('orchestratorOnly.host.badge')}
+                    </Badge>
+                  </div>
+                  <div className="font-mono text-[11.5px] text-muted">{[host.hostname, host.addresses[0]].filter(Boolean).join(' · ')}</div>
+                  <div className="font-mono text-xs text-muted">{host.publicHost}</div>
+                </td>
+                {admin && (
+                  <td className="text-[13px]">
+                    <span className="text-muted">{t('nodes.platform')}</span>
+                  </td>
+                )}
+                <td>
+                  <OrchestratorRoles host={host} />
+                </td>
+                <td>
+                  <HealthBadge health="online" />
+                </td>
+                <td className="text-[13px] whitespace-nowrap">
+                  <span className="font-mono">v{host.version}</span>
+                </td>
+                <td className="text-[13px] text-muted">—</td>
+                <td className="text-[13px] text-muted">—</td>
+                <td className="text-[13px] tabular-nums">{Math.round(host.cpu * 100)}%</td>
+                <td className="text-[13px] text-muted">—</td>
+              </tr>
+            )}
             {list.map((n) => {
               const s = n.status;
               const health = nodeHealth(n, warnMs);

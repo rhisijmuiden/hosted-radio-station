@@ -5,6 +5,9 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 
 ## Unreleased
 
+- Nodes opens with a pinned card for the server that hosts the orchestrator: its name, host name, internal and
+  public address, version, uptime, CPU, memory and disk, and its own roles (own ingest and relay, or "Orchestrator
+  only"). It is also the first row of the node list, with an "Orchestrator" badge.
 - Security hardening for external nodes (step 4): the node firewall is on by default for nodes with a public
   address on their own interface, decided at their next connection; this includes existing nodes, unless their
   firewall was already switched on by hand. Nodes behind a router keep it off, and existing firewall rules on the

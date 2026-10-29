@@ -1,3 +1,5 @@
+import { statfs } from 'node:fs/promises';
+import { cpus, freemem, hostname, loadavg, networkInterfaces, totalmem, uptime } from 'node:os';
 import { asc, eq } from 'drizzle-orm';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -15,6 +17,7 @@ import { OLD_PORTS, PORTS } from '../services/nodes/portplan.js';
 import { isPublicAddress } from '../services/dns/records.js';
 import { forgetRelays } from '../services/nodes/routing.js';
 import { getSetting, putSetting, serverNameSchema } from '../services/settings.js';
+import { getVersionInfo } from '../services/system.js';
 import { connectionInfo } from '../services/streaming/info.js';
 import { allocatePort, applyAllStreams, loadStation, platformHost } from '../services/streaming/state.js';
 import { endpointOut, stationAccess } from './stations.js';
@@ -48,6 +51,24 @@ const orchestratorOut = z.object({
   ingestNodes: z.number(),
   stationNodes: z.number(),
   relayNodes: z.number(),
+  /** The server that hosts the orchestrator itself, for the pinned card at the top of Nodes. */
+  host: z.object({
+    name: z.string(),
+    hostname: z.string(),
+    /** LAN addresses of this server. */
+    addresses: z.array(z.string()),
+    /** The address the panel and the nodes reach it on. */
+    publicHost: z.string(),
+    version: z.string(),
+    commit: z.string().nullable(),
+    uptimeSeconds: z.number(),
+    /** Load per core, 0..1 (like the nodes report it). */
+    cpu: z.number(),
+    memory: z.object({ used: z.number(), total: z.number() }),
+    disk: z.object({ used: z.number(), total: z.number() }).nullable(),
+    /** Its own audio roles; empty when orchestrator only. */
+    roles: z.array(z.enum(['ingest', 'relay'])),
+  }),
 });
 
 const portOut = z.object({
@@ -162,10 +183,40 @@ export const orchestratorRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   );
 
+  async function hostView(only: boolean): Promise<z.infer<typeof orchestratorOut>['host']> {
+    const [info, names, publicHost, disk] = await Promise.all([
+      getVersionInfo(ctx),
+      serverNames(ctx),
+      platformHost(ctx),
+      statfs(ctx.config.DATA_DIR)
+        .catch(() => statfs('/'))
+        .then((f) => ({ used: (f.blocks - f.bavail) * f.bsize, total: f.blocks * f.bsize }))
+        .catch(() => null),
+    ]);
+    const addresses = Object.values(networkInterfaces())
+      .flat()
+      .filter((a) => a && a.family === 'IPv4' && !a.internal)
+      .map((a) => a!.address);
+    return {
+      name: names.orchestrator,
+      hostname: hostname(),
+      addresses,
+      publicHost,
+      version: info.version,
+      commit: info.commit,
+      uptimeSeconds: Math.round(uptime()),
+      cpu: Math.min(1, loadavg()[0]! / Math.max(1, cpus().length)),
+      memory: { used: totalmem() - freemem(), total: totalmem() },
+      disk,
+      roles: only ? [] : ['ingest', 'relay'],
+    };
+  }
+
   async function orchestratorView(): Promise<z.infer<typeof orchestratorOut>> {
     const [o, stations, nodes] = await Promise.all([getSetting(ctx, 'orchestrator'), stationsUsingThisServer(ctx), ctx.db.select({ roles: schema.nodes.roles, pairedAt: schema.nodes.pairedAt }).from(schema.nodes)]);
     const paired = nodes.filter((n) => n.pairedAt);
     return {
+      host: await hostView(o.only),
       only: o.only,
       stations,
       ingestNodes: paired.filter((n) => n.roles.includes('source')).length,

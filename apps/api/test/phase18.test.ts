@@ -108,6 +108,10 @@ describe('orchestrator only (phase 18)', () => {
   it('lists the stations that still use this server, and refuses to switch on while they do', async () => {
     const view = (await t.app.inject({ method: 'GET', url: '/api/nodes/orchestrator', headers: admin })).json();
     expect(view.only).toBe(false);
+    // The server that hosts the orchestrator, for the pinned card on Nodes.
+    expect(view.host).toMatchObject({ hostname: expect.any(String), version: expect.any(String), roles: ['ingest', 'relay'] });
+    expect(view.host.memory.total).toBeGreaterThan(0);
+    expect(view.host.cpu).toBeGreaterThanOrEqual(0);
     expect(view.stations).toEqual([expect.objectContaining({ id: stationId, uses: expect.arrayContaining(['ingest', 'listeners']) })]);
     const res = await t.app.inject({ method: 'PUT', url: '/api/nodes/orchestrator', headers: admin, payload: { only: true } });
     expect(res.statusCode).toBe(409);
@@ -122,7 +126,7 @@ describe('orchestrator only (phase 18)', () => {
     expect((await t.app.inject({ method: 'PUT', url: `/api/stations/${stationId}/routing`, headers: admin, payload: { ingest: ingest.id } })).statusCode).toBe(200);
     const res = await t.app.inject({ method: 'PUT', url: '/api/nodes/orchestrator', headers: admin, payload: { only: true } });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ only: true, stations: [], ingestNodes: 1 });
+    expect(res.json()).toMatchObject({ only: true, stations: [], ingestNodes: 1, host: { roles: [] } });
   });
 
   it('blocks every way back to audio on this server', async () => {
