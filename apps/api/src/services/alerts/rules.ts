@@ -191,7 +191,10 @@ export function evaluate(input: RulesInput): Condition[] {
   // that are still open after they were switched off.
   for (const f of input.firewall ?? []) {
     const n = nodes.get(f.nodeId);
-    if (!n || !n.online || !watchedNode(n.id)) continue;
+    // While a node is being updated its port alerts hold as they were (from the check before the update), instead of
+    // being solved and opened again after it: one finding, one alert.
+    const held = n?.id === updating;
+    if (!n || maint.nodes.has(n.id) || (!held && (!n.online || !watchedNode(n.id)))) continue;
     if (f.closed.length) out.push({ key: `port_closed:${n.id}`, kind: 'port_closed', severity: 'warning', nodeId: n.id, stationId: null, params: { node: n.name, ports: f.closed.join(', ') }, message: null });
     if (f.oldOpen.length) out.push({ key: `old_port_open:${n.id}`, kind: 'old_port_open', severity: 'warning', nodeId: n.id, stationId: null, params: { node: n.name, ports: f.oldOpen.join(', ') }, message: null });
   }

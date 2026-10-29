@@ -5,6 +5,9 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 
 ## Unreleased
 
+- The "old ports still open" and "ports cannot be reached" alerts no longer flap around a node update: the port check
+  from outside skips a node while it is being updated, and its alert holds as it was instead of being solved and
+  opened again after the update.
 - The check badge of the monitoring node on the 2D map now names the checks that fail in its tooltip (station,
   mount, and silence or the error), and the tooltip shows at all (the badge ignored the mouse before).
 - A station node that bypasses its ingest and feeds the relays itself (fallback: ingest offline, unreachable, no
