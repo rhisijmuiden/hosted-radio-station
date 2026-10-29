@@ -646,6 +646,17 @@ Audio processing for the station's output, set per radio station (not per studio
 - **System resources first**: off by default; a CPU limit per processor (systemd quota), live CPU and RAM use shown in the panel, and a warning before turning it on when the node does not have enough headroom. The plan or node limits decide who may use the heavy processor.
 - Live DJs and AutoDJ both go through it; an FM/MPX node with its own processing can skip it.
 
+### Standard library folders and smarter clock items
+
+- Every station starts with four fixed folders in its media library: **Music**, **Jingles**, **News** and **Ads**.
+- A clock item of a given type is linked to its folder by itself: a news item takes from News, a jingle from Jingles, an ad block from Ads. Quicker to build an hour clock.
+- Per clock item: a **fixed file** (for example a good sponsor's ad) or a **random item** from the folder. When the folder is empty, the item is skipped.
+- The free time between the fixed items is filled with music by category (see the format builder below).
+
+### DJ web portal
+
+DJs sign in with their own DJ username and password on a small web portal on their station's node, to upload their own jingle pack and manage their own jingles and profile, without access to the rest of the station.
+
 ### Format builder for non-stop
 
 A format builder next to the hour clock, to make the non-stop rotation easier to build.
