@@ -1,14 +1,76 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Plus, Shield, ShieldAlert, ShieldCheck, ShieldOff, Trash2 } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle, KeyRound, Plus, Shield, ShieldAlert, ShieldCheck, ShieldOff, Trash2 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { api, type NodeFirewallConfig, type NodeFirewallState, type NodeItem } from '../../lib/api';
+import { api, type NodeFirewall, type NodeFirewallConfig, type NodeFirewallState, type NodeItem } from '../../lib/api';
 import { formatRelative } from '../../lib/format';
-import { Badge, Button, Card, CardHeader, Input, Select, Switch } from '../ui';
+import { Badge, Button, Card, CardHeader, Input, Select, Switch, Textarea } from '../ui';
 
 type ExtraPort = NodeFirewallConfig['extraPorts'][number];
 const portNumber = (v: string) => (v.trim() ? Math.max(0, Math.min(65535, Math.round(Number(v)) || 0)) : null);
+
+/** Whether an IPv4 address lies in "198.51.100.0/24" or equals the entry; other entries only match exactly. */
+export function covers(entry: string, ip: string) {
+  if (entry === ip) return true;
+  const [net, bits] = entry.split('/');
+  const v4 = (a: string) => (/^(\d{1,3}\.){3}\d{1,3}$/.test(a) ? a.split('.').reduce((n, o) => n * 256 + Number(o), 0) : null);
+  const a = v4(ip);
+  const b = v4(net ?? '');
+  if (a === null || b === null || bits === undefined) return false;
+  const size = 2 ** (32 - Math.min(32, Math.max(0, Number(bits))));
+  return Math.floor(a / size) === Math.floor(b / size);
+}
+
+/**
+ * SSH (security hardening for external nodes, step 3): only from admin addresses, a limit on new connections per
+ * address, and whether the node's SSH server takes passwords.
+ */
+function SshSettings({ node, value, disabled, saving, onSave }: { node: NodeItem; value: NodeFirewallConfig; disabled: boolean; saving: boolean; onSave: (v: Partial<NodeFirewallConfig>) => void }) {
+  const { t } = useTranslation();
+  const view = useQuery({ queryKey: ['nodes', node.id, 'firewall'], queryFn: () => api<NodeFirewall>(`/nodes/${node.id}/firewall`) });
+  const viewer = view.data?.viewerIp ?? null;
+  const saved = (value.sshFrom ?? []).join('\n');
+  const [text, setText] = useState(saved);
+  useEffect(() => setText(saved), [saved]);
+  const list = text
+    .split(/[\s,]+/)
+    .map((a) => a.trim())
+    .filter(Boolean);
+  const changed = list.join('\n') !== saved;
+  const st = node.status.firewall?.ssh;
+  const lockedOut = list.length > 0 && !!viewer && !list.some((a) => covers(a, viewer));
+  return (
+    <div className="flex flex-col gap-3 rounded-md border border-line px-3 py-3">
+      <div className="flex items-center gap-2 text-sm font-semibold">
+        <KeyRound className="size-4" /> {t('firewall.node.ssh.title')}
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[13px] font-semibold" htmlFor={`ssh-from-${node.id}`}>
+          {t('firewall.node.ssh.from')}
+        </label>
+        <Textarea id={`ssh-from-${node.id}`} rows={3} className="font-mono text-[13px]" placeholder={'203.0.113.5\n198.51.100.0/24'} value={text} disabled={disabled} onChange={(e) => setText(e.target.value)} />
+        <p className="text-xs text-muted">{list.length ? t('firewall.node.ssh.fromHint') : t('firewall.node.ssh.anywhere')}</p>
+        {lockedOut && <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[13px]">{t('firewall.node.ssh.notYou', { ip: viewer })}</p>}
+        <div className="flex flex-wrap gap-2">
+          {viewer && !list.includes(viewer) && (
+            <Button size="sm" type="button" disabled={disabled} onClick={() => setText([...list, viewer].join('\n'))}>
+              <Plus className="size-4" /> {t('firewall.node.ssh.addMine', { ip: viewer })}
+            </Button>
+          )}
+          {changed && (
+            <Button size="sm" type="button" variant="primary" loading={saving} disabled={disabled} onClick={() => onSave({ sshFrom: list })}>
+              {t('firewall.node.ssh.save')}
+            </Button>
+          )}
+        </div>
+      </div>
+      <Switch checked={value.sshLimit ?? true} disabled={disabled || saving} onChange={(sshLimit) => onSave({ sshLimit })} label={t('firewall.node.ssh.limit')} description={t('firewall.node.ssh.limitHint')} />
+      {st?.password === 'yes' && <p className="text-xs text-muted">{t('firewall.node.ssh.password')}</p>}
+      <p className="text-xs text-muted">{t('firewall.node.ssh.safety')}</p>
+    </div>
+  );
+}
 
 /** Extra ports the firewall lets in on top of the ports of the node's roles, saved together. */
 function ExtraPorts({ value, disabled, saving, onSave }: { value: ExtraPort[]; disabled: boolean; saving: boolean; onSave: (v: ExtraPort[]) => void }) {
@@ -83,7 +145,7 @@ const ICON: Record<NodeFirewallState, ReactNode> = {
 export function NodeFirewallCard({ node, canEdit }: { node: NodeItem; canEdit: boolean }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const fw = node.config.firewall ?? { enabled: false, takeOver: false, extraPorts: [] };
+  const fw: NodeFirewallConfig = { enabled: false, takeOver: false, extraPorts: [], sshFrom: [], sshLimit: true, ...node.config.firewall };
   const st = node.status.firewall ?? null;
   const supported = !!node.status.features?.includes('firewall');
   const save = useMutation({
@@ -145,6 +207,7 @@ export function NodeFirewallCard({ node, canEdit }: { node: NodeItem; canEdit: b
             />
           </div>
         )}
+        <SshSettings node={node} value={fw} disabled={!canEdit || !supported} saving={save.isPending} onSave={(patch) => save.mutate(patch)} />
         <ExtraPorts value={fw.extraPorts} disabled={!canEdit || !supported} saving={save.isPending} onSave={(extraPorts) => save.mutate({ extraPorts })} />
         {st?.message && (
           <p className="text-[13px] text-muted">

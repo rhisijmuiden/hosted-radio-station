@@ -68,6 +68,9 @@ export interface FirewallState {
   /** Incoming ports of the node's roles, "8200" or "8210-8299" (SSH is added by the helper). */
   tcp: string[];
   udp: string[];
+  /** SSH only from these addresses or networks (empty = anywhere), and a limit on new SSH connections per address. */
+  sshFrom?: string[];
+  sshLimit?: boolean;
 }
 
 export interface FirewallStatus {
@@ -77,6 +80,7 @@ export interface FirewallStatus {
   /** Firewall rules of something else found on the server. */
   foreign?: string[];
   ports?: { ssh: string[]; tcp: string[]; udp: string[] };
+  ssh?: { from: string[]; limit: boolean; password: string };
   at?: string;
 }
 

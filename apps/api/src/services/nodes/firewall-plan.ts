@@ -13,8 +13,8 @@ const range = (port: number, to?: number | null) => (to && to > port ? `${port}-
  */
 export async function firewallPlan(ctx: AppContext, node: Node): Promise<NonNullable<NodePlan['firewall']>> {
   const c = nodeSettings(node).firewall;
-  if (!c.enabled) return { enabled: false, takeOver: false, tcp: [], udp: [] };
-  return { enabled: true, takeOver: c.takeOver, ...(await allowedPorts(ctx, node)) };
+  if (!c.enabled) return { enabled: false, takeOver: false, tcp: [], udp: [], sshFrom: [], sshLimit: true };
+  return { enabled: true, takeOver: c.takeOver, ...(await allowedPorts(ctx, node)), sshFrom: c.sshFrom, sshLimit: c.sshLimit };
 }
 
 /** The ports the node's firewall lets in besides SSH, whether or not it is on: "8200" or "8210-8299". */

@@ -1026,7 +1026,7 @@ export interface NodeStatus {
   /** What the node's software can do, such as "firewall". */
   features?: string[];
   /** The node's own firewall as the node reports it (security hardening for external nodes). */
-  firewall?: { state: string; message?: string; foreign?: string[]; ports?: { ssh: string[]; tcp: string[]; udp: string[] }; at?: string } | null;
+  firewall?: { state: string; message?: string; foreign?: string[]; ports?: { ssh: string[]; tcp: string[]; udp: string[] }; ssh?: { from: string[]; limit: boolean; password: string }; at?: string } | null;
   updatedAt?: string;
 }
 export type NodeFirewallState = 'off' | 'running' | 'pending' | 'active' | 'foreign' | 'rolledBack' | 'failed' | 'unsupported';
@@ -1034,6 +1034,10 @@ export interface NodeFirewallConfig {
   enabled: boolean;
   takeOver: boolean;
   extraPorts: { port: number; to: number | null; proto: 'tcp' | 'udp' }[];
+  /** SSH only from these addresses or networks; empty = anywhere. */
+  sshFrom: string[];
+  /** Limit new SSH connections per address. */
+  sshLimit: boolean;
 }
 export interface NodeItem {
   id: string;
@@ -1204,6 +1208,8 @@ export interface NodeFirewall {
   behindNat: boolean;
   /** The node's own firewall as it reports it. */
   nodeFirewall: NodeStatus['firewall'] | null;
+  /** The address the viewer reaches this server from. */
+  viewerIp: string | null;
 }
 export interface TopologyNode {
   id: string;

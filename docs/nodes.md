@@ -153,6 +153,11 @@ itself, ICMP, DHCP replies, SSH (the port sshd listens on) and those ports. Outg
 - **Safe apply.** New rules are on trial for a minute: the agent confirms them once it still reaches the orchestrator
   over the control channel and with a new connection. Without that confirmation a timer puts the previous rules
   (including the other firewall's) back, and the same rules are not tried again until the settings change.
+- **SSH**: optionally only from admin addresses or networks (IPv4 and IPv6, e.g. `203.0.113.5` or
+  `198.51.100.0/24`); the panel offers the address you are connected from and warns when the list leaves it out. New
+  SSH connections are limited per address (a burst of 5, then 10 a minute) against password guessing, and the panel
+  says when sshd still takes passwords. A wrong list cannot cut the node off: the firewall can always be switched off
+  in the panel, because the node keeps its connection to the orchestrator.
 - **Extra ports**: ports or ranges (TCP or UDP) to let in on top of the role ports, for example a monitoring agent.
 - **Outside check**: **Check from outside** (and the monitoring node every few minutes) also tries SSH and a list of
   well-known ports a node never needs from outside (mail, databases, admin pages, file shares, 8080 and the like). One

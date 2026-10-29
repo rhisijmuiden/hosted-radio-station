@@ -104,7 +104,7 @@ export interface NodePlan {
    * The node's own firewall (security hardening for external nodes): incoming traffic is dropped except SSH and these
    * ports ("8200" or "8210-8299"). Missing in plans of older main servers: the node leaves its firewall alone.
    */
-  firewall?: { enabled: boolean; takeOver: boolean; tcp: string[]; udp: string[] };
+  firewall?: { enabled: boolean; takeOver: boolean; tcp: string[]; udp: string[]; sshFrom?: string[]; sshLimit?: boolean };
   update: { branch: string | null; commit: string | null; auto: boolean };
 }
 
@@ -310,6 +310,8 @@ export interface NodeFirewallStatus {
   foreign?: string[];
   /** What is let in: SSH, and the TCP and UDP ports of the roles. */
   ports?: { ssh: string[]; tcp: string[]; udp: string[] };
+  /** SSH: the admin addresses it is limited to (empty = anywhere), the attempt limit, and whether sshd takes passwords. */
+  ssh?: { from: string[]; limit: boolean; password: string };
   at?: string;
 }
 

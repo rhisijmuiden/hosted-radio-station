@@ -81,6 +81,8 @@ const firewallOut = z.object({
   /** The checked address is not on the node itself (a router, NAT): open ports there may not be the node's. */
   behindNat: z.boolean(),
   /** The node's own firewall as it reports it, when its software has one. */
+  /** The address the viewer reaches this server from, to offer it for the SSH admin addresses. */
+  viewerIp: z.string().nullable(),
   nodeFirewall: z.object({ state: z.string(), message: z.string().optional(), foreign: z.array(z.string()).optional(), ports: z.object({ ssh: z.array(z.string()), tcp: z.array(z.string()), udp: z.array(z.string()) }).optional(), at: z.string().optional() }).nullable(),
 });
 
@@ -312,7 +314,7 @@ export const orchestratorRoutes: FastifyPluginAsyncZod = async (app) => {
     return { ...node, status: hub.liveStatus(node.id) ?? { ...node.status, online: false } };
   }
 
-  async function firewallView(node: Awaited<ReturnType<typeof nodeFor>>): Promise<z.infer<typeof firewallOut>> {
+  async function firewallView(node: Awaited<ReturnType<typeof nodeFor>>, viewerIp: string | null = null): Promise<z.infer<typeof firewallOut>> {
     const internal = internalAddress(node);
     const last = lastFirewallCheck(node.id);
     const publicInterface = !!internal && isPublicAddress(internal);
@@ -330,12 +332,13 @@ export const orchestratorRoutes: FastifyPluginAsyncZod = async (app) => {
       unexpected: last?.unexpected ?? [],
       behindNat: last?.behindNat ?? false,
       nodeFirewall: node.status.firewall ?? null,
+      viewerIp,
     };
   }
 
   const nodeParams = z.object({ id: z.uuid() });
   app.get('/:id/firewall', { schema: { tags: ['Nodes'], summary: 'Ports to open or forward to this node, with the last check from outside', params: nodeParams, response: { 200: firewallOut } } }, async (req) => {
-    return firewallView(await nodeFor(req, req.params.id));
+    return firewallView(await nodeFor(req, req.params.id), req.ip);
   });
 
   app.post(
@@ -353,7 +356,7 @@ export const orchestratorRoutes: FastifyPluginAsyncZod = async (app) => {
       const node = await nodeFor(req, req.params.id);
       if (!externalAddress(node)) throw badRequest('The node has no known address yet; pair it or set its host name');
       await checkFirewall(ctx, hub, node);
-      return firewallView(node);
+      return firewallView(node, req.ip);
     },
   );
 
