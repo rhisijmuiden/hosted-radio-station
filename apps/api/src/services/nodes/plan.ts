@@ -53,9 +53,9 @@ export const firewallConfigSchema = z.object({
   /** Limits new SSH connections per address (against password guessing). */
   sshLimit: z.boolean().default(true),
   /**
-   * Not decided yet (nodes added from step 4 on): at its first connection with software that has a firewall, a node
-   * with a public address on its own interface gets the firewall switched on, any other node keeps it off. Nodes
-   * from before keep what they have.
+   * Not decided yet (new nodes, and nodes from before step 4 whose firewall was not switched on by hand): at its next
+   * connection with software that has a firewall, a node with a public address on its own interface gets the firewall
+   * switched on, any other node keeps it off.
    */
   auto: z.boolean().default(false),
 });
