@@ -200,6 +200,11 @@ describe('firewall checklist (phase 18)', () => {
     const checked = (await t.app.inject({ method: 'POST', url: `/api/nodes/${node.id}/firewall/check`, headers: owner })).json();
     expect(checked.checks[String(open)]).toMatchObject({ ok: true });
     expect(Object.values(checked.checks).filter((c) => !(c as { ok: boolean }).ok)).toHaveLength(1);
+    // SSH is tried on its own, and well-known ports the node does not need are reported when they answer: here the
+    // test database on 5432 (security hardening for external nodes).
+    expect(Object.keys(checked.ssh)).toEqual(['22']);
+    expect(checked.unexpected).toContain(5432);
+    expect(checked.unexpected).not.toContain(open);
     // Another customer's node is not yours to see.
     expect((await t.app.inject({ method: 'GET', url: `/api/nodes/${node.id}/firewall`, headers: { cookie: '' } })).statusCode).toBe(401);
     a.close();

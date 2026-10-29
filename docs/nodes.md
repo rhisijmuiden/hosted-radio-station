@@ -153,6 +153,10 @@ itself, ICMP, DHCP replies, SSH (the port sshd listens on) and those ports. Outg
 - **Safe apply.** New rules are on trial for a minute: the agent confirms them once it still reaches the orchestrator
   over the control channel and with a new connection. Without that confirmation a timer puts the previous rules
   (including the other firewall's) back, and the same rules are not tried again until the settings change.
+- **Extra ports**: ports or ranges (TCP or UDP) to let in on top of the role ports, for example a monitoring agent.
+- **Outside check**: **Check from outside** (and the monitoring node every few minutes) also tries SSH and a list of
+  well-known ports a node never needs from outside (mail, databases, admin pages, file shares, 8080 and the like). One
+  that answers is shown as unexpectedly open.
 - Confirmed rules are saved in `/etc/hrs-node/firewall.nft` and loaded at boot by `hrs-node-firewall-boot.service`.
   The log of the last run is in `/var/lib/hrs-node/run/firewall.log`.
 - An unprivileged container whose kernel does not let it filter its own traffic reports "Not supported"; use the

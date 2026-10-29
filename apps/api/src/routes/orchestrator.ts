@@ -74,6 +74,12 @@ const firewallOut = z.object({
   checkedFrom: z.discriminatedUnion('kind', [z.object({ kind: z.literal('monitor'), nodeId: z.string(), name: z.string() }), z.object({ kind: z.literal('server') })]).nullable(),
   /** Old ports (from before the port plan) that still answer while they are switched off: close them in the firewall. */
   oldOpen: z.array(z.number()),
+  /** SSH per port at the last check (let in by the node's own firewall). */
+  ssh: z.record(z.string(), z.object({ ok: z.boolean(), message: z.string().nullable(), ms: z.number().nullable(), at: z.string() })),
+  /** Well-known ports the node does not need that still answered at the last check: close them. */
+  unexpected: z.array(z.number()),
+  /** The node's own firewall as it reports it, when its software has one. */
+  nodeFirewall: z.object({ state: z.string(), message: z.string().optional(), foreign: z.array(z.string()).optional(), ports: z.object({ ssh: z.array(z.string()), tcp: z.array(z.string()), udp: z.array(z.string()) }).optional(), at: z.string().optional() }).nullable(),
 });
 
 /**
@@ -318,6 +324,9 @@ export const orchestratorRoutes: FastifyPluginAsyncZod = async (app) => {
       checks: last?.checks ?? {},
       checkedFrom: last?.from ?? null,
       oldOpen: last?.oldOpen ?? [],
+      ssh: last?.ssh ?? {},
+      unexpected: last?.unexpected ?? [],
+      nodeFirewall: node.status.firewall ?? null,
     };
   }
 

@@ -14,6 +14,12 @@ const range = (port: number, to?: number | null) => (to && to > port ? `${port}-
 export async function firewallPlan(ctx: AppContext, node: Node): Promise<NonNullable<NodePlan['firewall']>> {
   const c = nodeSettings(node).firewall;
   if (!c.enabled) return { enabled: false, takeOver: false, tcp: [], udp: [] };
+  return { enabled: true, takeOver: c.takeOver, ...(await allowedPorts(ctx, node)) };
+}
+
+/** The ports the node's firewall lets in besides SSH, whether or not it is on: "8200" or "8210-8299". */
+export async function allowedPorts(ctx: AppContext, node: Node) {
+  const c = nodeSettings(node).firewall;
   const tcp = new Set<string>();
   const udp = new Set<string>();
   for (const p of await inboundPorts(ctx, node)) tcp.add(range(p.port, p.to));
@@ -21,5 +27,13 @@ export async function firewallPlan(ctx: AppContext, node: Node): Promise<NonNull
   if (node.status.caddy && nodeHost(node)) tcp.add('80');
   for (const p of c.extraPorts) (p.proto === 'udp' ? udp : tcp).add(range(p.port, p.to));
   const order = (a: string, b: string) => parseInt(a, 10) - parseInt(b, 10);
-  return { enabled: true, takeOver: c.takeOver, tcp: [...tcp].sort(order), udp: [...udp].sort(order) };
+  return { tcp: [...tcp].sort(order), udp: [...udp].sort(order) };
+}
+
+/** Whether a port lies in one of the ranges ("8200" or "8210-8299"). */
+export function inRanges(port: number, ranges: string[]) {
+  return ranges.some((r) => {
+    const [a, b] = r.split('-').map(Number);
+    return port >= a! && port <= (b ?? a!);
+  });
 }

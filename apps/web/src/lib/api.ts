@@ -1196,6 +1196,12 @@ export interface NodeFirewall {
   checkedFrom: { kind: 'monitor'; nodeId: string; name: string } | { kind: 'server' } | null;
   /** Old ports that still answer while they are switched off for the node. */
   oldOpen: number[];
+  /** SSH per port at the last check. */
+  ssh: Record<string, { ok: boolean; message: string | null; ms: number | null; at: string }>;
+  /** Well-known ports the node does not need that still answered at the last check. */
+  unexpected: number[];
+  /** The node's own firewall as it reports it. */
+  nodeFirewall: NodeStatus['firewall'] | null;
 }
 export interface TopologyNode {
   id: string;

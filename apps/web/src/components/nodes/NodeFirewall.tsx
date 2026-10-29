@@ -1,11 +1,58 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Shield, ShieldAlert, ShieldCheck, ShieldOff } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { AlertTriangle, Plus, Shield, ShieldAlert, ShieldCheck, ShieldOff, Trash2 } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { api, type NodeFirewallState, type NodeItem } from '../../lib/api';
+import { api, type NodeFirewallConfig, type NodeFirewallState, type NodeItem } from '../../lib/api';
 import { formatRelative } from '../../lib/format';
-import { Badge, Card, CardHeader, Switch } from '../ui';
+import { Badge, Button, Card, CardHeader, Input, Select, Switch } from '../ui';
+
+type ExtraPort = NodeFirewallConfig['extraPorts'][number];
+const portNumber = (v: string) => (v.trim() ? Math.max(0, Math.min(65535, Math.round(Number(v)) || 0)) : null);
+
+/** Extra ports the firewall lets in on top of the ports of the node's roles, saved together. */
+function ExtraPorts({ value, disabled, saving, onSave }: { value: ExtraPort[]; disabled: boolean; saving: boolean; onSave: (v: ExtraPort[]) => void }) {
+  const { t } = useTranslation();
+  const [rows, setRows] = useState(value);
+  // The node is fetched again every few seconds: only a saved change replaces what is being edited.
+  const saved = JSON.stringify(value);
+  useEffect(() => setRows(JSON.parse(saved) as ExtraPort[]), [saved]);
+  const changed = JSON.stringify(rows) !== saved;
+  const valid = rows.every((r) => r.port >= 1 && (r.to === null || r.to >= r.port));
+  const set = (i: number, patch: Partial<ExtraPort>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  return (
+    <div className="flex flex-col gap-2">
+      <div>
+        <div className="text-sm font-semibold">{t('firewall.node.extra')}</div>
+        <div className="text-xs text-muted">{t('firewall.node.extraHint')}</div>
+      </div>
+      {rows.map((r, i) => (
+        <div key={i} className="flex flex-wrap items-center gap-2">
+          <Input className="w-28" type="number" min={1} max={65535} aria-label={t('firewall.port')} value={r.port || ''} disabled={disabled} onChange={(e) => set(i, { port: portNumber(e.target.value) ?? 0 })} />
+          <span className="text-muted">–</span>
+          <Input className="w-28" type="number" min={1} max={65535} aria-label={t('firewall.node.to')} placeholder={t('firewall.node.to')} value={r.to ?? ''} disabled={disabled} onChange={(e) => set(i, { to: portNumber(e.target.value) })} />
+          <Select className="w-24" aria-label={t('firewall.node.proto')} value={r.proto} disabled={disabled} onChange={(e) => set(i, { proto: e.target.value as ExtraPort['proto'] })}>
+            <option value="tcp">TCP</option>
+            <option value="udp">UDP</option>
+          </Select>
+          <Button size="sm" variant="ghost" type="button" aria-label={t('firewall.node.remove')} disabled={disabled} onClick={() => setRows(rows.filter((_, j) => j !== i))}>
+            <Trash2 className="size-4" />
+          </Button>
+        </div>
+      ))}
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" type="button" disabled={disabled || rows.length >= 50} onClick={() => setRows([...rows, { port: 0, to: null, proto: 'tcp' }])}>
+          <Plus className="size-4" /> {t('firewall.node.add')}
+        </Button>
+        {changed && (
+          <Button size="sm" type="button" variant="primary" loading={saving} disabled={disabled || !valid} onClick={() => onSave(rows)}>
+            {t('firewall.node.saveExtra')}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 const TONE: Record<NodeFirewallState, 'online' | 'warning' | 'offline' | 'neutral'> = {
   off: 'neutral',
@@ -98,6 +145,7 @@ export function NodeFirewallCard({ node, canEdit }: { node: NodeItem; canEdit: b
             />
           </div>
         )}
+        <ExtraPorts value={fw.extraPorts} disabled={!canEdit || !supported} saving={save.isPending} onSave={(extraPorts) => save.mutate({ extraPorts })} />
         {st?.message && (
           <p className="text-[13px] text-muted">
             {t(`firewall.node.message.${state ?? 'off'}`, { defaultValue: st.message })}
