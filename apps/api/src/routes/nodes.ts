@@ -13,6 +13,7 @@ import { okOut } from '../lib/schemas.js';
 import { clientIp } from '../lib/cloudflare-ips.js';
 import { nodeEvent } from '../services/nodes/hub.js';
 import { hashCode, installCommand, MAX_PENDING, nameFromHostname, newPairingCode, newRegistrationCode, PAIRING_HOURS } from '../services/nodes/pairing.js';
+import { NEW_NODE_FIREWALL } from '../services/nodes/firewall-plan.js';
 import { carried, nodeConfigPatch, nodeConfigSchema, type NodeConfigPatch, nodeSettings, relayBaseUrl, relaysByStation, relaysOf, storedConfig, type Node } from '../services/nodes/plan.js';
 import { scopeOf, serves } from '../services/nodes/dedication.js';
 import { plannedIngests, studioDelivery } from '../services/nodes/delivery.js';
@@ -416,7 +417,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       const hostname = reg.hostname.slice(0, 100);
       const [node] = await ctx.db
         .insert(schema.nodes)
-        .values({ name: req.body.name, location: req.body.location, tenantId: tenantId ?? null, roles, config: storedConfig({}), secret: ctx.box.encrypt(secret), pairedAt: now, status: { online: false, hostname } })
+        .values({ name: req.body.name, location: req.body.location, tenantId: tenantId ?? null, roles, config: storedConfig(NEW_NODE_FIREWALL), secret: ctx.box.encrypt(secret), pairedAt: now, status: { online: false, hostname } })
         .returning();
       // The node fetches its secret with its own token; it stays here until the node has connected.
       await ctx.db.update(r).set({ state: 'accepted', nodeId: node!.id, secret: ctx.box.encrypt(secret), expiresAt: new Date(now.getTime() + PAIRING_HOURS * 3600_000) }).where(eq(r.id, reg.id));
@@ -495,7 +496,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       await assertFreeName(ctx, req.body.name);
       const [node] = await ctx.db
         .insert(schema.nodes)
-        .values({ name: req.body.name, location: req.body.location, tenantId: tenantId ?? null, roles: [...new Set(req.body.roles)], config: storedConfig({}) })
+        .values({ name: req.body.name, location: req.body.location, tenantId: tenantId ?? null, roles: [...new Set(req.body.roles)], config: storedConfig(NEW_NODE_FIREWALL) })
         .returning();
       const pairing = await newPairing(node!);
       await nodeEvent(ctx, node!.id, 'created', 'info', { by: req.auth?.user.email ?? null });

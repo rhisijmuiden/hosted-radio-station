@@ -1,7 +1,24 @@
+import type { NodeConfig, NodeStatus } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
+import { isPublicAddress } from '../dns/records.js';
 import { nodeHost, nodeSettings, type Node } from './plan.js';
 import { inboundPorts } from './ports.js';
 import type { NodePlan } from './protocol.js';
+
+/** The stored settings of a new node: its firewall is decided at its first connection (see firewallDefault). */
+export const NEW_NODE_FIREWALL = { firewall: { auto: true } } as const;
+
+/**
+ * The firewall default (security hardening for external nodes, step 4), once per new node: on for a node with a
+ * public address on its own interface (a server in a data centre), off for a node behind a router. Returns the new
+ * stored settings, or null when there is nothing to decide (yet): the node's software has no firewall, or it was
+ * decided before.
+ */
+export function firewallDefault(config: NodeConfig, status: Pick<NodeStatus, 'addresses' | 'features'>): { config: NodeConfig; enabled: boolean } | null {
+  if (!config.firewall?.auto || !status.features?.includes('firewall')) return null;
+  const enabled = (status.addresses ?? []).some((a) => isPublicAddress(a));
+  return { config: { ...config, firewall: { ...config.firewall, enabled, auto: false } }, enabled };
+}
 
 const range = (port: number, to?: number | null) => (to && to > port ? `${port}-${to}` : String(port));
 

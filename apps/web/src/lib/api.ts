@@ -1038,6 +1038,8 @@ export interface NodeFirewallConfig {
   sshFrom: string[];
   /** Limit new SSH connections per address. */
   sshLimit: boolean;
+  /** A new node: on or off is decided at its first connection. */
+  auto?: boolean;
 }
 export interface NodeItem {
   id: string;

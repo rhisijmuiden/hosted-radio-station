@@ -183,6 +183,7 @@ export function NodeFirewallCard({ node, canEdit }: { node: NodeItem; canEdit: b
           label={t('firewall.node.enabled')}
           description={t('firewall.node.enabledHint')}
         />
+        {fw.auto && !fw.enabled && <p className="text-xs text-muted">{t('firewall.node.auto')}</p>}
         {(foreign.length > 0 || fw.takeOver) && (
           <div className="flex flex-col gap-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-3">
             {foreign.length > 0 && (

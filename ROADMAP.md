@@ -200,7 +200,7 @@ One thing at a time; each item starts when the previous one is finished and test
    - The choice is made per **radio station** when it is created (and can be changed later): **Distribution only** (the station gets the ingest endpoint to stream to) or **Radio station** (AutoDJ, clocks, library), and then where it runs: on the shared station node or on one of the customer's own nodes.
    - Switching a station between Distribution and Radio station happens on the station itself and really changes it (for Radio station: placement on a station node).
    - **Downgrading safely**: going from Radio station back to Distribution only needs an explicit confirmation that explains what it means (from then on the station only receives a stream from the customer's own software; AutoDJ, clocks, library and DJ logins stop). The station's content is kept in the background for 24 hours, with a clear warning and countdown, so the customer can switch back without loss. After 24 hours the content is deleted.
-7. **Security hardening for external nodes**: see the queued item below. (For now the one external server was closed by hand.)
+7. **Security hardening for external nodes**: built and tested in test, see the section below. Switching it on for pub-relay-01 (closed by hand with iptables) is up to the administrator.
 8. **Phase 21: Recorder node**: recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download.
 
 Later: phase 14 (orchestrator redundancy) just before sales start; phases 22 and 23 when the first customers come.
@@ -575,15 +575,17 @@ Small fixes planned for a patch release, one at a time after the current phase.
 | ![3D network map with control lines](docs/screenshots/pr-128-129-3d-control-on.png) | ![2D layers with lines around servers](docs/screenshots/pr-128-129-2d-layers.png) |
 | ![Customer page, station node of this customer](docs/screenshots/pr-128-129-customer-station-node-harder-fm.png) | ![Customer page, the chosen station node shown after loading](docs/screenshots/pr-128-129-customer-station-node-radio-schermer.png) |
 
-### Security hardening for external nodes (step 7 in the order of work)
+### Security hardening for external nodes (step 7 in the order of work, in test)
 
-Nodes with a direct public IP address get a firewall that is closed by default.
+Nodes with a direct public IP address get a firewall that is closed by default. Built in four steps (#160 to #164).
 
-- The node agent manages an nftables firewall: all incoming traffic is dropped except the ports of the node's own roles (from the port plan per role), SSH, and replies to connections the node opened itself (to the orchestrator, relays and ingests).
-- The rules follow the node: when a role or port changes in the panel, the agent updates the firewall by itself.
-- SSH stays open, optionally limited to set admin IP addresses, with protection against password guessing (fail2ban or rate limits).
-- Safe apply: new rules roll back by themselves when the node loses its connection to the orchestrator within a minute, so a mistake never locks a node out.
-- Hardening is on by default for nodes that detect a public IP, and can be turned on for nodes behind NAT as well. The panel shows the firewall state per node, and the external port check confirms that only the expected ports answer.
+- **Node firewall**: the node agent manages its own nftables table. All incoming traffic is dropped except the ports of the node's own roles (from the port plan per role), SSH, ping, DHCP and replies to connections the node opened itself (to the orchestrator, relays and ingests). Outgoing traffic is not filtered.
+- **The rules follow the node**: when a role or port changes in the panel, the agent updates the firewall by itself. Extra ports (TCP or UDP, single or a range) can be added per node.
+- **Existing rules first**: before it sets anything, the node looks for firewall rules of something else (iptables, ufw, firewalld, other nftables tables). When it finds any, it changes nothing and the panel lists them, until the administrator chooses to take over.
+- **Safe apply**: new rules are on trial for a minute and roll back by themselves when the node loses its connection to the orchestrator with them. The firewall can always be switched off from the panel, because the node keeps its connection to the orchestrator.
+- **SSH**: optionally only from set admin addresses or networks (IPv4 and IPv6), with a button to add your own address and a warning when the list leaves it out, and a limit on new SSH connections per address against password guessing (rate limits in nftables, no extra package). The panel says when the SSH server still takes passwords.
+- **On by default** for new nodes with a public address on their own interface (a server in a data centre), decided at their first connection; nodes behind a router keep it off and can switch it on. Existing nodes keep what they have.
+- **Outside check**: the port check from outside also tries SSH and well-known ports a node never needs (databases, mail, admin pages, 8080 and the like) and warns when one answers. For a node behind a router (NAT) it says the ports may belong to the router or another machine, and a monitoring node in the same network is named as such.
 
 ### Clear navigation for customers and station managers (queued, not scheduled yet; own thread)
 

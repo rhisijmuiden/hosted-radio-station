@@ -52,6 +52,12 @@ export const firewallConfigSchema = z.object({
   sshFrom: z.array(sshSourceSchema).max(50).default([]),
   /** Limits new SSH connections per address (against password guessing). */
   sshLimit: z.boolean().default(true),
+  /**
+   * Not decided yet (nodes added from step 4 on): at its first connection with software that has a firewall, a node
+   * with a public address on its own interface gets the firewall switched on, any other node keeps it off. Nodes
+   * from before keep what they have.
+   */
+  auto: z.boolean().default(false),
 });
 
 export const nodeConfigSchema = z.object({
@@ -542,6 +548,7 @@ export function pushToken(ctx: AppContext, relay: Pick<Node, 'secret'>, key: str
 /** Validates settings from the panel and returns the stored form. */
 export function storedConfig(input: NodeConfigPatch, current: NodeConfig = {}): NodeConfig {
   const fm = input.fm ? { ...(current.fm ?? {}), ...input.fm } : current.fm;
-  const firewall = input.firewall ? { ...(current.firewall ?? {}), ...input.firewall } : current.firewall;
+  // Switching the firewall on or off by hand is the decision: a new node's default no longer applies then.
+  const firewall = input.firewall ? { ...(current.firewall ?? {}), ...input.firewall, ...(input.firewall.enabled !== undefined ? { auto: false } : {}) } : current.firewall;
   return nodeConfigSchema.parse({ ...current, ...input, fm, firewall });
 }

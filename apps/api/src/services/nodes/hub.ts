@@ -12,6 +12,7 @@ import { getSetting } from '../settings.js';
 import { GeoIp } from '../stats/geoip.js';
 import { fmContext } from './fm.js';
 import { authorizeIngest, recordLive, syncLive } from './ingest.js';
+import { firewallDefault } from './firewall-plan.js';
 import { buildPlan, type Node } from './plan.js';
 import { CLOSE, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, type AgentMessage, type AgentStats, type FmStatus, type PortCheckResult, type ServerMessage } from './protocol.js';
 
@@ -247,8 +248,12 @@ export class NodeHub {
     };
     conn.timer.unref();
     this.conns.set(node.id, conn);
-    await this.ctx.db.update(schema.nodes).set({ status, lastSeenAt: new Date() }).where(eq(schema.nodes.id, node.id));
+    // A new node's firewall is decided now that it is known whether it has a public address of its own (step 4).
+    const fw = firewallDefault(node.config, status);
+    if (fw) node.config = fw.config;
+    await this.ctx.db.update(schema.nodes).set({ status, lastSeenAt: new Date(), ...(fw ? { config: fw.config } : {}) }).where(eq(schema.nodes.id, node.id));
     await nodeEvent(this.ctx, node.id, 'online', 'info', { ip, version: status.version ?? null });
+    if (fw) await nodeEvent(this.ctx, node.id, fw.enabled ? 'firewall_on' : 'firewall_off', 'info', { reason: fw.enabled ? 'public address' : 'behind a router' });
     this.log.info({ node: node.name, ip }, 'node connected');
     this.send(conn, { t: 'welcome', nodeId: node.id, name: node.name, serverTime: new Date().toISOString() });
     await this.pushPlan(conn, { ...node, status });

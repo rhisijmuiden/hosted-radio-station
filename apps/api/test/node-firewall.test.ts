@@ -6,6 +6,29 @@ import { login, setup } from './helpers.js';
 
 let t: Awaited<ReturnType<typeof setup>>;
 let admin: { cookie: string };
+let base: string;
+
+/** A node agent on the control channel that says hello with these addresses and features, and answers pings. */
+function agent(nodeId: string, secret: string, addresses: string[], features: string[]) {
+  const ws = new WebSocket(`${base.replace('http', 'ws')}/api/nodes/connect`);
+  const welcomed = new Promise<void>((resolve) => {
+    ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', protocol: 1, nodeId, secret, version: '0.1.0', commit: 'abc1234', hostname: 'node', facts: { caddy: false, cores: 1, addresses, features } }));
+    ws.onmessage = (ev) => {
+      const m = JSON.parse(String(ev.data));
+      if (m.t === 'ping') ws.send(JSON.stringify({ t: 'pong', seq: m.seq }));
+      if (m.t === 'welcome') resolve();
+    };
+  });
+  return { welcomed, close: () => ws.close() };
+}
+
+/** A node created and paired the way a new one is, with its secret. */
+async function created(name: string) {
+  const res = await t.app.inject({ method: 'POST', url: '/api/nodes', headers: admin, payload: { name, roles: ['relay'] } });
+  const { node, pairing } = res.json();
+  const paired = await t.app.inject({ method: 'POST', url: '/api/nodes/pair', payload: { code: pairing.code, hostname: 'node-host' } });
+  return { id: node.id as string, secret: paired.json().secret as string };
+}
 
 async function pair(body: Record<string, unknown>) {
   const res = await t.app.inject({ method: 'POST', url: '/api/nodes', headers: admin, payload: body });
@@ -20,6 +43,7 @@ const patch = (id: string, config: Record<string, unknown>) => t.app.inject({ me
 beforeAll(async () => {
   t = await setup();
   admin = await login(t.app, 'admin@example.com', 'admin-password');
+  base = await t.app.listen({ port: 0, host: '127.0.0.1' });
 });
 afterAll(() => t.close());
 
@@ -68,5 +92,51 @@ describe('node firewall (security hardening for external nodes)', () => {
   it('sends nothing to let in once it is switched off again', async () => {
     await patch(ingest, { firewall: { enabled: false } });
     expect((await buildPlan(t.ctx, await nodeRow(ingest))).firewall).toEqual({ enabled: false, takeOver: false, tcp: [], udp: [], sshFrom: [], sshLimit: true });
+  });
+});
+
+describe('firewall by default for new nodes (step 4)', () => {
+  const firewallOf = async (id: string) => (await nodeRow(id)).config.firewall;
+
+  it('switches it on at the first connection of a new node with a public address of its own', async () => {
+    const n = await created('dc-relay-fw');
+    expect(await firewallOf(n.id)).toMatchObject({ auto: true });
+    const a = agent(n.id, n.secret, ['198.51.100.9', '10.0.0.9'], ['firewall']);
+    await a.welcomed;
+    expect(await firewallOf(n.id)).toMatchObject({ enabled: true, auto: false });
+    expect((await buildPlan(t.ctx, await nodeRow(n.id))).firewall).toMatchObject({ enabled: true });
+    a.close();
+  });
+
+  it('leaves it off for a new node behind a router', async () => {
+    const n = await created('lan-relay-fw');
+    const a = agent(n.id, n.secret, ['10.10.4.130'], ['firewall']);
+    await a.welcomed;
+    expect(await firewallOf(n.id)).toMatchObject({ enabled: false, auto: false });
+    a.close();
+  });
+
+  it('waits for software that has a firewall, and never touches nodes from before', async () => {
+    const n = await created('old-agent-fw');
+    const a = agent(n.id, n.secret, ['198.51.100.10'], []);
+    await a.welcomed;
+    expect(await firewallOf(n.id)).toMatchObject({ auto: true });
+    a.close();
+
+    const before = await created('existing-fw');
+    await t.db.update(schema.nodes).set({ config: {} }).where(eq(schema.nodes.id, before.id));
+    const b = agent(before.id, before.secret, ['198.51.100.11'], ['firewall']);
+    await b.welcomed;
+    expect(await firewallOf(before.id)).toBeUndefined();
+    b.close();
+  });
+
+  it('keeps a choice made by hand before the first connection', async () => {
+    const n = await created('chosen-fw');
+    await patch(n.id, { firewall: { enabled: false } });
+    const a = agent(n.id, n.secret, ['198.51.100.12'], ['firewall']);
+    await a.welcomed;
+    expect(await firewallOf(n.id)).toMatchObject({ enabled: false, auto: false });
+    a.close();
   });
 });
