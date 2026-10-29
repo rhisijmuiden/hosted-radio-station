@@ -5,6 +5,9 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 
 ## Unreleased
 
+- Security hardening for external nodes (step 4): the node firewall is on by default for new nodes with a public
+  address on their own interface, decided at their first connection. Nodes behind a router keep it off; existing
+  nodes keep what they have. The node's events say what was decided.
 - Security hardening for external nodes (step 3): SSH through the node firewall only from admin addresses or networks
   (IPv4 and IPv6), with a button to add your own address and a warning when the list leaves it out, and a limit on new
   SSH connections per address against password guessing (on by default). The panel says when the node's SSH server

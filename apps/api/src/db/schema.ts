@@ -1018,7 +1018,7 @@ export interface NodeConfig {
   /** FM/MPX (phase 11): station, RDS, audio, output and UECP. See fmConfigSchema. */
   fm?: Record<string, unknown>;
   /** The node's own firewall (security hardening for external nodes), see firewallConfigSchema. */
-  firewall?: { enabled?: boolean; takeOver?: boolean; extraPorts?: { port: number; to?: number | null; proto?: 'tcp' | 'udp' }[]; sshFrom?: string[]; sshLimit?: boolean };
+  firewall?: { enabled?: boolean; takeOver?: boolean; extraPorts?: { port: number; to?: number | null; proto?: 'tcp' | 'udp' }[]; sshFrom?: string[]; sshLimit?: boolean; auto?: boolean };
   /** How the node gets new versions (see nodeConfigSchema). */
   updatePolicy?: 'inherit' | 'rolling' | 'window' | 'manual';
   updateGroup?: string | null;
