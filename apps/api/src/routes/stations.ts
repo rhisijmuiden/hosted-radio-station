@@ -9,7 +9,7 @@ import { hashPassword, requireTenantRole, requireUser, type Role } from '../lib/
 import type { AppContext } from '../lib/context.js';
 import { badRequest, conflict, forbidden, isUniqueViolation, notFound } from '../lib/errors.js';
 import { okOut, slugSchema } from '../lib/schemas.js';
-import { assertRadioStationAllowed, downgradeStation, makeRadioStation, radioStationNode } from '../services/autodj/edition.js';
+import { assertRadioStationAllowed, downgradeKeeping, makeRadioStation, radioStationNode, undoDowngrade } from '../services/autodj/edition.js';
 import { autodjSettings } from '../services/autodj/settings.js';
 import { getSetting, SECRET_MASK } from '../services/settings.js';
 import { killSource, stationDir } from '../services/streaming/icecast.js';
@@ -63,6 +63,8 @@ const stationOut = z.object({
   nodeOnline: z.boolean().nullable(),
   /** Last report of the station node, as an ISO time. */
   nodeSeenAt: z.string().nullable(),
+  /** Back to Distribution only: its content is kept until `until`, so it can switch back (POST /upgrade). */
+  downgrade: z.object({ at: z.string(), until: z.string(), nodeId: z.uuid().nullable() }).nullable(),
   nodeMove: z
     .object({
       direction: z.enum(['to_node', 'to_main']),
@@ -238,6 +240,7 @@ const toStationOut = (s: Station, tenantName: string, online?: (nodeId: string) 
   nodeOnline: s.nodeId && online ? online(s.nodeId) : null,
   nodeSeenAt: s.nodeId ? (s.nodeRuntime?.updatedAt ?? null) : null,
   nodeMove: s.nodeMove ?? null,
+  downgrade: s.downgrade ? { at: s.downgrade.at, until: s.downgrade.until, nodeId: s.downgrade.nodeId } : null,
   createdAt: s.createdAt,
 });
 const toMountOut = (m: Mount): z.infer<typeof mountOut> => ({
@@ -498,6 +501,8 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
           edition: editionSchema.optional(),
           /** With edition "station": the station node the Radio station runs on. */
           nodeId: z.uuid().optional(),
+          /** With edition "distribution": confirms what going back to Distribution only means (see POST /downgrade). */
+          confirmDowngrade: z.boolean().optional(),
           description: z.string().trim().max(1000).optional(),
           genre: z.string().trim().max(100).optional(),
           website: urlOrEmpty.optional(),
@@ -511,7 +516,10 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (req) => {
       const { station, tenant, access } = await stationAccess(ctx, req, req.params.id, 'manager');
-      const { legacy, nodeId, ...body } = req.body;
+      const { legacy, nodeId, confirmDowngrade, ...body } = req.body;
+      if (body.edition === 'distribution' && station.edition === 'station' && !confirmDowngrade) {
+        throw badRequest('Confirm that the station goes back to Distribution only (confirmDowngrade): its AutoDJ, hour clocks, library and DJ logins stop, and its content is deleted after 24 hours');
+      }
       const ownerOnly = body.slug !== undefined || body.edition !== undefined || legacy !== undefined;
       if (ownerOnly && access.role === 'manager') throw forbidden('Only the customer owner can change these fields');
       // Orchestrator only (phase 18): legacy ports are encoder ports here.
@@ -519,7 +527,7 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
       const upgrading = body.edition === 'station' && station.edition !== 'station';
       if (upgrading) await assertRadioStationAllowed(ctx, tenant, station.id);
       // Where the Radio station will run; checked before anything changes.
-      const target = upgrading && !station.nodeId ? await radioStationNode(ctx, { tenant, stationId: station.id, nodeId, admin: access.role === 'superadmin' }) : null;
+      const target = upgrading && !station.nodeId && !station.downgrade ? await radioStationNode(ctx, { tenant, stationId: station.id, nodeId, admin: access.role === 'superadmin' }) : null;
       if (body.maxListeners !== undefined) await checkListenerBudget(ctx, tenant, body.maxListeners, station.id);
       const { edition, ...details } = body;
       const set: Partial<typeof schema.stations.$inferInsert> = { ...details, updatedAt: new Date() };
@@ -547,11 +555,11 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
         if (edition === 'station') {
           // The AutoDJ plays on this server, so it becomes the main ingest again (an ingest node can stay as backup).
           const r = stationRouting(fresh!);
-          if (!target && !fresh!.nodeId && r.ingest !== 'local') await ctx.db.update(schema.stations).set({ routing: { ...r, ingest: 'local', backupIngest: r.backupIngest ?? r.ingest } }).where(eq(schema.stations.id, station.id));
-          await makeRadioStation(ctx, fresh!, target);
+          if (!target && !fresh!.nodeId && !fresh!.downgrade?.nodeId && r.ingest !== 'local') await ctx.db.update(schema.stations).set({ routing: { ...r, ingest: 'local', backupIngest: r.backupIngest ?? r.ingest } }).where(eq(schema.stations.id, station.id));
+          if (fresh!.downgrade) await undoDowngrade(ctx, fresh!);
+          else await makeRadioStation(ctx, fresh!, target);
           if (target) req.auditInfo.details.nodeId = target.id;
-        }
-        else await downgradeStation(ctx, fresh!);
+        } else await downgradeKeeping(ctx, fresh!, req.auth?.user.email);
         req.auditInfo.details.edition = { from: station.edition, to: edition };
       }
       await apply(req, station.id);

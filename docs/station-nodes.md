@@ -90,6 +90,15 @@ A customer can be linked to a station node (Customers → the customer → *Stat
 of that customer start on the node, and with one switch all its existing stations move there as well, also those that
 run on another node.
 
+## Back to Distribution only
+
+Distribution only never runs on a station node. When a Radio station on a node goes back to Distribution only (with
+the explicit confirmation on its Settings tab), it leaves the node at once and its encoders send to an ingest. The
+node keeps the station's files and tables for 24 hours, switched off. **Switch back to Radio station** within those
+24 hours puts it on the same node again with everything it had; after 24 hours the main server deletes the content
+and the node removes the station. A station node from before this version would remove it at once, so the panel asks
+to update such a node first.
+
 ## While a node is offline
 
 The panel and the public pages keep working: everything the node reported is kept on the main server and is shown

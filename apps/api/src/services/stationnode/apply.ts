@@ -27,6 +27,8 @@ export interface ApplyResult {
   stationIds: string[];
   active: string[];
   moving: string[];
+  /** Stations that went back to Distribution only: kept here, switched off, for the 24 hours to switch back. */
+  parked: string[];
   removed: string[];
 }
 
@@ -51,11 +53,14 @@ export async function applyPackage(ctx: AppContext, pkg: StationPackage, ready: 
     }
     return box.encrypt(v);
   };
-  const wanted = pkg.stations.map((p) => String(p.station.id));
+  const running = pkg.stations.map((p) => String(p.station.id));
+  const parked = (pkg.parked ?? []).filter((id) => !running.includes(id));
+  const wanted = [...running, ...parked];
   const result: ApplyResult = {
     stationIds: wanted,
     active: pkg.stations.filter((p) => p.state === 'active').map((p) => String(p.station.id)),
     moving: pkg.stations.filter((p) => p.state === 'moving').map((p) => String(p.station.id)),
+    parked,
     removed: [],
   };
 
@@ -71,6 +76,8 @@ export async function applyPackage(ctx: AppContext, pkg: StationPackage, ready: 
     // First what is gone, so a new row with the same slug or e-mail address fits.
     result.removed = before.filter((s) => !wanted.includes(s.id)).map((s) => s.id);
     if (result.removed.length) await tx.delete(schema.stations).where(inArray(schema.stations.id, result.removed));
+    // Parked: its rows and files stay as they are, it only stops playing.
+    if (parked.length) await tx.update(schema.stations).set({ enabled: false }).where(inArray(schema.stations.id, parked));
     const tenantIds = ids(pkg.tenants);
     const userIds = ids(pkg.users);
     await tx.delete(schema.tenants).where(tenantIds.length ? notInArray(schema.tenants.id, tenantIds) : sql`true`);

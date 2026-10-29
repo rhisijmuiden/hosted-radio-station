@@ -19,6 +19,11 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   "Orchestrator only" on: you pick the station node and it starts there (before, it did nothing, e.g. Uptempo.fm). A
   package change never turns stations back to Distribution by itself any more. Distribution stations never move to a
   station node when the customer is linked to one.
+- Safe way back to Distribution only (step 3): **Back to Distribution** on the station's Settings tab explains what
+  it means (the station only plays the stream from your own software; AutoDJ, hour clocks, library and DJ logins stop)
+  and needs an explicit confirmation. The content is kept for 24 hours with a countdown and a **Switch back to Radio
+  station** button that restores it where it ran, also on its station node (which keeps the files, switched off).
+  After 24 hours the content is deleted. Over the API: `POST /api/stations/:id/downgrade` with `confirm: true`.
 - Monitoring and alerts (phase 20, step 1): a new **Monitoring** page under Network shows what is wrong now (a node
   offline, a station off air, a relay without its feed, a node problem, paused node updates, Cloudflare DNS errors),
   the history of the last 90 days and maintenance for nodes and stations. Alerts go to Telegram, e-mail and the new

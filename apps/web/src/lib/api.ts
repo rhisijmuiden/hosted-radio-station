@@ -280,6 +280,8 @@ export interface Station {
   nodeOnline: boolean | null;
   nodeSeenAt: string | null;
   nodeMove: StationMove | null;
+  /** Back to Distribution only: the Radio station content is kept until `until`, so it can switch back. */
+  downgrade: { at: string; until: string; nodeId: string | null } | null;
   createdAt: string;
 }
 export interface StationMove {

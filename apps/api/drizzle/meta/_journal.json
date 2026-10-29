@@ -204,6 +204,13 @@
       "when": 1793347200000,
       "tag": "0029_radio_station_limit",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1793350800000,
+      "tag": "0030_station_downgrade",
+      "breakpoints": true
     }
   ]
 }

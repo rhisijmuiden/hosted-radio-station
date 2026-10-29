@@ -1,16 +1,18 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { and, count, eq, ne } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
 import { schema } from '../../db/index.js';
 import type { AppContext } from '../../lib/context.js';
 import { badRequest, conflict, forbidden } from '../../lib/errors.js';
-import { mayPlace } from '../nodes/dedication.js';
+import { mayPlace, serves } from '../nodes/dedication.js';
+import { stationRouting } from '../nodes/routing-rules.js';
 import { getSetting } from '../settings.js';
 import { mediaDir } from '../streaming/icecast.js';
-import type { Station } from '../streaming/state.js';
+import { applyStreams, type Station } from '../streaming/state.js';
 
 type Tenant = typeof schema.tenants.$inferSelect;
 type Node = typeof schema.nodes.$inferSelect;
+import { ONDEMAND_FOLDER, RECORDINGS_FOLDER } from '../public/ondemand.js';
 import { MUSIC_FOLDER, STORAGE } from './library.js';
 import { autodjSettings } from './settings.js';
 
@@ -135,4 +137,90 @@ export async function makeRadioStation(ctx: AppContext, station: Station, node: 
     .where(eq(schema.stations.id, station.id))
     .returning();
   return placed!;
+}
+
+/** How long the content of a Radio station is kept after it went back to Distribution only. */
+export const DOWNGRADE_KEEP_MS = 24 * 3600_000;
+
+/**
+ * Radio station → Distribution only, the safe way: from now on the station only receives a stream from the customer's
+ * own software (AutoDJ, hour clocks, library and DJ logins stop). Its content is kept for 24 hours so the owner can
+ * switch back without loss; then purgeDowngrades deletes it. A station on a station node leaves the node (Distribution
+ * only never runs on one), which keeps the files and tables, switched off, for those 24 hours. Under "Orchestrator
+ * only" its encoders go to an ingest node.
+ */
+export async function downgradeKeeping(ctx: AppContext, station: Station, by?: string) {
+  if (station.nodeId) {
+    // A node from before this version would remove the station and its files at once.
+    const [node] = await ctx.db.select({ status: schema.nodes.status }).from(schema.nodes).where(eq(schema.nodes.id, station.nodeId));
+    const features = node?.status.features;
+    if (features && !features.includes('parked-stations')) throw conflict('Update the station node first: this version of it cannot keep the content for 24 hours');
+  }
+  const r = stationRouting(station);
+  let routing: Record<string, unknown> | null = null;
+  if (station.nodeId && (await getSetting(ctx, 'orchestrator')).only && (r.ingest === 'local' || r.ingest === station.nodeId)) {
+    const ingests = (await ctx.db.select().from(schema.nodes).where(isNotNull(schema.nodes.pairedAt)).orderBy(asc(schema.nodes.name))).filter(
+      (n) => n.roles.includes('source') && serves(n, { id: station.id, tenantId: station.tenantId }),
+    );
+    const pick = ingests.find((n) => n.tenantId === station.tenantId) ?? ingests.find((n) => n.status.online) ?? ingests[0];
+    if (!pick) throw conflict('This server is orchestrator only and there is no ingest node for the stream; add one under Infrastructure → Nodes first.');
+    routing = { ...station.routing, ingest: pick.id };
+  }
+  await downgradeStation(ctx, station);
+  const now = Date.now();
+  const downgrade = { at: new Date(now).toISOString(), until: new Date(now + DOWNGRADE_KEEP_MS).toISOString(), nodeId: station.nodeId };
+  const [updated] = await ctx.db
+    .update(schema.stations)
+    .set({ downgrade, ...(routing ? { routing } : {}), ...(station.nodeId ? { nodeId: null, nodeMove: null, nodeRuntime: null } : {}) })
+    .where(eq(schema.stations.id, station.id))
+    .returning();
+  await applyStreams(ctx, { stationIds: [station.id], by });
+  return updated!;
+}
+
+/**
+ * Switching back within the 24 hours: the Radio station returns where it ran, with all its content. On its station
+ * node it takes over the tables kept here and the files the node kept.
+ */
+export async function undoDowngrade(ctx: AppContext, station: Station) {
+  const d = station.downgrade;
+  if (!d) return null;
+  let node: Node | null = null;
+  if (d.nodeId) {
+    const [n] = await ctx.db.select().from(schema.nodes).where(eq(schema.nodes.id, d.nodeId));
+    if (!n?.pairedAt || !n.roles.includes('station')) throw conflict('The station node it ran on is gone; choose another station node');
+    node = n;
+  }
+  await ctx.db.update(schema.stations).set({ downgrade: null }).where(eq(schema.stations.id, station.id));
+  return makeRadioStation(ctx, { ...station, downgrade: null }, node);
+}
+
+/** The AutoDJ content of a station: what is deleted 24 hours after it went back to Distribution only. */
+const AUTODJ_TABLES = [schema.queueItems, schema.autodjState, schema.scheduleEntries, schema.clocks, schema.playlists, schema.mediaFiles, schema.mediaSources] as const;
+
+/** Deletes the kept content of stations whose 24 hours are over, here and (by dropping it from its package) on their node. */
+export async function purgeDowngrades(ctx: AppContext, now = new Date()) {
+  const due = await ctx.db.select().from(schema.stations).where(and(isNotNull(schema.stations.downgrade), sql`(${schema.stations.downgrade}->>'until')::timestamptz < ${now.toISOString()}::timestamptz`));
+  for (const s of due) {
+    // Switched back to Radio station in the meantime: nothing to delete.
+    if (s.edition === 'station') {
+      await ctx.db.update(schema.stations).set({ downgrade: null }).where(eq(schema.stations.id, s.id));
+      continue;
+    }
+    const settings = autodjSettings(s);
+    await ctx.db.transaction(async (tx) => {
+      const playlists = await tx.select({ id: schema.playlists.id }).from(schema.playlists).where(eq(schema.playlists.stationId, s.id));
+      if (playlists.length) await tx.delete(schema.playlistItems).where(inArray(schema.playlistItems.playlistId, playlists.map((p) => p.id)));
+      for (const t of AUTODJ_TABLES) await tx.delete(t).where(eq(t.stationId, s.id));
+      // The private AutoDJ mount; upgrading again makes a new one.
+      if (settings.mountId) await tx.delete(schema.stationMounts).where(and(eq(schema.stationMounts.id, settings.mountId), eq(schema.stationMounts.stationId, s.id), eq(schema.stationMounts.isPublic, false)));
+      await tx.update(schema.stations).set({ downgrade: null, autodj: { ...settings, mountId: null } }).where(eq(schema.stations.id, s.id));
+    });
+    // The music on this server; on-demand items and recordings stay.
+    const root = mediaDir(ctx, s.id);
+    const entries = await readdir(root).catch(() => [] as string[]);
+    for (const e of entries) if (e !== ONDEMAND_FOLDER && e !== RECORDINGS_FOLDER) await rm(join(root, e), { recursive: true, force: true }).catch(() => undefined);
+  }
+  if (due.length) await applyStreams(ctx, { stationIds: due.map((s) => s.id), by: 'system' });
+  return due.length;
 }

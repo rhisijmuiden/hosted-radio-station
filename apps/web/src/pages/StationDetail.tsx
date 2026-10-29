@@ -22,7 +22,7 @@ import { formatLabel, MountsCard } from '../components/station/Mounts';
 import { OutputsCard, OutputStateBadge } from '../components/station/Outputs';
 import { NodeOfflineBanner, PlacementCard, RunsOnPicker, useStationNodes } from '../components/station/Placement';
 import { useServerNames } from '../lib/server';
-import { Badge, Button, Card, CardHeader, CopyField, Fact, Field, Input, PageHeader, Select, Spinner, Switch, Table, Textarea } from '../components/ui';
+import { Badge, Button, Card, CardHeader, CopyField, Dialog, Fact, Field, Input, PageHeader, Select, Spinner, Switch, Table, Textarea } from '../components/ui';
 import { api, type LiveSession, type StationDetail, type StationStatus, type Tenant } from '../lib/api';
 import { formatBytes, formatDate, formatDuration } from '../lib/format';
 import { EditionBadge } from './Stations';
@@ -289,6 +289,49 @@ function HistoryCard({ station }: { station: StationDetail }) {
   );
 }
 
+/**
+ * Radio station → Distribution only: says plainly what that means and asks for an explicit confirmation. The content
+ * is kept for 24 hours, so the owner can switch back.
+ */
+/** "5 h 20 min": the time until a moment, for the 24-hour countdown. */
+function hoursLeft(until: string) {
+  const min = Math.max(0, Math.round((new Date(until).getTime() - Date.now()) / 60_000));
+  return `${Math.floor(min / 60)} h ${min % 60} min`;
+}
+
+function DowngradeDialog({ open, onClose, onConfirm, loading }: { open: boolean; onClose: () => void; onConfirm: () => void; loading: boolean }) {
+  const { t } = useTranslation();
+  const [sure, setSure] = useState(false);
+  useEffect(() => setSure(false), [open]);
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title={t('stations.downgradeTitle')}
+      description={t('stations.downgradeIntro')}
+      footer={
+        <>
+          <Button onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="danger" disabled={!sure} loading={loading} onClick={onConfirm}>
+            <ArrowDownCircle className="size-4" /> {t('stations.downgrade')}
+          </Button>
+        </>
+      }
+    >
+      <ul className="flex list-disc flex-col gap-1.5 pl-5 text-[13px]">
+        <li>{t('stations.downgradeStream')}</li>
+        <li>{t('stations.downgradeStops')}</li>
+        <li>{t('stations.downgradeNode')}</li>
+        <li className="font-semibold text-offline">{t('stations.downgradeKept')}</li>
+      </ul>
+      <label className="mt-4 flex items-start gap-2 text-[13px] font-semibold">
+        <input type="checkbox" checked={sure} onChange={(e) => setSure(e.target.checked)} className="mt-0.5 size-4 accent-[var(--koraal)]" />
+        {t('stations.downgradeSure')}
+      </label>
+    </Dialog>
+  );
+}
+
 function SettingsTab({ station }: { station: StationDetail }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -302,6 +345,8 @@ function SettingsTab({ station }: { station: StationDetail }) {
   const stationNodes = useStationNodes(station.tenantId);
   const server = useServerNames();
   const roomForRadio = station.radioStations.used < station.radioStations.max;
+  const [downgradeOpen, setDowngradeOpen] = useState(false);
+  const kept = station.downgrade && new Date(station.downgrade.until).getTime() > Date.now() ? station.downgrade : null;
 
   const patch = useMutation({
     mutationFn: (body: Record<string, unknown>) => api<StationDetail>(`/stations/${station.id}`, { method: 'PATCH', body }),
@@ -327,8 +372,9 @@ function SettingsTab({ station }: { station: StationDetail }) {
     onError: (err) => toast.error((err as Error).message),
   });
   const downgrade = useMutation({
-    mutationFn: () => api(`/stations/${station.id}/downgrade`, { method: 'POST' }),
+    mutationFn: () => api(`/stations/${station.id}/downgrade`, { method: 'POST', body: { confirm: true } }),
     onSuccess: () => {
+      setDowngradeOpen(false);
       refresh();
       toast.success(t('stations.downgraded'));
     },
@@ -401,7 +447,16 @@ function SettingsTab({ station }: { station: StationDetail }) {
             </div>
             <EditionBadge edition={station.edition} />
           </div>
-          {owner && station.edition === 'distribution' && (
+          {owner && station.edition === 'distribution' && kept && (
+            <div className="mt-4 rounded-md border border-warning/50 bg-warning/10 p-3">
+              <div className="text-[13px] font-semibold">{t('stations.keptTitle')}</div>
+              <p className="mt-1 text-[13px]">{t('stations.keptText', { when: formatDate(kept.until), left: hoursLeft(kept.until) })}</p>
+              <Button className="mt-3" variant="primary" size="sm" loading={upgrade.isPending} onClick={() => upgrade.mutate()}>
+                <ArrowUpCircle className="size-4" /> {t('stations.switchBack')}
+              </Button>
+            </div>
+          )}
+          {owner && station.edition === 'distribution' && !kept && (
             <div className="mt-4 flex flex-col gap-3">
               {roomForRadio ? (
                 <>
@@ -428,9 +483,10 @@ function SettingsTab({ station }: { station: StationDetail }) {
           )}
           {owner && station.edition === 'station' && (
             <div className="mt-4">
-              <Button loading={downgrade.isPending} onClick={() => confirm(t('stations.downgradeConfirm')) && downgrade.mutate()}>
+              <Button loading={downgrade.isPending} onClick={() => setDowngradeOpen(true)}>
                 <ArrowDownCircle className="size-4" /> {t('stations.downgrade')}
               </Button>
+              <DowngradeDialog open={downgradeOpen} onClose={() => setDowngradeOpen(false)} onConfirm={() => downgrade.mutate()} loading={downgrade.isPending} />
             </div>
           )}
         </Card>

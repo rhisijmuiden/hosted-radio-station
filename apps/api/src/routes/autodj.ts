@@ -11,7 +11,7 @@ import { schema } from '../db/index.js';
 import type { MediaSourceConfig } from '../db/schema.js';
 import { badRequest, forbidden, HttpError, notFound } from '../lib/errors.js';
 import { okOut } from '../lib/schemas.js';
-import { assertRadioStationAllowed, downgradeStation, makeRadioStation, radioStationNode } from '../services/autodj/edition.js';
+import { assertRadioStationAllowed, downgradeKeeping, makeRadioStation, radioStationNode, undoDowngrade } from '../services/autodj/edition.js';
 import {
   filePath,
   MEDIA_EXTENSIONS,
@@ -283,6 +283,14 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
       const { station, tenant, access } = await stationAccess(ctx, req, req.params.id, 'owner');
       if (station.edition === 'station') return describe(station);
       await assertRadioStationAllowed(ctx, tenant, station.id);
+      // Within 24 hours of going back to Distribution only: it returns where it ran, with all its content.
+      if (station.downgrade) {
+        const back = (await undoDowngrade(ctx, station))!;
+        req.auditInfo.details = { from: station.edition, to: 'station', undo: true, nodeId: back.nodeId };
+        await apply(req, station.id);
+        if (!back.nodeId) await fillQueues(ctx, station.id).catch(() => undefined);
+        return describe(back);
+      }
       const node = station.nodeId ? null : await radioStationNode(ctx, { tenant, stationId: station.id, nodeId: req.body.nodeId, admin: access.role === 'superadmin' });
       if (!node && !station.nodeId) {
         // The AutoDJ plays on this server, so it becomes the main ingest again (an ingest node can stay as backup).
@@ -306,18 +314,21 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
       config: { audit: 'station.downgrade' },
       schema: {
         tags: ['AutoDJ'],
-        summary: 'Back to the Distribution edition: the AutoDJ stops. Library and playlists are kept. Owners.',
+        summary:
+          'Back to Distribution only, with confirm: true. From then on the station only receives a stream from your own software; the AutoDJ, hour clocks, library and DJ logins stop. Its content is kept for 24 hours (until) so it can switch back with POST /upgrade; then it is deleted. Owners.',
         params: stationParams,
-        response: { 200: okOut },
+        body: z.object({ confirm: z.boolean().default(false) }).default({ confirm: false }),
+        response: { 200: z.object({ ok: z.literal(true), until: z.string() }) },
       },
     },
     async (req) => {
       const { station } = await stationAccess(ctx, req, req.params.id, 'owner');
       if (station.edition !== 'station') throw badRequest('This station has the Distribution edition');
-      await downgradeStation(ctx, station);
-      req.auditInfo.details = { from: 'station', to: 'distribution' };
+      if (!req.body.confirm) throw badRequest('Confirm that the station goes back to Distribution only: its AutoDJ, hour clocks, library and DJ logins stop, and its content is deleted after 24 hours');
+      const updated = await downgradeKeeping(ctx, station, req.auth?.user.email);
+      req.auditInfo.details = { from: 'station', to: 'distribution', until: updated.downgrade!.until, nodeId: station.nodeId };
       await apply(req, station.id);
-      return { ok: true as const };
+      return { ok: true as const, until: updated.downgrade!.until };
     },
   );
 
