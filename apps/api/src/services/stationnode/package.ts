@@ -181,6 +181,9 @@ export async function buildPackage(ctx: AppContext, node: Node): Promise<Station
         nodeRuntime: null,
         nodeMove: null,
         downgrade: null,
+        // The route is the orchestrator's business: the node is the source of its stations and only follows the
+        // pushes above. A chosen ingest node would read there as "not this server" and silence the station.
+        routing: {},
         // The node seals the news secrets with its own key.
         news: openNews(ctx.box, s.news),
         icecastAdminPassword: open(s.icecastAdminPassword),

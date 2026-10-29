@@ -609,7 +609,7 @@ Small fixes are collected here and handled one at a time in a separate thread, n
 - **Orchestrator in the node overview**: the Nodes page opens with a pinned card for the server that hosts the orchestrator: its server name, hostname, internal and public address, version, uptime, CPU/RAM/disk, and which roles it still runs itself (local ingest or relay, or "Orchestrator only"). In the node list it is the first row with an "Orchestrator" badge, so it is never confused with a normal node. Later a standby orchestrator (phase 14) shows next to it.
 - **Quiet during updates**: the "old port open" check no longer flaps while a node is being updated.
 - **Ingest as its own step in the delivery path**: a station node that sends through an ingest now shows that ingest stacked under it in the same column; the ingest gets its own step to the right (source → station node → ingest → relays → listeners).
-- **Station node silent with a chosen main ingest**: when a station on a station node has a specific main ingest chosen (not Automatic), the node sends no audio at all, because the station's routing goes along in its package and the node then thinks it is not the ingest itself. The package should not carry that routing choice. Workaround until then: keep the main ingest on Automatic.
+- **Station node silent with a chosen main ingest** (fixed, on test): when a station on a station node had a specific main ingest chosen (not Automatic), the node sent no audio at all, because the station's routing went along in its package and the node then thought it was not the ingest itself. The package no longer carries that routing choice; the node always treats itself as the source and follows the pushes the orchestrator hands it.
 
 ## Future ideas
 
