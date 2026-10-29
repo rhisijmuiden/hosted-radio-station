@@ -608,6 +608,13 @@ Small fixes are collected here and handled one at a time in a separate thread, n
 - **Ingest as its own step in the delivery path**: a station node that sends through an ingest now shows that ingest stacked under it in the same column; the ingest gets its own step to the right (source → station node → ingest → relays → listeners).
 - **Station node silent with a chosen main ingest**: when a station on a station node has a specific main ingest chosen (not Automatic), the node sends no audio at all, because the station's routing goes along in its package and the node then thinks it is not the ingest itself. The package should not carry that routing choice. Workaround until then: keep the main ingest on Automatic.
 
+### FM/MPX release: Stereo Tool processing (queued, not scheduled yet)
+
+The next release of the FM/MPX node adds proper FM audio processing.
+
+- **FM processing lives on the FM/MPX node**, not at the station: right before the stereo encoder, after decoding, because a lossy stream codec (MP3/AAC) breaks peak control. The chain there: 50 µs pre-emphasis (Europe), 15 kHz low-pass, AGC and multiband limiter, a pre-emphasis-aware clipper, composite clipper, deviation limit (75 kHz) and MPX power limit (ITU-R BS.412). Chosen direction (Reinder, 29 October 2026): Stereo Tool's FM version on the MPX node does processing and the stereo/MPX encoder in one, with our RDS added. Stereo Tool's own web interface is opened from the node's page in the panel, through the node's existing connection to the orchestrator (no extra port open on the node, panel sign-in required); the panel also handles the licence key, presets (import/export, a backup on every change) and on/off.
+- The MPX node then takes a lossless or high-bitrate feed (FLAC or PCM over the LAN from the station node next to it, otherwise a high-bitrate stream from a relay), and the station's own stream processing stays light or is bypassed for that feed, so audio is not processed twice.
+
 ## Future ideas
 
 Not scheduled in a phase yet.
@@ -658,8 +665,7 @@ Audio processing for the station's output, set per radio station (not per studio
 - Processing runs **once per station**, where the audio is made (the station node, or the server running its AutoDJ), before the encoders, so every mount and relay gets the same processed sound.
 - **System resources first**: off by default; a CPU limit per processor (systemd quota), live CPU and RAM use shown in the panel, and a warning before turning it on when the node does not have enough headroom. The plan or node limits decide who may use the heavy processor.
 - Live DJs and AutoDJ both go through it.
-- **FM processing lives on the FM/MPX node**, not at the station: right before the stereo encoder, after decoding, because a lossy stream codec (MP3/AAC) breaks peak control. The chain there: 50 µs pre-emphasis (Europe), 15 kHz low-pass, AGC and multiband limiter, a pre-emphasis-aware clipper, composite clipper, deviation limit (75 kHz) and MPX power limit (ITU-R BS.412). Chosen direction (Reinder, 29 October 2026): Stereo Tool's FM version on the MPX node does processing and the stereo/MPX encoder in one, with our RDS added. Stereo Tool's own web interface is opened from the node's page in the panel, through the node's existing connection to the orchestrator (no extra port open on the node, panel sign-in required); the panel also handles the licence key, presets (import/export, a backup on every change) and on/off.
-- The MPX node then takes a lossless or high-bitrate feed (FLAC or PCM over the LAN from the station node next to it, otherwise a high-bitrate stream from a relay), and the station's own stream processing stays light or is bypassed for that feed, so audio is not processed twice.
+- FM processing is a separate item: see "FM/MPX release: Stereo Tool processing" below.
 
 ### Standard library folders and smarter clock items
 
