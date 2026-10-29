@@ -1017,6 +1017,8 @@ export interface NodeConfig {
   lanAddress?: string;
   /** FM/MPX (phase 11): station, RDS, audio, output and UECP. See fmConfigSchema. */
   fm?: Record<string, unknown>;
+  /** The node's own firewall (security hardening for external nodes), see firewallConfigSchema. */
+  firewall?: { enabled?: boolean; takeOver?: boolean; extraPorts?: { port: number; to?: number | null; proto?: 'tcp' | 'udp' }[]; sshFrom?: string[]; sshLimit?: boolean; auto?: boolean };
   /** How the node gets new versions (see nodeConfigSchema). */
   updatePolicy?: 'inherit' | 'rolling' | 'window' | 'manual';
   updateGroup?: string | null;
@@ -1086,6 +1088,8 @@ export interface NodeStatus {
   ffmpeg?: boolean;
   soundcards?: { device: string; name: string }[];
   fm?: FmStatus | null;
+  /** The node's firewall as the node reports it (security hardening for external nodes). */
+  firewall?: { state: string; message?: string; foreign?: string[]; ports?: { ssh: string[]; tcp: string[]; udp: string[] }; ssh?: { from: string[]; limit: boolean; password: string }; at?: string } | null;
   updatedAt?: string;
   /** When the last bulk report (relays, listeners) came in. */
   reportedAt?: string;

@@ -172,7 +172,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 18 | Server names and topology views | Done (1.1.0) |
 | 19 | Clearer control panels and node assignment | Done (1.2.0) |
 | 20 | Monitoring node | Done (1.4.0) |
-| 21 | Recorder node | Planned (step 8 in the order of work) |
+| 21 | Recorder node | Next (step 8 in the order of work) |
 | 22 | Packaged installers and moving the orchestrator | Future (when the first customers come) |
 | 23 | Deployment wizard | Future (when the first customers come) |
 
@@ -200,7 +200,8 @@ One thing at a time; each item starts when the previous one is finished and test
    - The choice is made per **radio station** when it is created (and can be changed later): **Distribution only** (the station gets the ingest endpoint to stream to) or **Radio station** (AutoDJ, clocks, library), and then where it runs: on the shared station node or on one of the customer's own nodes.
    - Switching a station between Distribution and Radio station happens on the station itself and really changes it (for Radio station: placement on a station node).
    - **Downgrading safely**: going from Radio station back to Distribution only needs an explicit confirmation that explains what it means (from then on the station only receives a stream from the customer's own software; AutoDJ, clocks, library and DJ logins stop). The station's content is kept in the background for 24 hours, with a clear warning and countdown, so the customer can switch back without loss. After 24 hours the content is deleted.
-7. **Security hardening for external nodes** (done on test, PRs #160–#165; goes out with the next release): see the item below.
+7. **Security hardening for external nodes** (done, 1.5.0, PRs #160–#165): see the item below. On by default for nodes with a public address; pub-relay-01 has it on since 29 October 2026.
+   **Release 1.5.0** (29 October 2026): item 7 and the small fixes (PRs #159 and #166–#171) go to `main` as one release.
 8. **Phase 21: Recorder node**: recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download.
 
 Later: phase 14 (orchestrator redundancy) just before sales start; phases 22 and 23 when the first customers come.
@@ -575,15 +576,17 @@ Small fixes planned for a patch release, one at a time after the current phase.
 | ![3D network map with control lines](docs/screenshots/pr-128-129-3d-control-on.png) | ![2D layers with lines around servers](docs/screenshots/pr-128-129-2d-layers.png) |
 | ![Customer page, station node of this customer](docs/screenshots/pr-128-129-customer-station-node-harder-fm.png) | ![Customer page, the chosen station node shown after loading](docs/screenshots/pr-128-129-customer-station-node-radio-schermer.png) |
 
-### Security hardening for external nodes (done on test, PRs #160–#165)
+### Security hardening for external nodes (done, 1.5.0, PRs #160–#165)
 
-Nodes with a direct public IP address get a firewall that is closed by default.
+Nodes with a direct public IP address get a firewall that is closed by default. Built in four steps (#160 to #165).
 
-- The node agent manages an nftables firewall: all incoming traffic is dropped except the ports of the node's own roles (from the port plan per role), SSH, and replies to connections the node opened itself (to the orchestrator, relays and ingests).
-- The rules follow the node: when a role or port changes in the panel, the agent updates the firewall by itself.
-- SSH stays open, optionally limited to set admin IP addresses, with protection against password guessing (fail2ban or rate limits).
-- Safe apply: new rules roll back by themselves when the node loses its connection to the orchestrator within a minute, so a mistake never locks a node out.
-- Hardening is on by default for nodes that detect a public IP, and can be turned on for nodes behind NAT as well. The panel shows the firewall state per node, and the external port check confirms that only the expected ports answer.
+- **Node firewall**: the node agent manages its own nftables table. All incoming traffic is dropped except the ports of the node's own roles (from the port plan per role), SSH, ping, DHCP and replies to connections the node opened itself (to the orchestrator, relays and ingests). Outgoing traffic is not filtered.
+- **The rules follow the node**: when a role or port changes in the panel, the agent updates the firewall by itself. Extra ports (TCP or UDP, single or a range) can be added per node.
+- **Existing rules first**: before it sets anything, the node looks for firewall rules of something else (iptables, ufw, firewalld, other nftables tables). When it finds any, it changes nothing and the panel lists them, until the administrator chooses to take over.
+- **Safe apply**: new rules are on trial for a minute and roll back by themselves when the node loses its connection to the orchestrator with them. The firewall can always be switched off from the panel, because the node keeps its connection to the orchestrator.
+- **SSH**: optionally only from set admin addresses or networks (IPv4 and IPv6), with a button to add your own address and a warning when the list leaves it out, and a limit on new SSH connections per address against password guessing (rate limits in nftables, no extra package). The panel says when the SSH server still takes passwords.
+- **On by default** for nodes with a public address on their own interface (a server in a data centre), new and existing, decided at their next connection; nodes behind a router keep it off and can switch it on. Existing firewall rules on the server still hold it back until the administrator takes over.
+- **Outside check**: the port check from outside also tries SSH and well-known ports a node never needs (databases, mail, admin pages, 8080 and the like) and warns when one answers. For a node behind a router (NAT) it says the ports may belong to the router or another machine, and a monitoring node in the same network is named as such.
 
 ### Clear navigation for customers and station managers (queued, not scheduled yet; own thread)
 
@@ -602,14 +605,14 @@ The customer side has many buttons in one row. It gets a small, logical structur
 
 Small fixes are collected here and handled one at a time in a separate thread, next to the main item in the order of work.
 
-- **Direct fallback visible**: when a station node bypasses the ingest and pushes directly to the relays (fallback), the network map and the Monitoring page say so.
-- **Failing check by name**: the check badge on a relay names the check that failed in its tooltip.
-- **Upgrading a station does nothing**: switching a station (for example Uptempo.fm) from Distribution to Radio station has no effect.
-- **Bulk and large uploads in the media library**: upload many files at once and whole folders, and large files (a full DJ set of about 800 MB) without having to do them one by one; with a progress bar and resume on a broken connection.
-- **Orchestrator in the node overview**: the Nodes page opens with a pinned card for the server that hosts the orchestrator: its server name, hostname, internal and public address, version, uptime, CPU/RAM/disk, and which roles it still runs itself (local ingest or relay, or "Orchestrator only"). In the node list it is the first row with an "Orchestrator" badge, so it is never confused with a normal node. Later a standby orchestrator (phase 14) shows next to it.
-- **Quiet during updates**: the "old port open" check no longer flaps while a node is being updated.
-- **Ingest as its own step in the delivery path**: a station node that sends through an ingest now shows that ingest stacked under it in the same column; the ingest gets its own step to the right (source → station node → ingest → relays → listeners).
-- **Station node silent with a chosen main ingest**: when a station on a station node has a specific main ingest chosen (not Automatic), the node sends no audio at all, because the station's routing goes along in its package and the node then thinks it is not the ingest itself. The package should not carry that routing choice. Workaround until then: keep the main ingest on Automatic.
+- **Direct fallback visible** (fixed, 1.5.0): when a station node bypasses the ingest and pushes directly to the relays (fallback), the network map and the Monitoring page say so.
+- **Failing check by name** (fixed, 1.5.0): the check badge on a relay names the check that failed in its tooltip.
+- **Upgrading a station does nothing** (fixed, 1.4.0, with moving stations between nodes): switching a station (for example Uptempo.fm) from Distribution to Radio station has no effect.
+- **Bulk and large uploads in the media library** (fixed, 1.5.0): upload many files at once and whole folders, and large files (a full DJ set of about 800 MB) without having to do them one by one; with a progress bar and resume on a broken connection.
+- **Orchestrator in the node overview** (fixed, 1.5.0): the Nodes page opens with a pinned card for the server that hosts the orchestrator: its server name, hostname, internal and public address, version, uptime, CPU/RAM/disk, and which roles it still runs itself (local ingest or relay, or "Orchestrator only"). In the node list it is the first row with an "Orchestrator" badge, so it is never confused with a normal node. Later a standby orchestrator (phase 14) shows next to it.
+- **Quiet during updates** (fixed, 1.5.0): the "old port open" check no longer flaps while a node is being updated.
+- **Ingest as its own step in the delivery path** (fixed, 1.5.0): a station node that sends through an ingest now shows that ingest stacked under it in the same column; the ingest gets its own step to the right (source → station node → ingest → relays → listeners).
+- **Station node silent with a chosen main ingest** (fixed, 1.5.0): when a station on a station node had a specific main ingest chosen (not Automatic), the node sent no audio at all, because the station's routing went along in its package and the node then thought it was not the ingest itself. The package no longer carries that routing choice; the node always treats itself as the source and follows the pushes the orchestrator hands it.
 
 ### FM/MPX release: Stereo Tool processing (queued, not scheduled yet)
 

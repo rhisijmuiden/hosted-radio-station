@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { dataPath, ports, readVersion, writeAtomic, type NodeFile } from './config.js';
-import { applyStatus, applyWeb, requestUpdate, updateStatus, type JobStatus } from './helpers.js';
+import { applyFirewall, applyStatus, applyWeb, confirmFirewall, firewallStatus, requestUpdate, updateStatus, type FirewallStatus, type JobStatus } from './helpers.js';
 import { icecastConfigPath, icecastSecrets, reloadIcecast, renderIcecastConfig, type IcecastLayout, type IcecastSecrets } from './icecast.js';
 import { FmManager } from './fm/manager.js';
 import { log } from './log.js';
@@ -51,6 +51,8 @@ export class Agent {
   /** The commit an automatic update was last asked for, so a failing update is not repeated forever. */
   private autoTried: string | null = null;
   private readonly version = readVersion();
+  /** A confirmation of firewall rules on trial is under way (see checkFirewall). */
+  private confirming = false;
 
   constructor(private readonly file: NodeFile) {
     this.source = new SourceForwarder({ nodeId: file.nodeId, secret: file.secret });
@@ -298,6 +300,8 @@ export class Agent {
       },
       current !== body ? 1500 : 0,
     );
+    // Plans of older main servers have no firewall field: then the node leaves its firewall as it is.
+    if (plan.firewall) await applyFirewall(plan.firewall);
     await this.source.apply(plan.source);
     this.prober.apply(plan.probes);
     // Plans of older main servers have no fm field.
@@ -334,7 +338,8 @@ export class Agent {
 
   private sendStats() {
     void (async () => {
-      const [apply, update] = await Promise.all([applyStatus(), updateStatus()]);
+      const [apply, update, firewall] = await Promise.all([applyStatus(), updateStatus(), firewallStatus()]);
+      if (firewall?.state === 'pending') void this.checkFirewall(firewall);
       if (update && (!this.updateId || update.id === this.updateId)) {
         this.update = update;
         this.updateId = null;
@@ -354,8 +359,26 @@ export class Agent {
         certs: await this.source.certificateNames(),
         ingest: this.ingest?.status() ?? [],
         fm: this.fm.status(),
+        firewall: firewall ? { state: firewall.state, message: firewall.message, foreign: firewall.foreign, ports: firewall.ports, ssh: firewall.ssh, at: firewall.at } : null,
       });
     })().catch((err) => log.debug('sending stats failed', { err }));
+  }
+
+  /**
+   * New firewall rules are on trial: they stay when the node still reaches the main server with them, over the control
+   * channel and with a new connection (a report). Otherwise the root helper rolls them back after a minute.
+   */
+  private async checkFirewall(st: FirewallStatus) {
+    if (this.confirming || !st.id) return;
+    this.confirming = true;
+    try {
+      const ok = (await this.report()) && this.ready && Date.now() - this.heardAt < 10_000;
+      if (!ok) return;
+      await confirmFirewall(st.id);
+      log.info('firewall rules confirmed', { tcp: st.ports?.tcp.join(',') ?? '', udp: st.ports?.udp.join(',') ?? '' });
+    } finally {
+      this.confirming = false;
+    }
   }
 
   private async report() {
@@ -371,10 +394,12 @@ export class Agent {
       });
       if (!res.ok) throw new Error(`answered ${res.status}`);
       await res.body?.cancel();
+      return true;
     } catch (err) {
       this.prober.restore(probes);
       this.relay?.restoreEnded(ended);
       log.debug('report failed', { err });
+      return false;
     }
   }
 

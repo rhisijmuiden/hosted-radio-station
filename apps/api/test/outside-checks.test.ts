@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { checkName, OutsideChecks, type DnsResolver } from '../src/services/alerts/outside.js';
 import { evaluate } from '../src/services/alerts/rules.js';
+import { getSetting, putSetting } from '../src/services/settings.js';
 import { login, setup } from './helpers.js';
 
 let t: Awaited<ReturnType<typeof setup>>;
@@ -11,7 +12,8 @@ let base: string;
  * A fake monitoring node on the control channel: it answers port checks with the ports in `open` reachable, and
  * remembers what it was asked.
  */
-function monitorAgent(nodeId: string, secret: string, open: number[]) {
+function monitorAgent(nodeId: string, secret: string, initial: number[]) {
+  let open = initial;
   const ws = new WebSocket(`${base.replace('http', 'ws')}/api/nodes/connect`);
   const asked: { host: string; ports: number[] }[] = [];
   const opened = new Promise<void>((resolve) => {
@@ -29,7 +31,7 @@ function monitorAgent(nodeId: string, secret: string, open: number[]) {
       ws.send(JSON.stringify({ t: 'portcheck_result', id: m.id, address: '203.0.113.7', results }));
     }
   };
-  return { opened, asked, close: () => ws.close() };
+  return { opened, asked, setOpen: (ports: number[]) => (open = ports), close: () => ws.close() };
 }
 
 /** A plain node agent that only answers pings. */
@@ -78,7 +80,9 @@ describe('ports from outside through the monitoring node', () => {
     await wait(300);
 
     const fw = (await t.app.inject({ method: 'POST', url: `/api/nodes/${ingest.id}/firewall/check`, headers: admin })).json();
-    expect(fw.checkedFrom).toEqual({ kind: 'monitor', nodeId: monitor.id, name: 'pub-monitor-01' });
+    // Both connect from 127.0.0.1 here: the monitoring node shares the node's public address, so it is marked as being
+    // in the same network.
+    expect(fw.checkedFrom).toEqual({ kind: 'monitor', nodeId: monitor.id, name: 'pub-monitor-01', sameNetwork: true });
     expect(fw.dns).toEqual({ host: 'ingest.example.com', state: 'ok', checkedOn: '203.0.113.7' });
     expect(fw.checks['8200']).toMatchObject({ ok: true });
     expect(fw.checks['8201']).toMatchObject({ ok: false, message: 'timeout' });
@@ -89,6 +93,16 @@ describe('ports from outside through the monitoring node', () => {
     const outside = new OutsideChecks(t.ctx, t.app.nodes, t.app.log);
     await outside.firewall();
     expect(outside.firewallResults()).toEqual([{ nodeId: ingest.id, closed: ['8201'], oldOpen: [8010] }]);
+    // While the node is being updated what is seen says nothing: the result from before stays.
+    m.setOpen([8200, 8201]);
+    const at = new Date().toISOString();
+    const ref = { branch: 'test', commit: null };
+    await putSetting(t.ctx, 'nodeRollout', { ...(await getSetting(t.ctx, 'nodeRollout')), current: { nodeId: ingest.id, phase: 'updating', target: ref, from: ref, manual: true, by: null, startedAt: at, phaseAt: at, offlineSeconds: 0, before: { relays: [], fm: false, problems: [] }, sent: false, seenRunning: false, message: null } });
+    await outside.firewall();
+    expect(outside.firewallResults()).toEqual([{ nodeId: ingest.id, closed: ['8201'], oldOpen: [8010] }]);
+    await putSetting(t.ctx, 'nodeRollout', { ...(await getSetting(t.ctx, 'nodeRollout')), current: null });
+    await outside.firewall();
+    expect(outside.firewallResults()).toEqual([{ nodeId: ingest.id, closed: [], oldOpen: [] }]);
     m.close();
     n.close();
   });
@@ -154,5 +168,13 @@ describe('outside check rules', () => {
     ]);
     // A node that is offline has its own alert; with DNS sync off the names are not ours to check.
     expect(evaluate({ ...base, nodes: [{ ...node, online: false }], dns: { mode: 'off', error: null }, firewall: [{ nodeId: 'n1', closed: ['8201'], oldOpen: [] }], dnsWrong: [{ name: 'x', message: '' }] }).map((c) => c.kind)).toEqual(['node_offline']);
+  });
+
+  it('holds the port alerts of a node while it is updated, also while it is offline for it', () => {
+    const current = { nodeId: 'n1', phase: 'updating' as const, target: { branch: 'test', commit: null }, from: { branch: 'test', commit: null }, manual: false, by: null, startedAt: '', phaseAt: '', offlineSeconds: 0, before: { relays: [], fm: false, problems: [] }, sent: false, seenRunning: false, message: null };
+    const out = evaluate({ ...base, dns: { mode: 'off', error: null }, nodes: [{ ...node, online: false }], rollout: { current, paused: null }, firewall: [{ nodeId: 'n1', closed: [], oldOpen: [8010] }] });
+    expect(out.map((c) => c.key)).toEqual(['old_port_open:n1']);
+    // Maintenance still silences it.
+    expect(evaluate({ ...base, dns: { mode: 'off', error: null }, rollout: { current, paused: null }, settings: { quietStations: [], maintenance: [{ kind: 'node', id: 'n1', until: null, note: '', by: null }] }, firewall: [{ nodeId: 'n1', closed: [], oldOpen: [8010] }] })).toEqual([]);
   });
 });

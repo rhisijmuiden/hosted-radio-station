@@ -211,6 +211,13 @@
       "when": 1793350800000,
       "tag": "0030_station_downgrade",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1793354400000,
+      "tag": "0031_node_firewall_existing",
+      "breakpoints": true
     }
   ]
 }

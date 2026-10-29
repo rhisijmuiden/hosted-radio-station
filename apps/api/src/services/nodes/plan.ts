@@ -11,6 +11,7 @@ import { platformHost } from '../streaming/state.js';
 import { runningVersion } from '../system.js';
 import { DEDICATIONS, scopeOf, serves } from './dedication.js';
 import { buildFmPlan, fmConfigSchema } from './fm.js';
+import { firewallPlan } from './firewall-plan.js';
 import { plannedIngests } from './delivery.js';
 import { OLD_PORTS, PORTS } from './portplan.js';
 import { ingestsOf, pushedRouting, stationRouting } from './routing-rules.js';
@@ -19,6 +20,45 @@ import type { IngestStation, NodePlan, ProbeTarget, RelayMount } from './protoco
 export type Node = typeof schema.nodes.$inferSelect;
 
 export const hostRe = /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+
+/** An extra incoming port or range for the node's firewall, on top of the ports of its roles. */
+export const firewallPortSchema = z
+  .object({ port: z.number().int().min(1).max(65535), to: z.number().int().min(1).max(65535).nullable().default(null), proto: z.enum(['tcp', 'udp']).default('tcp') })
+  .refine((p) => p.to === null || p.to >= p.port, 'The end of the range comes after its start');
+
+/**
+ * The node's own firewall (security hardening for external nodes): an nftables table that lets in only SSH and the
+ * ports of the node's roles. takeOver = replace firewall rules of something else found on the server.
+ */
+/** An address or network SSH is let in from: 203.0.113.5, 198.51.100.0/24 or 2001:db8::/32. */
+export const sshSourceSchema = z
+  .string()
+  .trim()
+  .max(50)
+  .refine((v) => {
+    const [ip, bits, ...rest] = v.split('/');
+    const family = net.isIP(ip ?? '');
+    if (!family || rest.length) return false;
+    if (bits === undefined) return true;
+    const n = Number(bits);
+    return /^\d{1,3}$/.test(bits) && n >= 0 && n <= (family === 4 ? 32 : 128);
+  }, 'Use an IP address or a network such as 198.51.100.0/24');
+
+export const firewallConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  takeOver: z.boolean().default(false),
+  extraPorts: z.array(firewallPortSchema).max(50).default([]),
+  /** SSH only from these addresses or networks; empty = from anywhere. */
+  sshFrom: z.array(sshSourceSchema).max(50).default([]),
+  /** Limits new SSH connections per address (against password guessing). */
+  sshLimit: z.boolean().default(true),
+  /**
+   * Not decided yet (new nodes, and nodes from before step 4 whose firewall was not switched on by hand): at its next
+   * connection with software that has a firewall, a node with a public address on its own interface gets the firewall
+   * switched on, any other node keeps it off.
+   */
+  auto: z.boolean().default(false),
+});
 
 export const nodeConfigSchema = z.object({
   publicHost: z
@@ -48,6 +88,7 @@ export const nodeConfigSchema = z.object({
     .regex(/^$|^[A-Za-z0-9.:-]+$/, 'Use an IP address or host name')
     .default(''),
   fm: fmConfigSchema.default(fmConfigSchema.parse({})),
+  firewall: firewallConfigSchema.default(firewallConfigSchema.parse({})),
   /** How this node gets new versions; inherit = from its update group, or the network's default. */
   updatePolicy: z.enum(['inherit', ...UPDATE_POLICIES]).default('inherit'),
   /** Id of an update group in the network settings, null = no group. */
@@ -103,7 +144,7 @@ function patchOf<T extends z.ZodRawShape>(shape: T) {
 /** Body of a settings change from the panel or the API. */
 export const nodeConfigPatch = patchOf(nodeConfigSchema.shape)
   .omit({ dnsHost: true, publicHostCheck: true })
-  .extend({ fm: patchOf(fmConfigSchema.shape).optional() });
+  .extend({ fm: patchOf(fmConfigSchema.shape).optional(), firewall: patchOf(firewallConfigSchema.shape).optional() });
 export type NodeConfigPatch = z.infer<typeof nodeConfigPatch>;
 
 export const nodeSettings = (node: Pick<Node, 'config'>): NodeSettings => nodeConfigSchema.parse(node.config ?? {});
@@ -373,6 +414,7 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
           .find(Boolean) ?? base)
       : base;
   const fm = fmStation ? await buildFmPlan(ctx, c.fm, fmBase, stations) : null;
+  const firewall = await firewallPlan(ctx, node);
 
   const plan: Omit<NodePlan, 'revision'> = {
     nodeId: node.id,
@@ -385,6 +427,7 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
     probes,
     station,
     fm,
+    firewall,
     // Never true: agents up to this version update themselves as soon as it is, all at the same time. The update
     // planner (updates.ts) sends each node an update message when its turn comes.
     update: { branch: v.branch, commit: v.commit, auto: false },
@@ -505,5 +548,7 @@ export function pushToken(ctx: AppContext, relay: Pick<Node, 'secret'>, key: str
 /** Validates settings from the panel and returns the stored form. */
 export function storedConfig(input: NodeConfigPatch, current: NodeConfig = {}): NodeConfig {
   const fm = input.fm ? { ...(current.fm ?? {}), ...input.fm } : current.fm;
-  return nodeConfigSchema.parse({ ...current, ...input, fm });
+  // Switching the firewall on or off by hand is the decision: a new node's default no longer applies then.
+  const firewall = input.firewall ? { ...(current.firewall ?? {}), ...input.firewall, ...(input.firewall.enabled !== undefined ? { auto: false } : {}) } : current.firewall;
+  return nodeConfigSchema.parse({ ...current, ...input, fm, firewall });
 }

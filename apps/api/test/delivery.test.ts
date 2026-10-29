@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { schema } from '../src/db/index.js';
 import { STUDIO_INGEST, STUDIO_USER, studioToken } from '../src/services/nodes/delivery.js';
 import { authorizeIngest } from '../src/services/nodes/ingest.js';
+import { localIngest, pushedRouting, stationRouting } from '../src/services/nodes/routing-rules.js';
 import { buildPlan } from '../src/services/nodes/plan.js';
 import { buildPackage } from '../src/services/stationnode/package.js';
 import { login, setup } from './helpers.js';
@@ -122,6 +123,15 @@ describe('station node through the ingest (1.3)', () => {
     expect((await buildPlan(t.ctx, await nodeRow(backup))).ingest!.stations.find((x) => x.stationId === stationId)!.priority).toBe(1);
   });
 
+  it('keeps the chosen route on the orchestrator, so the node still sends its audio', async () => {
+    await routing({ ingest, backupIngest: backup, relays: 'auto', spareRelays: true, delivery: 'ingest' });
+    const pkg = await buildPackage(t.ctx, await nodeRow(studio));
+    const r = stationRouting(pkg.stations[0]!.station);
+    // On the node the station is its own source; the pushes above carry the route.
+    expect(localIngest(r)).toBe(true);
+    expect(pushedRouting(r)).toBe(false);
+  });
+
   it('falls back to the relays while no ingest is online', async () => {
     await setOnline(ingest, false);
     await setOnline(backup, false);
@@ -129,6 +139,9 @@ describe('station node through the ingest (1.3)', () => {
     const out = await pushes();
     expect(out).toHaveLength(2);
     expect(out.every((o) => o.relayNodeId === relay && o.port === 8301)).toBe(true);
+    // The map says the studio bypasses the ingest.
+    const topo = (await t.app.inject({ method: 'GET', url: '/api/nodes/topology', headers: admin })).json();
+    expect(topo.stations.find((s: { id: string }) => s.id === stationId).direct).toBe('offline');
     await setOnline(ingest, true);
     await setOnline(backup, true, '192.0.2.11');
   });

@@ -570,6 +570,30 @@ describe.runIf(hasFfmpeg)('library and AutoDJ', () => {
     const bad = await t.app.inject({ method: 'POST', url: `/api/stations/${stationId}/library/upload?folder=../x`, headers: { ...owner, 'content-type': `multipart/form-data; boundary=${boundary}` }, payload: body });
     expect(bad.statusCode).toBe(400);
   });
+
+  it('uploads a file in parts, with its folder, and resumes after a broken connection', async () => {
+    const file = join(t.ctx.config.DATA_DIR, 'set.mp3');
+    tone(file, { artist: 'DJ', title: 'Set' });
+    const data = await readFile(file);
+    const start = () => t.app.inject({ method: 'POST', url: `/api/stations/${stationId}/library/uploads`, headers: owner, payload: { folder: 'music', path: 'Sets/2026/DJ - Set.mp3', size: data.length } });
+    const put = (id: string, offset: number, part: Buffer) =>
+      t.app.inject({ method: 'PUT', url: `/api/stations/${stationId}/library/uploads/${id}?offset=${offset}`, headers: { ...owner, 'content-type': 'application/octet-stream' }, payload: part });
+    const first = await start();
+    expect(first.statusCode).toBe(200);
+    expect(first.json()).toMatchObject({ offset: 0, done: false, path: 'music/Sets/2026/DJ - Set.mp3' });
+    const half = Math.floor(data.length / 2);
+    expect((await put(first.json().id, 0, data.subarray(0, half))).json()).toMatchObject({ offset: half, done: false });
+    // The connection broke: starting again tells where it stopped, a part at the wrong offset is refused.
+    const again = (await start()).json();
+    expect(again).toMatchObject({ id: first.json().id, offset: half });
+    expect((await put(again.id, 0, data.subarray(0, half))).statusCode).toBe(409);
+    expect((await put(again.id, half, data.subarray(half))).json()).toMatchObject({ offset: data.length, done: true });
+    expect(statSync(join(music, 'music', 'Sets', '2026', 'DJ - Set.mp3')).size).toBe(data.length);
+    // No way out of the library, and only audio.
+    const bad = (path: string) => t.app.inject({ method: 'POST', url: `/api/stations/${stationId}/library/uploads`, headers: owner, payload: { folder: 'music', path, size: 10 } });
+    expect((await bad('../../x.mp3')).statusCode).toBe(400);
+    expect((await bad('Sets/run.sh')).statusCode).toBe(400);
+  });
 });
 
 describe('shares', () => {

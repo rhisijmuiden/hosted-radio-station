@@ -94,6 +94,11 @@ export interface NodePlan {
   station: { stations: number } | null;
   /** FM/MPX role (phase 11). */
   fm: FmPlan | null;
+  /**
+   * The node's own firewall (security hardening for external nodes): incoming traffic is dropped except SSH and these
+   * ports ("8200" or "8210-8299"). Missing in plans of older main servers: the node leaves its firewall alone.
+   */
+  firewall?: { enabled: boolean; takeOver: boolean; tcp: string[]; udp: string[]; sshFrom?: string[]; sshLimit?: boolean };
   update: { branch: string | null; commit: string | null; auto: boolean };
 }
 
@@ -288,6 +293,20 @@ export interface AgentStats {
   /** Ingest: mounts on air on this node. */
   ingest?: IngestMountStatus[];
   fm?: FmStatus | null;
+  /** The node's firewall as its root helper reports it. */
+  firewall?: NodeFirewallStatus | null;
+}
+
+export interface NodeFirewallStatus {
+  state: 'off' | 'running' | 'pending' | 'active' | 'foreign' | 'rolledBack' | 'failed' | 'unsupported';
+  message?: string;
+  /** Firewall rules of something else found on the server (iptables, ufw, firewalld, other nftables tables). */
+  foreign?: string[];
+  /** What is let in: SSH, and the TCP and UDP ports of the roles. */
+  ports?: { ssh: string[]; tcp: string[]; udp: string[] };
+  /** SSH: the admin addresses it is limited to (empty = anywhere), the attempt limit, and whether sshd takes passwords. */
+  ssh?: { from: string[]; limit: boolean; password: string };
+  at?: string;
 }
 
 export interface AgentEvent {

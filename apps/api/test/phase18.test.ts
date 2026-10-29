@@ -108,6 +108,10 @@ describe('orchestrator only (phase 18)', () => {
   it('lists the stations that still use this server, and refuses to switch on while they do', async () => {
     const view = (await t.app.inject({ method: 'GET', url: '/api/nodes/orchestrator', headers: admin })).json();
     expect(view.only).toBe(false);
+    // The server that hosts the orchestrator, for the pinned card on Nodes.
+    expect(view.host).toMatchObject({ hostname: expect.any(String), version: expect.any(String), roles: ['ingest', 'relay'] });
+    expect(view.host.memory.total).toBeGreaterThan(0);
+    expect(view.host.cpu).toBeGreaterThanOrEqual(0);
     expect(view.stations).toEqual([expect.objectContaining({ id: stationId, uses: expect.arrayContaining(['ingest', 'listeners']) })]);
     const res = await t.app.inject({ method: 'PUT', url: '/api/nodes/orchestrator', headers: admin, payload: { only: true } });
     expect(res.statusCode).toBe(409);
@@ -122,7 +126,7 @@ describe('orchestrator only (phase 18)', () => {
     expect((await t.app.inject({ method: 'PUT', url: `/api/stations/${stationId}/routing`, headers: admin, payload: { ingest: ingest.id } })).statusCode).toBe(200);
     const res = await t.app.inject({ method: 'PUT', url: '/api/nodes/orchestrator', headers: admin, payload: { only: true } });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ only: true, stations: [], ingestNodes: 1 });
+    expect(res.json()).toMatchObject({ only: true, stations: [], ingestNodes: 1, host: { roles: [] } });
   });
 
   it('blocks every way back to audio on this server', async () => {
@@ -200,6 +204,13 @@ describe('firewall checklist (phase 18)', () => {
     const checked = (await t.app.inject({ method: 'POST', url: `/api/nodes/${node.id}/firewall/check`, headers: owner })).json();
     expect(checked.checks[String(open)]).toMatchObject({ ok: true });
     expect(Object.values(checked.checks).filter((c) => !(c as { ok: boolean }).ok)).toHaveLength(1);
+    // SSH is tried on its own, and well-known ports the node does not need are reported when they answer: here the
+    // test database on 5432 (security hardening for external nodes).
+    expect(Object.keys(checked.ssh)).toEqual(['22']);
+    expect(checked.unexpected).toContain(5432);
+    expect(checked.unexpected).not.toContain(open);
+    // The node's own interfaces do not carry the checked address: it sits behind a router, so those may not be its ports.
+    expect(checked.behindNat).toBe(true);
     // Another customer's node is not yours to see.
     expect((await t.app.inject({ method: 'GET', url: `/api/nodes/${node.id}/firewall`, headers: { cookie: '' } })).statusCode).toBe(401);
     a.close();

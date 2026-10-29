@@ -917,6 +917,7 @@ export interface NodeConfig {
   /** Station node: its address on the studio network, for encoders and RHIS Studio there. */
   lanAddress: string;
   fm: FmConfig;
+  firewall?: NodeFirewallConfig;
   updatePolicy: 'inherit' | UpdatePolicy;
   updateGroup: string | null;
   updateWindow: UpdateWindow | null;
@@ -1022,7 +1023,23 @@ export interface NodeStatus {
   ffmpeg?: boolean;
   soundcards?: { device: string; name: string }[];
   fm?: FmStatus | null;
+  /** What the node's software can do, such as "firewall". */
+  features?: string[];
+  /** The node's own firewall as the node reports it (security hardening for external nodes). */
+  firewall?: { state: string; message?: string; foreign?: string[]; ports?: { ssh: string[]; tcp: string[]; udp: string[] }; ssh?: { from: string[]; limit: boolean; password: string }; at?: string } | null;
   updatedAt?: string;
+}
+export type NodeFirewallState = 'off' | 'running' | 'pending' | 'active' | 'foreign' | 'rolledBack' | 'failed' | 'unsupported';
+export interface NodeFirewallConfig {
+  enabled: boolean;
+  takeOver: boolean;
+  extraPorts: { port: number; to: number | null; proto: 'tcp' | 'udp' }[];
+  /** SSH only from these addresses or networks; empty = anywhere. */
+  sshFrom: string[];
+  /** Limit new SSH connections per address. */
+  sshLimit: boolean;
+  /** A new node: on or off is decided at its first connection. */
+  auto?: boolean;
 }
 export interface NodeItem {
   id: string;
@@ -1147,6 +1164,23 @@ export interface OrchestratorView {
   ingestNodes: number;
   stationNodes: number;
   relayNodes: number;
+  /** The server that hosts the orchestrator itself. */
+  host: OrchestratorHost;
+}
+export interface OrchestratorHost {
+  name: string;
+  hostname: string;
+  addresses: string[];
+  publicHost: string;
+  version: string;
+  commit: string | null;
+  uptimeSeconds: number;
+  /** Load per core, 0..1. */
+  cpu: number;
+  memory: { used: number; total: number };
+  disk: { used: number; total: number } | null;
+  /** Its own audio roles; empty when orchestrator only. */
+  roles: ('ingest' | 'relay')[];
 }
 export interface FirewallPort {
   service: PortService;
@@ -1182,9 +1216,19 @@ export interface NodeFirewall {
   ports: FirewallPort[];
   checks: Record<string, { ok: boolean; message: string | null; ms: number | null; at: string }>;
   /** Who ran the last check: a monitoring node outside (phase 20), or this server. */
-  checkedFrom: { kind: 'monitor'; nodeId: string; name: string } | { kind: 'server' } | null;
+  checkedFrom: { kind: 'monitor'; nodeId: string; name: string; sameNetwork?: boolean } | { kind: 'server' } | null;
   /** Old ports that still answer while they are switched off for the node. */
   oldOpen: number[];
+  /** SSH per port at the last check. */
+  ssh: Record<string, { ok: boolean; message: string | null; ms: number | null; at: string }>;
+  /** Well-known ports the node does not need that still answered at the last check. */
+  unexpected: number[];
+  /** The checked address is not on the node itself (a router, NAT). */
+  behindNat: boolean;
+  /** The node's own firewall as it reports it. */
+  nodeFirewall: NodeStatus['firewall'] | null;
+  /** The address the viewer reaches this server from. */
+  viewerIp: string | null;
 }
 export interface TopologyNode {
   id: string;
@@ -1305,6 +1349,8 @@ export interface TopologyStation {
   active: string | null;
   relays: string[];
   listeners: number;
+  /** The station node feeds the relays itself although it is routed through an ingest: why (fallback). */
+  direct?: 'update' | 'none' | 'offline' | 'nocert' | 'failing' | null;
   cells: Record<string, TopologyCell>;
 }
 export interface Topology {
@@ -1317,6 +1363,8 @@ export interface Topology {
   links: TopologyLink[];
   stations: TopologyStation[];
   audience: { nodeId: string; stationId: string; country: string | null; listeners: number }[];
+  /** Server id → the checks of the monitoring nodes that fail there. */
+  checkFailures?: Record<string, { stream: string; silent: boolean; message: string | null }[]>;
   kpis: {
     nodesOnline: number;
     nodesTotal: number;
@@ -1617,7 +1665,7 @@ export interface NodeDns {
 
 // Phase 20: monitoring
 
-export type AlertKind = 'node_offline' | 'node_problem' | 'station_off_air' | 'station_silent' | 'stream_down' | 'stream_quality' | 'feed_lost' | 'updates_paused' | 'dns_error' | 'port_closed' | 'old_port_open' | 'dns_wrong';
+export type AlertKind = 'node_offline' | 'node_problem' | 'station_off_air' | 'station_silent' | 'stream_down' | 'stream_quality' | 'feed_lost' | 'updates_paused' | 'dns_error' | 'port_closed' | 'old_port_open' | 'dns_wrong' | 'studio_direct';
 export interface Alert {
   id: string;
   key: string;

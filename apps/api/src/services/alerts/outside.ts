@@ -115,9 +115,12 @@ export class OutsideChecks {
 
   async firewall(now = Date.now()) {
     if (!(await portMonitor(this.ctx, this.hub))) return;
-    const nodes = await this.ctx.db.select().from(schema.nodes).where(isNotNull(schema.nodes.pairedAt));
+    const [nodes, rollout] = await Promise.all([this.ctx.db.select().from(schema.nodes).where(isNotNull(schema.nodes.pairedAt)), getSetting(this.ctx, 'nodeRollout')]);
     for (const row of nodes) {
       if (!this.hub.isOnline(row.id) || row.roles.every((r) => r === 'monitor')) continue;
+      // A node being updated restarts its services and opens and closes ports for a moment: what is seen then says
+      // nothing. Its last result before the update stays until the next round after it.
+      if (rollout.current?.nodeId === row.id) continue;
       const node = { ...row, status: this.hub.liveStatus(row.id) ?? row.status };
       if (!externalAddress(node) || !(await inboundPorts(this.ctx, node)).length) continue;
       const check = await checkFirewall(this.ctx, this.hub, node, { monitorOnly: true });

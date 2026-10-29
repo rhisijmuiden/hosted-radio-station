@@ -138,6 +138,35 @@ Every station has a **Connection** tab with the addresses the orchestrator hands
 
 Every node has a **Firewall** tab listing exactly which ports to open or forward to it: RHIS Studio, encoders, SFTP/SCP/FTP with the passive range, listeners for a relay. Nothing is needed for the orchestrator or the relays, because those connections go outwards. **Check from outside** connects from the orchestrator to each port and shows a green or red tick; the list can also be e-mailed (`GET /api/nodes/:id/firewall`, `POST /api/nodes/:id/firewall/check`).
 
+## Node firewall
+
+A node can close itself off with its own firewall (Firewall tab → **Firewall on this node**). Every node gets it switched on at its next connection when it has a public address on its own interface (a server in a data centre); a node behind a router keeps it off. A firewall switched on or off by hand after that is never changed again. Existing firewall rules on the server (iptables, ufw, …) still stop it until you choose to take over. The
+agent hands the ports of the node's roles (the same list as the checklist above, plus port 80 for certificates behind
+its own web server and any extra ports in its settings) to the root helper `hrs-node-firewall`, which sets one
+nftables table `inet hrs_node`: incoming traffic is dropped except loopback, replies to connections the node opened
+itself, ICMP, DHCP replies, SSH (the port sshd listens on) and those ports. Outgoing traffic is not filtered.
+
+- **Existing rules first.** Before it sets anything, the helper looks for firewall rules of something else: iptables
+  (legacy or nft), ufw, firewalld or other nftables tables. When it finds any it changes nothing and the panel lists
+  them. **Take over the existing firewall** then switches the other firewall off, clears its rules and moves a
+  non-empty `/etc/nftables.conf` aside (`/etc/nftables.conf.hrs-node-backup`).
+- **Safe apply.** New rules are on trial for a minute: the agent confirms them once it still reaches the orchestrator
+  over the control channel and with a new connection. Without that confirmation a timer puts the previous rules
+  (including the other firewall's) back, and the same rules are not tried again until the settings change.
+- **SSH**: optionally only from admin addresses or networks (IPv4 and IPv6, e.g. `203.0.113.5` or
+  `198.51.100.0/24`); the panel offers the address you are connected from and warns when the list leaves it out. New
+  SSH connections are limited per address (a burst of 5, then 10 a minute) against password guessing, and the panel
+  says when sshd still takes passwords. A wrong list cannot cut the node off: the firewall can always be switched off
+  in the panel, because the node keeps its connection to the orchestrator.
+- **Extra ports**: ports or ranges (TCP or UDP) to let in on top of the role ports, for example a monitoring agent.
+- **Outside check**: **Check from outside** (and the monitoring node every few minutes) also tries SSH and a list of
+  well-known ports a node never needs from outside (mail, databases, admin pages, file shares, 8080 and the like). One
+  that answers is shown as unexpectedly open.
+- Confirmed rules are saved in `/etc/hrs-node/firewall.nft` and loaded at boot by `hrs-node-firewall-boot.service`.
+  The log of the last run is in `/var/lib/hrs-node/run/firewall.log`.
+- An unprivileged container whose kernel does not let it filter its own traffic reports "Not supported"; use the
+  firewall of the host or the data centre then.
+
 ## Updates
 
 Nodes get the version of the main server, but never all at once. After the main server is updated, the nodes follow **one at a time**, each according to its update policy (Nodes → **Update policy**):

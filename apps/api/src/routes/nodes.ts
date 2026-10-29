@@ -13,6 +13,7 @@ import { okOut } from '../lib/schemas.js';
 import { clientIp } from '../lib/cloudflare-ips.js';
 import { nodeEvent } from '../services/nodes/hub.js';
 import { hashCode, installCommand, MAX_PENDING, nameFromHostname, newPairingCode, newRegistrationCode, PAIRING_HOURS } from '../services/nodes/pairing.js';
+import { NEW_NODE_FIREWALL } from '../services/nodes/firewall-plan.js';
 import { carried, nodeConfigPatch, nodeConfigSchema, type NodeConfigPatch, nodeSettings, relayBaseUrl, relaysByStation, relaysOf, storedConfig, type Node } from '../services/nodes/plan.js';
 import { scopeOf, serves } from '../services/nodes/dedication.js';
 import { plannedIngests, studioDelivery } from '../services/nodes/delivery.js';
@@ -65,6 +66,17 @@ const statusOut = z
     /** Names the node holds a valid certificate for, and what its software can do (1.3). */
     certs: z.array(z.string()).optional(),
     features: z.array(z.string()).optional(),
+    /** The node's firewall as the node reports it (security hardening for external nodes). */
+    firewall: z
+      .object({
+        state: z.string(),
+        message: z.string().optional(),
+        foreign: z.array(z.string()).optional(),
+        ports: z.object({ ssh: z.array(z.string()), tcp: z.array(z.string()), udp: z.array(z.string()) }).optional(),
+        ssh: z.object({ from: z.array(z.string()), limit: z.boolean(), password: z.string() }).optional(),
+        at: z.string().optional(),
+      })
+      .nullish(),
     fm: z
       .object({
         input: z.enum(['idle', 'connecting', 'connected', 'error']),
@@ -405,7 +417,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       const hostname = reg.hostname.slice(0, 100);
       const [node] = await ctx.db
         .insert(schema.nodes)
-        .values({ name: req.body.name, location: req.body.location, tenantId: tenantId ?? null, roles, config: storedConfig({}), secret: ctx.box.encrypt(secret), pairedAt: now, status: { online: false, hostname } })
+        .values({ name: req.body.name, location: req.body.location, tenantId: tenantId ?? null, roles, config: storedConfig(NEW_NODE_FIREWALL), secret: ctx.box.encrypt(secret), pairedAt: now, status: { online: false, hostname } })
         .returning();
       // The node fetches its secret with its own token; it stays here until the node has connected.
       await ctx.db.update(r).set({ state: 'accepted', nodeId: node!.id, secret: ctx.box.encrypt(secret), expiresAt: new Date(now.getTime() + PAIRING_HOURS * 3600_000) }).where(eq(r.id, reg.id));
@@ -484,7 +496,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       await assertFreeName(ctx, req.body.name);
       const [node] = await ctx.db
         .insert(schema.nodes)
-        .values({ name: req.body.name, location: req.body.location, tenantId: tenantId ?? null, roles: [...new Set(req.body.roles)], config: storedConfig({}) })
+        .values({ name: req.body.name, location: req.body.location, tenantId: tenantId ?? null, roles: [...new Set(req.body.roles)], config: storedConfig(NEW_NODE_FIREWALL) })
         .returning();
       const pairing = await newPairing(node!);
       await nodeEvent(ctx, node!.id, 'created', 'info', { by: req.auth?.user.email ?? null });
@@ -1099,7 +1111,8 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         const rt = runtime.find((x) => x.id === s.id)?.runtime ?? null;
         const relayIds = (relayMap.get(s.id) ?? []).map((r: Node) => r.id).filter((id) => byId.has(id));
         const cells: Record<string, Cell> = { [n.id]: !n.online ? 'down' : rt?.mounts.length ? 'onAir' : 'idle' };
-        const via = studioDelivery({ ...s, nodeRuntime: rt }, liveNodes).ingests.map((i) => i.node.id).filter((id) => byId.has(id));
+        const delivery = studioDelivery({ ...s, nodeRuntime: rt }, liveNodes);
+        const via = delivery.ingests.map((i) => i.node.id).filter((id) => byId.has(id));
         let from: string | null = n.online && rt?.mounts.length ? n.id : null;
         if (via.length) {
           for (const [i, id] of via.entries()) {
@@ -1139,17 +1152,19 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
           active: from,
           relays: relayIds,
           listeners: listenersOf(s.id),
+          direct: delivery.direct && delivery.direct !== 'chosen' ? delivery.direct : null,
           cells,
         });
       }
     }
+    const checkFailures: Record<string, { stream: string; silent: boolean; message: string | null }[]> = {};
     // Monitoring nodes (phase 20): a check line to every server they listen on, red when a check there fails or hears
     // silence. Only the checks of the stations in view count.
     const monitors = nodeOutList.filter((n) => n.paired && n.roles.includes('monitor'));
     if (monitors.length && stationIds.length) {
       const fresh = new Date(Date.now() - (settings.probeIntervalSeconds * 3 + 30) * 1000);
       const rows = await ctx.db
-        .select({ nodeId: schema.nodeProbes.nodeId, target: schema.nodeProbes.target, ok: schema.nodeProbes.ok, silent: schema.nodeProbes.silent, lastOkAt: schema.nodeProbes.lastOkAt })
+        .select({ nodeId: schema.nodeProbes.nodeId, target: schema.nodeProbes.target, ok: schema.nodeProbes.ok, silent: schema.nodeProbes.silent, lastOkAt: schema.nodeProbes.lastOkAt, message: schema.nodeProbes.message })
         .from(schema.nodeProbes)
         .where(and(inArray(schema.nodeProbes.nodeId, monitors.map((m) => m.id)), inArray(schema.nodeProbes.stationId, stationIds), gt(schema.nodeProbes.checkedAt, fresh)));
       const pairs = new Map<string, boolean>();
@@ -1163,6 +1178,14 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
         const good = r.ok && r.silent !== true;
         pairs.set(`${r.nodeId}>${to}`, (pairs.get(`${r.nodeId}>${to}`) ?? true) && good);
         heard.set(to, (heard.get(to) ?? true) && good);
+        if (!good) {
+          // Which check failed, for the badge's tooltip: the stream (station and mount) and what was wrong.
+          const key = r.target.slice(0, r.target.lastIndexOf('@'));
+          const slug = key.split('/')[0]!;
+          const stream = `${stations.find((s) => s.slug === slug)?.name ?? slug} ${key.slice(slug.length)}`;
+          const list = (checkFailures[to] ??= []);
+          if (!list.some((x) => x.stream === stream)) list.push({ stream, silent: r.ok && r.silent === true, message: r.ok ? null : r.message });
+        }
       }
       for (const [key, good] of pairs) {
         const [from, to] = key.split('>') as [string, string];
@@ -1223,6 +1246,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       links,
       stations: stationsOut,
       audience,
+      checkFailures,
       kpis: {
         nodesOnline: online.length,
         nodesTotal: remote.filter((n) => n.paired).length,
@@ -1333,12 +1357,16 @@ const topologyOut = z.object({
       active: z.string().nullable(),
       relays: z.array(z.string()),
       listeners: z.number(),
+      /** A station node that feeds the relays itself although it is routed through an ingest: why (fallback). */
+      direct: z.enum(['update', 'none', 'offline', 'nocert', 'failing']).nullable().optional(),
       /** Server id → onAir, standby (backup feed), degraded, down, idle (carries it, nothing on air). */
       cells: z.record(z.string(), z.enum(['onAir', 'standby', 'degraded', 'down', 'idle'])),
     }),
   ),
   /** Listeners now per relay (local:relay = this server), station and country. */
   audience: z.array(z.object({ nodeId: z.string(), stationId: z.string(), country: z.string().nullable(), listeners: z.number() })),
+  /** Server id → the checks of the monitoring nodes that fail there: the stream, and silence or the error. */
+  checkFailures: z.record(z.string(), z.array(z.object({ stream: z.string(), silent: z.boolean(), message: z.string().nullable() }))).optional(),
   kpis: z.object({
     nodesOnline: z.number(),
     nodesTotal: z.number(),

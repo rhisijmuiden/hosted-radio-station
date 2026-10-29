@@ -1,0 +1,6 @@
+[Unit]
+Description=Hosted Radio Station node: firewall (root helper)
+
+[Service]
+Type=oneshot
+ExecStart=/opt/hrs-node/deploy/node/bin/hrs-node-firewall

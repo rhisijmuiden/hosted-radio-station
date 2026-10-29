@@ -204,11 +204,32 @@ export function FirewallTab({ node }: { node: NodeItem }) {
               );
             })}
           </Table>
+          {data.nodeFirewall && data.nodeFirewall.state !== 'off' && Object.keys(data.ssh).length > 0 && (
+            <div className="mx-5 mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]">
+              {Object.entries(data.ssh).map(([port, res]) => (
+                <span key={port} className="inline-flex items-center gap-1.5">
+                  <span className="font-mono font-semibold tabular-nums">{port}</span>
+                  <span className="text-muted">SSH</span>
+                  <span className={clsx('inline-flex items-center gap-1 font-semibold', res.ok ? 'text-online' : 'text-muted')}>
+                    {res.ok ? <CheckCircle2 className="size-4" /> : <MinusCircle className="size-4" />}
+                    {res.ok ? t('firewall.open', { ms: res.ms ?? 0 }) : t(`firewall.closed.${res.message ?? 'other'}`, { defaultValue: res.message ?? '' })}
+                  </span>
+                </span>
+              ))}
+            </div>
+          )}
+          {data.unexpected.length > 0 && (
+            data.behindNat ? (
+              <p className="mx-5 mb-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[13px]">{t('firewall.unexpectedNat', { ports: data.unexpected.join(', '), address: data.dns?.checkedOn ?? data.external ?? '' })}</p>
+            ) : (
+              <p className="mx-5 mb-3 rounded-md border border-offline/40 bg-offline/10 px-3 py-2 text-[13px]">{t('firewall.unexpected', { ports: data.unexpected.join(', ') })}</p>
+            )
+          )}
           {data.oldOpen.length > 0 && (
             <p className="mx-5 mb-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[13px]">{t('firewall.oldStillOpen', { ports: data.oldOpen.join(', ') })}</p>
           )}
           {data.checkedFrom && (
-            <p className="px-5 pb-2 text-xs text-muted">{data.checkedFrom.kind === 'monitor' ? t('firewall.fromMonitor', { name: data.checkedFrom.name }) : t('firewall.fromServer')}</p>
+            <p className="px-5 pb-2 text-xs text-muted">{data.checkedFrom.kind === 'monitor' ? t(data.checkedFrom.sameNetwork ? 'firewall.fromMonitorSame' : 'firewall.fromMonitor', { name: data.checkedFrom.name }) : t('firewall.fromServer')}</p>
           )}
           {data.ports.some((p) => p.old) && <p className="px-5 pb-4 text-xs text-muted">{t('firewall.oldHint')}</p>}
           </>

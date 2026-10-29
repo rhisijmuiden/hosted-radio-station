@@ -1,3 +1,5 @@
+import { statfs } from 'node:fs/promises';
+import { cpus, freemem, hostname, loadavg, networkInterfaces, totalmem, uptime } from 'node:os';
 import { asc, eq } from 'drizzle-orm';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -15,6 +17,7 @@ import { OLD_PORTS, PORTS } from '../services/nodes/portplan.js';
 import { isPublicAddress } from '../services/dns/records.js';
 import { forgetRelays } from '../services/nodes/routing.js';
 import { getSetting, putSetting, serverNameSchema } from '../services/settings.js';
+import { getVersionInfo } from '../services/system.js';
 import { connectionInfo } from '../services/streaming/info.js';
 import { allocatePort, applyAllStreams, loadStation, platformHost } from '../services/streaming/state.js';
 import { endpointOut, stationAccess } from './stations.js';
@@ -48,6 +51,24 @@ const orchestratorOut = z.object({
   ingestNodes: z.number(),
   stationNodes: z.number(),
   relayNodes: z.number(),
+  /** The server that hosts the orchestrator itself, for the pinned card at the top of Nodes. */
+  host: z.object({
+    name: z.string(),
+    hostname: z.string(),
+    /** LAN addresses of this server. */
+    addresses: z.array(z.string()),
+    /** The address the panel and the nodes reach it on. */
+    publicHost: z.string(),
+    version: z.string(),
+    commit: z.string().nullable(),
+    uptimeSeconds: z.number(),
+    /** Load per core, 0..1 (like the nodes report it). */
+    cpu: z.number(),
+    memory: z.object({ used: z.number(), total: z.number() }),
+    disk: z.object({ used: z.number(), total: z.number() }).nullable(),
+    /** Its own audio roles; empty when orchestrator only. */
+    roles: z.array(z.enum(['ingest', 'relay'])),
+  }),
 });
 
 const portOut = z.object({
@@ -71,9 +92,19 @@ const firewallOut = z.object({
   /** The last check from outside, per port ("port" or "port-to"). */
   checks: z.record(z.string(), z.object({ ok: z.boolean(), message: z.string().nullable(), ms: z.number().nullable(), at: z.string() })),
   /** Who ran the last check (phase 20): a monitoring node outside, or this server. Null before the first check. */
-  checkedFrom: z.discriminatedUnion('kind', [z.object({ kind: z.literal('monitor'), nodeId: z.string(), name: z.string() }), z.object({ kind: z.literal('server') })]).nullable(),
+  checkedFrom: z.discriminatedUnion('kind', [z.object({ kind: z.literal('monitor'), nodeId: z.string(), name: z.string(), sameNetwork: z.boolean().optional() }), z.object({ kind: z.literal('server') })]).nullable(),
   /** Old ports (from before the port plan) that still answer while they are switched off: close them in the firewall. */
   oldOpen: z.array(z.number()),
+  /** SSH per port at the last check (let in by the node's own firewall). */
+  ssh: z.record(z.string(), z.object({ ok: z.boolean(), message: z.string().nullable(), ms: z.number().nullable(), at: z.string() })),
+  /** Well-known ports the node does not need that still answered at the last check: close them. */
+  unexpected: z.array(z.number()),
+  /** The checked address is not on the node itself (a router, NAT): open ports there may not be the node's. */
+  behindNat: z.boolean(),
+  /** The node's own firewall as it reports it, when its software has one. */
+  /** The address the viewer reaches this server from, to offer it for the SSH admin addresses. */
+  viewerIp: z.string().nullable(),
+  nodeFirewall: z.object({ state: z.string(), message: z.string().optional(), foreign: z.array(z.string()).optional(), ports: z.object({ ssh: z.array(z.string()), tcp: z.array(z.string()), udp: z.array(z.string()) }).optional(), at: z.string().optional() }).nullable(),
 });
 
 /**
@@ -152,10 +183,40 @@ export const orchestratorRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   );
 
+  async function hostView(only: boolean): Promise<z.infer<typeof orchestratorOut>['host']> {
+    const [info, names, publicHost, disk] = await Promise.all([
+      getVersionInfo(ctx),
+      serverNames(ctx),
+      platformHost(ctx),
+      statfs(ctx.config.DATA_DIR)
+        .catch(() => statfs('/'))
+        .then((f) => ({ used: (f.blocks - f.bavail) * f.bsize, total: f.blocks * f.bsize }))
+        .catch(() => null),
+    ]);
+    const addresses = Object.values(networkInterfaces())
+      .flat()
+      .filter((a) => a && a.family === 'IPv4' && !a.internal)
+      .map((a) => a!.address);
+    return {
+      name: names.orchestrator,
+      hostname: hostname(),
+      addresses,
+      publicHost,
+      version: info.version,
+      commit: info.commit,
+      uptimeSeconds: Math.round(uptime()),
+      cpu: Math.min(1, loadavg()[0]! / Math.max(1, cpus().length)),
+      memory: { used: totalmem() - freemem(), total: totalmem() },
+      disk,
+      roles: only ? [] : ['ingest', 'relay'],
+    };
+  }
+
   async function orchestratorView(): Promise<z.infer<typeof orchestratorOut>> {
     const [o, stations, nodes] = await Promise.all([getSetting(ctx, 'orchestrator'), stationsUsingThisServer(ctx), ctx.db.select({ roles: schema.nodes.roles, pairedAt: schema.nodes.pairedAt }).from(schema.nodes)]);
     const paired = nodes.filter((n) => n.pairedAt);
     return {
+      host: await hostView(o.only),
       only: o.only,
       stations,
       ingestNodes: paired.filter((n) => n.roles.includes('source')).length,
@@ -304,7 +365,7 @@ export const orchestratorRoutes: FastifyPluginAsyncZod = async (app) => {
     return { ...node, status: hub.liveStatus(node.id) ?? { ...node.status, online: false } };
   }
 
-  async function firewallView(node: Awaited<ReturnType<typeof nodeFor>>): Promise<z.infer<typeof firewallOut>> {
+  async function firewallView(node: Awaited<ReturnType<typeof nodeFor>>, viewerIp: string | null = null): Promise<z.infer<typeof firewallOut>> {
     const internal = internalAddress(node);
     const last = lastFirewallCheck(node.id);
     const publicInterface = !!internal && isPublicAddress(internal);
@@ -318,12 +379,17 @@ export const orchestratorRoutes: FastifyPluginAsyncZod = async (app) => {
       checks: last?.checks ?? {},
       checkedFrom: last?.from ?? null,
       oldOpen: last?.oldOpen ?? [],
+      ssh: last?.ssh ?? {},
+      unexpected: last?.unexpected ?? [],
+      behindNat: last?.behindNat ?? false,
+      nodeFirewall: node.status.firewall ?? null,
+      viewerIp,
     };
   }
 
   const nodeParams = z.object({ id: z.uuid() });
   app.get('/:id/firewall', { schema: { tags: ['Nodes'], summary: 'Ports to open or forward to this node, with the last check from outside', params: nodeParams, response: { 200: firewallOut } } }, async (req) => {
-    return firewallView(await nodeFor(req, req.params.id));
+    return firewallView(await nodeFor(req, req.params.id), req.ip);
   });
 
   app.post(
@@ -341,7 +407,7 @@ export const orchestratorRoutes: FastifyPluginAsyncZod = async (app) => {
       const node = await nodeFor(req, req.params.id);
       if (!externalAddress(node)) throw badRequest('The node has no known address yet; pair it or set its host name');
       await checkFirewall(ctx, hub, node);
-      return firewallView(node);
+      return firewallView(node, req.ip);
     },
   );
 

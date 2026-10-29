@@ -12,6 +12,7 @@ import { getSetting } from '../settings.js';
 import { GeoIp } from '../stats/geoip.js';
 import { fmContext } from './fm.js';
 import { authorizeIngest, recordLive, syncLive } from './ingest.js';
+import { firewallDefault } from './firewall-plan.js';
 import { buildPlan, type Node } from './plan.js';
 import { CLOSE, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, type AgentMessage, type AgentStats, type FmStatus, type PortCheckResult, type ServerMessage } from './protocol.js';
 
@@ -247,8 +248,12 @@ export class NodeHub {
     };
     conn.timer.unref();
     this.conns.set(node.id, conn);
-    await this.ctx.db.update(schema.nodes).set({ status, lastSeenAt: new Date() }).where(eq(schema.nodes.id, node.id));
+    // A new node's firewall is decided now that it is known whether it has a public address of its own (step 4).
+    const fw = firewallDefault(node.config, status);
+    if (fw) node.config = fw.config;
+    await this.ctx.db.update(schema.nodes).set({ status, lastSeenAt: new Date(), ...(fw ? { config: fw.config } : {}) }).where(eq(schema.nodes.id, node.id));
     await nodeEvent(this.ctx, node.id, 'online', 'info', { ip, version: status.version ?? null });
+    if (fw) await nodeEvent(this.ctx, node.id, fw.enabled ? 'firewall_on' : 'firewall_off', 'info', { reason: fw.enabled ? 'public address' : 'behind a router' });
     this.log.info({ node: node.name, ip }, 'node connected');
     this.send(conn, { t: 'welcome', nodeId: node.id, name: node.name, serverTime: new Date().toISOString() });
     await this.pushPlan(conn, { ...node, status });
@@ -348,6 +353,18 @@ export class NodeHub {
         pushing: Array.isArray(x.pushing) ? x.pushing.slice(0, 50).map((p) => String(p).slice(0, 36)) : [],
       }));
     } else delete s.ingest;
+    if (m.firewall && typeof m.firewall === 'object' && typeof m.firewall.state === 'string') {
+      const f = m.firewall;
+      const list = (v: unknown, max: number) => (Array.isArray(v) ? v.slice(0, max).map((x) => String(x).slice(0, 200)) : []);
+      s.firewall = {
+        state: f.state.slice(0, 20),
+        message: typeof f.message === 'string' ? f.message.slice(0, 300) : undefined,
+        foreign: list(f.foreign, 20),
+        ports: f.ports && typeof f.ports === 'object' ? { ssh: list(f.ports.ssh, 10), tcp: list(f.ports.tcp, 500), udp: list(f.ports.udp, 500) } : undefined,
+        ssh: f.ssh && typeof f.ssh === 'object' ? { from: list(f.ssh.from, 100), limit: f.ssh.limit !== false, password: String(f.ssh.password ?? 'unknown').slice(0, 20) } : undefined,
+        at: typeof f.at === 'string' ? f.at.slice(0, 40) : undefined,
+      };
+    } else if (m.firewall === null) s.firewall = null;
     s.problems = Array.isArray(m.problems) ? m.problems.slice(0, 10).map((p) => String(p).slice(0, 300)) : [];
     if (Array.isArray(m.applyLog) && m.applyLog.length) s.applyLog = m.applyLog.slice(-20).map((l) => String(l).slice(0, 200));
     else delete s.applyLog;

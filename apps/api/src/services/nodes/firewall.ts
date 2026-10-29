@@ -6,7 +6,15 @@ import { nodeAddresses } from '../dns/records.js';
 import type { NodeHub } from './hub.js';
 import { scopeOf } from './dedication.js';
 import { buildPlan, nodeSettings, type Node } from './plan.js';
+import { allowedPorts, inRanges } from './firewall-plan.js';
 import { checkTarget, externalAddress, inboundPorts, probePort, type InboundPort } from './ports.js';
+
+/**
+ * Ports that often belong to something that should not be reachable from the internet (mail, databases, admin pages,
+ * file shares, development servers). The outside check tries them too: one that answers while the node does not need
+ * it is reported as unexpectedly open (security hardening for external nodes).
+ */
+export const UNEXPECTED_PORTS = [21, 23, 25, 53, 110, 111, 135, 139, 143, 445, 1433, 2049, 3000, 3306, 3389, 5000, 5432, 5900, 6379, 8000, 8006, 8080, 8443, 8888, 9000, 9090, 9200, 11211, 27017];
 
 export interface PortCheck {
   ok: boolean;
@@ -19,7 +27,7 @@ export interface PortCheck {
 export interface FirewallCheck {
   at: string;
   /** Who tried the ports: a monitoring node (really outside) or this server. */
-  from: { kind: 'monitor'; nodeId: string; name: string } | { kind: 'server' };
+  from: { kind: 'monitor'; nodeId: string; name: string; sameNetwork?: true } | { kind: 'server' };
   /** How the node's name resolved: ok, only in public DNS (this server still remembers it missing), or not at all. */
   dns: { host: string; state: 'ok' | 'stale' | 'missing'; checkedOn: string } | null;
   /** Per port ("port" or "port-to"). */
@@ -28,6 +36,12 @@ export interface FirewallCheck {
   oldOpen: number[];
   /** Ports the node needs that cannot be reached ("port" or "port-to"; an idle push port is fine). */
   closed: string[];
+  /** SSH, per port: let in by the node's own firewall (the port sshd listens on, else 22). */
+  ssh: Record<string, PortCheck>;
+  /** Well-known ports the node does not need that still answer (UNEXPECTED_PORTS): close them. */
+  unexpected: number[];
+  /** The address checked is not on the node's own interfaces: the node sits behind a router (NAT). */
+  behindNat: boolean;
 }
 
 export const portKey = (p: Pick<InboundPort, 'port' | 'to'>) => (p.to ? `${p.port}-${p.to}` : String(p.port));
@@ -60,22 +74,31 @@ export async function checkFirewall(ctx: AppContext, hub: NodeHub | null, node: 
   const at = new Date().toISOString();
   // A relay only listens on its push port while an ingest or station node pushes a stream to it.
   const pushing = ports.some((p) => p.service === 'push') && !!(await buildPlan(ctx, node)).relay?.mounts.some((m) => m.push);
-  const wanted = [...new Set([...ports.map((p) => p.port), ...old])];
+  const ssh = (node.status.firewall?.ports?.ssh ?? ['22']).map(Number).filter((p) => Number.isInteger(p) && p > 0 && p < 65536).slice(0, 5);
+  const allowed = await allowedPorts(ctx, node);
+  const extra = UNEXPECTED_PORTS.filter((port) => !ssh.includes(port) && !old.includes(port) && !inRanges(port, allowed.tcp) && !ports.some((p) => port >= p.port && port <= (p.to ?? p.port)));
+  const wanted = [...new Set([...ports.map((p) => p.port), ...old, ...ssh, ...extra])];
 
   let from: FirewallCheck['from'] = { kind: 'server' };
   let dns: FirewallCheck['dns'];
+  let checkedOn: string = host;
   let results = new Map<number, Omit<PortCheck, 'at'>>();
   const monitor = await portMonitor(ctx, hub, node.id);
   const remote = monitor ? await hub!.portCheck(monitor.id, host, wanted) : null;
   if (monitor && remote) {
     from = { kind: 'monitor', nodeId: monitor.id, name: monitor.name };
     dns = net.isIP(host) ? null : { host, state: remote.address ? 'ok' : 'missing', checkedOn: remote.address ?? host };
+    checkedOn = remote.address ?? host;
+    // A monitoring node behind the same public address sits in the node's own network, not outside it.
+    const mip = hub!.liveStatus(monitor.id)?.ip;
+    if (mip && mip === node.status.ip) from = { ...from, sameNetwork: true };
     results = new Map(remote.results.map((r) => [r.port, r]));
   } else if (opts.monitorOnly) {
     return null;
   } else {
     const target = await checkTarget(host, nodeAddresses({ publicAddress: nodeSettings(node).publicAddress, ip: node.status.ip ?? null, addresses: node.status.addresses ?? [] }));
     dns = target.dns ? { host, state: target.dns, checkedOn: target.address } : null;
+    checkedOn = target.address;
     results = new Map(await Promise.all(wanted.map(async (port) => [port, await probePort(target.address, port)] as const)));
   }
   const checks: Record<string, PortCheck> = {};
@@ -93,7 +116,17 @@ export async function checkFirewall(ctx: AppContext, hub: NodeHub | null, node: 
       return !c.ok && c.message !== 'idle' && (p.service !== 'ftpPassive' || ftpReachable);
     })
     .map(portKey);
-  const check: FirewallCheck = { at, from, dns, checks, oldOpen: old.filter((port) => results.get(port)?.ok), closed };
+  const sshChecks: Record<string, PortCheck> = {};
+  for (const port of ssh) {
+    const r = results.get(port) ?? { ok: false, message: 'timeout', ms: null };
+    sshChecks[String(port)] = { ok: r.ok, message: r.message, ms: r.ms, at };
+  }
+  const unexpected = extra.filter((port) => results.get(port)?.ok);
+  // The address checked is not on the node itself (a router in between, NAT): what answers there may be the router or
+  // another machine behind it, not this node.
+  const own = node.status.addresses ?? [];
+  const behindNat = net.isIP(checkedOn) !== 0 && own.length > 0 && !own.includes(checkedOn);
+  const check: FirewallCheck = { at, from, dns, checks, oldOpen: old.filter((port) => results.get(port)?.ok), closed, ssh: sshChecks, unexpected, behindNat };
   last.set(node.id, check);
   return check;
 }

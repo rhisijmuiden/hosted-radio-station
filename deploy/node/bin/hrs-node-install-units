@@ -11,5 +11,5 @@ ln -sf "$INSTALL_DIR/deploy/node/bin/hrs-node" /usr/local/bin/hrs-node
 ln -sf /usr/local/bin/hrs-node /usr/bin/hrs-node
 systemctl daemon-reload
 # Icecast is enabled by the root helper once a role needs it (phase 16).
-systemctl enable --quiet hrs-node-apply.path hrs-node-update.path hrs-node-apply.timer
-systemctl start hrs-node-apply.path hrs-node-update.path hrs-node-apply.timer
+systemctl enable --quiet hrs-node-apply.path hrs-node-update.path hrs-node-apply.timer hrs-node-firewall.path hrs-node-firewall-boot.service
+systemctl start hrs-node-apply.path hrs-node-update.path hrs-node-apply.timer hrs-node-firewall.path

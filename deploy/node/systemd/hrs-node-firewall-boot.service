@@ -1,0 +1,14 @@
+[Unit]
+Description=Hosted Radio Station node: load the confirmed firewall rules at boot
+# After Debian's own nftables.service, which flushes the ruleset when it loads /etc/nftables.conf.
+After=nftables.service
+Before=network-online.target hrs-node.service
+ConditionPathExists=/etc/hrs-node/firewall.nft
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/hrs-node/deploy/node/bin/hrs-node-firewall boot
+
+[Install]
+WantedBy=multi-user.target

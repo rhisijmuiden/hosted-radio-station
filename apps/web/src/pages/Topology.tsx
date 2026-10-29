@@ -579,6 +579,11 @@ export function TopologyPage() {
                     </Badge>
                     <span className="text-muted">{t('topology.listenersCount', { count: focus.listeners })}</span>
                     <span className="text-muted">· {t('topology.station.relays', { count: focus.relays.length })}</span>
+                    {focus.direct && (
+                      <Badge tone="warning" dot>
+                        <span title={t(`routing.delivery.now.${focus.direct}`)}>{t('topology.direct.badge')}</span>
+                      </Badge>
+                    )}
                     <Link to={`/stations/${focus.id}?tab=routing`} className="font-semibold text-accent-text hover:underline">
                       {t('topology.station.routing')}
                     </Link>
@@ -606,6 +611,23 @@ export function TopologyPage() {
                   <Kpi label={t('topology.throughput')} value={formatBps(k!.txBps)} note={t('topology.fromNodes')} />
                 )}
               </div>
+            )}
+            {view !== 'station' && data.stations.some((s) => s.direct) && (
+              <Card className="border-warning/50 px-4 py-3 text-[13px]">
+                <div className="font-semibold text-warning">{t('topology.direct.title')}</div>
+                <ul className="mt-1 flex flex-col gap-0.5">
+                  {data.stations
+                    .filter((s) => s.direct)
+                    .map((s) => (
+                      <li key={s.id}>
+                        <Link to={`/stations/${s.id}?tab=routing`} className="font-semibold hover:underline">
+                          {s.name}
+                        </Link>{' '}
+                        <span className="text-muted">{t(`routing.delivery.now.${s.direct}`)}</span>
+                      </li>
+                    ))}
+                </ul>
+              </Card>
             )}
             <div className={clsx('relative h-[min(70vh,640px)] min-h-[420px] overflow-hidden rounded-lg border border-line', view === 'matrix' ? 'bg-raised' : 'topo-stage')}>
               {view === '3d' ? (

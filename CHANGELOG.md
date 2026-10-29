@@ -3,6 +3,54 @@
 All notable changes to Hosted Radio Station. Versions follow [semantic versioning](https://semver.org). The
 [roadmap](ROADMAP.md) has the full description of each phase, with screenshots.
 
+## 1.5.0 (29 October 2026)
+
+Security hardening for external nodes (a node firewall with nftables, on by default for nodes with a public address,
+SSH limits and a wider outside check) and the small fixes: the orchestrator card on Nodes, the direct fallback on the
+map, named failing checks, quiet port alerts during updates, bulk and large uploads in the library, the ingest as its
+own step in the delivery path, and the fix for a silent station node with a chosen main ingest.
+
+- Delivery path of a station on a station node: the ingest is its own step to the right of the studio node (source →
+  studio node → ingest → relays → listeners) instead of stacked under it, on the Delivery page and in the summary.
+- Media library uploads: many files, whole folders (picked or dropped, subfolders kept) and big files (a full DJ set)
+  in one go. Every file goes up in parts of 16 MB, one after the other, with its own progress bar, so the 100 MB body
+  limit of Cloudflare in front of the panel no longer stops big files; a broken upload resumes where it stopped (API:
+  POST /stations/:id/library/uploads and PUT …/uploads/:upload). Up to 8 GB per file.
+- The "old ports still open" and "ports cannot be reached" alerts no longer flap around a node update: the port check
+  from outside skips a node while it is being updated, and its alert holds as it was instead of being solved and
+  opened again after the update.
+- The check badge of the monitoring node on the 2D map now names the checks that fail in its tooltip (station,
+  mount, and silence or the error), and the tooltip shows at all (the badge ignored the mouse before).
+- A station node that bypasses its ingest and feeds the relays itself (fallback: ingest offline, unreachable, no
+  certificate, or node software too old) is now visible: the network map shows a warning with the reason per
+  station (and a badge in the per-station view), and Monitoring opens a warning alert "sends straight to the relays".
+- Nodes opens with a pinned card for the server that hosts the orchestrator: its name, host name, internal and
+  public address, version, uptime, CPU, memory and disk, and its own roles (own ingest and relay, or "Orchestrator
+  only"). It is also the first row of the node list, with an "Orchestrator" badge.
+- Security hardening for external nodes (step 4): the node firewall is on by default for nodes with a public
+  address on their own interface, decided at their next connection; this includes existing nodes, unless their
+  firewall was already switched on by hand. Nodes behind a router keep it off, and existing firewall rules on the
+  server still hold it back until the administrator takes over. The node's events say what was decided.
+- Security hardening for external nodes (step 3): SSH through the node firewall only from admin addresses or networks
+  (IPv4 and IPv6), with a button to add your own address and a warning when the list leaves it out, and a limit on new
+  SSH connections per address against password guessing (on by default). The panel says when the node's SSH server
+  still takes passwords.
+- Security hardening for external nodes (step 2): extra ports for the node firewall (TCP or UDP, single or a range)
+  in the panel. The outside check also tries SSH and well-known ports a node does not need (databases, mail, admin
+  pages, 8080 and so on) and warns when one of them answers. The firewall log on the node keeps earlier runs.
+- The outside check says when a node sits behind a router (NAT): open ports found on the shared public address may
+  belong to the router or another machine, not to the node. A monitoring node in the same network is named as such
+  instead of "outside your network".
+- Security hardening for external nodes (step 1): a node can close itself off with its own firewall (nftables). It
+  lets in only SSH, the ports of its roles from the port plan, ping, DHCP and replies to its own connections. Before
+  it sets anything it looks for firewall rules of something else (iptables, ufw, firewalld, other nftables tables);
+  when it finds them it changes nothing and shows them in the panel until you choose to take over. New rules are on
+  trial for a minute and roll back by themselves when the node loses the orchestrator with them. Off by default; the
+  switch is on the node's Firewall tab and needs an updated node.
+- Fix: a station on a station node with a chosen main ingest (not Automatic) went silent: the node got the route along
+  with the station, read it as "this server is not the ingest" and sent nothing. The route now stays on the
+  orchestrator; the node only follows the pushes it is handed.
+
 ## 1.4.0 (29 October 2026)
 
 Phase 20 (monitoring and alerts with a monitoring node), customer blocks on the network map, the OmniPlayer layout in
