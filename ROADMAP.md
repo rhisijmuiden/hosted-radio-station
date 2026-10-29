@@ -633,6 +633,12 @@ A WordPress plugin for customer websites, built on the station node API above.
 - **Stream Deck support**: hot keys on an Elgato Stream Deck (or similar button panel) for jingles, players, Next and Go Live, with the button labels and colours taken from the jingle grid.
 - **Viewer screen for sidekicks**: a stripped-down read-only screen (a second monitor in the studio, or a browser on a tablet) showing what is on air, the next tracks, time to the next ad block or news, and who is live. No controls; locked blocks such as ads are clearly marked.
 
+### Reporter mode (remote contributions)
+
+- A reporter on location joins the broadcast from a phone: a simple web page on the station node (later a small Android app; iOS is harder) that uses the phone's microphone, like a phone call but in better quality (WebRTC/Opus), with a talk-back channel from the studio.
+- The DJ invites the reporter with a one-time link or code. In RHIS Studio a small reporter panel (that can be minimised or hidden) shows who is waiting, lets the DJ talk to them off air first, and puts them on air, like the SIP caller flow.
+- Later: a whole outside-broadcast set signs in the same way and can take over the broadcast (see "Several RHIS Studio clients at once").
+
 ### Several RHIS Studio clients at once (remote broadcasts)
 
 For broadcasts from remote locations: RHIS Studio may be open on several PCs for the same station at the same time.
