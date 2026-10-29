@@ -5,6 +5,12 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 
 ## Unreleased
 
+- Security hardening for external nodes (step 1): a node can close itself off with its own firewall (nftables). It
+  lets in only SSH, the ports of its roles from the port plan, ping, DHCP and replies to its own connections. Before
+  it sets anything it looks for firewall rules of something else (iptables, ufw, firewalld, other nftables tables);
+  when it finds them it changes nothing and shows them in the panel until you choose to take over. New rules are on
+  trial for a minute and roll back by themselves when the node loses the orchestrator with them. Off by default; the
+  switch is on the node's Firewall tab and needs an updated node.
 - Fix: a station on a station node with a chosen main ingest (not Automatic) went silent: the node got the route along
   with the station, read it as "this server is not the ingest" and sent nothing. The route now stays on the
   orchestrator; the node only follows the pushes it is handed.

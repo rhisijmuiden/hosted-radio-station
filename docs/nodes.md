@@ -138,6 +138,26 @@ Every station has a **Connection** tab with the addresses the orchestrator hands
 
 Every node has a **Firewall** tab listing exactly which ports to open or forward to it: RHIS Studio, encoders, SFTP/SCP/FTP with the passive range, listeners for a relay. Nothing is needed for the orchestrator or the relays, because those connections go outwards. **Check from outside** connects from the orchestrator to each port and shows a green or red tick; the list can also be e-mailed (`GET /api/nodes/:id/firewall`, `POST /api/nodes/:id/firewall/check`).
 
+## Node firewall
+
+A node can close itself off with its own firewall (Firewall tab → **Firewall on this node**, off by default). The
+agent hands the ports of the node's roles (the same list as the checklist above, plus port 80 for certificates behind
+its own web server and any extra ports in its settings) to the root helper `hrs-node-firewall`, which sets one
+nftables table `inet hrs_node`: incoming traffic is dropped except loopback, replies to connections the node opened
+itself, ICMP, DHCP replies, SSH (the port sshd listens on) and those ports. Outgoing traffic is not filtered.
+
+- **Existing rules first.** Before it sets anything, the helper looks for firewall rules of something else: iptables
+  (legacy or nft), ufw, firewalld or other nftables tables. When it finds any it changes nothing and the panel lists
+  them. **Take over the existing firewall** then switches the other firewall off, clears its rules and moves a
+  non-empty `/etc/nftables.conf` aside (`/etc/nftables.conf.hrs-node-backup`).
+- **Safe apply.** New rules are on trial for a minute: the agent confirms them once it still reaches the orchestrator
+  over the control channel and with a new connection. Without that confirmation a timer puts the previous rules
+  (including the other firewall's) back, and the same rules are not tried again until the settings change.
+- Confirmed rules are saved in `/etc/hrs-node/firewall.nft` and loaded at boot by `hrs-node-firewall-boot.service`.
+  The log of the last run is in `/var/lib/hrs-node/run/firewall.log`.
+- An unprivileged container whose kernel does not let it filter its own traffic reports "Not supported"; use the
+  firewall of the host or the data centre then.
+
 ## Updates
 
 Nodes get the version of the main server, but never all at once. After the main server is updated, the nodes follow **one at a time**, each according to its update policy (Nodes → **Update policy**):

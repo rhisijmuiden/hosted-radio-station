@@ -60,6 +60,44 @@ export async function applyWeb(state: WebState) {
   return true;
 }
 
+/** The node's firewall as the main server wants it (security hardening for external nodes). */
+export interface FirewallState {
+  enabled: boolean;
+  /** Replace firewall rules of something else (iptables, ufw, ...) on the server; without it the helper leaves them. */
+  takeOver: boolean;
+  /** Incoming ports of the node's roles, "8200" or "8210-8299" (SSH is added by the helper). */
+  tcp: string[];
+  udp: string[];
+}
+
+export interface FirewallStatus {
+  id?: string;
+  state: 'off' | 'running' | 'pending' | 'active' | 'foreign' | 'rolledBack' | 'failed' | 'unsupported';
+  message?: string;
+  /** Firewall rules of something else found on the server. */
+  foreign?: string[];
+  ports?: { ssh: string[]; tcp: string[]; udp: string[] };
+  at?: string;
+}
+
+let lastFirewall = '';
+
+/** Hands the firewall settings to its root helper when they changed; returns the request id, or null. */
+export async function applyFirewall(state: FirewallState) {
+  const body = JSON.stringify(state);
+  if (body === lastFirewall) return null;
+  lastFirewall = body;
+  const id = randomBytes(8).toString('hex');
+  await writeAtomic(run('firewall-state.json'), JSON.stringify(state, null, 2), 0o640);
+  await writeAtomic(run('firewall-request.json'), JSON.stringify({ id, at: new Date().toISOString() }), 0o640);
+  return id;
+}
+
+/** Tells the root helper that the node still reaches the main server with the rules on trial, so they stay. */
+export const confirmFirewall = (id: string) => writeAtomic(run('firewall-confirm.json'), JSON.stringify({ id, at: new Date().toISOString() }), 0o640);
+
+export const firewallStatus = () => readJson<FirewallStatus>(run('firewall-status.json'));
+
 export const applyStatus = () => readJson<JobStatus>(run('apply-status.json'));
 
 /** Asks the root helper to update the node to a version of the main server. */

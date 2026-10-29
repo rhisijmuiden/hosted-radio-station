@@ -9,6 +9,7 @@ import { formatBps, formatMs, formatPct, formatUptime, HealthBadge, nodeHealth, 
 import { FmOnAir, FmSettingsCards } from '../components/nodes/FmPanel';
 import { DedicationCard, scopeOf, serves } from '../components/nodes/Dedication';
 import { NodeDnsCard } from '../components/nodes/NodeDns';
+import { NodeFirewallCard } from '../components/nodes/NodeFirewall';
 import { NodeUpdateCard, NodeUpdateSettings } from '../components/nodes/updates';
 import { AreaChart, ChartLegend } from '../components/stats/charts';
 import { Badge, Button, Card, CardHeader, Dialog, EmptyState, Fact, Field, Input, PageHeader, Spinner, Switch, Table, Tabs } from '../components/ui';
@@ -658,7 +659,12 @@ export function NodeDetailPage() {
       {tab === 'overview' && <Overview node={n} warnMs={warnMs} canEdit={canEdit} />}
       {tab === 'probes' && <Probes node={n} />}
       {tab === 'events' && <Events node={n} />}
-      {tab === 'firewall' && <FirewallTab node={n} />}
+      {tab === 'firewall' && (
+        <div className="flex flex-col gap-4">
+          <NodeFirewallCard node={n} canEdit={canEdit} />
+          <FirewallTab node={n} />
+        </div>
+      )}
       {tab === 'settings' && canEdit && <SettingsForm node={n} admin={admin} />}
 
       <Dialog open={!!pairing && n.paired} onClose={() => setPairing(null)} wide title={t('nodes.detail.repairTitle')} description={t('nodes.detail.repairHint')}>

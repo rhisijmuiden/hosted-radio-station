@@ -1,0 +1,272 @@
+#!/usr/bin/env bash
+# Root helper for the node's firewall (security hardening for external nodes). Started by hrs-node-firewall.path when
+# the agent drops run/firewall-request.json (new rules) or run/firewall-confirm.json (the node still reaches the main
+# server with the new rules).
+#
+# The agent writes run/firewall-state.json: {enabled, takeOver, tcp: ["8200", "8210-8299"], udp: [...]}. The rules are
+# built here from those validated port numbers, never taken as text from the agent:
+#   - one nftables table "inet hrs_node" that drops all incoming traffic except loopback, replies to connections the
+#     node opened itself, ICMP, DHCP replies, SSH and the ports of the node's roles
+#   - before the first apply it looks for firewall rules of something else (iptables, ufw, firewalld, other nftables
+#     tables). When there are any it applies nothing and reports them, until the administrator chooses to take over.
+#   - safe apply: the previous rules are kept, and a timer puts them back after a minute unless the agent confirms that
+#     it still reaches the main server. Rules that were rolled back are not tried again until they change.
+#   - confirmed rules are saved and loaded again at boot (hrs-node-firewall-boot.service, "boot").
+# Status for the agent and the panel: run/firewall-status.json.
+set -Eeuo pipefail
+
+RUN=/var/lib/hrs-node/run
+STATE="$RUN/firewall-state.json" STATUS="$RUN/firewall-status.json" LOG="$RUN/firewall.log"
+SAVED=/etc/hrs-node/firewall.nft PREV="$RUN/firewall-prev" ROLLED="$RUN/firewall-rolledback" ACTIVE="$RUN/firewall-active"
+GUARD=hrs-node-firewall-guard GRACE=60
+TABLE="inet hrs_node"
+
+log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*" >> "$LOG"; }
+
+# status <state> <message> [foreign-json] [extra-json]
+status() {
+  local foreign=${3:-'[]'} extra=${4:-'{}'}
+  jq -n --arg id "${ID:-}" --arg state "$1" --arg message "$2" --arg t "$(date -Is)" --argjson foreign "$foreign" --argjson extra "$extra" \
+    '{id:$id, state:$state, message:$message, foreign:$foreign, at:$t} + $extra' > "$STATUS.tmp"
+  chown hrs-node: "$STATUS.tmp" 2>/dev/null || true
+  mv "$STATUS.tmp" "$STATUS"
+}
+
+have_ours() { command -v nft >/dev/null && nft list table $TABLE >/dev/null 2>&1; }
+
+# The SSH ports sshd listens on (22 when that cannot be read).
+ssh_ports() {
+  local p
+  p=$(sshd -T 2>/dev/null | awk '$1 == "port" { print $2 }' | grep -E '^[0-9]{1,5}$' | sort -un | paste -sd, - || true)
+  echo "${p:-22}"
+}
+
+# Firewall rules of something else, as a JSON list of short descriptions.
+foreign_rules() {
+  local found=() n
+  if command -v nft >/dev/null; then
+    # Tables other than ours with rules, or with a base chain that drops by default (iptables-nft shows up here too).
+    while IFS=$'\t' read -r fam name rules drops; do
+      [[ -z "$fam" || "$fam $name" == "$TABLE" ]] && continue
+      [[ "$rules" -gt 0 || "$drops" -gt 0 ]] && found+=("nftables table $fam $name: $rules rules")
+    done < <(nft -j list ruleset 2>/dev/null | jq -r '
+      .nftables as $all
+      | [$all[] | select(.table) | .table] | .[]
+      | . as $t
+      | [$all[] | select(.rule and .rule.family == $t.family and .rule.table == $t.name)] as $r
+      | [$all[] | select(.chain and .chain.family == $t.family and .chain.table == $t.name and .chain.hook and .chain.policy == "drop")] as $d
+      | [$t.family, $t.name, ($r | length), ($d | length)] | @tsv' 2>/dev/null || true)
+  fi
+  local save
+  for save in iptables-legacy-save ip6tables-legacy-save; do
+    command -v "$save" >/dev/null || continue
+    n=$("$save" 2>/dev/null | grep -c '^-A' || true)
+    [[ "$n" -gt 0 ]] && found+=("${save%-save}: $n rules")
+  done
+  if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q '^Status: active'; then found+=("ufw is active"); fi
+  if systemctl is-active --quiet firewalld 2>/dev/null; then found+=("firewalld is active"); fi
+  if [[ ${#found[@]} -eq 0 ]]; then echo '[]'; else printf '%s\n' "${found[@]}" | jq -R . | jq -sc .; fi
+}
+
+# Turns ["8200", "8210-8299"] into "8200, 8210-8299" after checking every entry.
+port_set() {
+  local out=() p a b
+  while read -r p; do
+    [[ -z "$p" ]] && continue
+    if [[ "$p" =~ ^([0-9]{1,5})(-([0-9]{1,5}))?$ ]]; then
+      a=${BASH_REMATCH[1]}; b=${BASH_REMATCH[3]:-$a}
+      if (( a >= 1 && a <= 65535 && b >= a && b <= 65535 )); then
+        [[ $a -eq $b ]] && out+=("$a") || out+=("$a-$b")
+        continue
+      fi
+    fi
+    log "Skipping invalid port '$p'"
+  done < <(jq -r --arg k "$1" '.[$k][]? | tostring' "$STATE" | head -n 500)
+  local IFS=,
+  echo "${out[*]}"
+}
+
+ruleset() { # ruleset <ssh> <tcp> <udp>
+  local tcp="$1${2:+,$2}"
+  cat <<EOF
+table $TABLE
+delete table $TABLE
+table $TABLE {
+  chain input {
+    type filter hook input priority filter; policy drop;
+    iif "lo" accept
+    ct state established,related accept
+    ct state invalid drop
+    meta l4proto { icmp, ipv6-icmp } accept
+    udp dport { 68, 546 } accept comment "DHCP replies"
+    tcp dport { ${tcp//,/, } } accept comment "SSH and the ports of the node's roles"
+EOF
+  [[ -n "$3" ]] && echo "    udp dport { ${3//,/, } } accept comment \"the node's roles\""
+  cat <<EOF
+    counter comment "dropped"
+  }
+}
+EOF
+}
+
+# Keeps everything needed to put the rules back as they were before this apply.
+save_previous() {
+  rm -rf "$PREV"; install -d -m 0700 "$PREV"
+  command -v nft >/dev/null && nft list ruleset > "$PREV/ruleset.nft" 2>/dev/null || true
+  command -v iptables-legacy-save >/dev/null && iptables-legacy-save > "$PREV/iptables" 2>/dev/null || true
+  command -v ip6tables-legacy-save >/dev/null && ip6tables-legacy-save > "$PREV/ip6tables" 2>/dev/null || true
+  local s
+  for s in ufw firewalld; do systemctl is-active --quiet "$s" 2>/dev/null && echo "$s" >> "$PREV/services"; done
+  return 0
+}
+
+restore_previous() {
+  [[ -d "$PREV" ]] || { have_ours && nft delete table $TABLE; return 0; }
+  if [[ -f "$PREV/ruleset.nft" ]]; then
+    { echo 'flush ruleset'; cat "$PREV/ruleset.nft"; } | nft -f - >> "$LOG" 2>&1 || { log "Restoring the previous nftables rules failed; removing ours"; have_ours && nft delete table $TABLE || true; }
+  elif have_ours; then nft delete table $TABLE
+  fi
+  [[ -s "$PREV/iptables" ]] && iptables-legacy-restore < "$PREV/iptables" >> "$LOG" 2>&1 || true
+  [[ -s "$PREV/ip6tables" ]] && ip6tables-legacy-restore < "$PREV/ip6tables" >> "$LOG" 2>&1 || true
+  local s
+  [[ -f "$PREV/services" ]] && while read -r s; do systemctl enable --now "$s" >> "$LOG" 2>&1 || true; done < "$PREV/services"
+  return 0
+}
+
+# Takes over from another firewall: stops it and clears its rules, so it does not come back at boot either.
+take_over() {
+  local s
+  for s in ufw firewalld netfilter-persistent; do
+    systemctl is-enabled --quiet "$s" 2>/dev/null || systemctl is-active --quiet "$s" 2>/dev/null || continue
+    log "Taking over: disabling $s"; systemctl disable --now "$s" >> "$LOG" 2>&1 || true
+  done
+  command -v ufw >/dev/null && ufw --force disable >> "$LOG" 2>&1 || true
+  if command -v nft >/dev/null; then
+    log "Taking over: removing the other nftables tables"
+    nft flush ruleset >> "$LOG" 2>&1 || true
+  fi
+  local t
+  for t in iptables-legacy ip6tables-legacy; do
+    command -v "$t" >/dev/null || continue
+    "$t" -P INPUT ACCEPT 2>/dev/null || true; "$t" -P FORWARD ACCEPT 2>/dev/null || true; "$t" -F 2>/dev/null || true; "$t" -X 2>/dev/null || true
+  done
+  # Debian's nftables.service loads /etc/nftables.conf at boot; keep ours only.
+  if [[ -f /etc/nftables.conf ]] && grep -qE '^\s*(chain|table)' /etc/nftables.conf && ! grep -q 'hrs_node' /etc/nftables.conf; then
+    log "Taking over: /etc/nftables.conf moved to /etc/nftables.conf.hrs-node-backup"
+    mv /etc/nftables.conf /etc/nftables.conf.hrs-node-backup
+    printf '#!/usr/sbin/nft -f\n# The node keeps its own rules in %s (hrs-node-firewall).\n' "$SAVED" > /etc/nftables.conf
+  fi
+}
+
+ensure_nft() {
+  command -v nft >/dev/null && return 0
+  log "Installing nftables"
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nftables >> "$LOG" 2>&1 \
+    || { apt-get update -qq >> "$LOG" 2>&1 && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nftables >> "$LOG" 2>&1; }
+}
+
+apply() {
+  ID=$(jq -r '.id // empty' "$RUN/firewall-request.json" 2>/dev/null | tr -cd 'A-Za-z0-9-' | cut -c1-64 || true)
+  rm -f "$RUN/firewall-request.json"
+  [[ -f "$STATE" ]] || exit 0
+  : > "$LOG"; chown hrs-node: "$LOG"
+  local enabled take hash
+  enabled=$(jq -r '.enabled == true' "$STATE"); take=$(jq -r '.takeOver == true' "$STATE")
+  hash=$(sha256sum < "$STATE" | cut -c1-16)
+
+  if [[ "$enabled" != true ]]; then
+    systemctl stop "$GUARD.timer" 2>/dev/null || true
+    if have_ours; then log "Firewall switched off: removing the node's rules"; nft delete table $TABLE >> "$LOG" 2>&1 || true; fi
+    rm -f "$SAVED" "$ROLLED" "$ACTIVE"
+    status off "The node's firewall is off." "$(foreign_rules)"
+    exit 0
+  fi
+  # The same rules as the confirmed ones (after a restart of the agent, or loaded at boot): nothing to try again.
+  if [[ "$(cat "$ACTIVE" 2>/dev/null)" == "$hash" ]] && have_ours && [[ "$(jq -r '.state' "$STATUS" 2>/dev/null)" == active ]]; then
+    exit 0
+  fi
+  if [[ "$(cat "$ROLLED" 2>/dev/null)" == "$hash" ]]; then
+    status rolledBack "These rules were rolled back because the node lost the main server; change the settings to try again." "$(foreign_rules)"
+    exit 0
+  fi
+
+  local ssh tcp udp foreign
+  ssh=$(ssh_ports); tcp=$(port_set tcp); udp=$(port_set udp)
+  local extra
+  extra=$(jq -nc --arg ssh "$ssh" --arg tcp "$tcp" --arg udp "$udp" 'def list: split(",") | map(select(. != "")); {ports: {ssh: ($ssh | list), tcp: ($tcp | list), udp: ($udp | list)}}')
+  # Our own table from an earlier apply is no other firewall.
+  foreign=$(foreign_rules)
+  if [[ "$foreign" != '[]' && "$take" != true ]]; then
+    log "Other firewall rules found; nothing applied: $foreign"
+    status foreign "This server already has firewall rules of its own. Nothing was changed; choose to take over to replace them." "$foreign" "$extra"
+    exit 0
+  fi
+
+  status running "Applying" "$foreign" "$extra"
+  ensure_nft || { status failed "Installing nftables failed (see the log)." "$foreign" "$extra"; exit 1; }
+  local file="$RUN/firewall-new.nft"
+  ruleset "$ssh" "$tcp" "$udp" > "$file"
+  if ! nft -c -f "$file" >> "$LOG" 2>&1; then
+    # Most often an unprivileged container whose kernel does not let it filter its own traffic.
+    status unsupported "This server does not accept firewall rules (nftables check failed, see the log)." "$foreign" "$extra"
+    exit 1
+  fi
+  save_previous
+  [[ "$foreign" != '[]' ]] && take_over
+  if ! nft -f "$file" >> "$LOG" 2>&1; then
+    restore_previous
+    status failed "Applying the rules failed; the previous rules are back." "$foreign" "$extra"
+    exit 1
+  fi
+  log "Rules applied (SSH $ssh, TCP ${tcp:-none}, UDP ${udp:-none}); waiting ${GRACE}s for the agent to confirm"
+  echo "$hash" > "$RUN/firewall-pending"
+  systemctl stop "$GUARD.timer" "$GUARD.service" 2>/dev/null || true
+  systemctl reset-failed "$GUARD.timer" "$GUARD.service" 2>/dev/null || true
+  systemd-run --quiet --unit="$GUARD" --on-active="${GRACE}s" --timer-property=AccuracySec=1s "$0" guard "$ID" >> "$LOG" 2>&1 \
+    || { restore_previous; status failed "Could not start the safety timer; the previous rules are back." "$foreign" "$extra"; exit 1; }
+  status pending "New rules are on trial for a minute; they roll back by themselves if the node loses the main server." "$foreign" "$extra"
+}
+
+confirm() {
+  local want
+  want=$(jq -r '.id // empty' "$RUN/firewall-confirm.json" 2>/dev/null | tr -cd 'A-Za-z0-9-' | cut -c1-64 || true)
+  rm -f "$RUN/firewall-confirm.json"
+  [[ -n "$want" && "$(jq -r '.state' "$STATUS" 2>/dev/null)" == pending && "$(jq -r '.id' "$STATUS")" == "$want" ]] || return 0
+  ID=$want
+  systemctl stop "$GUARD.timer" 2>/dev/null || true
+  install -d -m 0755 "$(dirname "$SAVED")"
+  nft list table $TABLE > "$SAVED.tmp" && mv "$SAVED.tmp" "$SAVED"
+  mv "$RUN/firewall-pending" "$ACTIVE" 2>/dev/null || true
+  rm -rf "$PREV" "$ROLLED"
+  log "Confirmed by the agent; rules saved for boot"
+  local s
+  s=$(jq -c '{ports}' "$STATUS")
+  status active "The node's firewall is on." '[]' "$s"
+}
+
+guard() {
+  ID=$1
+  [[ "$(jq -r '.state' "$STATUS" 2>/dev/null)" == pending && "$(jq -r '.id' "$STATUS")" == "$ID" ]] || exit 0
+  log "No confirmation within ${GRACE}s: rolling back"
+  restore_previous
+  cat "$RUN/firewall-pending" > "$ROLLED" 2>/dev/null || true
+  rm -rf "$PREV" "$RUN/firewall-pending"
+  local s
+  s=$(jq -c '{ports}' "$STATUS")
+  status rolledBack "The node lost the main server with the new rules, so they were rolled back." "$(foreign_rules)" "$s"
+}
+
+boot() {
+  [[ -f "$SAVED" ]] && command -v nft >/dev/null || exit 0
+  { echo "table $TABLE"; echo "delete table $TABLE"; cat "$SAVED"; } | nft -f - || { echo "Loading $SAVED failed" >&2; exit 1; }
+}
+
+case "${1:-}" in
+  guard) guard "${2:-}" ;;
+  boot) boot ;;
+  *)
+    [[ -f "$RUN/firewall-confirm.json" ]] && confirm
+    [[ -f "$RUN/firewall-request.json" ]] && apply
+    exit 0
+    ;;
+esac

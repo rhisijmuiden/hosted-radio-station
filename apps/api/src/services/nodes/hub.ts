@@ -348,6 +348,17 @@ export class NodeHub {
         pushing: Array.isArray(x.pushing) ? x.pushing.slice(0, 50).map((p) => String(p).slice(0, 36)) : [],
       }));
     } else delete s.ingest;
+    if (m.firewall && typeof m.firewall === 'object' && typeof m.firewall.state === 'string') {
+      const f = m.firewall;
+      const list = (v: unknown, max: number) => (Array.isArray(v) ? v.slice(0, max).map((x) => String(x).slice(0, 200)) : []);
+      s.firewall = {
+        state: f.state.slice(0, 20),
+        message: typeof f.message === 'string' ? f.message.slice(0, 300) : undefined,
+        foreign: list(f.foreign, 20),
+        ports: f.ports && typeof f.ports === 'object' ? { ssh: list(f.ports.ssh, 10), tcp: list(f.ports.tcp, 500), udp: list(f.ports.udp, 500) } : undefined,
+        at: typeof f.at === 'string' ? f.at.slice(0, 40) : undefined,
+      };
+    } else if (m.firewall === null) s.firewall = null;
     s.problems = Array.isArray(m.problems) ? m.problems.slice(0, 10).map((p) => String(p).slice(0, 300)) : [];
     if (Array.isArray(m.applyLog) && m.applyLog.length) s.applyLog = m.applyLog.slice(-20).map((l) => String(l).slice(0, 200));
     else delete s.applyLog;

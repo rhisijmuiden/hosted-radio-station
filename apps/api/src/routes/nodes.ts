@@ -65,6 +65,16 @@ const statusOut = z
     /** Names the node holds a valid certificate for, and what its software can do (1.3). */
     certs: z.array(z.string()).optional(),
     features: z.array(z.string()).optional(),
+    /** The node's firewall as the node reports it (security hardening for external nodes). */
+    firewall: z
+      .object({
+        state: z.string(),
+        message: z.string().optional(),
+        foreign: z.array(z.string()).optional(),
+        ports: z.object({ ssh: z.array(z.string()), tcp: z.array(z.string()), udp: z.array(z.string()) }).optional(),
+        at: z.string().optional(),
+      })
+      .nullish(),
     fm: z
       .object({
         input: z.enum(['idle', 'connecting', 'connected', 'error']),
