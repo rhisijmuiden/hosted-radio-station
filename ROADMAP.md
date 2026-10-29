@@ -580,6 +580,7 @@ Nodes with a direct public IP address get a firewall that is closed by default.
 
 - **Direct fallback visible**: when a station node bypasses the ingest and pushes directly to the relays (fallback), the network map and the Monitoring page say so.
 - **Failing check by name**: the check badge on a relay names the check that failed in its tooltip.
+- **Orchestrator in the node overview**: the Nodes page opens with a pinned card for the server that hosts the orchestrator: its server name, hostname, internal and public address, version, uptime, CPU/RAM/disk, and which roles it still runs itself (local ingest or relay, or "Orchestrator only"). In the node list it is the first row with an "Orchestrator" badge, so it is never confused with a normal node. Later a standby orchestrator (phase 14) shows next to it.
 - **Quiet during updates**: the "old port open" check no longer flaps while a node is being updated.
 
 ## Future ideas
