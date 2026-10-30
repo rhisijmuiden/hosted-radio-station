@@ -216,6 +216,7 @@ One thing at a time; each item starts when the previous one is finished and test
    4. Playlists & categories, rotation rules, library folders (PR #191). *Tested.*
    5. Audio routing (PR #192). *Tested.*
    6. DJs & live access. *On test.*
+   7. New folders and music upload from Studio in Library folders (asked by Reinder 30 October 2026). *On test.*
 
 Later: phase 14 (orchestrator redundancy) just before sales start; phases 22 and 23 when the first customers come.
 
