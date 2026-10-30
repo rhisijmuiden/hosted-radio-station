@@ -1069,6 +1069,8 @@ export interface RecordingFile {
   available: boolean;
 }
 export interface RecordingSong {
+  /** song = a title in the stream; live = a DJ went live here. */
+  kind: 'song' | 'live';
   title: string;
   startedAt: string;
   endedAt: string | null;

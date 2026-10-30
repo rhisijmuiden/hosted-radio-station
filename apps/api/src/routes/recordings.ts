@@ -56,6 +56,8 @@ const fileOut = z.object({
   available: z.boolean(),
 });
 const songOut = z.object({
+  /** song = a title in the stream; live = a DJ went live here (also when the encoder sends no titles). */
+  kind: z.enum(['song', 'live']),
   title: z.string(),
   startedAt: z.date(),
   endedAt: z.date().nullable(),
@@ -202,17 +204,25 @@ export const stationRecordingRoutes: FastifyPluginAsyncZod = async (app) => {
         .where(and(eq(ls.stationId, station.id), lt(ls.startedAt, to), or(isNull(ls.endedAt), gte(ls.endedAt, from))));
       // One title can be logged on several mounts of the station: keep the first of each start.
       const seen = new Set<string>();
-      return plays
+      const offset = (d: Date) => Math.round((d.getTime() - from.getTime()) / 1000);
+      const songs = plays
         .filter((p) => {
           const key = `${Math.round(p.startedAt.getTime() / 5000)}|${p.title}`;
           if (seen.has(key)) return false;
           seen.add(key);
-          return true;
+          // A show starts when the DJ goes live: the AutoDJ title that was on before is not part of it.
+          return rec.kind !== 'show' || p.startedAt.getTime() >= from.getTime() - 2000;
         })
         .map((p) => {
           const live = lives.find((l) => l.startedAt <= p.startedAt && (!l.endedAt || l.endedAt > p.startedAt));
-          return { title: p.title, startedAt: p.startedAt, endedAt: p.endedAt, offsetSeconds: Math.round((p.startedAt.getTime() - from.getTime()) / 1000), live: !!live, dj: live?.accountName ?? null };
+          return { kind: 'song' as const, title: p.title, startedAt: p.startedAt, endedAt: p.endedAt, offsetSeconds: offset(p.startedAt), live: !!live, dj: live?.accountName ?? null };
         });
+      // Every live broadcast in the recording gets its own line, so the log shows who was live even when the encoder
+      // sends no titles (and the AutoDJ title of before would otherwise seem to play on).
+      const marks = lives
+        .filter((l) => l.startedAt.getTime() >= from.getTime() - 5000)
+        .map((l) => ({ kind: 'live' as const, title: l.accountName, startedAt: l.startedAt, endedAt: l.endedAt, offsetSeconds: Math.max(0, offset(l.startedAt)), live: true, dj: l.accountName }));
+      return [...songs, ...marks].sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime() || (a.kind === 'live' ? -1 : 1));
     },
   );
 

@@ -117,6 +117,7 @@ describe('recorder node (phase 21)', () => {
     const songs = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/recordings/${file22.id}/songs`, headers: admin })).json();
     expect(songs.map((s: { title: string; offsetSeconds: number; live: boolean; dj: string | null }) => [s.title, s.offsetSeconds, s.live, s.dj])).toEqual([
       ['Artist - First', -120, false, null],
+      ['DJ Reinder', 30, true, 'DJ Reinder'],
       ['Artist - Second', 60, true, 'DJ Reinder'],
     ]);
     expect((await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/recordings/${file22.id}/audio`, headers: admin })).statusCode).toBe(503);
@@ -196,6 +197,13 @@ describe('recorder node (phase 21)', () => {
     expect((await report([logFile(stationId, 21), show])).statusCode).toBe(200);
     const shows = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/recordings?kind=show&from=2026-10-29T00:00:00.000Z&to=2026-10-30T00:00:00.000Z`, headers: admin })).json();
     expect(shows).toEqual([expect.objectContaining({ kind: 'show', dj: 'DJ Show', durationSeconds: 1800 })]);
+    // The AutoDJ title that was on before the show is not in its play log.
+    await t.db.insert(schema.songPlays).values([
+      { stationId, mountPath: '/live', title: 'AutoDJ - Before', startedAt: new Date('2026-10-29T21:01:00Z'), endedAt: null },
+      { stationId, mountPath: '/live', title: 'DJ - During', startedAt: new Date('2026-10-29T21:10:00Z'), endedAt: null },
+    ]);
+    const showSongs = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/recordings/${shows[0].id}/songs`, headers: admin })).json();
+    expect(showSongs.map((x: { title: string; offsetSeconds: number }) => [x.title, x.offsetSeconds])).toEqual([['DJ - During', 347]]);
     // A show in another station's folder is refused.
     await report([{ ...show, file: `${otherStation}/show/2026-10-29_21-04-13Z_128k_${session!.id}.mp3` }]);
     expect(await t.db.select().from(schema.recordings).where(eq(schema.recordings.kind, 'show'))).toHaveLength(0);

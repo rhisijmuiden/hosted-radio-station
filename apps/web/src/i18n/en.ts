@@ -1593,6 +1593,7 @@ export const en = {
     dj: 'DJ',
     onAirNow: 'On air',
     listeningShow: '{{dj}} · {{date}}',
+    wentLive: '{{dj}} goes live',
   },
   onDemand: {
     title: 'On demand',

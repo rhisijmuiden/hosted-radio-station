@@ -59,7 +59,11 @@ export class Agent {
   constructor(private readonly file: NodeFile) {
     this.source = new SourceForwarder({ nodeId: file.nodeId, secret: file.secret });
     this.fm = new FmManager(file.nodeId);
-    this.recorder = new RecorderManager(file.nodeId, (kind, level, details) => this.event(kind, level, details));
+    this.recorder = new RecorderManager(
+      file.nodeId,
+      (kind, level, details) => this.event(kind, level, details),
+      () => this.reportSoon(),
+    );
   }
 
   async start() {
@@ -396,6 +400,17 @@ export class Agent {
     } finally {
       this.confirming = false;
     }
+  }
+
+  private reportTimer: NodeJS.Timeout | null = null;
+
+  /** A report in a moment (once for a burst of changes), instead of waiting for the next one. */
+  private reportSoon() {
+    if (this.reportTimer) return;
+    this.reportTimer = setTimeout(() => {
+      this.reportTimer = null;
+      void this.report();
+    }, 1500);
   }
 
   private get authHeader() {

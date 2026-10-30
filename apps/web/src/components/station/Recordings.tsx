@@ -146,7 +146,7 @@ function Player({ station, file }: { station: StationDetail; file: RecordingFile
         ) : (
           <ol className="flex max-h-80 flex-col divide-y divide-line overflow-y-auto rounded-md border border-line">
             {list.map((s) => (
-              <li key={`${s.startedAt}-${s.title}`}>
+              <li key={`${s.kind}-${s.startedAt}-${s.title}`}>
                 <button
                   type="button"
                   className={clsx('flex w-full items-center gap-3 px-3 py-2 text-left text-[13px] hover:bg-hover', playing === s && 'bg-koraal/8')}
@@ -157,7 +157,7 @@ function Player({ station, file }: { station: StationDetail; file: RecordingFile
                   }}
                 >
                   <span className="w-12 shrink-0 font-mono text-xs text-muted tabular-nums">{clock(s.startedAt)}</span>
-                  <span className="min-w-0 flex-1 truncate">{s.title}</span>
+                  <span className={clsx('min-w-0 flex-1 truncate', s.kind === 'live' && 'font-semibold')}>{s.kind === 'live' ? t('recordings.wentLive', { dj: s.title }) : s.title}</span>
                   {s.live ? (
                     <Badge tone="accent">
                       <Mic className="size-3" /> {s.dj ?? t('recordings.live')}

@@ -1595,6 +1595,7 @@ export const nl: Translation = {
     dj: 'DJ',
     onAirNow: 'In de lucht',
     listeningShow: '{{dj}} · {{date}}',
+    wentLive: '{{dj}} gaat live',
   },
   onDemand: {
     title: 'Terugluisteren',
