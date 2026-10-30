@@ -763,7 +763,7 @@ export const nl: Translation = {
     pathNow: 'Route nu',
     ingest: 'Ingest',
     studio: 'Studio',
-    stationNode: 'Station node · AutoDJ',
+    stationNode: 'Stationnode · AutoDJ',
     encoders: 'Encoders',
     encodersMeta: 'Studio, DJ, AutoDJ',
     listeners_one: '{{count}} luisteraar',
