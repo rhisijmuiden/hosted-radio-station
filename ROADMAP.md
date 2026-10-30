@@ -172,9 +172,10 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 18 | Server names and topology views | Done (1.1.0) |
 | 19 | Clearer control panels and node assignment | Done (1.2.0) |
 | 20 | Monitoring node | Done (1.4.0) |
-| 21 | Recorder node | Next (step 8 in the order of work) |
+| 21 | Recorder node | In progress (step 8 in the order of work) |
 | 22 | Packaged installers and moving the orchestrator | Future (when the first customers come) |
 | 23 | Deployment wizard | Future (when the first customers come) |
+| 24 | Management view in RHIS Studio | Next after phase 21 (step 9 in the order of work) |
 
 ## Order of work
 
@@ -202,7 +203,8 @@ One thing at a time; each item starts when the previous one is finished and test
    - **Downgrading safely**: going from Radio station back to Distribution only needs an explicit confirmation that explains what it means (from then on the station only receives a stream from the customer's own software; AutoDJ, clocks, library and DJ logins stop). The station's content is kept in the background for 24 hours, with a clear warning and countdown, so the customer can switch back without loss. After 24 hours the content is deleted.
 7. **Security hardening for external nodes** (done, 1.5.0, PRs #160–#165): see the item below. On by default for nodes with a public address; pub-relay-01 has it on since 29 October 2026.
    **Release 1.5.0** (29 October 2026): item 7 and the small fixes (PRs #159 and #166–#171) go to `main` as one release.
-8. **Phase 21: Recorder node**: recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download.
+8. **Phase 21: Recorder node** (in progress): recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download.
+9. **Phase 24: Management view in RHIS Studio**: AutoDJ settings, audio routing and node status from the studio PC (see phase 24).
 
 Later: phase 14 (orchestrator redundancy) just before sales start; phases 22 and 23 when the first customers come.
 
@@ -544,6 +546,10 @@ A step-by-step wizard for a new customer or a new station, so every station land
 - At the end the wizard creates the customer, the station, its routing and the dedicated nodes it needs, and puts a ready-made node installer (phase 22) in the delivery e-mail together with the connection details and the firewall checklist.
 - Every choice can be changed later in the station's settings; the wizard only sets a correct start.
 
+### Phase 24: Management view in RHIS Studio (AutoDJ, routing, nodes)
+
+A third option in RHIS Studio's layout switch, next to Classic and the OmniPlayer layout: a **management view**. From that view a station manager sets up the whole AutoDJ without opening the web panel: hour clocks and clock items, the weekly schedule, playlists and categories, rotation rules and the library folders it uses. It also shows the station's **audio routing** (delivery path, via ingest or direct, which relays, and changing it) and the **status of the nodes** involved (online, load, checks from the monitoring node, firewall), so the station can be managed from the studio PC. It uses the same server settings as the panel (only for users allowed to manage the station; DJs keep their normal views).
+
 ## Queued fixes
 
 Small fixes planned for a patch release, one at a time after the current phase.
@@ -641,10 +647,6 @@ A WordPress plugin for customer websites, built on the station node API above.
 - Connect with the station's public address (or slug), the plugin finds the right node through the orchestrator lookup.
 - Blocks and shortcodes: weekly schedule, today's schedule, "on air now / who is live", now playing with player, recently played.
 - Creates a schedule page in one click; follows the site's theme; caches on the WordPress side.
-
-### Management view in RHIS Studio (AutoDJ, routing, nodes)
-
-A third option in RHIS Studio's layout switch, next to Classic and the OmniPlayer layout: a **management view**. From that view a station manager sets up the whole AutoDJ without opening the web panel: hour clocks and clock items, the weekly schedule, playlists and categories, rotation rules and the library folders it uses. It also shows the station's **audio routing** (delivery path, via ingest or direct, which relays, and changing it) and the **status of the nodes** involved (online, load, checks from the monitoring node, firewall), so the station can be managed from the studio PC. It uses the same server settings as the panel (only for users allowed to manage the station; DJs keep their normal views).
 
 ### RHIS Studio on a second screen, Stream Deck and a viewer screen
 
