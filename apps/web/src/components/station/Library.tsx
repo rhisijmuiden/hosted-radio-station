@@ -173,17 +173,19 @@ function TagsDialog({ station, file, onClose }: { station: StationDetail; file: 
   );
 }
 
-type UploadState = 'waiting' | 'uploading' | 'done' | 'failed';
+type UploadState = 'waiting' | 'uploading' | 'retrying' | 'done' | 'failed';
 interface UploadRow extends UploadItem {
   key: string;
   state: UploadState;
   sent: number;
   error?: string;
+  /** Seconds until the next try after an outage. */
+  retryIn?: number;
 }
 
 /**
  * Upload many files or whole folders at once, also big ones (a DJ set): every file goes in parts, one file after the
- * other, with its own progress. A file that broke off resumes where it stopped.
+ * other, with its own progress. A file that broke off resumes where it stopped; after an outage it tries again by itself.
  */
 function UploadDialog({ station, open, onClose, folder }: { station: StationDetail; open: boolean; onClose: () => void; folder: string }) {
   const { t } = useTranslation();
@@ -224,15 +226,17 @@ function UploadDialog({ station, open, onClose, folder }: { station: StationDeta
       if (ctl.signal.aborted) break;
       update(row.key, { state: 'uploading', error: undefined });
       try {
-        await uploadInParts(station.id, target, row, (sent) => update(row.key, { sent }), ctl.signal);
+        await uploadInParts(station.id, target, row, (sent) => update(row.key, { sent }), ctl.signal, (secs) =>
+          update(row.key, secs ? { state: 'retrying', retryIn: secs } : { state: 'uploading', retryIn: undefined }),
+        );
         update(row.key, { state: 'done', sent: row.file.size });
         done++;
       } catch (err) {
         if (ctl.signal.aborted) {
-          update(row.key, { state: 'waiting' });
+          update(row.key, { state: 'waiting', retryIn: undefined });
           break;
         }
-        update(row.key, { state: 'failed', error: (err as Error).message });
+        update(row.key, { state: 'failed', retryIn: undefined, error: (err as Error).message });
         failed++;
       }
     }
@@ -333,15 +337,16 @@ function UploadDialog({ station, open, onClose, folder }: { station: StationDeta
                     <div className="truncate font-mono text-[12px]" title={r.path}>
                       {r.path}
                     </div>
-                    {r.state === 'uploading' && (
+                    {(r.state === 'uploading' || r.state === 'retrying') && (
                       <div className="mt-1 h-1 overflow-hidden rounded-full bg-chip">
                         <div className="h-full bg-koraal" style={{ width: `${r.file.size ? (r.sent / r.file.size) * 100 : 0}%` }} />
                       </div>
                     )}
+                    {r.state === 'retrying' && <div className="text-xs text-warning">{t('library.uploadRetrying', { seconds: r.retryIn })}</div>}
                     {r.error && <div className="text-xs text-offline">{r.error}</div>}
                   </div>
                   <span className="shrink-0 text-xs text-muted tabular-nums">{mb(r.file.size)}</span>
-                  <Badge tone={r.state === 'done' ? 'online' : r.state === 'failed' ? 'offline' : r.state === 'uploading' ? 'accent' : 'neutral'}>{t(`library.uploadState.${r.state}`)}</Badge>
+                  <Badge tone={r.state === 'done' ? 'online' : r.state === 'failed' ? 'offline' : r.state === 'uploading' ? 'accent' : r.state === 'retrying' ? 'warning' : 'neutral'}>{t(`library.uploadState.${r.state}`)}</Badge>
                   {!running && r.state !== 'done' && (
                     <button type="button" className="text-muted hover:text-ink" title={t('common.remove')} onClick={() => setRows((x) => x.filter((y) => y.key !== r.key))}>
                       <Trash2 className="size-4" />
