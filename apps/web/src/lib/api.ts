@@ -1046,7 +1046,7 @@ export interface NodeStatus {
   /** The node's own firewall as the node reports it (security hardening for external nodes). */
   firewall?: { state: string; message?: string; foreign?: string[]; ports?: { ssh: string[]; tcp: string[]; udp: string[] }; ssh?: { from: string[]; limit: boolean; password: string }; at?: string } | null;
   /** Recorder (phase 21): what it records per station, and its disk. */
-  recorder?: { stations: { stationId: string; kind: 'log' | 'show'; sessionId?: string; state: RecorderState; message?: string; since?: string }[]; disk: RecorderDisk | null } | null;
+  recorder?: { stations: { stationId: string; kind: 'log' | 'show'; sessionId?: string; state: RecorderState; message?: string; since?: string; via?: 'ingest' }[]; disk: RecorderDisk | null } | null;
   updatedAt?: string;
 }
 export type RecorderState = 'starting' | 'recording' | 'waiting' | 'error';

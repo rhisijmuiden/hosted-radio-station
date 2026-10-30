@@ -73,6 +73,7 @@ export class Agent {
       icecastPort: () => this.layout?.port ?? ports.icecast,
       secrets: this.secrets,
       nodeId: this.file.nodeId,
+      secret: () => this.file.secret,
       auth: (q) => this.askAuth(q),
       live: (m) => this.sendLive(m),
     });

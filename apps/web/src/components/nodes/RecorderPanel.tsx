@@ -57,6 +57,11 @@ export function RecorderOverview({ node }: { node: NodeItem }) {
                 <Badge tone={recorderTone[s.state]} dot>
                   {t(`nodes.recorder.states.${s.state}`)}
                 </Badge>
+                {s.via === 'ingest' && (
+                  <span className="ml-2" title={t('nodes.recorder.viaIngestHint')}>
+                    <Badge tone="warning">{t('nodes.recorder.viaIngest')}</Badge>
+                  </span>
+                )}
                 {s.message && s.state !== 'recording' && <span className="ml-2 text-xs text-muted">{s.message}</span>}
               </td>
               <td className="text-[13px] text-muted">{formatRelative(s.since)}</td>

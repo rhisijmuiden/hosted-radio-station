@@ -25,6 +25,14 @@ orchestrator, which sends it to the nearest relay that carries the stream (or to
 follows the station when relays come and go. A short drop is bridged by ffmpeg; after a longer one the recorder
 starts a new file and tries again, a little later each time.
 
+When no relay carries the station for a moment (for example while its only relay is being updated), the logging
+does not wait: for a station with an ingest node the recorder switches at once to the same stream straight from that
+ingest, on its encoder port (on the same site plain, from elsewhere over TLS with a checked certificate), with a token
+only the orchestrator and that ingest know. The node page then shows *From the ingest* next to the station. Every 30
+seconds the recorder asks whether a relay has the station again, and goes back to it just before the change of the
+hour, so the hour files stay whole. Stations without an ingest node (direct from a station node, or on the
+orchestrator) keep waiting for their relay or the orchestrator as before.
+
 ## Live shows
 
 When a DJ goes live on a station the recorder records (Go live in RHIS Studio, or an encoder on an ingest, a station

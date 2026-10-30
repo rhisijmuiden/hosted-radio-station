@@ -1111,7 +1111,8 @@ export interface NodeStatus {
 
 /** What a recorder node reports (phase 21). */
 export interface NodeRecorderStatus {
-  stations: { stationId: string; kind: 'log' | 'show'; sessionId?: string; state: 'starting' | 'recording' | 'waiting' | 'error'; message?: string; since?: string }[];
+  /** via ingest: logging taken straight from the ingest node while no relay carries the station. */
+  stations: { stationId: string; kind: 'log' | 'show'; sessionId?: string; state: 'starting' | 'recording' | 'waiting' | 'error'; message?: string; since?: string; via?: 'ingest' }[];
   disk: { totalBytes: number; freeBytes: number; usedBytes: number } | null;
 }
 

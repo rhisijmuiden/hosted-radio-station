@@ -13,7 +13,7 @@ import { DEDICATIONS, scopeOf, serves } from './dedication.js';
 import { buildFmPlan, fmConfigSchema } from './fm.js';
 import { recordedStations, recorderPlan, type OpenSession } from '../recorder/plan.js';
 import { firewallPlan } from './firewall-plan.js';
-import { plannedIngests } from './delivery.js';
+import { ingestTarget, plannedIngests, recorderToken } from './delivery.js';
 import { OLD_PORTS, PORTS } from './portplan.js';
 import { ingestsOf, pushedRouting, stationRouting } from './routing-rules.js';
 import type { IngestStation, NodePlan, ProbeTarget, RelayMount } from './protocol.js';
@@ -314,6 +314,29 @@ export function monitorTargets(stations: StationRow[], mounts: (typeof schema.st
 const baseUrl = (ctx: AppContext) => ctx.config.PUBLIC_URL.replace(/\/$/, '');
 
 /** Live broadcasts on air now on these stations (phase 21: a recorder records them). */
+/**
+ * Where a recorder reads a station straight from its ingest node while no relay carries it (small fixes): the
+ * station's main ingest first, online ones only, at the address the recorder can reach (as a station node would:
+ * on the same site plain, from elsewhere only over checked TLS). Null for a station without an ingest node.
+ */
+async function ingestFallbacks(ctx: AppContext, recorder: Node, stations: StationRow[]): Promise<(stationId: string, path: string) => string | null> {
+  if (!stations.some((s) => s.nodeId || pushedRouting(stationRouting(s)))) return () => null;
+  const paired = await ctx.db.select().from(schema.nodes).where(isNotNull(schema.nodes.pairedAt)).orderBy(asc(schema.nodes.id));
+  return (stationId, path) => {
+    const s = stations.find((x) => x.id === stationId);
+    if (!s) return null;
+    const refs = s.nodeId ? (plannedIngests(s, paired) ?? []).map((i) => i.node.id) : ingestsOf(stationRouting(s)).map((i) => i.ref);
+    for (const id of refs) {
+      const n = paired.find((x) => x.id === id && x.roles.includes('source') && x.status.online);
+      const at = n && ingestTarget(n, recorder);
+      if (!n || !at) continue;
+      const key = `${s.slug}${path}`;
+      return `${at.tls ? 'https' : 'http'}://${at.host}:${at.port}/ingest/${key}?token=${recorderToken(ctx, n, key)}`;
+    }
+    return null;
+  };
+}
+
 async function openSessions(ctx: AppContext, stationIds: string[]): Promise<OpenSession[]> {
   if (!stationIds.length) return [];
   const ls = schema.liveSessions;
@@ -430,7 +453,9 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
       : base;
   const fm = fmStation ? await buildFmPlan(ctx, c.fm, fmBase, stations, await stereoToolBinary(ctx)) : null;
   const firewall = await firewallPlan(ctx, node);
-  const recorder = roles.includes('recorder') ? recorderPlan(c, stations, allMounts, base, await openSessions(ctx, recordedStations(c, stations).map((s) => s.id))) : null;
+  const recorder = roles.includes('recorder')
+    ? recorderPlan(c, stations, allMounts, base, await openSessions(ctx, recordedStations(c, stations).map((s) => s.id)), Date.now(), await ingestFallbacks(ctx, node, recordedStations(c, stations)))
+    : null;
 
   const plan: Omit<NodePlan, 'revision'> = {
     nodeId: node.id,

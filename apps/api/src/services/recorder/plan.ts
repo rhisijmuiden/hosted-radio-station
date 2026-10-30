@@ -14,6 +14,8 @@ export const recordsShow = (session: Pick<OpenSession, 'record'>, stationShows: 
 export const recordedStations = <S extends { id: string }>(c: Pick<NodeSettings, 'recordStations'>, served: S[]) =>
   served.filter((s) => c.recordStations === 'all' || c.recordStations.includes(s.id));
 
+const withFallback = <T extends object>(x: T, fallback: string | null) => (fallback ? { ...x, fallback } : x);
+
 /** A broadcast older than this without an end is taken as left over (an encoder that never said goodbye). */
 const STALE_SHOW_MS = 24 * 3600_000;
 
@@ -23,7 +25,16 @@ const STALE_SHOW_MS = 24 * 3600_000;
  * and go: the default public stream for logging, and for a live show the mount the DJ sends to (or the default one
  * when that mount is not public), recorded as it is sent.
  */
-export function recorderPlan(c: Pick<NodeSettings, 'recordStations'>, served: Station[], mounts: Mount[], base: string, sessions: OpenSession[] = [], now = Date.now()): RecorderPlan {
+export function recorderPlan(
+  c: Pick<NodeSettings, 'recordStations'>,
+  served: Station[],
+  mounts: Mount[],
+  base: string,
+  sessions: OpenSession[] = [],
+  now = Date.now(),
+  /** The same stream straight from the station's ingest node, for while no relay carries it. */
+  fallbackOf: (stationId: string, path: string) => string | null = () => null,
+): RecorderPlan {
   return {
     stations: recordedStations(c, served).map((s) => {
       const rec = stationRecording(s);
@@ -46,7 +57,7 @@ export function recorderPlan(c: Pick<NodeSettings, 'recordStations'>, served: St
         stationId: s.id,
         slug: s.slug,
         name: s.name,
-        logging: rec.logging && def ? { url: listen(def), kbps: rec.loggingKbps, days: rec.loggingDays } : null,
+        logging: rec.logging && def ? withFallback({ url: listen(def), kbps: rec.loggingKbps, days: rec.loggingDays }, fallbackOf(s.id, def.path)) : null,
         // A DJ can record a show when the station does not record them by itself.
         shows: rec.shows || live.length || paused.length ? { days: rec.showsDays, minMinutes: rec.showsMinMinutes, live, ...(paused.length ? { paused } : {}) } : null,
       };

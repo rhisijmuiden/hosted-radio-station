@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { schema } from '../src/db/index.js';
 import { parseRange, RECORDING_PART } from '../src/routes/recordings.js';
+import { recorderToken } from '../src/services/nodes/delivery.js';
 import { buildPlan } from '../src/services/nodes/plan.js';
 import { login, setup } from './helpers.js';
 
@@ -57,6 +58,29 @@ describe('recorder node (phase 21)', () => {
     expect(plan.recorder!.stations).toEqual([
       { stationId, slug: 'test-fm', name: 'Test FM', logging: { url: expect.stringMatching(/\/api\/public\/stations\/test-fm\/listen\/live$/), kbps: 64, days: 31 }, shows: { days: 90, minMinutes: 2, live: [] } },
     ]);
+  });
+
+  it('gives logging the stream straight from the ingest node, for while no relay carries the station', async () => {
+    const ingest = await pair({ name: 'pub-ingest-01', roles: ['source'] });
+    await t.app.inject({ method: 'PATCH', url: `/api/nodes/${ingest.id}`, headers: admin, payload: { config: { publicHost: 'ingest1.example.com' } } });
+    const online = async (id: string, on: boolean) => {
+      const n = await nodeRow(id);
+      await t.db.update(schema.nodes).set({ status: { ...n.status, online: on, ip: '192.0.2.10', certs: ['*.example.com'] } }).where(eq(schema.nodes.id, id));
+    };
+    await online(ingest.id, true);
+    // The recorder sits elsewhere: over TLS to the ingest's public name.
+    await online(recorder, true);
+    await t.db.update(schema.nodes).set({ status: { ...(await nodeRow(recorder)).status, ip: '198.51.100.7' } }).where(eq(schema.nodes.id, recorder));
+    const r = await t.app.inject({ method: 'PUT', url: `/api/stations/${stationId}/routing`, headers: admin, payload: { ingest: ingest.id } });
+    expect(r.statusCode).toBe(200);
+    const logging = async () => (await buildPlan(t.ctx, await nodeRow(recorder))).recorder!.stations[0]!.logging!;
+    const token = recorderToken(t.ctx, await nodeRow(ingest.id), 'test-fm/live');
+    expect((await logging()).fallback).toBe(`https://ingest1.example.com:8201/ingest/test-fm/live?token=${token}`);
+    // An ingest that is offline has nothing to give.
+    await online(ingest.id, false);
+    expect((await logging()).fallback).toBeUndefined();
+    await t.app.inject({ method: 'PUT', url: `/api/stations/${stationId}/routing`, headers: admin, payload: { ingest: 'local' } });
+    await t.app.inject({ method: 'DELETE', url: `/api/nodes/${ingest.id}`, headers: admin });
   });
 
   it('follows the station settings, and leaves logging out when it is off', async () => {

@@ -110,8 +110,12 @@ export interface RecorderPlan {
     stationId: string;
     slug: string;
     name: string;
-    /** Continuous recording in files of one hour: where to listen, the MP3 bitrate, and how many days to keep. */
-    logging: { url: string; kbps: number; days: number } | null;
+    /**
+     * Continuous recording in files of one hour: where to listen, the MP3 bitrate, and how many days to keep.
+     * `fallback`: the same stream straight from the station's ingest node, for while no relay carries it (a relay
+     * update): the recorder switches there at once and goes back to the relay at the end of the hour (small fixes).
+     */
+    logging: { url: string; kbps: number; days: number; fallback?: string } | null;
     /**
      * Live shows (step 2): the broadcasts on air now, recorded as they are sent (no new encoding) until they leave
      * the plan. Shorter than minMinutes = thrown away; kept `days` days. Missing in plans of older servers.
@@ -134,7 +138,7 @@ export interface RecorderShow {
 
 /** What a recorder node is doing, in every stats message. */
 export interface RecorderStatus {
-  stations: { stationId: string; kind: 'log' | 'show'; sessionId?: string; state: 'starting' | 'recording' | 'waiting' | 'error'; message?: string; since?: string }[];
+  stations: { stationId: string; kind: 'log' | 'show'; sessionId?: string; state: 'starting' | 'recording' | 'waiting' | 'error'; message?: string; since?: string; via?: 'ingest' }[];
   /** The disk of the recordings folder. */
   disk: { totalBytes: number; freeBytes: number; usedBytes: number } | null;
 }

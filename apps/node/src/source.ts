@@ -186,7 +186,11 @@ export class SourceForwarder {
         const req = parseHead(head, rest);
         const name = host || req?.headers.get('host')?.replace(/:\d+$/, '') || null;
         // Stations routed to this node (phase 13) are taken here; the audio never goes to the main server.
-        if (req && this.ingest?.takes(req, name)) return this.ingest.handle(client, req, via, ip || '0.0.0.0', name);
+        if (req && this.ingest?.takes(req, name)) {
+          // A recorder reading a stream is no encoder.
+          if (req.method === 'GET') this.active.delete(client);
+          return this.ingest.handle(client, req, via, ip || '0.0.0.0', name);
+        }
         this.passOn(client, plan, via, ip, host, Buffer.concat([Buffer.from(`${head}\r\n\r\n`, 'latin1'), rest]));
       })
       .catch(() => client.destroy());
