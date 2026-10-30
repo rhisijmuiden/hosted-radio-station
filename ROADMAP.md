@@ -175,7 +175,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 21 | Recorder node | In progress (step 8 in the order of work) |
 | 22 | Packaged installers and moving the orchestrator | Future (when the first customers come) |
 | 23 | Deployment wizard | Future (when the first customers come) |
-| 24 | Management view in RHIS Studio | Next after phase 21 (step 9 in the order of work) |
+| 24 | Management view in RHIS Studio | In progress |
 
 ## Order of work
 
@@ -204,7 +204,7 @@ One thing at a time; each item starts when the previous one is finished and test
 7. **Security hardening for external nodes** (done, 1.5.0, PRs #160–#165): see the item below. On by default for nodes with a public address; pub-relay-01 has it on since 29 October 2026.
    **Release 1.5.0** (29 October 2026): item 7 and the small fixes (PRs #159 and #166–#171) go to `main` as one release.
 8. **Phase 21: Recorder node** (in progress): recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download.
-9. **Phase 24: Management view in RHIS Studio**: AutoDJ settings, audio routing and node status from the studio PC (see phase 24).
+9. **Phase 24: Management view in RHIS Studio** (in progress): AutoDJ settings, audio routing and node status from the studio PC (see phase 24).
 
 Later: phase 14 (orchestrator redundancy) just before sales start; phases 22 and 23 when the first customers come.
 
