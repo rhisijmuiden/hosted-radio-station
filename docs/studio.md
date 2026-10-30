@@ -104,10 +104,12 @@ Ctrl+2 OmniPlayer). It sets up the station from Studio on the same data as the w
   problem). A click on a tile or a line opens its section.
 - **Nodes**: the station node, ingests and relays the station uses, with status (Standby is a backup ingest that is
   ready but does not carry the station now), CPU, RAM, the monitoring checks of this station, the firewall and the
-  version.
-- **Hour clocks**, **Weekly schedule**, **Playlists & categories**, **Rotation rules**, **Library folders**,
-  **Audio routing** and **DJs & live access** come into Studio in the next steps; until then each opens at the same
-  place in the web panel.
+  version with its commit. The recorders that record the station are listed too.
+- **Hour clocks**: the clocks as chips (the one on air first) and the hour as a donut with a slice per item. Edit the
+  items like in the panel (minute, type, playlist and number of tracks, name, *Exactly on the minute*, *Locked*, order),
+  then **Save clock**; **Duplicate** makes a copy to change on its own.
+- **Weekly schedule**, **Playlists & categories**, **Rotation rules**, **Library folders**, **Audio routing** and
+  **DJs & live access** come into Studio in the next steps; until then each opens at the same place in the web panel.
 
 The bar at the bottom shows the track on air with its remaining time and goes back to the player. The view is kept in
 the DJ profile like the layout. It needs server 1.6 (the `manage` feature); with an older server, or for a DJ, the

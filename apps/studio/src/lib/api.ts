@@ -267,7 +267,7 @@ export interface NetworkNode {
   /** A node id, or "main" for the orchestrator itself. */
   id: string;
   name: string;
-  role: 'station' | 'ingest' | 'backupIngest' | 'relay';
+  role: 'station' | 'ingest' | 'backupIngest' | 'relay' | 'recorder';
   shared: boolean;
   state: 'online' | 'standby' | 'warning' | 'offline';
   cpu: number | null;
@@ -275,6 +275,8 @@ export interface NetworkNode {
   checks: { ok: number; total: number } | null;
   firewall: string | null;
   version: string | null;
+  /** The commit of the build (servers after 1.6 step 2). */
+  commit?: string | null;
   listeners: number | null;
   issues: { kind: 'offline' | 'problem' | 'check' | 'relay' | 'firewall'; message: string | null }[];
 }
@@ -296,4 +298,68 @@ export interface StationRouting {
     ingests: { ref: string; priority: number; name: string; online: boolean; onAir: boolean }[];
     relays: { id: string; name: string; online: boolean; connected: number; total: number; spare: boolean }[];
   };
+}
+/** A playlist (music category) of the AutoDJ, from /stations/:id/playlists. */
+export interface Playlist {
+  id: string;
+  name: string;
+  queue: 'q1' | 'q2';
+  weight: number;
+  order: 'shuffle' | 'random' | 'sequential';
+  folders: { location: string; path: string }[];
+  enabled: boolean;
+  /** Feeds its queue; off = only for hour clocks. */
+  rotation: boolean;
+  trackCount: number;
+  averageSeconds: number | null;
+  createdAt: string;
+}
+/** One item of an hour clock (phase 7). */
+export interface ClockItem {
+  id: string;
+  kind: 'rotation' | 'playlist' | 'track' | 'news';
+  label: string;
+  playlistId: string | null;
+  mediaId: string | null;
+  /** Tracks (playlist); 0 = until the next timed item. */
+  count: number;
+  /** Minute of the hour; null = after the item before. */
+  at: number | null;
+  hard: boolean;
+  /** DJs cannot skip it or play something else over it (missing on clocks saved before 1.3). */
+  locked?: boolean;
+}
+export interface Clock {
+  id: string;
+  name: string;
+  color: string;
+  items: ClockItem[];
+  createdAt: string;
+  updatedAt: string;
+}
+export interface ScheduleEntry {
+  id: string;
+  name: string;
+  description: string;
+  clockId: string | null;
+  live: boolean;
+  accountIds: string[];
+  /** ISO weekdays, 1 = Monday. */
+  days: number[];
+  date: string | null;
+  startMinute: number;
+  durationMinutes: number;
+  isPublic: boolean;
+  enabled: boolean;
+  createdAt: string;
+}
+/** Hour clocks and the weekly schedule, from /stations/:id/scheduler. */
+export interface SchedulerView {
+  settings: { enabled: boolean; timezone: string; defaultClockId: string | null; liveOnlyInShows: boolean; liveEarlyMinutes: number; publicSchedule: boolean };
+  clocks: Clock[];
+  entries: ScheduleEntry[];
+  accounts: { id: string; username: string; displayName: string }[];
+  now: { date: string; weekday: number; minuteOfDay: number; second: number };
+  onAir: { entryId: string | null; clockId: string | null };
+  tracks: { id: string; title: string; artist: string; durationSeconds: number | null }[];
 }
