@@ -46,6 +46,7 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 - Recordings, after testing step 4: when a DJ stops the recording of a show and starts it again, the parts are no
   longer thrown away one by one as too short. The recorder keeps them until the broadcast ends and then measures the
   whole show against *Shortest show to keep* (needs the recorder's node agent from this release).
+- The time fields of the cut dialog (on demand) and of *Download a part* no longer get squeezed.
 
 ## 1.5.0 (29 October 2026)
 

@@ -147,7 +147,7 @@ function TrimDialog({ station, item, onClose }: { station: StationDetail; item: 
       <div className="flex flex-col gap-4">
         <div className="text-sm font-semibold">{item.title}</div>
         <audio ref={ref} controls preload="metadata" src={item.previewUrl} className="w-full" />
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3">
           {(
             [
               ['trimFrom', from, setFrom, a, () => jump(a)],
@@ -156,7 +156,7 @@ function TrimDialog({ station, item, onClose }: { station: StationDetail; item: 
           ).map(([key, value, set, parsed, listen]) => (
             <Field key={key} label={t(`onDemand.${key}`)}>
               <div className="flex gap-1.5">
-                <Input className="w-24 font-mono" value={value} aria-invalid={parsed === null} onChange={(e) => set(e.target.value)} />
+                <Input className="w-28! shrink-0 font-mono" value={value} aria-invalid={parsed === null} onChange={(e) => set(e.target.value)} />
                 <Button size="sm" variant="ghost" onClick={() => mark(set)}>
                   {t('onDemand.trimMark')}
                 </Button>

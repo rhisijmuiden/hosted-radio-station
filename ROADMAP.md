@@ -557,6 +557,14 @@ Step 3 (uploads, shows on demand) on test, tested with an SFTP destination:
 | ![Live shows with upload and on-demand icons](docs/screenshots/phase-21-step3-shows-light-en.png) | ![Logging archive with upload icons, dark, Dutch](docs/screenshots/phase-21-step3-archive-dark-nl.png) |
 | ![The show as an on-demand draft](docs/screenshots/phase-21-step3-ondemand-draft-light-en.png) | ![On-demand draft, dark, Dutch](docs/screenshots/phase-21-step3-ondemand-draft-dark-nl.png) |
 
+Step 4 (Studio recording, cutting in the panel) on test, tested with a test encoder on Radio Schermer:
+
+| | |
+|---|---|
+| ![Download a part under the recordings player](docs/screenshots/phase-21-step4-player-download-part-light-en.png) | ![Download a part, dark, Dutch](docs/screenshots/phase-21-step4-player-download-part-dark-nl.png) |
+| ![Cutting an on-demand item](docs/screenshots/phase-21-step4-trim-dialog-light-en.png) | ![Cutting, dark, Dutch](docs/screenshots/phase-21-step4-trim-dialog-dark-nl.png) |
+| ![The on-demand item after cutting](docs/screenshots/phase-21-step4-ondemand-after-cut-light-en.png) | |
+
 ### Phase 22: Packaged installers and moving the orchestrator
 
 Building on phase 16, make deploying and growing a network a matter of downloads and clicks.
