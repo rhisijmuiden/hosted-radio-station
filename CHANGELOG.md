@@ -123,6 +123,9 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   again by itself with growing pauses (2 s up to 1 min) and shows "Reconnecting" with the time to the next try; it
   goes on where it stopped as soon as the server answers, and only shows "Failed" after half an hour without
   progress. A part that gets no answer at all counts as a broken connection after 10 minutes.
+- Upload to a station node that runs an older version: the panel no longer passes the upload on to a node that cannot
+  take uploads in parts yet (it answered "not found" and the upload seemed to hang at 0%); it says at once that the
+  station node needs an update first. Nodes report the new feature `library-uploads`.
 
 ## 1.5.0 (29 October 2026)
 

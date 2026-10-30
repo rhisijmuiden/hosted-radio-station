@@ -16,6 +16,9 @@ const STATION_ROUTE =
   /^\/api\/stations\/([0-9a-f-]{36})\/(autodj(?:\/[^?]*)?|library(?:\/[^?]*)?|playlists(?:\/[^?]*)?|sources(?:\/[^?]*)?|clocks(?:\/[^?]*)?|schedule(?:\/[^?]*)?|scheduler|news(?:\/[^?]*)?|requests(?:\/[^?]*)?|ondemand(?:\/[^?]*)?|live|status|mounts\/[0-9a-f-]{36}\/disconnect)(?:\?.*)?$/;
 const PUBLIC_ROUTE = /^\/api\/public\/stations\/([a-z0-9-]{1,48})\/(library|requests|ondemand(?:\/[^?]*)?)(?:\?.*)?$/;
 const KEPT_HERE = new Set(['PUT autodj', 'PUT scheduler', 'PUT news']);
+/** Uploads in parts (1.5.0): a station node from before them answers 404, which looked like an upload that hangs. */
+const UPLOAD_ROUTE = /^\/api\/stations\/[0-9a-f-]{36}\/library\/uploads(?:[/?]|$)/;
+export const LIBRARY_UPLOADS = 'library-uploads';
 
 /** Headers that tell the node who the caller is; the node only believes them from its own tunnel. */
 export const TUNNEL_HEADERS = {
@@ -68,8 +71,25 @@ export function registerStationProxy(app: FastifyInstance, tunnels: StationTunne
       if (req.method === 'GET' || req.method === 'HEAD') return;
       return reply.status(503).send({ error: { code: 'node_offline', message: 'The station node of this station is offline; changes are possible again when it is back online' } });
     }
+    // "recorder" came after uploads in parts, so a node that has it can take uploads even before it reports them.
+    if (UPLOAD_ROUTE.test(req.url) && !(await nodeCan(app, nodeId, LIBRARY_UPLOADS, 'recorder'))) {
+      return reply.status(409).send({ error: { code: 'node_outdated', message: 'The station node of this station runs an older version that cannot take uploads yet; update the station node first (Nodes → Update)' } });
+    }
     return forward(req, reply, peer);
   });
+}
+
+/**
+ * Whether a station node's version can do something (any of the given features); a node that reported no features
+ * yet gets the benefit of the doubt.
+ */
+async function nodeCan(app: FastifyInstance, nodeId: string, ...any: string[]) {
+  let features = app.nodes.liveStatus(nodeId)?.features;
+  if (!features) {
+    const [row] = await app.ctx.db.select({ status: schema.nodes.status }).from(schema.nodes).where(eq(schema.nodes.id, nodeId));
+    features = row?.status.features;
+  }
+  return !features || any.some((f) => features.includes(f));
 }
 
 async function forward(req: FastifyRequest, reply: FastifyReply, peer: NonNullable<ReturnType<StationTunnels['peer']>>) {

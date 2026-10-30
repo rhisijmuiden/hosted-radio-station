@@ -9,9 +9,10 @@ import { soundCards } from './fm/manager.js';
  * (phase 20): as a monitoring node it tries the ports of other nodes from outside for the server. "parked-stations":
  * the station software keeps a station that went back to Distribution only for 24 hours instead of removing it.
  * "firewall": the node manages its own firewall from the plan (security hardening for external nodes). "recorder"
- * (phase 21): it records stations and sends recordings to the server on request.
+ * (phase 21): it records stations and sends recordings to the server on request. "library-uploads" (1.5.0): the station
+ * software takes library uploads in parts.
  */
-const FEATURES = ['studio-ingest', 'portcheck', 'parked-stations', 'firewall', 'recorder', 'stereotool'];
+const FEATURES = ['studio-ingest', 'portcheck', 'parked-stations', 'firewall', 'recorder', 'stereotool', 'library-uploads'];
 
 /** Facts the main server shows about the node. */
 export function facts(web: 'caddy' | 'direct') {

@@ -169,6 +169,23 @@ describe('station nodes', () => {
     expect(direct.statusCode).toBe(401);
   }, 60_000);
 
+  it('refuses uploads in parts for a station node too old for them, with a clear error', async () => {
+    const begin = () =>
+      main.app.inject({ method: 'POST', url: `/api/stations/${stationId}/library/uploads`, headers: owner, payload: { folder: 'music', path: 'set.mp3', size: 1000 } });
+    const [row] = await main.db.select({ status: schema.nodes.status }).from(schema.nodes).where(eq(schema.nodes.id, nodeId));
+    // An older node reports its features, without uploads in parts.
+    await main.db.update(schema.nodes).set({ status: { ...row!.status, features: ['studio-ingest', 'firewall'] } }).where(eq(schema.nodes.id, nodeId));
+    const old = await begin();
+    expect(old.statusCode).toBe(409);
+    expect(old.json().error.code).toBe('node_outdated');
+    // A version that has them goes through to the node.
+    await main.db.update(schema.nodes).set({ status: { ...row!.status, features: ['studio-ingest', 'library-uploads'] } }).where(eq(schema.nodes.id, nodeId));
+    const ok = await begin();
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().offset).toBe(0);
+    await main.db.update(schema.nodes).set({ status: row!.status }).where(eq(schema.nodes.id, nodeId));
+  });
+
   it('keeps settings central and refuses to delete the node while it runs stations', async () => {
     const put = await main.app.inject({ method: 'PATCH', url: `/api/stations/${stationId}`, headers: owner, payload: { description: 'Live from the studio' } });
     expect(put.statusCode).toBe(200);
