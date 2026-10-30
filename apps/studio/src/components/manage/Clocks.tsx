@@ -9,6 +9,7 @@ import { Badge, Button, Card, Dialog, EmptyState, Field, Input, Select, Spinner 
 import { api, type Clock, type ClockItem, type Media, type Playlist, type SchedulerView, type StationListItem } from '../../lib/api';
 import { CLOCK_COLORS, clockLayout, minuteLabel, newItemId, paint, usePlaylists, useScheduler, useItemInfo, type Segment, type TrackInfo } from '../../lib/clocks';
 import { duration } from '../../lib/format';
+import { ask } from '../../lib/native';
 
 type Draft = Pick<Clock, 'name' | 'color' | 'items'>;
 
@@ -48,7 +49,7 @@ function ClockDonut({
 }) {
   const small = size < 100;
   const outer = small ? 116 : 104;
-  const inner = small ? 70 : 46;
+  const inner = small ? 70 : 56;
   return (
     <svg viewBox="0 0 240 240" width={size} height={size} className="shrink-0" role="img" aria-label={title}>
       <circle cx="120" cy="120" r={(outer + inner) / 2} fill="none" stroke="var(--line)" strokeWidth={outer - inner} />
@@ -72,7 +73,7 @@ function ClockDonut({
             const name = nameOf(s.item);
             return (
               <text key={`l-${s.item.id}`} x={x} y={y + 3} textAnchor="middle" fontSize="9" fontWeight="700" fill="#14213D">
-                {name.length > 12 ? `${name.slice(0, 11)}…` : name}
+                {name.length > 10 ? `${name.slice(0, 9)}…` : name}
               </text>
             );
           })}
@@ -88,11 +89,11 @@ function ClockDonut({
       {!small && (
         <>
           <circle cx="120" cy="120" r={inner - 2} fill="var(--nacht)" />
-          <text x="120" y="118" textAnchor="middle" className="display" fontSize="13" fill="#fff">
-            {title && title.length > 12 ? `${title.slice(0, 11)}…` : title}
+          <text x="120" y="118" textAnchor="middle" className="display" fontSize="12" fill="#fff">
+            {title && title.length > 11 ? `${title.slice(0, 10)}…` : title}
           </text>
           <text x="120" y="133" textAnchor="middle" fontSize="7.5" fill="#A3AEC4">
-            {subtitle}
+            {subtitle && subtitle.length > 18 ? `${subtitle.slice(0, 17)}…` : subtitle}
           </text>
         </>
       )}
@@ -338,7 +339,7 @@ function ClockEditor({ stationId, clock, view, onSaved }: { stationId: string; c
         actions={
           <>
             {clock && (
-              <Button size="sm" variant="danger" title={t('clocks.delete')} loading={del.isPending} onClick={() => confirm(t('clocks.deleteConfirm', { name: clock.name })) && del.mutate()}>
+              <Button size="sm" variant="danger" title={t('clocks.delete')} loading={del.isPending} onClick={() => void ask(t('clocks.deleteConfirm', { name: clock.name })).then((yes) => yes && del.mutate())}>
                 <Trash2 className="size-4" />
               </Button>
             )}
@@ -360,7 +361,7 @@ function ClockEditor({ stationId, clock, view, onSaved }: { stationId: string; c
             colorOf={(item) => info.color(item, draft.color)}
             nameOf={nameOf}
             title={draft.name || t('clocks.new')}
-            subtitle={hours[0] ?? (clock ? t('clocks.usedBy', { count: usedBy }) : t('clocks.items', { count: draft.items.length }))}
+            subtitle={hours[0] ?? t('clocks.items', { count: draft.items.length })}
             highlight={active}
           />
           <div className="grid w-full gap-3">

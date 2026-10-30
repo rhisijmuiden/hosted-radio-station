@@ -8,6 +8,7 @@ import { Header } from './common';
 import { Badge, Button, Card, Dialog, Field, Input, Segmented, Select, Spinner, Switch, Textarea } from '../ui';
 import { api, type ScheduleEntry, type SchedulerView, type StationListItem } from '../../lib/api';
 import { paint, useScheduler } from '../../lib/clocks';
+import { ask } from '../../lib/native';
 
 const HOUR_PX = 40;
 const DAY_PX = HOUR_PX * 24;
@@ -108,7 +109,7 @@ function EntryDialog({ stationId, view, editing, onClose }: { stationId: string;
       footer={
         <>
           {id && (
-            <Button variant="danger" className="mr-auto" loading={del.isPending} onClick={() => confirm(t('schedule.deleteConfirm', { name: draft.name })) && del.mutate()}>
+            <Button variant="danger" className="mr-auto" loading={del.isPending} onClick={() => void ask(t('schedule.deleteConfirm', { name: draft.name })).then((yes) => yes && del.mutate())}>
               <Trash2 className="size-4" /> {t('schedule.delete')}
             </Button>
           )}

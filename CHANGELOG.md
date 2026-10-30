@@ -67,6 +67,10 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   on an empty spot to add a block, a click on a block to change it (the same form as the panel: music block or live
   show, clock, days or one date, start and end, DJs, public, on/off). Drag a block up or down to move it in steps of
   15 minutes. The schedule settings (on/off, time zone, clock outside the blocks, live rules) are below the grid.
+- RHIS Studio: questions before something that cannot be undone (delete a clock or a block of the schedule, clear the
+  playlist, stop a recording, sign out) now wait for the answer. In the app they went ahead at once without asking.
+  The hour clock editor gets a wider type list, a heading on its empty page, clearer help, and the clock's name no
+  longer runs out of the middle of the donut.
 
 ## 1.5.0 (29 October 2026)
 

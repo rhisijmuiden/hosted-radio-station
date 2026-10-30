@@ -6,6 +6,7 @@ import { api, type LiveRecording } from '../lib/api';
 import { duration } from '../lib/format';
 import { useSession } from '../lib/session';
 import { Badge, Button, Card, CardHeader } from './ui';
+import { ask } from '../lib/native';
 
 export const useLiveRecording = (id: string | undefined, enabled: boolean) =>
   useQuery({ queryKey: ['live-recording', id], queryFn: () => api<LiveRecording>(`/studio/stations/${id}/recording`), enabled: !!id && enabled, refetchInterval: 5000 });
@@ -60,7 +61,7 @@ export function RecordingCard({ account, onAir }: { account: string | null; onAi
           <Button
             variant={mine.record ? 'secondary' : 'primary'}
             loading={toggle.isPending}
-            onClick={() => (!mine.record || confirm(t('recording.stopConfirm'))) && toggle.mutate(!mine.record)}
+            onClick={() => void (mine.record ? ask(t('recording.stopConfirm')) : Promise.resolve(true)).then((yes) => yes && toggle.mutate(!mine.record))}
           >
             {mine.record ? <Square className="size-4" /> : <CircleDot className="size-4" />}
             {mine.record ? t('recording.stop') : t('recording.start')}
