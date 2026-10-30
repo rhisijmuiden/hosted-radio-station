@@ -46,7 +46,7 @@ export function RecorderOverview({ node }: { node: NodeItem }) {
       ) : (
         <Table head={[t('nodes.recorder.station'), t('nodes.recorder.what'), t('fields.status'), t('nodes.recorder.since')]}>
           {rec.stations.map((s) => (
-            <tr key={`${s.stationId}-${s.kind}`}>
+            <tr key={`${s.stationId}-${s.kind}-${s.sessionId ?? ''}`}>
               <td className="text-[13px] font-semibold">
                 <Link to={`/stations/${s.stationId}?tab=recordings`} className="hover:underline">
                   {name(s.stationId)}

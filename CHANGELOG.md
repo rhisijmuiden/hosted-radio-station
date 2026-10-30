@@ -15,6 +15,13 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   site. The node page shows what it records per station and its disk; on the 2D map a customer's recorder stands in
   the customer's block. API: GET/PUT /stations/:id/recording, GET /stations/:id/recordings, …/:rid/songs and
   …/:rid/audio. See [recorder](docs/recorder.md).
+- Recorder node, step 2: live shows. When a DJ goes live (Go live in RHIS Studio, or an encoder) on a station a
+  recorder records, the recorder records the show as it is sent, without new encoding, through the nearest relay,
+  one file per show with the DJ's name; it starts and stops within seconds of the broadcast. Shows shorter than a set
+  number of minutes (default 2) are thrown away; shows are kept 90 days by default and never removed to make room on
+  a full disk. The Recordings page gets a **Live shows** list of the last month (play with the play log, download)
+  and the settings *Record live shows*, *Keep shows for* and *Shortest show to keep*; a recorder that records a show
+  now says so. Fix: the recording settings no longer jump back while you edit them.
 
 ## 1.5.0 (29 October 2026)
 

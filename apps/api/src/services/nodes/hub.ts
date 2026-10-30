@@ -45,6 +45,8 @@ interface Conn {
   /** FM/MPX: the station it puts on air and the live DJ/show it was told last. */
   fmStation: string | null;
   fmSent: string;
+  /** Recorder (phase 21): the stations it records, so a live broadcast starting or ending re-plans it at once. */
+  recorded: Set<string>;
 }
 
 /** Compares a secret with the stored (encrypted) one in constant time. */
@@ -96,7 +98,8 @@ export function sanitizeRecorder(r: unknown): NodeRecorderStatus | null {
   return {
     stations: (Array.isArray(v.stations) ? v.stations : []).slice(0, 500).map((x: Record<string, unknown>) => ({
       stationId: String(x?.stationId ?? '').slice(0, 36),
-      kind: 'log' as const,
+      kind: x?.kind === 'show' ? ('show' as const) : ('log' as const),
+      ...(typeof x?.sessionId === 'string' ? { sessionId: x.sessionId.slice(0, 36) } : {}),
       state: states.includes(x?.state as never) ? (x.state as (typeof states)[number]) : 'error',
       message: str(x?.message, 300),
       since: str(x?.since, 40),
@@ -274,6 +277,7 @@ export class NodeHub {
       timer: setInterval(() => this.ping(conn), PING_MS),
       fmStation: null,
       fmSent: '',
+      recorded: new Set(),
     };
     conn.timer.unref();
     this.conns.set(node.id, conn);
@@ -487,6 +491,7 @@ export class NodeHub {
     const plan = await buildPlan(this.ctx, node);
     if (plan.revision === c.revision) return;
     c.revision = plan.revision;
+    c.recorded = new Set(plan.recorder?.stations.map((s) => s.stationId) ?? []);
     this.send(c, { t: 'plan', plan });
     const station = plan.fm?.station.id ?? null;
     if (station !== c.fmStation) {
@@ -509,6 +514,14 @@ export class NodeHub {
   /** A DJ went live or off air on a station (from the streams service): its FM nodes update their RadioText. */
   fmNotify(stationId: string) {
     for (const c of this.conns.values()) if (c.fmStation === stationId) void this.fmSend(c).catch((err) => this.log.warn({ err }, 'telling an FM node failed'));
+  }
+
+  /**
+   * A DJ went live or off air on a station, or a title changed (from the streams service, an ingest node or a station
+   * node): its recorders get a new plan, which starts or ends the recording of the show. An unchanged plan is not sent.
+   */
+  recorderNotify(stationId: string) {
+    for (const c of this.conns.values()) if (c.recorded.has(stationId)) void this.refresh(c.nodeId).catch((err) => this.log.warn({ err }, 'telling a recorder failed'));
   }
 
   private async fmRefresh() {

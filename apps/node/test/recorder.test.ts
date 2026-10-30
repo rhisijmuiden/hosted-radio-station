@@ -123,3 +123,58 @@ test('records a stream into hour files with ffmpeg', { skip: !existsSync('/usr/b
   assert.equal(after[0]!.open, false);
   assert.ok(after[0]!.bytes > 0);
 });
+
+test('records a live show as it is sent, and throws a short one away', { skip: !existsSync('/usr/bin/ffmpeg') }, async () => {
+  const src = join(process.env.HRS_NODE_DATA!, 'show.mp3');
+  execFileSync('/usr/bin/ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=330:duration=30', '-c:a', 'libmp3lame', '-b:a', '128k', src]);
+  const audio = readFileSync(src);
+  const server = http.createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'audio/mpeg' });
+    let pos = 0;
+    const timer = setInterval(() => {
+      if (pos >= audio.length) return void (clearInterval(timer), res.end());
+      res.write(audio.subarray(pos, (pos += 16_000)));
+    }, 1000);
+    res.on('close', () => clearInterval(timer));
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/listen/s4/live`;
+  const S4 = '44444444-4444-4444-8444-444444444444';
+  const SID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const SID2 = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const station = (live: { sessionId: string }[], minMinutes: number) => ({
+    stationId: S4,
+    slug: 's4',
+    name: 'S4',
+    logging: null,
+    shows: { days: 90, minMinutes, live: live.map((l) => ({ ...l, dj: 'DJ Test', startedAt: new Date().toISOString(), url, format: 'mp3' as const, kbps: 128 })) },
+  });
+  const rec = new RecorderManager('n1');
+  try {
+    rec.apply({ stations: [station([{ sessionId: SID }], 0)] });
+    let state = '';
+    for (let i = 0; i < 40 && state !== 'recording'; i++) {
+      await wait(500);
+      state = (await rec.status())!.stations.find((s) => s.sessionId === SID)?.state ?? '';
+    }
+    assert.equal(state, 'recording');
+    let shows = (await rec.files()).filter((f) => f.stationId === S4 && f.kind === 'show');
+    assert.equal(shows.length, 1);
+    assert.equal(shows[0]!.sessionId, SID);
+    assert.match(shows[0]!.file, new RegExp(`^${S4}/show/\\d{4}-\\d{2}-\\d{2}_\\d{2}-\\d{2}-\\d{2}Z_128k_${SID}\\.mp3$`));
+    assert.equal(shows[0]!.open, true);
+    // Off air: the file is complete and kept. A second show that is too short goes away.
+    rec.apply({ stations: [station([{ sessionId: SID2 }], 1)] });
+    for (let i = 0; i < 40 && !(await rec.files()).some((f) => f.sessionId === SID2 && f.bytes > 0); i++) await wait(500);
+    rec.apply({ stations: [station([], 1)] });
+    await wait(1500);
+    shows = (await rec.files()).filter((f) => f.stationId === S4 && f.kind === 'show');
+    assert.deepEqual(shows.map((f) => [f.sessionId, f.open]), [[SID, false]]);
+    assert.ok(shows[0]!.bytes > 0);
+    const probe = execFileSync('/usr/bin/ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_name,bit_rate', '-of', 'csv=p=0', join(recordingsDir(), shows[0]!.file)]).toString().trim();
+    assert.equal(probe, 'mp3,128000');
+  } finally {
+    rec.stop();
+    server.close();
+  }
+});

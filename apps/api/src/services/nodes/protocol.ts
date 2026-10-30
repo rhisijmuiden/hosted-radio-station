@@ -118,12 +118,27 @@ export interface RecorderPlan {
     name: string;
     /** Continuous recording in files of one hour: where to listen, the MP3 bitrate, and how many days to keep. */
     logging: { url: string; kbps: number; days: number } | null;
+    /**
+     * Live shows (step 2): the broadcasts on air now, recorded as they are sent (no new encoding) until they leave
+     * the plan. Shorter than minMinutes = thrown away; kept `days` days. Missing in plans of older servers.
+     */
+    shows?: { days: number; minMinutes: number; live: RecorderShow[] } | null;
   }[];
+}
+
+/** A live broadcast a recorder records: where to listen, and the format and bitrate of that stream. */
+export interface RecorderShow {
+  sessionId: string;
+  dj: string;
+  startedAt: string;
+  url: string;
+  format: 'mp3' | 'aac' | 'opus' | 'vorbis';
+  kbps: number;
 }
 
 /** What a recorder node is doing, in every stats message. */
 export interface RecorderStatus {
-  stations: { stationId: string; kind: 'log'; state: 'starting' | 'recording' | 'waiting' | 'error'; message?: string; since?: string }[];
+  stations: { stationId: string; kind: 'log' | 'show'; sessionId?: string; state: 'starting' | 'recording' | 'waiting' | 'error'; message?: string; since?: string }[];
   /** The disk of the recordings folder. */
   disk: { totalBytes: number; freeBytes: number; usedBytes: number } | null;
 }
@@ -131,7 +146,9 @@ export interface RecorderStatus {
 /** A file on a recorder node, in the bulk report. `file` is relative to its recordings folder. */
 export interface RecordingFile {
   stationId: string;
-  kind: 'log';
+  kind: 'log' | 'show';
+  /** A show: the live broadcast it is a recording of. */
+  sessionId?: string;
   file: string;
   startedAt: string;
   seconds: number;

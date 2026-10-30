@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import i18n from '../../i18n';
 import { api, type RecordingFile, type RecordingSong, type StationDetail, type StationRecording, type StationRecordingSettings } from '../../lib/api';
-import { formatBytes } from '../../lib/format';
+import { formatBytes, formatDate } from '../../lib/format';
 import { DiskBar, recorderTone } from '../nodes/RecorderPanel';
 import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, Select, Spinner, Switch, Table } from '../ui';
 
@@ -25,7 +25,9 @@ function LoggingSettings({ station, data }: { station: StationDetail; data: Stat
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [draft, setDraft] = useState<StationRecordingSettings>(data.settings);
-  useEffect(() => setDraft(data.settings), [data.settings]);
+  // The page refreshes every few seconds: only a change on the server replaces what is being edited.
+  const saved = JSON.stringify(data.settings);
+  useEffect(() => setDraft(JSON.parse(saved) as StationRecordingSettings), [saved]);
   const save = useMutation({
     mutationFn: () => api(`/stations/${station.id}/recording`, { method: 'PUT', body: draft }),
     onSuccess: () => {
@@ -50,6 +52,11 @@ function LoggingSettings({ station, data }: { station: StationDetail; data: Stat
                   <b>{r.name}</b>
                   {r.location && <span className="text-muted">{r.location}</span>}
                   {r.own && <Badge>{t('recordings.ownRecorder')}</Badge>}
+                  {r.online && r.recordingShow && (
+                    <Badge tone="offline" dot>
+                      {t('recordings.recordingShow')}
+                    </Badge>
+                  )}
                   <span className="ml-auto">
                     {!r.online ? (
                       <Badge tone="offline" dot>
@@ -87,6 +94,19 @@ function LoggingSettings({ station, data }: { station: StationDetail; data: Stat
             </Field>
           </div>
         )}
+        <div className="border-t border-line pt-4">
+          <Switch checked={draft.shows} disabled={!data.canEdit} onChange={(shows) => set({ shows })} label={t('recordings.showsOn')} description={t('recordings.showsOnHint')} />
+        </div>
+        {draft.shows && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label={t('recordings.showsDays')} hint={t('recordings.showsDaysHint')}>
+              <Input type="number" min={1} max={3650} disabled={!data.canEdit} value={draft.showsDays} onChange={(e) => set({ showsDays: Number(e.target.value) })} />
+            </Field>
+            <Field label={t('recordings.showsMin')} hint={t('recordings.showsMinHint')}>
+              <Input type="number" min={0} max={120} disabled={!data.canEdit} value={draft.showsMinMinutes} onChange={(e) => set({ showsMinMinutes: Number(e.target.value) })} />
+            </Field>
+          </div>
+        )}
         {data.canEdit && (
           <div className="flex justify-end">
             <Button variant="dark" loading={save.isPending} onClick={() => save.mutate()}>
@@ -109,7 +129,14 @@ function Player({ station, file }: { station: StationDetail; file: RecordingFile
   const playing = list.filter((s) => s.offsetSeconds <= pos).at(-1);
   return (
     <Card>
-      <CardHeader title={t('recordings.listening', { from: clock(file.startedAt), to: clock(new Date(new Date(file.startedAt).getTime() + file.durationSeconds * 1000)) })} description={file.open ? t('recordings.openHint') : undefined} />
+      <CardHeader
+        title={
+          file.kind === 'show'
+            ? t('recordings.listeningShow', { dj: file.dj ?? t('recordings.live'), date: formatDate(file.startedAt) })
+            : t('recordings.listening', { from: clock(file.startedAt), to: clock(new Date(new Date(file.startedAt).getTime() + file.durationSeconds * 1000)) })
+        }
+        description={file.open ? t('recordings.openHint') : undefined}
+      />
       <div className="flex flex-col gap-4 px-5 pb-5">
         <audio ref={ref} key={file.id} controls autoPlay preload="metadata" className="w-full" src={audioUrl(station.id, file)} onTimeUpdate={(e) => setPos(e.currentTarget.currentTime)} />
         {songs.isPending ? (
@@ -148,6 +175,64 @@ function Player({ station, file }: { station: StationDetail; file: RecordingFile
   );
 }
 
+/** The live shows recorder nodes recorded of the station over the last month, newest first. */
+function Shows({ station, current, onPlay }: { station: StationDetail; current: RecordingFile | null; onPlay: (f: RecordingFile) => void }) {
+  const { t } = useTranslation();
+  const from = useMemo(() => new Date(Date.now() - 31 * 86400_000).toISOString(), []);
+  const shows = useQuery({
+    queryKey: ['station-recordings', station.id, 'show'],
+    queryFn: () => api<RecordingFile[]>(`/stations/${station.id}/recordings?kind=show&from=${encodeURIComponent(from)}&to=${encodeURIComponent(new Date(Date.now() + 3600_000).toISOString())}`),
+    refetchInterval: 30_000,
+  });
+  const list = [...(shows.data ?? [])].reverse();
+  return (
+    <Card>
+      <CardHeader title={t('recordings.shows')} description={t('recordings.showsHint')} />
+      {shows.isPending ? (
+        <div className="grid place-items-center py-10">
+          <Spinner />
+        </div>
+      ) : !list.length ? (
+        <EmptyState icon={<Mic />} title={t('recordings.noShows')} description={t('recordings.noShowsHint')} />
+      ) : (
+        <Table head={[t('recordings.started'), t('recordings.dj'), t('recordings.length'), t('recordings.size'), t('recordings.recorder'), '']}>
+          {list.map((f) => (
+            <tr key={f.id} className={clsx(current?.id === f.id && 'bg-koraal/6')}>
+              <td className="text-[13px] font-semibold tabular-nums">
+                {formatDate(f.startedAt)}
+                {f.open && (
+                  <span className="ml-2">
+                    <Badge tone="offline" dot>
+                      {t('recordings.onAirNow')}
+                    </Badge>
+                  </span>
+                )}
+              </td>
+              <td className="text-[13px]">{f.dj ?? '—'}</td>
+              <td className="text-[13px] tabular-nums">{length(f.durationSeconds)}</td>
+              <td className="text-[13px] tabular-nums">{formatBytes(f.sizeBytes)}</td>
+              <td className="text-[13px] text-muted">
+                {f.nodeName}
+                {!f.available && <span className="ml-1 text-offline">· {t('nodes.health.offline')}</span>}
+              </td>
+              <td className="text-right whitespace-nowrap">
+                <Button size="sm" variant="ghost" disabled={!f.available} onClick={() => onPlay(f)} aria-label={t('recordings.play')}>
+                  <Play className="size-4" /> {t('recordings.play')}
+                </Button>
+                <a href={f.available ? audioUrl(station.id, f, true) : undefined} aria-disabled={!f.available} className={clsx(!f.available && 'pointer-events-none opacity-40')}>
+                  <Button size="sm" variant="ghost" aria-label={t('recordings.download')}>
+                    <Download className="size-4" />
+                  </Button>
+                </a>
+              </td>
+            </tr>
+          ))}
+        </Table>
+      )}
+    </Card>
+  );
+}
+
 /**
  * Recordings of a station (phase 21): the logging a recorder node makes of it, per day and hour, to listen back with
  * the play log or download.
@@ -181,6 +266,7 @@ export function RecordingsTab({ station }: { station: StationDetail }) {
     <div className="flex flex-col gap-4">
       <LoggingSettings station={station} data={recording.data} />
       {current && <Player station={station} file={current} />}
+      {recording.data.settings.shows && <Shows station={station} current={current} onPlay={setCurrent} />}
       <Card>
         <CardHeader
           title={t('recordings.archive')}

@@ -11,7 +11,7 @@ import { platformHost } from '../streaming/state.js';
 import { runningVersion } from '../system.js';
 import { DEDICATIONS, scopeOf, serves } from './dedication.js';
 import { buildFmPlan, fmConfigSchema } from './fm.js';
-import { recorderPlan } from '../recorder/plan.js';
+import { recordedStations, recorderPlan, type OpenSession } from '../recorder/plan.js';
 import { firewallPlan } from './firewall-plan.js';
 import { plannedIngests } from './delivery.js';
 import { OLD_PORTS, PORTS } from './portplan.js';
@@ -313,6 +313,17 @@ export function monitorTargets(stations: StationRow[], mounts: (typeof schema.st
 
 const baseUrl = (ctx: AppContext) => ctx.config.PUBLIC_URL.replace(/\/$/, '');
 
+/** Live broadcasts on air now on these stations (phase 21: a recorder records them). */
+async function openSessions(ctx: AppContext, stationIds: string[]): Promise<OpenSession[]> {
+  if (!stationIds.length) return [];
+  const ls = schema.liveSessions;
+  return ctx.db
+    .select({ id: ls.id, stationId: ls.stationId, mountPath: ls.mountPath, accountName: ls.accountName, startedAt: ls.startedAt })
+    .from(ls)
+    .where(and(inArray(ls.stationId, stationIds), isNull(ls.endedAt)))
+    .orderBy(asc(ls.startedAt));
+}
+
 /** What a node must do now. */
 export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> {
   const c = nodeSettings(node);
@@ -419,7 +430,7 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
       : base;
   const fm = fmStation ? await buildFmPlan(ctx, c.fm, fmBase, stations) : null;
   const firewall = await firewallPlan(ctx, node);
-  const recorder = roles.includes('recorder') ? recorderPlan(c, stations, allMounts, base) : null;
+  const recorder = roles.includes('recorder') ? recorderPlan(c, stations, allMounts, base, await openSessions(ctx, recordedStations(c, stations).map((s) => s.id))) : null;
 
   const plan: Omit<NodePlan, 'revision'> = {
     nodeId: node.id,
