@@ -376,6 +376,16 @@ export async function openExternal(url: string) {
   await openUrl(url);
 }
 
+/**
+ * Asks yes or no before something that cannot be undone. In the app window.confirm() does not wait for an answer (it
+ * returns at once), so the question goes through the dialog plugin; in a browser it is window.confirm().
+ */
+export async function ask(message: string): Promise<boolean> {
+  if (!inTauri) return window.confirm(message);
+  const { ask: dialogAsk } = await import('@tauri-apps/plugin-dialog');
+  return dialogAsk(message, { title: 'RHIS Studio', kind: 'warning' });
+}
+
 export async function pickAudioFile(title: string): Promise<string | null> {
   if (!inTauri) return 'C:\\Jingles\\station-id.mp3';
   const { open } = await import('@tauri-apps/plugin-dialog');

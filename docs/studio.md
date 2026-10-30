@@ -104,9 +104,22 @@ Ctrl+2 OmniPlayer). It sets up the station from Studio on the same data as the w
   problem). A click on a tile or a line opens its section.
 - **Nodes**: the station node, ingests and relays the station uses, with status (Standby is a backup ingest that is
   ready but does not carry the station now), CPU, RAM, the monitoring checks of this station, the firewall and the
-  version.
-- **Hour clocks**, **Weekly schedule**, **Playlists & categories**, **Rotation rules**, **Library folders**,
-  **Audio routing** and **DJs & live access** come into Studio in the next steps; until then each opens at the same
+  version with its commit. The recorders that record the station are listed too.
+- **Hour clocks**: the clocks as chips (the one on air first) and the hour as a donut with a slice per item. Edit the
+  items like in the panel (minute, type, playlist and number of tracks, name, *Exactly on the minute*, *Locked*, order),
+  then **Save clock**; **Duplicate** makes a copy to change on its own.
+- **Weekly schedule**: the week as a grid, each block in the colour of its hour clock (live shows in coral). Click an
+  empty spot or **Add show** to add a block, click a block to change it, or drag it up or down to move it in steps of
+  15 minutes. The schedule settings are below the grid.
+- **Playlists & categories**: the playlists that feed the rotation and the ones only hour clocks use (news, ads,
+  jingles). Add or edit one (folders, order, weight), switch it on or off, or delete it.
+- **Rotation rules**: the AutoDJ settings of the panel: on/off, tracks in the queue, artist and track separation,
+  crossfade, the mount it follows, normalise, pause while a DJ is live, requests, the prefix of the track codes and
+  tempo/key analysis. **Save** applies them, **Undo changes** goes back to what is saved.
+- **Library folders**: the folders of the station storage and every share, with their tracks and the playlists that
+  use them (orange: the folder itself, grey: through a parent folder). The list button on a row makes a new playlist
+  from that folder; **Scan for new files** looks for new, changed and removed files. Shares are managed in the panel.
+- **Audio routing** and **DJs & live access** come into Studio in the next steps; until then each opens at the same
   place in the web panel.
 
 The bar at the bottom shows the track on air with its remaining time and goes back to the player. The view is kept in

@@ -37,9 +37,16 @@ export function LayoutMenu() {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const onDown = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
     document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
   }, []);
+  // Switching view another way (Ctrl+1/2/3, Back to player) closes the menu too.
+  useEffect(() => setOpen(false), [view]);
   const views: View[] = canManage ? ['classic', 'omni', 'manage'] : ['classic', 'omni'];
   return (
     <div ref={ref} className="relative shrink-0">
@@ -64,7 +71,11 @@ export function LayoutMenu() {
                 type="button"
                 role="radio"
                 aria-checked={view === v}
-                onClick={() => setLayout(v === 'manage' ? { manage: true } : { assist: v, manage: false })}
+                onClick={() => {
+                  setLayout(v === 'manage' ? { manage: true } : { assist: v, manage: false });
+                  // OmniPlayer keeps the menu open for its panels; the other views close it.
+                  if (v !== 'omni') setOpen(false);
+                }}
                 title={`Ctrl+${i + 1}`}
                 className={clsx('h-8 flex-1 rounded-[7px] text-[13px] font-bold transition-colors', view === v ? 'bg-koraal text-nacht' : 'text-muted hover:text-ink')}
               >

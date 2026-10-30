@@ -206,8 +206,8 @@ One thing at a time; each item starts when the previous one is finished and test
    1. The role **Recorder**, linked to stations, with continuous logging in files of one hour (bitrate and retention per station), the play log, and the station page **Recordings** to listen back and download. *On test.*
    2. Live shows: when a broadcast starts or ends (Go Live or an encoder) the recorder starts or stops recording the show, as it is sent and in full quality, one file per show, listed under Recordings → Live shows. Taken from the nearest relay, which carries exactly the bytes the station node sends (chosen 30 October 2026; no extra port on the station node). *On test.*
    3. Upload targets per station: OneDrive or FTP/FTPS/SFTP, with retries and the option to delete the local copy after a confirmed upload; a show offered as an on-demand item (listen again) on the public page, which needs the file on the station's own server (moved here from step 2). The orchestrator does the uploads, so a recorder behind NAT needs nothing extra. *On test.*
-   4. RHIS Studio: start/stop controls and the list of recordings; cutting a recording in the panel (an on-demand item cut down, or a part of an hour or show downloaded). *On test.*
-   5. Reports: CSV per period for Buma/Stemra and SENA, also in the API.
+   4. RHIS Studio: start/stop controls and the list of recordings; cutting a recording in the panel (an on-demand item cut down, or a part of an hour or show downloaded). *Tested.*
+   5. Reports: CSV per period for Buma/Stemra and SENA, also in the API. *Tested.*
 
 Later: phase 14 (orchestrator redundancy) just before sales start; phases 22 and 23 when the first customers come.
 
@@ -564,6 +564,13 @@ Step 4 (Studio recording, cutting in the panel) on test, tested with a test enco
 | ![Download a part under the recordings player](docs/screenshots/phase-21-step4-player-download-part-light-en.png) | ![Download a part, dark, Dutch](docs/screenshots/phase-21-step4-player-download-part-dark-nl.png) |
 | ![Cutting an on-demand item](docs/screenshots/phase-21-step4-trim-dialog-light-en.png) | ![Cutting, dark, Dutch](docs/screenshots/phase-21-step4-trim-dialog-dark-nl.png) |
 | ![The on-demand item after cutting](docs/screenshots/phase-21-step4-ondemand-after-cut-light-en.png) | |
+
+Step 5 (music reports) on test, tested on Radio Schermer:
+
+| | |
+|---|---|
+| ![Music reports with the preview](docs/screenshots/phase-21-step5-music-reports-light-en.png) | ![Music reports, dark, Dutch](docs/screenshots/phase-21-step5-music-reports-dark-nl.png) |
+| ![Composer and label in the tags dialog](docs/screenshots/phase-21-step5-tags-dialog-light-en.png) | ![Tags dialog, dark, Dutch](docs/screenshots/phase-21-step5-tags-dialog-dark-nl.png) |
 
 ### Phase 22: Packaged installers and moving the orchestrator
 

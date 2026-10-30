@@ -47,6 +47,12 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   longer thrown away one by one as too short. The recorder keeps them until the broadcast ends and then measures the
   whole show against *Shortest show to keep* (needs the recorder's node agent from this release).
 - The time fields of the cut dialog (on demand) and of *Download a part* no longer get squeezed.
+- Recorder node, step 5: music reports. The station page **Music reports** downloads the music of a period as CSV:
+  every play (date, time, duration, artist, title, composer, album, label, ISRC, AutoDJ or live with the DJ,
+  listeners and listening hours) for Buma/Stemra, and the plays per recording (plays, total duration, listening
+  hours) for SENA, with a preview that counts plays without ISRC or composer. The library now reads composer and
+  label from the tags (editable per track; existing files are read once more on the next scan). Also in the API.
+  See [recorder](docs/recorder.md#music-reports).
 - Manage view in RHIS Studio (phase 24, step 1): RHIS Studio 0.23 gets a third view **Manage** next to Classic and
   OmniPlayer in the layout menu (Ctrl+1, Ctrl+2, Ctrl+3), for the managers and owners of a Radio station. A menu on the
   left (Station, AutoDJ, Network, People) and the track on air in a bar at the bottom, with a way back to the player.
@@ -55,6 +61,29 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   CPU, RAM, monitoring checks, firewall and version. The AutoDJ, routing and people sections open in the web panel
   until the next steps bring them into Studio. API: GET /stations/:id/network (managers). See
   [studio](docs/studio.md#manage-view).
+- Manage view, step 2: **Hour clocks** in RHIS Studio. The clocks of the station as chips (the one on air first), the
+  hour as a donut with a slice per item, and the items to edit like in the panel: minute, type (music from the queues,
+  a playlist, one track, news), playlist and number of tracks, name, *Exactly on the minute* and *Locked*, move up or
+  down, remove. **Save clock**, **Duplicate** (a copy with new item ids) and delete. Nodes also lists the recorders
+  that record the station, and the version column shows the commit of the build, so test builds can be told apart. Escape
+  closes the layout menu (and so does choosing a view), Coming hours shows times without seconds, and the delivery
+  path on Overview wraps instead of being cut off.
+- Manage view, step 3: **Weekly schedule** in RHIS Studio. The week as a grid with the blocks in the colour of their
+  hour clock (live shows in coral, with their DJs), what runs now, earlier and later weeks, **Add show** and a click
+  on an empty spot to add a block, a click on a block to change it (the same form as the panel: music block or live
+  show, clock, days or one date, start and end, DJs, public, on/off). Drag a block up or down to move it in steps of
+  15 minutes. The schedule settings (on/off, time zone, clock outside the blocks, live rules) are below the grid.
+- RHIS Studio: questions before something that cannot be undone (delete a clock or a block of the schedule, clear the
+  playlist, stop a recording, sign out) now wait for the answer. In the app they went ahead at once without asking.
+  The hour clock editor gets a wider type list, a heading on its empty page, clearer help, and the clock's name no
+  longer runs out of the middle of the donut.
+- Manage view, step 4: **Playlists & categories**, **Rotation rules** and **Library folders** in RHIS Studio.
+  Playlists are split into the rotation and the ones only hour clocks use; add, edit (folders, order, weight), switch
+  on or off and delete them, with the same form as the panel. Rotation rules has the AutoDJ settings of the panel
+  (on/off, queue depth, artist and track separation, crossfade, mount, normalise, pause while live, requests, track
+  code prefix, tempo and key) with **Save** and **Undo changes**. Library folders shows the folders of every location
+  with their tracks and the playlists that use them (directly or through a parent folder), makes a new playlist from
+  a folder in one click and starts a scan; shares are still managed in the web panel.
 - Fix: the AutoDJ could hang after a live broadcast. When a DJ went live again right after the previous broadcast
   ended (as the track had just changed), the skip to a new track at the end of the broadcast got lost: the old track
   played on, the player stopped reporting tracks, and the panel and RHIS Studio kept showing that track at -0:00 with

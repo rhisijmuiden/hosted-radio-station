@@ -10,6 +10,7 @@ import { trackLength } from '../lib/cues';
 import { duration } from '../lib/format';
 import { clock, DRAG, queueOf, useQueueActions } from '../lib/queue';
 import type { Block, Line } from '../lib/timeline';
+import { ask } from '../lib/native';
 
 /** What the playlist shows more in the OmniPlayer layout, where it is the log under players A/B. */
 export interface LogView {
@@ -150,7 +151,7 @@ export function PlaylistCard({ data, stationId, lines, until, log }: { data: Aut
               {Math.abs(until) < 5 ? t('assist.onTime') : until > 0 ? t('assist.tooLong', { time: duration(until) }) : t('assist.tooShort', { time: duration(-until) })}
             </span>
           )}
-          <Button size="sm" variant="ghost" title={t('assist.clear')} onClick={() => confirm(t('assist.clearConfirm')) && a.clear.mutate('q1')}>
+          <Button size="sm" variant="ghost" title={t('assist.clear')} onClick={() => void ask(t('assist.clearConfirm')).then((yes) => yes && a.clear.mutate('q1'))}>
             <Eraser className="size-4" />
           </Button>
         </div>

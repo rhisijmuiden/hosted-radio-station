@@ -49,7 +49,7 @@ const locationIcon = (type: string) => (type === 'storage' ? HardDrive : type ==
 function TagsDialog({ station, file, onClose }: { station: StationDetail; file: MediaFile | null; onClose: () => void }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const [draft, setDraft] = useState({ title: '', artist: '', album: '', genre: '', year: '' as string, isrc: '', bpm: '', musicKey: '', enabled: true });
+  const [draft, setDraft] = useState({ title: '', artist: '', album: '', genre: '', year: '' as string, isrc: '', bpm: '', musicKey: '', composer: '', label: '', enabled: true });
   useEffect(() => {
     if (file)
       setDraft({
@@ -61,6 +61,8 @@ function TagsDialog({ station, file, onClose }: { station: StationDetail; file: 
         isrc: file.isrc ?? '',
         bpm: file.bpm != null ? String(file.bpm) : '',
         musicKey: file.musicKey ?? '',
+        composer: file.composer ?? '',
+        label: file.label ?? '',
         enabled: file.enabled,
       });
   }, [file]);
@@ -78,6 +80,7 @@ function TagsDialog({ station, file, onClose }: { station: StationDetail; file: 
           year: draft.year ? Number(draft.year) : null,
           enabled: draft.enabled,
           ...(extended ? { isrc: draft.isrc, bpm: draft.bpm ? Number(draft.bpm.replace(',', '.')) : null, musicKey: draft.musicKey } : {}),
+          ...(file?.composer !== undefined ? { composer: draft.composer, label: draft.label } : {}),
         },
       }),
     onSuccess: () => {
@@ -139,6 +142,16 @@ function TagsDialog({ station, file, onClose }: { station: StationDetail; file: 
             </Field>
             <Field label={t('library.key')} hint={camelot(draft.musicKey) || undefined}>
               <Input placeholder="Am" value={draft.musicKey} onChange={(e) => setDraft({ ...draft, musicKey: e.target.value.slice(0, 20) })} />
+            </Field>
+          </div>
+        )}
+        {file?.composer !== undefined && (
+          <div className="grid gap-3 sm:grid-cols-[1fr_200px]">
+            <Field label={t('library.composer')}>
+              <Input value={draft.composer} maxLength={300} onChange={(e) => setDraft({ ...draft, composer: e.target.value })} />
+            </Field>
+            <Field label={t('library.label')}>
+              <Input value={draft.label} maxLength={200} onChange={(e) => setDraft({ ...draft, label: e.target.value })} />
             </Field>
           </div>
         )}

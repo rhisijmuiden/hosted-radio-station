@@ -16,6 +16,7 @@ import { LayoutMenu } from './LayoutMenu';
 import { StereoMeter } from './Meter';
 import { LanguageToggle, ThemeToggle } from './Toggles';
 import { Avatar } from './ui';
+import { ask } from '../lib/native';
 
 export type Page = 'assist' | 'live' | 'carts' | 'recordings' | 'settings';
 
@@ -109,7 +110,7 @@ function NavRail({ page, onPage }: { page: Page; onPage: (p: Page) => void }) {
       <div className="flex-1" />
       {user && (
         <button
-          onClick={() => confirm(t('signIn.signOutConfirm')) && void signOut()}
+          onClick={() => void ask(t('signIn.signOutConfirm')).then((yes) => (yes ? signOut() : undefined))}
           title={`${user.name}${role ? ` · ${role}` : ''}\n${t('signIn.signOut')}`}
           className="group relative rounded-full"
         >
