@@ -114,6 +114,8 @@ corrected per track in the library; files from before this release are read once
 Plays shorter than 30 seconds (jingles) are left out by default. The preview counts the plays without ISRC or
 composer. Listening hours count the station's listeners minute by minute during the play; the same title on two
 source mounts at once is one play.
+A live broadcast whose encoder sent no titles is one line *Live broadcast without titles* with the DJ and its
+length in the list of plays (not in the per-recording report), so the station can fill in what was played.
 
 API: `GET /api/stations/:id/reports/plays` and `…/reports/tracks` (JSON), `…/reports/plays.csv` and
 `…/reports/tracks.csv`, all with `?from=YYYY-MM-DD&to=YYYY-MM-DD` and optionally `&minSeconds=30`; a period of at most

@@ -124,13 +124,56 @@ export async function rightsPlays(ctx: AppContext, station: Station, from: strin
       listenerHours: Math.round((listenerMinutes / 60) * 100) / 100,
     });
   }
-  return out;
+  // A live broadcast whose encoder sent no titles has no plays: it is listed as one line, so its music time is not
+  // missing from the report and the station can fill in what was played.
+  const silent = (await ctx.db.execute(sql`
+    select l.started_at, l.ended_at, l.account_name, l.mount_path,
+      (select coalesce(sum(x.avg), 0) from listener_samples x where x.station_id = l.station_id and x.target = '*' and x.at >= date_trunc('minute', l.started_at) and x.at < l.ended_at) as listener_minutes,
+      (select max(x.peak) from listener_samples x where x.station_id = l.station_id and x.target = '*' and x.at >= date_trunc('minute', l.started_at) and x.at < l.ended_at) as sample_peak
+    from live_sessions l
+    where l.station_id = ${station.id} and l.ended_at is not null and l.started_at >= ${start.toISOString()}::timestamptz and l.started_at < ${end.toISOString()}::timestamptz
+      and not exists (select 1 from song_plays p where p.station_id = l.station_id and p.started_at >= l.started_at - interval '5 seconds' and p.started_at < l.ended_at)`)) as unknown as Record<string, unknown>[];
+  for (const r of silent) {
+    const startedAt = new Date(r.started_at as string);
+    const endedAt = new Date(r.ended_at as string);
+    const duration = (endedAt.getTime() - startedAt.getTime()) / 1000;
+    if (duration < minSeconds) continue;
+    const w = wallTime(startedAt.getTime(), tz);
+    const listenerMinutes = num(r.listener_minutes);
+    out.push({
+      startedAt,
+      endedAt,
+      date: w.date,
+      time: `${two(w.hour)}:${two(w.minute)}:${two(w.second)}`,
+      durationSeconds: Math.round(duration),
+      artist: '',
+      title: UNTITLED_LIVE,
+      composer: '',
+      album: '',
+      label: '',
+      year: null,
+      isrc: '',
+      code: '',
+      source: 'live',
+      dj: String(r.account_name),
+      mount: String(r.mount_path),
+      avgListeners: Math.round((listenerMinutes / Math.max(1, Math.ceil(duration / 60))) * 10) / 10,
+      peakListeners: num(r.sample_peak),
+      listenerHours: Math.round((listenerMinutes / 60) * 100) / 100,
+    });
+  }
+  return out.sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
 }
+
+/** Title of the line for a live broadcast that sent no titles. */
+export const UNTITLED_LIVE = 'Live broadcast without titles';
 
 /** The plays per recording: one line per ISRC, or per artist and title when there is none. Most played first. */
 export function rightsTracks(plays: PlayRow[]): TrackRow[] {
   const byKey = new Map<string, TrackRow>();
   for (const p of plays) {
+    // A live broadcast without titles is no recording.
+    if (p.title === UNTITLED_LIVE && !p.artist) continue;
     const key = p.isrc || `${p.artist.toLowerCase()}\n${p.title.toLowerCase()}`;
     const t = byKey.get(key);
     if (!t) {

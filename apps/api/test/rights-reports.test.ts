@@ -40,7 +40,11 @@ beforeAll(async () => {
     // The next day in Amsterdam (00:30 local): outside a report of the 12th.
     { stationId, mountPath: '/live', title: 'Band - Song A', startedAt: at('22:30:00'), endedAt: at('22:33:20') },
   ]);
-  await t.db.insert(schema.liveSessions).values({ stationId, mountPath: '/live', accountName: 'DJ Kim', via: 'tls', startedAt: at('21:00:00'), endedAt: at('21:30:00') });
+  await t.db.insert(schema.liveSessions).values([
+    { stationId, mountPath: '/live', accountName: 'DJ Kim', via: 'tls', startedAt: at('21:00:00'), endedAt: at('21:30:00') },
+    // An encoder that sent no titles: one line for the whole broadcast.
+    { stationId, mountPath: '/live', accountName: 'DJ Quiet', via: 'tls', startedAt: at('21:40:00'), endedAt: at('21:55:00') },
+  ]);
   await t.db.insert(schema.listenerSamples).values([0, 1, 2, 3].map((m) => ({ at: new Date(at('20:00:00').getTime() + m * 60_000), stationId, target: '*', avg: 30, peak: 40 })));
 });
 afterAll(() => t.close());
@@ -59,7 +63,9 @@ describe('rights reports (phase 21 step 5)', () => {
       ['22:00:00', 'Song A', 'autodj'],
       ['23:00:10', 'Live Track', 'live'],
       ['23:04:10', 'Song A', 'live'],
+      ['23:40:00', 'Live broadcast without titles', 'live'],
     ]);
+    expect(items[3]).toMatchObject({ dj: 'DJ Quiet', durationSeconds: 900 });
     expect(items[0]).toMatchObject({ date: '2026-10-12', durationSeconds: 200, artist: 'Band', composer: 'J. Writer / K. Lyric', label: 'Indie Records', isrc: 'NLA1R2400123', code: 'RF-00001', mount: '/live', peakListeners: 40, listenerHours: 2 });
     expect(items[1]).toMatchObject({ artist: 'Other Artist', isrc: '', dj: 'DJ Kim', peakListeners: 20 });
     // Jingles are in with a lower minimum.
@@ -80,7 +86,7 @@ describe('rights reports (phase 21 step 5)', () => {
     expect(csv.headers['content-type']).toMatch(/^text\/csv/);
     expect(csv.headers['content-disposition']).toBe('attachment; filename="rights-fm_plays_2026-10-12_2026-10-12.csv"');
     const lines = csv.body.replace(/^﻿/, '').trim().split('\r\n');
-    expect(lines).toHaveLength(4);
+    expect(lines).toHaveLength(5);
     expect(lines[0]).toMatch(/^"date","time","duration","duration_seconds","artist","title","composer"/);
     expect(lines[1]).toContain('"2026-10-12","22:00:00","3:20","200","Band","Song A","J. Writer / K. Lyric"');
     const tracks = await t.app.inject({ url: `/api/stations/${stationId}/reports/tracks.csv?from=2026-10-12&to=2026-10-12`, headers: owner });
