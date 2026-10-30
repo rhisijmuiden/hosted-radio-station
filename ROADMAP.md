@@ -548,6 +548,8 @@ A step-by-step wizard for a new customer or a new station, so every station land
 
 ### Phase 24: Management view in RHIS Studio (AutoDJ, routing, nodes)
 
+Sketch approved by Reinder (30 October 2026): https://claude.ai/artifact/TKBEjSdBb8p2WH9RWbde4e. Layout option "Manage" with Overview, Hour clocks, Weekly schedule, Playlists & categories, Rotation rules, Library folders, Audio routing, Nodes and DJs; the broadcast stays visible in a bar at the bottom with a button back to the player.
+
 A third option in RHIS Studio's layout switch, next to Classic and the OmniPlayer layout: a **management view**. From that view a station manager sets up the whole AutoDJ without opening the web panel: hour clocks and clock items, the weekly schedule, playlists and categories, rotation rules and the library folders it uses. It also shows the station's **audio routing** (delivery path, via ingest or direct, which relays, and changing it) and the **status of the nodes** involved (online, load, checks from the monitoring node, firewall), so the station can be managed from the studio PC. It uses the same server settings as the panel (only for users allowed to manage the station; DJs keep their normal views).
 
 ## Queued fixes
