@@ -175,7 +175,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 21 | Recorder node | In progress (step 8 in the order of work) |
 | 22 | Packaged installers and moving the orchestrator | Future (when the first customers come) |
 | 23 | Deployment wizard | Future (when the first customers come) |
-| 24 | Manage view in RHIS Studio | In progress (steps 1–5 tested, step 6 on test) |
+| 24 | Manage view in RHIS Studio | Done (on test, steps 1–7 tested) |
 
 ## Order of work
 
@@ -209,14 +209,14 @@ One thing at a time; each item starts when the previous one is finished and test
    3. Upload targets per station: OneDrive or FTP/FTPS/SFTP, with retries and the option to delete the local copy after a confirmed upload; a show offered as an on-demand item (listen again) on the public page, which needs the file on the station's own server (moved here from step 2). The orchestrator does the uploads, so a recorder behind NAT needs nothing extra. *On test.*
    4. RHIS Studio: start/stop controls and the list of recordings; cutting a recording in the panel (an on-demand item cut down, or a part of an hour or show downloaded). *Tested.*
    5. Reports: CSV per period for Buma/Stemra and SENA, also in the API. *Tested.*
-9. **Phase 24: Manage view in RHIS Studio** (in progress, started 30 October 2026, after the approved sketch https://claude.ai/artifact/TKBEjSdBb8p2WH9RWbde4e): a third view **Manage** next to Classic and OmniPlayer, for station managers, on the same data as the web panel. In steps, one PR each, each tested before the next:
+9. **Phase 24: Manage view in RHIS Studio** (done on test, 30 October 2026, after the approved sketch https://claude.ai/artifact/TKBEjSdBb8p2WH9RWbde4e): a third view **Manage** next to Classic and OmniPlayer, for station managers, on the same data as the web panel. In steps, one PR each, each tested before the next:
    1. Manage view, Overview and Nodes (PR #186). *Tested.*
    2. Hour clocks (PR #187). *Tested.*
    3. Weekly schedule (PR #189). *Tested.*
    4. Playlists & categories, rotation rules, library folders (PR #191). *Tested.*
    5. Audio routing (PR #192). *Tested.*
-   6. DJs & live access. *On test.*
-   7. New folders and music upload from Studio in Library folders (asked by Reinder 30 October 2026). *On test.*
+   6. DJs & live access (PR #193). *Tested.*
+   7. New folders and music upload from Studio in Library folders (PR #194, asked by Reinder 30 October 2026). *Tested.*
 
 Later: phase 14 (orchestrator redundancy) just before sales start; phases 22 and 23 when the first customers come.
 

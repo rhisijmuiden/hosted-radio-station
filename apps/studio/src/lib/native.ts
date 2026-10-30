@@ -403,11 +403,21 @@ export async function pickAudioFile(title: string): Promise<string | null> {
 
 const AUDIO_EXTENSIONS = ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac', 'opus'];
 
+/** The Music folder of this PC, where the pickers open (instead of the last folder Windows used, such as Downloads). */
+async function musicDir(): Promise<string | undefined> {
+  try {
+    const { audioDir } = await import('@tauri-apps/api/path');
+    return await audioDir();
+  } catch {
+    return undefined;
+  }
+}
+
 /** Several audio files of this PC, to upload into the station library. */
 export async function pickAudioFiles(title: string): Promise<string[]> {
   if (!inTauri) return ['C:\\Music\\track one.mp3', 'C:\\Music\\track two.mp3'];
   const { open } = await import('@tauri-apps/plugin-dialog');
-  const res = await open({ title, multiple: true, directory: false, filters: [{ name: 'Audio', extensions: AUDIO_EXTENSIONS }] });
+  const res = await open({ title, multiple: true, directory: false, defaultPath: await musicDir(), filters: [{ name: 'Audio', extensions: AUDIO_EXTENSIONS }] });
   return Array.isArray(res) ? res : typeof res === 'string' ? [res] : [];
 }
 
@@ -415,7 +425,7 @@ export async function pickAudioFiles(title: string): Promise<string[]> {
 export async function pickFolder(title: string): Promise<string | null> {
   if (!inTauri) return 'E:\\Jingles';
   const { open } = await import('@tauri-apps/plugin-dialog');
-  const res = await open({ title, multiple: false, directory: true });
+  const res = await open({ title, multiple: false, directory: true, defaultPath: await musicDir() });
   return typeof res === 'string' ? res : null;
 }
 

@@ -10,7 +10,7 @@ import { Button, Card, Dialog, EmptyState, Field, Input, Select, Spinner } from 
 import { api, getApiKey, type LibraryFolders, type Playlist, type PlaylistFolder, type ScanProgress, type StationListItem } from '../../lib/api';
 import { usePlaylists } from '../../lib/clocks';
 import { covers, folderTree, sameFolder, useFolders } from '../../lib/library';
-import { audioFilesIn, call, openExternal, pickAudioFiles, pickFolder } from '../../lib/native';
+import { ask, audioFilesIn, call, openExternal, pickAudioFiles, pickFolder } from '../../lib/native';
 import { useSettings } from '../../lib/settings';
 
 const locationIcon = (type: string) => (type === 'storage' ? HardDrive : type === 'local' ? Server : Share2);
@@ -55,12 +55,13 @@ function NewFolderDialog({ open, parents, onClose, onCreate }: { open: boolean; 
   const { t } = useTranslation();
   const [name, setName] = useState('');
   const [parent, setParent] = useState('music');
+  // Only when the dialog opens: the folder list is fetched again every few seconds and must not clear the name.
   useEffect(() => {
     if (open) {
       setName('');
       setParent(parents.includes('music') ? 'music' : '');
     }
-  }, [open, parents]);
+  }, [open]);
   const ok = validName(name.trim());
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -139,6 +140,8 @@ export function FoldersSection({ station }: { station: StationListItem }) {
     return { ...folders.data, folders: [...folders.data.folders, ...extra] };
   }, [folders.data, pending]);
   const tree = folderTree(data);
+  // Tracks in a folder together with its sub folders.
+  const total = (location: string, path: string) => tree.filter((x) => x.location === location && (x.path === path || x.path.startsWith(`${path}/`))).reduce((n, x) => n + x.tracks, 0);
   const storageFolders = tree.filter((f) => f.location === 'storage').map((f) => f.path);
   const isPending = (path: string) => pending.includes(path) && !folderTree(folders.data).some((f) => f.location === 'storage' && f.path === path);
 
@@ -148,6 +151,8 @@ export function FoldersSection({ station }: { station: StationListItem }) {
       toast.warning(t('folders.noAudio'));
       return;
     }
+    // Say how many files go where before anything is sent, so a wrong folder of this PC is caught in time.
+    if (!(await ask(t('folders.uploadConfirm', { count: files.length, folder: folder || t('playlists.storage') })))) return;
     const state: Upload = { folder, done: 0, total: files.length, saved: 0, skipped: [] };
     setUpload({ ...state });
     for (const f of files) {
@@ -249,7 +254,7 @@ export function FoldersSection({ station }: { station: StationListItem }) {
                   <Icon className="size-4 text-muted" />
                   <span className="min-w-0 flex-1 truncate font-semibold">{name}</span>
                   <PlaylistChips folder={root} playlists={lists} />
-                  <span className="w-24 shrink-0 text-right text-xs text-muted tabular-nums">{t('playlists.tracksCount', { count: loc.tracks })}</span>
+                  <span className="w-32 shrink-0 text-right text-xs text-muted tabular-nums">{t('playlists.tracksCount', { count: loc.tracks })}</span>
                   {loc.type === 'storage' && uploadButtons('')}
                   <Button size="sm" variant="ghost" title={t('folders.newPlaylist')} onClick={() => newPlaylist(root, name)}>
                     <ListPlus className="size-4" />
@@ -266,7 +271,10 @@ export function FoldersSection({ station }: { station: StationListItem }) {
                       </span>
                       {empty && <span className="truncate text-xs text-accent-text">{t('folders.pendingHint')}</span>}
                       <PlaylistChips folder={folder} playlists={lists} />
-                      <span className="w-24 shrink-0 text-right text-xs text-muted tabular-nums">{f.tracks > 0 ? t('playlists.tracksCount', { count: f.tracks }) : ''}</span>
+                      <span className="w-32 shrink-0 text-right text-xs text-muted tabular-nums" title={t('folders.countHint')}>
+                        {total(f.location, f.path) > 0 ? t('playlists.tracksCount', { count: total(f.location, f.path) }) : ''}
+                        {total(f.location, f.path) !== f.tracks && f.tracks > 0 && <span className="block text-[10px]">{t('folders.here', { count: f.tracks })}</span>}
+                      </span>
                       {loc.type === 'storage' && uploadButtons(f.path)}
                       <Button size="sm" variant="ghost" title={t('folders.newPlaylist')} onClick={() => newPlaylist(folder, f.name)}>
                         <ListPlus className="size-4" />

@@ -486,7 +486,7 @@ export const nl: Translation = {
       folders: 'Bibliotheekmappen',
       routing: 'Audio routing',
       nodes: 'Nodes',
-      people: "DJ's & live-toegang",
+      people: 'DJ’s & live-toegang',
     },
     text: {
       clocks: 'Een uurklok bepaalt wat er op welke minuut speelt. Vaste onderdelen lopen op tijd; muziek vult de gaten uit je categorieën.',
@@ -746,6 +746,10 @@ export const nl: Translation = {
     analyseHint: 'Voor nummers zonder BPM of toonsoort in de tags. Draait op de achtergrond met lage prioriteit.',
   },
   folders: {
+    uploadConfirm_one: '{{count}} bestand uploaden naar {{folder}}?',
+    uploadConfirm_other: '{{count}} bestanden uploaden naar {{folder}}?',
+    countHint: 'Nummers in deze map en zijn submappen',
+    here: '{{count}} in deze map zelf',
     newFolder: 'Nieuwe map',
     newFolderHint: 'Een map in de stationsopslag. Zet er meteen muziek in: vanaf het eerste nummer staat hij op de server.',
     folderName: 'Naam',
