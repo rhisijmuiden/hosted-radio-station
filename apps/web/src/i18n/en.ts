@@ -1615,7 +1615,7 @@ export const en = {
     kindLogShort: 'Logging',
     kindShowShort: 'Shows',
     destinationEnabled: 'Active',
-    destinationEnabledHint: 'Recordings made after the destination was added go there; older ones are not uploaded.',
+    destinationEnabledHint: 'Recordings that are still running when you add the destination, and newer ones, go there; older ones are not uploaded.',
     test: 'Test connection',
     testOk: 'The connection works',
     onedriveNoApp: 'Signing in from the panel is not set up on this server. Paste a token from “rclone authorize onedrive” instead.',

@@ -1617,7 +1617,7 @@ export const nl: Translation = {
     kindLogShort: 'Logging',
     kindShowShort: 'Shows',
     destinationEnabled: 'Actief',
-    destinationEnabledHint: 'Opnames die na het toevoegen van de bestemming gemaakt zijn gaan erheen; oudere worden niet geüpload.',
+    destinationEnabledHint: 'Opnames die nog lopen als je de bestemming toevoegt, en nieuwere, gaan erheen; oudere worden niet geüpload.',
     test: 'Verbinding testen',
     testOk: 'De verbinding werkt',
     onedriveNoApp: 'Inloggen vanuit het panel is op deze server niet ingesteld. Plak in plaats daarvan een token uit “rclone authorize onedrive”.',
