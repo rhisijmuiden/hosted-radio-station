@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, readdir, rm, stat } from 'node:fs/promises';
+import { mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
 import { extname, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { and, eq, inArray, isNotNull, isNull, lt } from 'drizzle-orm';
@@ -163,4 +163,34 @@ export async function finishStaleRecordings(ctx: AppContext) {
       .set({ recordedAt: item.createdAt, sizeBytes: st.size, durationSeconds: p.durationSeconds })
       .where(eq(schema.onDemandItems.id, item.id));
   }
+}
+
+/** The ffmpeg muxer for an audio file by its extension, to write it again without encoding. */
+const MUXERS: Record<string, string> = { '.mp3': 'mp3', '.aac': 'adts', '.m4a': 'mp4', '.ogg': 'ogg', '.oga': 'ogg', '.opus': 'ogg', '.flac': 'flac', '.wav': 'wav' };
+
+/**
+ * Cuts an on-demand item down to from..to (seconds), without encoding again (phase 21 step 4): the start of a show
+ * before the DJ really began, or the end after it. The file is replaced; its size and length are read again.
+ */
+export async function trimItem(ctx: AppContext, item: typeof schema.onDemandItems.$inferSelect, from: number, to: number) {
+  const path = itemPath(ctx, item.stationId, item.file);
+  const muxer = MUXERS[extname(path).toLowerCase()];
+  if (!muxer) throw new Error('This kind of file cannot be cut');
+  const tmp = `${path}.cut`;
+  try {
+    await run('ffmpeg', ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-ss', String(from), '-to', String(to), '-i', path, '-map', '0:a', '-c', 'copy', '-f', muxer, tmp], { timeout: 10 * 60_000 });
+    await rename(tmp, path);
+  } catch (err) {
+    await rm(tmp, { force: true });
+    const stderr = (err as { stderr?: string }).stderr?.trim().split('\n').at(-1);
+    throw new Error(stderr || (err as Error).message);
+  }
+  const st = await stat(path);
+  const p = await probe(path);
+  const [row] = await ctx.db
+    .update(schema.onDemandItems)
+    .set({ sizeBytes: st.size, durationSeconds: p.durationSeconds })
+    .where(eq(schema.onDemandItems.id, item.id))
+    .returning();
+  return row!;
 }

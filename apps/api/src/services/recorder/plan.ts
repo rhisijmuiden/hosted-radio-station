@@ -5,7 +5,10 @@ import { stationRecording } from './settings.js';
 type Station = { id: string; slug: string; name: string; recording?: Record<string, unknown> | null };
 type Mount = { stationId: string; path: string; isDefault: boolean; isPublic: boolean; format: string; bitrateKbps: number };
 /** A live broadcast on air now (live_sessions without an end). */
-export type OpenSession = { id: string; stationId: string; mountPath: string; accountName: string; startedAt: Date };
+export type OpenSession = { id: string; stationId: string; mountPath: string; accountName: string; startedAt: Date; record?: boolean | null };
+
+/** Whether a broadcast is recorded: as the DJ chose in RHIS Studio, else as the station's setting says. */
+export const recordsShow = (session: Pick<OpenSession, 'record'>, stationShows: boolean) => session.record ?? stationShows;
 
 /** The stations a recorder node records: the ones it serves that are chosen in its settings. */
 export const recordedStations = <S extends { id: string }>(c: Pick<NodeSettings, 'recordStations'>, served: S[]) =>
@@ -29,7 +32,7 @@ export function recorderPlan(c: Pick<NodeSettings, 'recordStations'>, served: St
       const listen = (m: Mount) => `${base}/api/public/stations/${s.slug}/listen${m.path}`;
       const live: RecorderShow[] = [];
       for (const x of sessions) {
-        if (x.stationId !== s.id || now - x.startedAt.getTime() > STALE_SHOW_MS) continue;
+        if (x.stationId !== s.id || now - x.startedAt.getTime() > STALE_SHOW_MS || !recordsShow(x, rec.shows)) continue;
         const m = own.find((o) => o.path === x.mountPath) ?? def;
         if (!m) continue;
         live.push({ sessionId: x.id, dj: x.accountName, startedAt: x.startedAt.toISOString(), url: listen(m), format: m.format as RecorderShow['format'], kbps: m.bitrateKbps });
@@ -39,7 +42,8 @@ export function recorderPlan(c: Pick<NodeSettings, 'recordStations'>, served: St
         slug: s.slug,
         name: s.name,
         logging: rec.logging && def ? { url: listen(def), kbps: rec.loggingKbps, days: rec.loggingDays } : null,
-        shows: rec.shows ? { days: rec.showsDays, minMinutes: rec.showsMinMinutes, live } : null,
+        // A DJ can record a show when the station does not record them by itself.
+        shows: rec.shows || live.length ? { days: rec.showsDays, minMinutes: rec.showsMinMinutes, live } : null,
       };
     }),
   };

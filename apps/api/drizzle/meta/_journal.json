@@ -239,6 +239,13 @@
       "when": 1793365200000,
       "tag": "0034_recording_uploads",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1793368800000,
+      "tag": "0035_live_session_record",
+      "breakpoints": true
     }
   ]
 }

@@ -16,7 +16,7 @@ export const NODE_TABLES = [
   { name: 'playlist_items', table: schema.playlistItems, pk: ['playlistId', 'mediaId'], station: null },
   { name: 'clocks', table: schema.clocks, pk: ['id'], station: 'stationId' },
   { name: 'schedule_entries', table: schema.scheduleEntries, pk: ['id'], station: 'stationId' },
-  { name: 'live_sessions', table: schema.liveSessions, pk: ['id'], station: 'stationId', mainOnly: ['nodeId'] },
+  { name: 'live_sessions', table: schema.liveSessions, pk: ['id'], station: 'stationId', mainOnly: ['nodeId', 'record'] },
   { name: 'song_requests', table: schema.songRequests, pk: ['id'], station: 'stationId' },
   { name: 'ondemand_items', table: schema.onDemandItems, pk: ['id'], station: 'stationId' },
   { name: 'queue_items', table: schema.queueItems, pk: ['id'], station: 'stationId' },

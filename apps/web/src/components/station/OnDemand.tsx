@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CircleDot, FolderUp, ListMusic, Pencil, RefreshCw, Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { CircleDot, FolderUp, ListMusic, Pencil, RefreshCw, Scissors, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { api, type OnDemandItem, type PublicPageSettings, type StationDetail } from '../../lib/api';
 import { formatBytes, formatDate } from '../../lib/format';
 import { Badge, Button, Card, CardHeader, Dialog, EmptyState, Field, Input, Spinner, Switch, Textarea } from '../ui';
 import { usePublicPage } from './PublicPage';
+import { parseClock } from './Recordings';
 
 const length = (s: number | null) => {
   if (s == null) return '—';
@@ -99,10 +100,86 @@ function EditDialog({ station, item, onClose }: { station: StationDetail; item: 
   );
 }
 
+/**
+ * Cut an item down to a start and an end (the talk before the show really began, the minutes after it), without
+ * encoding again. The file is replaced, so it cannot be undone.
+ */
+function TrimDialog({ station, item, onClose }: { station: StationDetail; item: OnDemandItem; onClose: () => void }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const ref = useRef<HTMLAudioElement>(null);
+  const total = item.durationSeconds ?? 0;
+  const [from, setFrom] = useState('0:00');
+  const [to, setTo] = useState(length(total));
+  const a = parseClock(from);
+  const b = parseClock(to);
+  const valid = a !== null && b !== null && b - a >= 1 && a < total;
+  const save = useMutation({
+    mutationFn: () => api<OnDemandItem>(`/stations/${station.id}/ondemand/${item.id}/trim`, { method: 'POST', body: { from: a, to: Math.min(b!, total) } }),
+    onSuccess: (row) => {
+      void qc.invalidateQueries({ queryKey: ['station-ondemand', station.id] });
+      toast.success(t('onDemand.trimmed', { length: length(row.durationSeconds) }));
+      onClose();
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
+  const mark = (set: (v: string) => void) => set(length(Math.floor(ref.current?.currentTime ?? 0)));
+  const jump = (s: number | null) => {
+    if (!ref.current || s === null) return;
+    ref.current.currentTime = Math.max(0, s);
+    void ref.current.play();
+  };
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={t('onDemand.trim')}
+      description={t('onDemand.trimHint')}
+      footer={
+        <>
+          <Button onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="dark" disabled={!valid} loading={save.isPending} onClick={() => confirm(t('onDemand.trimConfirm')) && save.mutate()}>
+            <Scissors className="size-4" /> {t('onDemand.trimSave')}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <div className="text-sm font-semibold">{item.title}</div>
+        <audio ref={ref} controls preload="metadata" src={item.previewUrl} className="w-full" />
+        <div className="grid gap-3 sm:grid-cols-2">
+          {(
+            [
+              ['trimFrom', from, setFrom, a, () => jump(a)],
+              ['trimTo', to, setTo, b, () => jump((b ?? 0) - 5)],
+            ] as const
+          ).map(([key, value, set, parsed, listen]) => (
+            <Field key={key} label={t(`onDemand.${key}`)}>
+              <div className="flex gap-1.5">
+                <Input className="w-24 font-mono" value={value} aria-invalid={parsed === null} onChange={(e) => set(e.target.value)} />
+                <Button size="sm" variant="ghost" onClick={() => mark(set)}>
+                  {t('onDemand.trimMark')}
+                </Button>
+                <Button size="sm" variant="ghost" disabled={parsed === null} onClick={listen}>
+                  {t('onDemand.trimListen')}
+                </Button>
+              </div>
+            </Field>
+          ))}
+        </div>
+        <p className="text-[13px] text-muted">
+          {valid ? t('onDemand.trimResult', { length: length(Math.round(Math.min(b!, total) - a!)), total: length(total) }) : t('onDemand.trimInvalid')}
+        </p>
+      </div>
+    </Dialog>
+  );
+}
+
 export function OnDemandTab({ station, canEdit }: { station: StationDetail; canEdit: boolean }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [editing, setEditing] = useState<OnDemandItem | null>(null);
+  const [trimming, setTrimming] = useState<OnDemandItem | null>(null);
   const list = useQuery({
     queryKey: ['station-ondemand', station.id],
     queryFn: () => api<{ items: OnDemandItem[] }>(`/stations/${station.id}/ondemand`),
@@ -175,6 +252,11 @@ export function OnDemandTab({ station, canEdit }: { station: StationDetail; canE
                     <Button size="sm" variant="ghost" title={t('common.edit')} onClick={() => setEditing(i)}>
                       <Pencil className="size-4" />
                     </Button>
+                    {!!i.durationSeconds && (
+                      <Button size="sm" variant="ghost" title={t('onDemand.trim')} onClick={() => setTrimming(i)}>
+                        <Scissors className="size-4" />
+                      </Button>
+                    )}
                     <Button size="sm" variant="ghost" title={t('common.delete')} onClick={() => confirm(t('onDemand.deleteConfirm', { title: i.title })) && remove.mutate(i.id)}>
                       <Trash2 className="size-4 text-offline" />
                     </Button>
@@ -192,6 +274,7 @@ export function OnDemandTab({ station, canEdit }: { station: StationDetail; canE
       </Card>
       {canEdit && <OnDemandSettings station={station} />}
       {editing && <EditDialog station={station} item={editing} onClose={() => setEditing(null)} />}
+      {trimming && <TrimDialog station={station} item={trimming} onClose={() => setTrimming(null)} />}
     </div>
   );
 }

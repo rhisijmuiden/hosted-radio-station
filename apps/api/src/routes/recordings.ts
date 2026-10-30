@@ -1,16 +1,25 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createReadStream } from 'node:fs';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { and, asc, eq, gte, inArray, isNotNull, isNull, lt, or, gt, sql } from 'drizzle-orm';
+import type { FastifyReply } from 'fastify';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { schema } from '../db/index.js';
 import { requireUser } from '../lib/auth.js';
-import { badRequest, notFound } from '../lib/errors.js';
+import type { AppContext } from '../lib/context.js';
+import { badRequest, forbidden, notFound } from '../lib/errors.js';
+import { run } from '../services/backup/engine.js';
 import { serves } from '../services/nodes/dedication.js';
-import type { RecordingPart } from '../services/nodes/hub.js';
+import type { NodeHub, RecordingPart } from '../services/nodes/hub.js';
 import { nodeSettings } from '../services/nodes/plan.js';
 import { authenticateNode } from '../services/nodes/report.js';
 import { publicSettings } from '../services/public/settings.js';
+import { saveRecording } from '../services/recorder/delivery.js';
 import { recordedStations } from '../services/recorder/plan.js';
 import { LOGGING_BITRATES, recordingPatch, recordingSchema, stationRecording } from '../services/recorder/settings.js';
 import { stationAccess } from './stations.js';
@@ -86,6 +95,140 @@ export function parseRange(header: string | undefined): { start: number; end: nu
   return end !== null && end <= start ? null : { start, end };
 }
 
+/** The recorder nodes that record a station. */
+export async function recordersOf(ctx: AppContext, station: typeof schema.stations.$inferSelect) {
+  const rows = await ctx.db.select().from(schema.nodes).where(and(isNotNull(schema.nodes.pairedAt), sql`'recorder' = any(${schema.nodes.roles})`)).orderBy(asc(schema.nodes.name));
+  return rows.filter((n) => serves(n, station) && recordedStations(nodeSettings(n), [station]).length > 0);
+}
+
+/** ?download=1 for an attachment; from and to (seconds) for only a part of the recording, always as a download. */
+export const sectionQuery = z.object({
+  download: z.coerce.boolean().default(false),
+  from: z.coerce.number().min(0).max(366 * 86400).optional(),
+  to: z.coerce.number().min(0).max(366 * 86400).optional(),
+});
+
+const MUXERS: Record<string, string> = { mp3: 'mp3', aac: 'adts', ogg: 'ogg', opus: 'ogg' };
+const two = (n: number) => String(n).padStart(2, '0');
+/** "12m30s" for a file name. */
+const mark = (s: number) => `${Math.floor(s / 3600) ? `${Math.floor(s / 3600)}h` : ''}${two(Math.floor((s % 3600) / 60))}m${two(Math.floor(s % 60))}s`;
+
+/**
+ * Sends a recording that lives on a recorder node: a part for a player (Range), the whole file part by part, or (with
+ * from/to) only a section of it, cut without encoding again on this server.
+ */
+export async function sendRecording(
+  hub: NodeHub,
+  reply: FastifyReply,
+  rec: typeof schema.recordings.$inferSelect,
+  slug: string,
+  opts: { range?: string; download?: boolean; from?: number; to?: number; cache?: string },
+) {
+  if (!hub.isOnline(rec.nodeId)) return reply.status(503).header('retry-after', '30').send({ error: { code: 'recorder_offline', message: 'The recorder that has this recording is offline' } });
+  const ext = rec.file.slice(rec.file.lastIndexOf('.') + 1);
+  const base = `${slug}_${rec.kind === 'show' ? 'show_' : ''}${rec.startedAt.toISOString().slice(0, 16).replace('T', '_').replace(':', '-')}Z`;
+  reply.header('cache-control', opts.cache ?? 'private, no-store');
+  if (opts.from !== undefined || opts.to !== undefined) {
+    const from = opts.from ?? 0;
+    const to = opts.to ?? rec.durationSeconds;
+    if (to <= from) throw badRequest('The end must come after the start');
+    const dir = await mkdtemp(join(tmpdir(), 'hrs-section-'));
+    try {
+      const whole = join(dir, `whole.${ext}`);
+      const part = join(dir, `part.${ext}`);
+      await saveRecording(hub, rec, whole);
+      const res = await run('ffmpeg', ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-ss', String(from), '-to', String(to), '-i', whole, '-map', '0:a', '-c', 'copy', '-f', MUXERS[ext] ?? 'mp3', part], { timeoutMs: 5 * 60_000 });
+      if (res.code !== 0) throw new Error(res.stderr.trim().split('\n').at(-1) || 'Cutting failed');
+      await rm(whole, { force: true });
+      const size = (await stat(part)).size;
+      reply
+        .header('content-type', rec.contentType)
+        .header('content-length', size)
+        .header('content-disposition', `attachment; filename="${base}_${mark(from)}-${mark(to)}.${ext}"`);
+      const body = createReadStream(part);
+      body.once('close', () => void rm(dir, { recursive: true, force: true }));
+      return reply.send(body);
+    } catch (err) {
+      await rm(dir, { recursive: true, force: true });
+      if ((err as { statusCode?: number }).statusCode) throw err;
+      return reply.status(502).send({ error: { code: 'recorder_error', message: (err as Error).message } });
+    }
+  }
+  const range = parseRange(opts.range);
+  const fetchPart = (start: number, end: number | null) => hub.fetchRecording(rec.nodeId, rec.file, start, end);
+  reply.header('accept-ranges', 'bytes').header('content-type', rec.contentType);
+  if (opts.download) reply.header('content-disposition', `attachment; filename="${base}.${ext}"`);
+  let first: RecordingPart;
+  try {
+    // A player asks for "bytes=0-" and seeks with later starts: it gets one part at a time.
+    first = await fetchPart(range?.start ?? 0, range ? Math.min(range.end ?? Infinity, range.start + RECORDING_PART) : RECORDING_PART);
+  } catch (err) {
+    const message = (err as Error).message;
+    if (/Outside the recording/.test(message)) return reply.status(416).header('content-range', `bytes */${rec.sizeBytes}`).send();
+    return reply.status(502).send({ error: { code: 'recorder_error', message } });
+  }
+  if (range) {
+    reply.status(206).header('content-range', `bytes ${first.start}-${first.start + first.length - 1}/${first.size}`).header('content-length', first.length);
+    return reply.send(first.body);
+  }
+  // The whole file: the first part, then the next ones, one after the other.
+  const out = new PassThrough();
+  reply.header('content-length', first.size);
+  void (async () => {
+    let part: RecordingPart | null = first;
+    let at = 0;
+    try {
+      while (part) {
+        await pipeline(part.body, out, { end: false });
+        at = part.start + part.length;
+        part = at < first.size ? await fetchPart(at, Math.min(first.size, at + RECORDING_PART)) : null;
+      }
+      out.end();
+    } catch (err) {
+      part?.body.destroy();
+      out.destroy(err as Error);
+    }
+  })();
+  return reply.send(out);
+}
+
+/** A link to a recording that works without signing in for a while (RHIS Studio plays and downloads with it). */
+export function recordingLink(secret: string, rid: string, hours = 6) {
+  const exp = Math.floor(Date.now() / 1000) + hours * 3600;
+  return { path: `/api/recordings/${rid}/audio?exp=${exp}&sig=${linkSignature(secret, rid, exp)}`, expiresAt: new Date(exp * 1000) };
+}
+const linkSignature = (secret: string, rid: string, exp: number) => createHmac('sha256', secret).update(`recording:${rid}:${exp}`).digest('base64url');
+
+/** Recordings by a link of recordingLink. Mounted under /api/recordings. */
+export const recordingLinkRoutes: FastifyPluginAsyncZod = async (app) => {
+  const { ctx } = app;
+  app.get(
+    '/:rid/audio',
+    {
+      schema: {
+        tags: ['Recordings'],
+        summary: 'A recording by a link that is valid for a few hours (from the studio API); supports Range, download and from/to',
+        security: [],
+        params: z.object({ rid: z.uuid() }),
+        querystring: sectionQuery.extend({ exp: z.coerce.number().int(), sig: z.string().max(100) }),
+      },
+    },
+    async (req, reply) => {
+      const { exp, sig, ...rest } = req.query;
+      const want = Buffer.from(linkSignature(ctx.config.APP_SECRET, req.params.rid, exp));
+      const got = Buffer.from(sig);
+      if (exp * 1000 < Date.now() || want.length !== got.length || !timingSafeEqual(want, got)) throw forbidden('This link is no longer valid');
+      const [row] = await ctx.db
+        .select({ rec: schema.recordings, slug: schema.stations.slug })
+        .from(schema.recordings)
+        .innerJoin(schema.stations, eq(schema.stations.id, schema.recordings.stationId))
+        .where(eq(schema.recordings.id, req.params.rid));
+      if (!row) throw notFound('Recording');
+      return sendRecording(app.nodes, reply, row.rec, row.slug, { range: req.headers.range, ...rest });
+    },
+  );
+};
+
 /**
  * Recordings of a station (phase 21): what recorder nodes record of it, the files they have, and listening back or
  * downloading them. The audio stays on the recorder; it is fetched from there when asked for. Mounted under
@@ -95,11 +238,6 @@ export const stationRecordingRoutes: FastifyPluginAsyncZod = async (app) => {
   const { ctx } = app;
   const hub = app.nodes;
 
-  async function recordersOf(station: typeof schema.stations.$inferSelect) {
-    const rows = await ctx.db.select().from(schema.nodes).where(and(isNotNull(schema.nodes.pairedAt), sql`'recorder' = any(${schema.nodes.roles})`)).orderBy(asc(schema.nodes.name));
-    return rows.filter((n) => serves(n, station) && recordedStations(nodeSettings(n), [station]).length > 0);
-  }
-
   app.get(
     '/:id/recording',
     { schema: { tags: ['Recordings'], summary: 'What recorder nodes record of the station, and its logging settings', params, response: { 200: recordingOut } } },
@@ -107,7 +245,7 @@ export const stationRecordingRoutes: FastifyPluginAsyncZod = async (app) => {
       const { station, tenant, access } = await stationAccess(ctx, req, req.params.id, 'manager');
       const auth = requireUser(req);
       const superadmin = auth.user.isSuperadmin && !auth.keyTenantId;
-      const recorders = (await recordersOf(station)).map((n) => {
+      const recorders = (await recordersOf(ctx, station)).map((n) => {
         const status = hub.liveStatus(n.id);
         const mine = status?.recorder?.stations.filter((s) => s.stationId === station.id) ?? [];
         const log = mine.find((s) => s.kind === 'log');
@@ -264,53 +402,15 @@ export const stationRecordingRoutes: FastifyPluginAsyncZod = async (app) => {
     {
       schema: {
         tags: ['Recordings'],
-        summary: 'Listen to or download a recording (fetched from the recorder node; supports Range for seeking)',
+        summary: 'Listen to or download a recording (fetched from the recorder node; supports Range for seeking). With from/to (seconds) only that part, as a download.',
         params: recParams,
-        querystring: z.object({ download: z.coerce.boolean().default(false) }),
+        querystring: sectionQuery,
       },
     },
     async (req, reply) => {
       const { station } = await stationAccess(ctx, req, req.params.id, 'manager');
       const rec = await recordingOf(station.id, req.params.rid);
-      if (!hub.isOnline(rec.nodeId)) return reply.status(503).header('retry-after', '30').send({ error: { code: 'recorder_offline', message: 'The recorder that has this recording is offline' } });
-      const range = parseRange(req.headers.range);
-      const fetchPart = (start: number, end: number | null) => hub.fetchRecording(rec.nodeId, rec.file, start, end);
-      const ext = rec.file.slice(rec.file.lastIndexOf('.') + 1);
-      const name = `${station.slug}_${rec.kind === 'show' ? 'show_' : ''}${rec.startedAt.toISOString().slice(0, 16).replace('T', '_').replace(':', '-')}Z.${ext}`;
-      reply.header('accept-ranges', 'bytes').header('cache-control', 'private, no-store').header('content-type', rec.contentType);
-      if (req.query.download) reply.header('content-disposition', `attachment; filename="${name}"`);
-      let first: RecordingPart;
-      try {
-        // A player asks for "bytes=0-" and seeks with later starts: it gets one part at a time.
-        first = await fetchPart(range?.start ?? 0, range ? Math.min(range.end ?? Infinity, range.start + RECORDING_PART) : RECORDING_PART);
-      } catch (err) {
-        const message = (err as Error).message;
-        if (/Outside the recording/.test(message)) return reply.status(416).header('content-range', `bytes */${rec.sizeBytes}`).send();
-        return reply.status(502).send({ error: { code: 'recorder_error', message } });
-      }
-      if (range) {
-        reply.status(206).header('content-range', `bytes ${first.start}-${first.start + first.length - 1}/${first.size}`).header('content-length', first.length);
-        return reply.send(first.body);
-      }
-      // The whole file: the first part, then the next ones, one after the other.
-      const out = new PassThrough();
-      reply.header('content-length', first.size);
-      void (async () => {
-        let part: RecordingPart | null = first;
-        let at = 0;
-        try {
-          while (part) {
-            await pipeline(part.body, out, { end: false });
-            at = part.start + part.length;
-            part = at < first.size ? await fetchPart(at, Math.min(first.size, at + RECORDING_PART)) : null;
-          }
-          out.end();
-        } catch (err) {
-          part?.body.destroy();
-          out.destroy(err as Error);
-        }
-      })();
-      return reply.send(out);
+      return sendRecording(hub, reply, rec, station.slug, { range: req.headers.range, ...req.query });
     },
   );
 };

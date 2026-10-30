@@ -244,3 +244,20 @@ export interface StudioReleases {
   test: StudioRelease | null;
   error: string | null;
 }
+
+/** Recording of live shows (phase 21 step 4). */
+export interface LiveRecording {
+  recorder: boolean;
+  showsByDefault: boolean;
+  live: { sessionId: string; accountName: string; startedAt: string; record: boolean; chosen: boolean; recording: boolean }[];
+}
+export interface ShowRecording {
+  id: string;
+  dj: string | null;
+  startedAt: string;
+  durationSeconds: number;
+  sizeBytes: number;
+  open: boolean;
+  available: boolean;
+  onDemand: boolean;
+}

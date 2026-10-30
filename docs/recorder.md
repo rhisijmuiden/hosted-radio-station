@@ -76,6 +76,15 @@ Layout at the destination, times in UTC:
 active destination that takes it has it, and a show is an on-demand item when the station wants that. It is then no
 longer listed under Recordings; listen back from the destination.
 
+### In RHIS Studio
+
+On the **Live** screen a **Recording** card shows whether the show is recorded. At Go live it is when the station
+records shows; the DJ can **Stop recording** during the show (what was recorded so far is kept) and **Start
+recording** again, which records a new part. When a station does not record shows by itself, a DJ starts the
+recording of their own show here. The choice holds for that one broadcast. The new screen **Recordings** lists the
+shows of the last month to play or download: a DJ sees their own shows, a manager all of the station. RHIS Studio
+plays and downloads with a link that works for six hours, so the API key never leaves the app.
+
 ## Shows on demand
 
 With *Make shows available on demand* (on by default), a show becomes an on-demand item of the station two minutes
@@ -105,6 +114,16 @@ every song with its start time, and whether a DJ was live (with the DJ's name) o
 song jumps there. The running hour can be played too; its play log fills while it runs. **Download** saves the hour
 as an MP3 file. A file can only be played while its recorder is online.
 
+**Download a part**, under the player, saves only a section of a file or show: type a start and an end (m:ss or
+h:mm:ss) or take them from where the player is. The orchestrator cuts the part without encoding again.
+
+## Cutting an on-demand item
+
+Under **Public page → On demand** the scissors cut an item down to a start and an end, for example the talk before
+the show really began. The player in the dialog sets both from where it is, and *Listen* plays from the start or the
+last five seconds before the end. The file is cut without encoding again and replaced, so it cannot be undone. An
+item that is still being recorded cannot be cut.
+
 ## Files on the recorder
 
 `/var/lib/hrs-node/recordings/<station id>/log/2026-10-29_21-00-00Z_64k.mp3`: the start of the file in UTC and its
@@ -118,7 +137,13 @@ orchestrator keeps it in the `recordings` table.
 - `GET /api/stations/:id/recordings?from=…&to=…&kind=log|show`: the files between two moments (at most 32 days).
 - `GET /api/stations/:id/recordings/:rid/songs`: the play log of a file.
 - `GET /api/stations/:id/recordings/:rid/audio`: the audio, with `Range` for seeking; `?download=1` for the whole file
-  as an attachment.
+  as an attachment, `?from=…&to=…` (seconds) for only that part, as an attachment.
+- `POST /api/stations/:id/ondemand/:itemId/trim` `{from, to}`: cut an on-demand item (manager).
+- RHIS Studio: `GET /api/studio/stations/:id/recording` (is there a recorder, and the running broadcasts you may
+  start or stop recording), `PUT /api/studio/stations/:id/live/:sessionId/recording` `{record}`,
+  `GET /api/studio/stations/:id/recordings` (shows of the last 31 days; a DJ gets their own) and
+  `POST /api/studio/stations/:id/recordings/:rid/link` (a link without sign-in, valid six hours, served at
+  `GET /api/recordings/:rid/audio?exp=…&sig=…`; add `&download=1`, or `&from=…&to=…`).
 - `GET/POST /api/stations/:id/recording/destinations`, `PUT/DELETE …/destinations/:did`: upload destinations (secrets
   are masked in answers; send the mask back to keep them). `POST …/destinations/test` checks one before or after
   saving, `POST …/destinations/:did/retry` tries the failed uploads again now. `POST /api/stations/:id/recording/onedrive/device-code`

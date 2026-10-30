@@ -36,6 +36,13 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 - Recordings, after testing step 3: a new upload destination no longer takes logging hours that had already ended
   when it was added, and a logging recording no longer breaks into a new file with a few seconds missing when a DJ
   goes off air (it connects again at once when the stream ends).
+- Recorder node, step 4: recording in RHIS Studio and cutting in the panel. The **Live** screen of RHIS Studio 0.22 gets a
+  **Recording** card: the show is recorded from Go live when the station records shows, and the DJ can stop the
+  recording early or start it again (a new part), or start it when the station does not record by itself. A new
+  Studio screen **Recordings** lists the shows of the last month to play or download (a DJ sees their own). In the
+  panel, **Download a part** under the recordings player saves only a section of an hour or show, and the scissors
+  under **Public page → On demand** cut an item down to a start and an end, both without encoding again.
+  See [recorder](docs/recorder.md#in-rhis-studio).
 
 ## 1.5.0 (29 October 2026)
 

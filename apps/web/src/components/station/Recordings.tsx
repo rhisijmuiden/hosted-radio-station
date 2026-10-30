@@ -19,6 +19,12 @@ const length = (s: number) => {
 };
 /** "2026-10-29" for a date in the browser's time zone. */
 const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+/** "1:02:03" or "12:30" or "75" to seconds; null when it is not a time. */
+export const parseClock = (v: string) => {
+  const parts = v.trim().split(':');
+  if (!parts.length || parts.length > 3 || parts.some((p) => !/^\d+(\.\d+)?$/.test(p))) return null;
+  return parts.reduce((n, p) => n * 60 + Number(p), 0);
+};
 const audioUrl = (stationId: string, f: RecordingFile, download = false) => `/api/stations/${stationId}/recordings/${f.id}/audio${download ? '?download=1' : ''}`;
 
 /** Logging settings and the recorder nodes that record the station. */
@@ -213,8 +219,52 @@ function Player({ station, file }: { station: StationDetail; file: RecordingFile
             ))}
           </ol>
         )}
+        {!file.open && <SectionDownload station={station} file={file} position={() => ref.current?.currentTime ?? 0} />}
       </div>
     </Card>
+  );
+}
+
+/** Download only a part of a recording: a start and an end, typed or taken from where the player is. */
+function SectionDownload({ station, file, position }: { station: StationDetail; file: RecordingFile; position: () => number }) {
+  const { t } = useTranslation();
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const a = parseClock(from);
+  const b = parseClock(to);
+  const valid = a !== null && b !== null && b > a && a < file.durationSeconds;
+  const href = valid ? `/api/stations/${station.id}/recordings/${file.id}/audio?from=${a}&to=${Math.min(b, file.durationSeconds)}` : undefined;
+  const mark = (set: (v: string) => void) => set(length(Math.floor(position())));
+  return (
+    <div className="rounded-md border border-line px-4 py-3">
+      <div className="text-[13px] font-semibold">{t('recordings.section')}</div>
+      <p className="mt-0.5 text-xs text-muted">{t('recordings.sectionHint')}</p>
+      <div className="mt-3 flex flex-wrap items-end gap-3">
+        <Field label={t('recordings.sectionFrom')}>
+          <div className="flex gap-1.5">
+            <Input className="w-28 font-mono" value={from} placeholder="0:00" onChange={(e) => setFrom(e.target.value)} aria-invalid={!!from && a === null} />
+            <Button size="sm" variant="ghost" onClick={() => mark(setFrom)} title={t('recordings.sectionMarkHint')}>
+              {t('recordings.sectionMark')}
+            </Button>
+          </div>
+        </Field>
+        <Field label={t('recordings.sectionTo')}>
+          <div className="flex gap-1.5">
+            <Input className="w-28 font-mono" value={to} placeholder={length(file.durationSeconds)} onChange={(e) => setTo(e.target.value)} aria-invalid={!!to && b === null} />
+            <Button size="sm" variant="ghost" onClick={() => mark(setTo)} title={t('recordings.sectionMarkHint')}>
+              {t('recordings.sectionMark')}
+            </Button>
+          </div>
+        </Field>
+        <a
+          href={href}
+          aria-disabled={!valid}
+          className={clsx('inline-flex h-9 items-center gap-2 rounded-md border border-line bg-raised px-3 text-sm font-semibold hover:bg-hover', !valid && 'pointer-events-none opacity-50')}
+        >
+          <Download className="size-4" /> {valid ? t('recordings.sectionDownload', { length: length(Math.round(Math.min(b, file.durationSeconds) - a)) }) : t('recordings.sectionDownloadIdle')}
+        </a>
+      </div>
+    </div>
   );
 }
 
