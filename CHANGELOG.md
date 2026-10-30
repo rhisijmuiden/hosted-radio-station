@@ -47,6 +47,12 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   longer thrown away one by one as too short. The recorder keeps them until the broadcast ends and then measures the
   whole show against *Shortest show to keep* (needs the recorder's node agent from this release).
 - The time fields of the cut dialog (on demand) and of *Download a part* no longer get squeezed.
+- Recorder node, step 5: music reports. The station page **Music reports** downloads the music of a period as CSV:
+  every play (date, time, duration, artist, title, composer, album, label, ISRC, AutoDJ or live with the DJ,
+  listeners and listening hours) for Buma/Stemra, and the plays per recording (plays, total duration, listening
+  hours) for SENA, with a preview that counts plays without ISRC or composer. The library now reads composer and
+  label from the tags (editable per track; existing files are read once more on the next scan). Also in the API.
+  See [recorder](docs/recorder.md#music-reports).
 - Manage view in RHIS Studio (phase 24, step 1): RHIS Studio 0.23 gets a third view **Manage** next to Classic and
   OmniPlayer in the layout menu (Ctrl+1, Ctrl+2, Ctrl+3), for the managers and owners of a Radio station. A menu on the
   left (Station, AutoDJ, Network, People) and the track on air in a bar at the bottom, with a way back to the player.
