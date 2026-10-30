@@ -530,6 +530,14 @@ A node role that only records: radio logging and recordings of live shows, dedic
 - Reports: a CSV export per period for auditing and rights reporting (Buma/Stemra, SENA): how often each song played, when, and for how long. Also in the API.
 - The customer listens back, downloads and cuts recordings in their own panel; storage and retention are set per package.
 
+Step 1 (logging) on test, tested with a recorder node recording Radio Schermer:
+
+| | |
+|---|---|
+| ![Recorder node: what it records per station, and its disk](docs/screenshots/phase-21-recorder-node-final-light-en.png) | ![Recorder node, dark, Dutch](docs/screenshots/phase-21-recorder-node-final-dark-nl.png) |
+| ![Station page Recordings: logging settings and the day archive](docs/screenshots/phase-21-rs-recordings-final-light-en.png) | ![Recordings, dark, Dutch](docs/screenshots/phase-21-rs-recordings-final-dark-nl.png) |
+| ![Listening back an hour with its play log](docs/screenshots/phase-21-rs-player-final-light-en.png) | ![The running hour, still recording](docs/screenshots/phase-21-rs-recordings-live-light-en.png) |
+
 ### Phase 22: Packaged installers and moving the orchestrator
 
 Building on phase 16, make deploying and growing a network a matter of downloads and clicks.
