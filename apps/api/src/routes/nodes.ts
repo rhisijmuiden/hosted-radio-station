@@ -99,7 +99,7 @@ const statusOut = z
     /** Recorder (phase 21): what it records per station, and its disk. */
     recorder: z
       .object({
-        stations: z.array(z.object({ stationId: z.string(), kind: z.literal('log'), state: z.enum(['starting', 'recording', 'waiting', 'error']), message: z.string().optional(), since: z.string().optional() })),
+        stations: z.array(z.object({ stationId: z.string(), kind: z.enum(['log', 'show']), sessionId: z.string().optional(), state: z.enum(['starting', 'recording', 'waiting', 'error']), message: z.string().optional(), since: z.string().optional() })),
         disk: z.object({ totalBytes: z.number(), freeBytes: z.number(), usedBytes: z.number() }).nullable(),
       })
       .nullish(),

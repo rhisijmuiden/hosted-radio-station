@@ -1103,7 +1103,7 @@ export interface NodeStatus {
 
 /** What a recorder node reports (phase 21). */
 export interface NodeRecorderStatus {
-  stations: { stationId: string; kind: 'log'; state: 'starting' | 'recording' | 'waiting' | 'error'; message?: string; since?: string }[];
+  stations: { stationId: string; kind: 'log' | 'show'; sessionId?: string; state: 'starting' | 'recording' | 'waiting' | 'error'; message?: string; since?: string }[];
   disk: { totalBytes: number; freeBytes: number; usedBytes: number } | null;
 }
 
@@ -1253,7 +1253,7 @@ export const nodeProbes = pgTable(
 );
 
 /**
- * A file on a recorder node (phase 21), as the node reported it: an hour of logging (`log`). The audio stays on the
+ * A file on a recorder node (phase 21), as the node reported it: an hour of logging (`log`) or a live show. The audio stays on the
  * node; the panel fetches it from there when someone listens or downloads. `file` is relative to the node's recordings
  * folder. Rows go away when the node no longer has the file (retention, or the station left the node).
  */
@@ -1263,8 +1263,11 @@ export const recordings = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     nodeId: uuid('node_id').notNull().references(() => nodes.id, { onDelete: 'cascade' }),
     stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    /** log = an hour of logging, show = a live broadcast (step 2). */
     kind: text('kind').notNull(),
     file: text('file').notNull(),
+    /** A show: the live broadcast (live_sessions.id) it records. */
+    sessionId: uuid('session_id'),
     contentType: text('content_type').notNull(),
     startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
     durationSeconds: integer('duration_seconds').notNull().default(0),

@@ -225,6 +225,13 @@
       "when": 1793358000000,
       "tag": "0032_recorder_node",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1793361600000,
+      "tag": "0033_recorder_shows",
+      "breakpoints": true
     }
   ]
 }

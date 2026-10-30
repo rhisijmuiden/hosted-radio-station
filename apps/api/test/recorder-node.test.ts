@@ -54,13 +54,15 @@ describe('recorder node (phase 21)', () => {
     const plan = await buildPlan(t.ctx, await nodeRow(recorder));
     expect(plan.roles).toEqual(['recorder']);
     expect(plan.relay).toBeNull();
-    expect(plan.recorder!.stations).toEqual([{ stationId, slug: 'test-fm', name: 'Test FM', logging: { url: expect.stringMatching(/\/api\/public\/stations\/test-fm\/listen\/live$/), kbps: 64, days: 31 } }]);
+    expect(plan.recorder!.stations).toEqual([
+      { stationId, slug: 'test-fm', name: 'Test FM', logging: { url: expect.stringMatching(/\/api\/public\/stations\/test-fm\/listen\/live$/), kbps: 64, days: 31 }, shows: { days: 90, minMinutes: 2, live: [] } },
+    ]);
   });
 
   it('follows the station settings, and leaves logging out when it is off', async () => {
     const put = await t.app.inject({ method: 'PUT', url: `/api/stations/${stationId}/recording`, headers: admin, payload: { loggingKbps: 32, loggingDays: 7 } });
     expect(put.statusCode).toBe(200);
-    expect(put.json()).toEqual({ logging: true, loggingKbps: 32, loggingDays: 7 });
+    expect(put.json()).toMatchObject({ logging: true, loggingKbps: 32, loggingDays: 7, shows: true });
     expect((await buildPlan(t.ctx, await nodeRow(recorder))).recorder!.stations[0]!.logging).toMatchObject({ kbps: 32, days: 7 });
     expect((await t.app.inject({ method: 'PUT', url: `/api/stations/${stationId}/recording`, headers: admin, payload: { loggingKbps: 50 } })).statusCode).toBe(400);
     await t.app.inject({ method: 'PUT', url: `/api/stations/${stationId}/recording`, headers: admin, payload: { logging: false } });
@@ -177,6 +179,29 @@ describe('recorder node (phase 21)', () => {
       payload: Buffer.from('abc'),
     });
     expect(stray.statusCode).toBe(410);
+  });
+
+  it('records a live show while it is on air, and lists it with the DJ', async () => {
+    await t.db.update(schema.liveSessions).set({ endedAt: new Date() }).where(eq(schema.liveSessions.stationId, stationId));
+    const [session] = await t.db.insert(schema.liveSessions).values({ stationId, mountPath: '/live', accountName: 'DJ Show', via: 'tls', startedAt: new Date() }).returning();
+    // One left over from long ago (an encoder that never said goodbye) is not recorded.
+    await t.db.insert(schema.liveSessions).values({ stationId, mountPath: '/live', accountName: 'Ghost', via: 'tls', startedAt: new Date(Date.now() - 3 * 86400_000) });
+    let st = (await buildPlan(t.ctx, await nodeRow(recorder))).recorder!.stations[0]!;
+    expect(st.shows!.live).toEqual([{ sessionId: session!.id, dj: 'DJ Show', startedAt: session!.startedAt.toISOString(), url: expect.stringMatching(/\/listen\/live$/), format: 'mp3', kbps: 192 }]);
+    await t.app.inject({ method: 'PUT', url: `/api/stations/${stationId}/recording`, headers: admin, payload: { shows: false } });
+    expect((await buildPlan(t.ctx, await nodeRow(recorder))).recorder!.stations[0]!.shows).toBeNull();
+    await t.app.inject({ method: 'PUT', url: `/api/stations/${stationId}/recording`, headers: admin, payload: { shows: true, showsMinMinutes: 5 } });
+
+    const show = { stationId, kind: 'show', sessionId: session!.id, file: `${stationId}/show/2026-10-29_21-04-13Z_128k_${session!.id}.mp3`, startedAt: '2026-10-29T21:04:13.000Z', seconds: 1800, bytes: 28_800_000, open: false };
+    expect((await report([logFile(stationId, 21), show])).statusCode).toBe(200);
+    const shows = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/recordings?kind=show&from=2026-10-29T00:00:00.000Z&to=2026-10-30T00:00:00.000Z`, headers: admin })).json();
+    expect(shows).toEqual([expect.objectContaining({ kind: 'show', dj: 'DJ Show', durationSeconds: 1800 })]);
+    // A show in another station's folder is refused.
+    await report([{ ...show, file: `${otherStation}/show/2026-10-29_21-04-13Z_128k_${session!.id}.mp3` }]);
+    expect(await t.db.select().from(schema.recordings).where(eq(schema.recordings.kind, 'show'))).toHaveLength(0);
+    await t.db.update(schema.liveSessions).set({ endedAt: new Date() }).where(eq(schema.liveSessions.stationId, stationId));
+    st = (await buildPlan(t.ctx, await nodeRow(recorder))).recorder!.stations[0]!;
+    expect(st.shows!.live).toEqual([]);
   });
 
   it('reads Range headers', () => {

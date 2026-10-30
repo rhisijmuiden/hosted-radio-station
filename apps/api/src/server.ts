@@ -17,6 +17,7 @@ const stopTasks = startBackgroundTasks(ctx, app.log);
 await client.listen(NOWPLAYING_CHANNEL, (stationId) => {
   app.nowPlaying.notify(stationId);
   app.nodes.fmNotify(stationId);
+  app.nodes.recorderNotify(stationId);
 });
 // Stations, mounts or domains changed: nodes get a new plan when it affects them.
 await client.listen(STREAMS_CHANNEL, () => void app.nodes.refreshAll());

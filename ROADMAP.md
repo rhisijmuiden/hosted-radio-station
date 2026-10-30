@@ -204,8 +204,8 @@ One thing at a time; each item starts when the previous one is finished and test
    **Release 1.5.0** (29 October 2026): item 7 and the small fixes (PRs #159 and #166–#171) go to `main` as one release.
 8. **Phase 21: Recorder node** (in progress): recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download. In steps:
    1. The role **Recorder**, linked to stations, with continuous logging in files of one hour (bitrate and retention per station), the play log, and the station page **Recordings** to listen back and download. *On test.*
-   2. Live shows: the station node (or ingest) signals the start and end of Go Live or an encoder; the recorder records the show in high quality straight from the station node, one file per show, offered as an on-demand item.
-   3. Upload targets per station: OneDrive or FTP/FTPS/SFTP, with retries and the option to delete the local copy after a confirmed upload.
+   2. Live shows: when a broadcast starts or ends (Go Live or an encoder) the recorder starts or stops recording the show, as it is sent and in full quality, one file per show, listed under Recordings → Live shows. Taken from the nearest relay, which carries exactly the bytes the station node sends (chosen 30 October 2026; no extra port on the station node). *On test.*
+   3. Upload targets per station: OneDrive or FTP/FTPS/SFTP, with retries and the option to delete the local copy after a confirmed upload; a show offered as an on-demand item (listen again) on the public page, which needs the file on the station's own server (moved here from step 2).
    4. RHIS Studio: start/stop controls and the list of recordings; cutting a recording in the panel.
    5. Reports: CSV per period for Buma/Stemra and SENA, also in the API.
 

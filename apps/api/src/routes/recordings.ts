@@ -30,6 +30,8 @@ const recorderOut = z.object({
   /** What it does with this station now; null = it does not report it (offline, or logging is off). */
   state: z.enum(['starting', 'recording', 'waiting', 'error']).nullable(),
   message: z.string().nullable(),
+  /** It records a live show of this station right now. */
+  recordingShow: z.boolean(),
   disk: z.object({ totalBytes: z.number(), freeBytes: z.number(), usedBytes: z.number() }).nullable(),
 });
 const recordingOut = z.object({
@@ -43,7 +45,9 @@ const fileOut = z.object({
   id: z.uuid(),
   nodeId: z.uuid(),
   nodeName: z.string(),
-  kind: z.literal('log'),
+  kind: z.enum(['log', 'show']),
+  /** A show: who was live (the DJ account or the studio). */
+  dj: z.string().nullable(),
   startedAt: z.date(),
   durationSeconds: z.number(),
   sizeBytes: z.number(),
@@ -95,8 +99,19 @@ export const stationRecordingRoutes: FastifyPluginAsyncZod = async (app) => {
       const superadmin = auth.user.isSuperadmin && !auth.keyTenantId;
       const recorders = (await recordersOf(station)).map((n) => {
         const status = hub.liveStatus(n.id);
-        const mine = status?.recorder?.stations.find((s) => s.stationId === station.id);
-        return { id: n.id, name: n.name, location: n.location, online: !!status, own: n.tenantId === tenant.id, state: mine?.state ?? null, message: mine?.message ?? null, disk: status?.recorder?.disk ?? null };
+        const mine = status?.recorder?.stations.filter((s) => s.stationId === station.id) ?? [];
+        const log = mine.find((s) => s.kind === 'log');
+        return {
+          id: n.id,
+          name: n.name,
+          location: n.location,
+          online: !!status,
+          own: n.tenantId === tenant.id,
+          state: log?.state ?? null,
+          message: log?.message ?? null,
+          recordingShow: mine.some((s) => s.kind === 'show' && s.state === 'recording'),
+          disk: status?.recorder?.disk ?? null,
+        };
       });
       return { settings: stationRecording(station), recorders, bitrates: [...LOGGING_BITRATES], canEdit: superadmin || access.role === 'owner' || access.role === 'manager' };
     },
@@ -125,7 +140,7 @@ export const stationRecordingRoutes: FastifyPluginAsyncZod = async (app) => {
         tags: ['Recordings'],
         summary: 'Files on the recorder nodes of the station between two moments (default: the last 24 hours)',
         params,
-        querystring: z.object({ from: z.iso.datetime().optional(), to: z.iso.datetime().optional(), kind: z.literal('log').default('log') }),
+        querystring: z.object({ from: z.iso.datetime().optional(), to: z.iso.datetime().optional(), kind: z.enum(['log', 'show']).default('log') }),
         response: { 200: z.array(fileOut) },
       },
     },
@@ -136,18 +151,20 @@ export const stationRecordingRoutes: FastifyPluginAsyncZod = async (app) => {
       if (to.getTime() - from.getTime() > 32 * 86400_000) throw badRequest('Ask for at most 32 days at a time');
       const r = schema.recordings;
       const rows = await ctx.db
-        .select({ rec: r, nodeName: schema.nodes.name })
+        .select({ rec: r, nodeName: schema.nodes.name, dj: schema.liveSessions.accountName })
         .from(r)
         .innerJoin(schema.nodes, eq(schema.nodes.id, r.nodeId))
+        .leftJoin(schema.liveSessions, eq(schema.liveSessions.id, r.sessionId))
         // Files that overlap the period: started before its end, and ended (start + length) after its start.
         .where(and(eq(r.stationId, station.id), eq(r.kind, req.query.kind), lt(r.startedAt, to), sql`${r.startedAt} + make_interval(secs => ${r.durationSeconds}) > ${from.toISOString()}::timestamptz`))
         .orderBy(asc(r.startedAt))
         .limit(2000);
-      return rows.map(({ rec, nodeName }) => ({
+      return rows.map(({ rec, nodeName, dj }) => ({
         id: rec.id,
         nodeId: rec.nodeId,
         nodeName,
-        kind: 'log' as const,
+        kind: rec.kind === 'show' ? ('show' as const) : ('log' as const),
+        dj: rec.kind === 'show' ? (dj ?? null) : null,
         startedAt: rec.startedAt,
         durationSeconds: rec.durationSeconds,
         sizeBytes: rec.sizeBytes,
@@ -215,7 +232,8 @@ export const stationRecordingRoutes: FastifyPluginAsyncZod = async (app) => {
       if (!hub.isOnline(rec.nodeId)) return reply.status(503).header('retry-after', '30').send({ error: { code: 'recorder_offline', message: 'The recorder that has this recording is offline' } });
       const range = parseRange(req.headers.range);
       const fetchPart = (start: number, end: number | null) => hub.fetchRecording(rec.nodeId, rec.file, start, end);
-      const name = `${station.slug}_${rec.startedAt.toISOString().slice(0, 16).replace('T', '_').replace(':', '-')}Z.mp3`;
+      const ext = rec.file.slice(rec.file.lastIndexOf('.') + 1);
+      const name = `${station.slug}_${rec.kind === 'show' ? 'show_' : ''}${rec.startedAt.toISOString().slice(0, 16).replace('T', '_').replace(':', '-')}Z.${ext}`;
       reply.header('accept-ranges', 'bytes').header('cache-control', 'private, no-store').header('content-type', rec.contentType);
       if (req.query.download) reply.header('content-disposition', `attachment; filename="${name}"`);
       let first: RecordingPart;

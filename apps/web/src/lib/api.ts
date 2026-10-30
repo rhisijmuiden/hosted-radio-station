@@ -1030,7 +1030,7 @@ export interface NodeStatus {
   /** The node's own firewall as the node reports it (security hardening for external nodes). */
   firewall?: { state: string; message?: string; foreign?: string[]; ports?: { ssh: string[]; tcp: string[]; udp: string[] }; ssh?: { from: string[]; limit: boolean; password: string }; at?: string } | null;
   /** Recorder (phase 21): what it records per station, and its disk. */
-  recorder?: { stations: { stationId: string; kind: 'log'; state: RecorderState; message?: string; since?: string }[]; disk: RecorderDisk | null } | null;
+  recorder?: { stations: { stationId: string; kind: 'log' | 'show'; sessionId?: string; state: RecorderState; message?: string; since?: string }[]; disk: RecorderDisk | null } | null;
   updatedAt?: string;
 }
 export type RecorderState = 'starting' | 'recording' | 'waiting' | 'error';
@@ -1044,10 +1044,14 @@ export interface StationRecordingSettings {
   logging: boolean;
   loggingKbps: number;
   loggingDays: number;
+  /** Live shows (step 2): recorded as sent, kept showsDays days; shorter than showsMinMinutes = thrown away. */
+  shows: boolean;
+  showsDays: number;
+  showsMinMinutes: number;
 }
 export interface StationRecording {
   settings: StationRecordingSettings;
-  recorders: { id: string; name: string; location: string; online: boolean; own: boolean; state: RecorderState | null; message: string | null; disk: RecorderDisk | null }[];
+  recorders: { id: string; name: string; location: string; online: boolean; own: boolean; state: RecorderState | null; message: string | null; recordingShow: boolean; disk: RecorderDisk | null }[];
   bitrates: number[];
   canEdit: boolean;
 }
@@ -1055,7 +1059,9 @@ export interface RecordingFile {
   id: string;
   nodeId: string;
   nodeName: string;
-  kind: 'log';
+  kind: 'log' | 'show';
+  /** A show: who was live. */
+  dj: string | null;
   startedAt: string;
   durationSeconds: number;
   sizeBytes: number;
