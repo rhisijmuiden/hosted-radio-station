@@ -7,6 +7,7 @@ import { Header, Label } from '../components/manage/common';
 import { FoldersSection } from '../components/manage/Folders';
 import { PlaylistsSection } from '../components/manage/Playlists';
 import { RotationSection } from '../components/manage/Rotation';
+import { RoutingSection } from '../components/manage/Routing';
 import { ScheduleSection } from '../components/manage/Schedule';
 import { Button, Card, Spinner, Table } from '../components/ui';
 import type { NetworkNode, RundownRow, StationListItem } from '../lib/api';
@@ -28,9 +29,9 @@ const GROUPS: { key: string; items: Section[] }[] = [
 ];
 
 /** Where each section lives in the web panel, until Studio has it itself. */
-const PANEL_TAB: Partial<Record<Section, string>> = { routing: 'routing', people: 'accounts' };
+const PANEL_TAB: Partial<Record<Section, string>> = { people: 'accounts' };
 /** The sections Studio has itself. */
-const BUILT: Section[] = ['overview', 'nodes', 'clocks', 'schedule', 'playlists', 'rotation', 'folders'];
+const BUILT: Section[] = ['overview', 'nodes', 'clocks', 'schedule', 'playlists', 'rotation', 'folders', 'routing'];
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
 const healthy = (n: NetworkNode) => n.state === 'online' || n.state === 'standby';
@@ -324,6 +325,7 @@ export function ManageView({ station }: { station: StationListItem }) {
           {section === 'playlists' && <PlaylistsSection station={station} />}
           {section === 'rotation' && <RotationSection station={station} />}
           {section === 'folders' && <FoldersSection station={station} />}
+          {section === 'routing' && <RoutingSection station={station} />}
           {!BUILT.includes(section) && <InPanel station={station} section={section} />}
         </div>
       </div>
