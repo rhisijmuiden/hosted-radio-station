@@ -538,6 +538,25 @@ Step 1 (logging) on test, tested with a recorder node recording Radio Schermer:
 | ![Station page Recordings: logging settings and the day archive](docs/screenshots/phase-21-rs-recordings-final-light-en.png) | ![Recordings, dark, Dutch](docs/screenshots/phase-21-rs-recordings-final-dark-nl.png) |
 | ![Listening back an hour with its play log](docs/screenshots/phase-21-rs-player-final-light-en.png) | ![The running hour, still recording](docs/screenshots/phase-21-rs-recordings-live-light-en.png) |
 
+Step 2 (live shows) on test, tested with a test encoder on Radio Schermer:
+
+| | |
+|---|---|
+| ![Live shows while a DJ is on air](docs/screenshots/phase-21-step2-rs-live-shows-onair-light-en.png) | ![Live shows, dark, Dutch](docs/screenshots/phase-21-step2-rs-live-shows-onair-dark-nl.png) |
+| ![Live shows after the broadcast](docs/screenshots/phase-21-step2-rs-live-shows-final-light-en.png) | ![Live shows after the broadcast, dark, Dutch](docs/screenshots/phase-21-step2-rs-live-shows-final-dark-nl.png) |
+| ![Recorder node recording a show](docs/screenshots/phase-21-step2-recorder-node-onair-light-en.png) | ![Recorder node, dark, Dutch](docs/screenshots/phase-21-step2-recorder-node-onair-dark-nl.png) |
+| ![A show with its play log](docs/screenshots/phase-21-step2-rs-player-final-light-en.png) | ![Recordings with a show on air](docs/screenshots/phase-21-step2-rs-recordings-onair-light-en.png) |
+
+Step 3 (uploads, shows on demand) on test, tested with an SFTP destination:
+
+| | |
+|---|---|
+| ![Upload card with a destination](docs/screenshots/phase-21-step3-upload-card-final-light-en.png) | ![Upload card, dark, Dutch](docs/screenshots/phase-21-step3-upload-card-final-dark-nl.png) |
+| ![A failing destination waiting to retry](docs/screenshots/phase-21-step3-upload-card-failing-light-en.png) | ![Failing destination, dark, Dutch](docs/screenshots/phase-21-step3-upload-card-failing-dark-nl.png) |
+| ![Destination dialog](docs/screenshots/phase-21-step3-destination-dialog-light-en.png) | ![Destination dialog, dark, Dutch](docs/screenshots/phase-21-step3-destination-dialog-dark-nl.png) |
+| ![Live shows with upload and on-demand icons](docs/screenshots/phase-21-step3-shows-light-en.png) | ![Logging archive with upload icons, dark, Dutch](docs/screenshots/phase-21-step3-archive-dark-nl.png) |
+| ![The show as an on-demand draft](docs/screenshots/phase-21-step3-ondemand-draft-light-en.png) | ![On-demand draft, dark, Dutch](docs/screenshots/phase-21-step3-ondemand-draft-dark-nl.png) |
+
 ### Phase 22: Packaged installers and moving the orchestrator
 
 Building on phase 16, make deploying and growing a network a matter of downloads and clicks.
