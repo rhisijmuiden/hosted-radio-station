@@ -111,8 +111,16 @@ Ctrl+2 OmniPlayer). It sets up the station from Studio on the same data as the w
 - **Weekly schedule**: the week as a grid, each block in the colour of its hour clock (live shows in coral). Click an
   empty spot or **Add show** to add a block, click a block to change it, or drag it up or down to move it in steps of
   15 minutes. The schedule settings are below the grid.
-- **Playlists & categories**, **Rotation rules**, **Library folders**, **Audio routing** and **DJs & live access** come
-  into Studio in the next steps; until then each opens at the same place in the web panel.
+- **Playlists & categories**: the playlists that feed the rotation and the ones only hour clocks use (news, ads,
+  jingles). Add or edit one (folders, order, weight), switch it on or off, or delete it.
+- **Rotation rules**: the AutoDJ settings of the panel: on/off, tracks in the queue, artist and track separation,
+  crossfade, the mount it follows, normalise, pause while a DJ is live, requests, the prefix of the track codes and
+  tempo/key analysis. **Save** applies them, **Undo changes** goes back to what is saved.
+- **Library folders**: the folders of the station storage and every share, with their tracks and the playlists that
+  use them (orange: the folder itself, grey: through a parent folder). The list button on a row makes a new playlist
+  from that folder; **Scan for new files** looks for new, changed and removed files. Shares are managed in the panel.
+- **Audio routing** and **DJs & live access** come into Studio in the next steps; until then each opens at the same
+  place in the web panel.
 
 The bar at the bottom shows the track on air with its remaining time and goes back to the player. The view is kept in
 the DJ profile like the layout. It needs server 1.6 (the `manage` feature); with an older server, or for a DJ, the

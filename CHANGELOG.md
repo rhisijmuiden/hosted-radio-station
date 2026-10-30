@@ -77,6 +77,13 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   playlist, stop a recording, sign out) now wait for the answer. In the app they went ahead at once without asking.
   The hour clock editor gets a wider type list, a heading on its empty page, clearer help, and the clock's name no
   longer runs out of the middle of the donut.
+- Manage view, step 4: **Playlists & categories**, **Rotation rules** and **Library folders** in RHIS Studio.
+  Playlists are split into the rotation and the ones only hour clocks use; add, edit (folders, order, weight), switch
+  on or off and delete them, with the same form as the panel. Rotation rules has the AutoDJ settings of the panel
+  (on/off, queue depth, artist and track separation, crossfade, mount, normalise, pause while live, requests, track
+  code prefix, tempo and key) with **Save** and **Undo changes**. Library folders shows the folders of every location
+  with their tracks and the playlists that use them (directly or through a parent folder), makes a new playlist from
+  a folder in one click and starts a scan; shares are still managed in the web panel.
 
 ## 1.5.0 (29 October 2026)
 

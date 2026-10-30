@@ -314,6 +314,40 @@ export interface Playlist {
   averageSeconds: number | null;
   createdAt: string;
 }
+export type PlaylistFolder = Playlist['folders'][number];
+/** The folders of the library per location, from /stations/:id/library/folders. */
+export interface LibraryFolders {
+  locations: { id: string; name: string; type: 'storage' | 'local' | 'smb' | 'nfs'; tracks: number }[];
+  folders: { location: string; path: string; tracks: number }[];
+}
+/** Progress of the last library scan. */
+export interface ScanProgress {
+  running: boolean;
+  location: string | null;
+  found: number;
+  added: number;
+  updated: number;
+  removed: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+  errors: string[];
+}
+/** The rotation rules and sound of the AutoDJ (the settings of /stations/:id/autodj), as the web panel edits them. */
+export interface AutodjSettings {
+  enabled: boolean;
+  mountId: string | null;
+  crossfadeSeconds: number;
+  normalize: boolean;
+  rule: { mode: string; q1: number; q2: number };
+  queueDepth: number;
+  fill: { q1: boolean; q2: boolean };
+  artistSeparationMinutes: number;
+  trackSeparationMinutes: number;
+  pauseWhenLive: boolean;
+  codePrefix?: string;
+  analyse?: boolean;
+  requests: { fromLibrary: boolean; autoQueue: boolean; queue: string; repeatMinutes: number };
+}
 /** One item of an hour clock (phase 7). */
 export interface ClockItem {
   id: string;
