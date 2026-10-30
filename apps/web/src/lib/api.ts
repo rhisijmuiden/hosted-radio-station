@@ -725,6 +725,9 @@ export interface MediaFile {
   bpm?: number | null;
   /** "Am", "F#" or empty. */
   musicKey?: string;
+  /** Composers/writers and label for the music reports (null until read; missing on servers before 1.6). */
+  composer?: string | null;
+  label?: string | null;
   sizeBytes: number;
   enabled: boolean;
   edited: boolean;
@@ -1790,4 +1793,27 @@ export interface TelegramChat {
   id: string;
   name: string;
   type: string;
+}
+
+/** A music play for the rights reports (phase 21 step 5). */
+export interface RightsPlay {
+  startedAt: string;
+  endedAt: string | null;
+  date: string;
+  time: string;
+  durationSeconds: number;
+  artist: string;
+  title: string;
+  composer: string;
+  album: string;
+  label: string;
+  year: number | null;
+  isrc: string;
+  code: string;
+  source: 'autodj' | 'live';
+  dj: string | null;
+  mount: string;
+  avgListeners: number;
+  peakListeners: number;
+  listenerHours: number;
 }

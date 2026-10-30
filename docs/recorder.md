@@ -97,6 +97,28 @@ broadcast that already has an item (because *Record live broadcasts* on the publ
 gets no second one; the Recordings page warns when both are on. Shows that ended more than 7 days ago are not offered
 any more.
 
+## Music reports
+
+Station page **Audience → Music reports** (managers): the music the station played in a period, for the collecting
+societies. Choose a period (last month, last quarter, or any days; days run in the station's time zone) and download:
+
+- **Every play (CSV)**, for Buma/Stemra: date, time, duration, artist, title, composer, album, label, year, ISRC,
+  track code, AutoDJ or live (with the DJ), mount, average and peak listeners and listening hours.
+- **Per recording (CSV)**, for SENA: every recording (by ISRC, or by artist and title) with its number of plays,
+  total duration, listening hours, and first and last play.
+
+The plays are the titles that went on air (the same as in Statistics). When a title is a track of the station's
+library ("Artist - Title"), the report takes ISRC, composer, album and label from it; tracks a DJ plays live carry only
+the title the DJ sends. Composer and label are read from the tags (composer/lyricist, label/publisher) and can be
+corrected per track in the library; files from before this release are read once more on the next library scan.
+Plays shorter than 30 seconds (jingles) are left out by default. The preview counts the plays without ISRC or
+composer. Listening hours count the station's listeners minute by minute during the play; the same title on two
+source mounts at once is one play.
+
+API: `GET /api/stations/:id/reports/plays` and `…/reports/tracks` (JSON), `…/reports/plays.csv` and
+`…/reports/tracks.csv`, all with `?from=YYYY-MM-DD&to=YYYY-MM-DD` and optionally `&minSeconds=30`; a period of at most
+400 days.
+
 ## Disk space
 
 | Bitrate | Per hour | Per day | 31 days |

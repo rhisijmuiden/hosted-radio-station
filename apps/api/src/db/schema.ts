@@ -790,6 +790,9 @@ export const mediaFiles = pgTable(
     /** The station's own number for the track (e.g. HF-03007): given once when the file is first found, never reused. */
     code: text('code'),
     isrc: text('isrc').notNull().default(''),
+    /** Composers/writers and record label from the tags, for the rights reports (phase 21 step 5); null = not read yet. */
+    composer: text('composer'),
+    label: text('label'),
     /** Tempo and musical key ("Am", "F#"): from the tags, otherwise measured by the server (`analysedAt`). */
     bpm: doublePrecision('bpm'),
     musicKey: text('music_key').notNull().default(''),

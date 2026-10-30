@@ -58,6 +58,7 @@ import { listenFallbackRoutes, listenRedirectRoutes, nodeAgentRoutes, nodeRoutes
 import { orchestratorRoutes, stationConnectionRoutes } from './routes/orchestrator.js';
 import { recordingDestinationRoutes } from './routes/recording-destinations.js';
 import { recordingAgentRoutes, recordingLinkRoutes, stationRecordingRoutes } from './routes/recordings.js';
+import { reportRoutes } from './routes/reports.js';
 import { studioRecordingRoutes } from './routes/studio-recordings.js';
 import { stationNodeAgentRoutes, stationPlacementRoutes, tenantStationNodeRoutes } from './routes/station-nodes.js';
 import { stationNodeInternalRoutes } from './routes/station-node-internal.js';
@@ -255,6 +256,7 @@ export async function buildApp(ctx: AppContext) {
   await app.register(stationRoutingRoutes, { prefix: '/api/stations' });
   await app.register(stationConnectionRoutes, { prefix: '/api/stations' });
   await app.register(stationRecordingRoutes, { prefix: '/api/stations' });
+  await app.register(reportRoutes, { prefix: '/api/stations' });
   await app.register(recordingDestinationRoutes, { prefix: '/api/stations' });
   await app.register(recordingAgentRoutes, { prefix: '/api/nodes' });
   await app.register(tenantStationNodeRoutes, { prefix: '/api/tenants' });

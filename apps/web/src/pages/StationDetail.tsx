@@ -15,6 +15,7 @@ import { PlaylistsTab } from '../components/station/Playlists';
 import { OnDemandTab } from '../components/station/OnDemand';
 import { PublicPageTab } from '../components/station/PublicPage';
 import { RecordingsTab } from '../components/station/Recordings';
+import { ReportsTab } from '../components/station/Reports';
 import { RequestsTab, usePendingRequests } from '../components/station/Requests';
 import { RoutingCard } from '../components/station/Routing';
 import { ScheduleTab } from '../components/station/Schedule';
@@ -658,6 +659,7 @@ export function StationDetailPage() {
       {tab === 'requests' && <RequestsTab station={s} canEdit={manager} />}
       {tab === 'ondemand' && <OnDemandTab station={s} canEdit={manager} />}
       {tab === 'recordings' && <RecordingsTab station={s} />}
+      {tab === 'reports' && <ReportsTab station={s} />}
       {tab === 'settings' && <SettingsTab station={s} />}
     </>
   );

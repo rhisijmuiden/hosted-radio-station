@@ -83,6 +83,9 @@ const mediaOut = z.object({
   bpm: z.number().nullable(),
   /** "Am", "F#" or empty. */
   musicKey: z.string(),
+  /** Composers/writers and record label, for the rights reports; null until the tags were read for them. */
+  composer: z.string().nullable(),
+  label: z.string().nullable(),
   ...cuesOut.shape,
   sizeBytes: z.number(),
   enabled: z.boolean(),
@@ -1089,6 +1092,8 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
           bpm: z.number().min(40).max(250).nullable().optional(),
           /** "Am", "A minor", "8A" (Camelot) and the like; empty clears it. */
           musicKey: z.string().trim().max(20).optional(),
+          composer: z.string().trim().max(300).optional(),
+          label: z.string().trim().max(200).optional(),
           enabled: z.boolean().optional(),
           /** All five cue points at once; null clears one. */
           cues: z.object({ cueIn: cueSecond, cueIntro: cueSecond, cueSegue: cueSecond, cueFadeOut: cueSecond, cueOut: cueSecond }).optional(),

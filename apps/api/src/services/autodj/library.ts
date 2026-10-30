@@ -112,6 +112,8 @@ export interface Tags {
   isrc: string;
   bpm: number | null;
   musicKey: string;
+  composer: string;
+  label: string;
 }
 
 /** "Artist - Title.mp3" → artist and title; anything else → the file name as title. */
@@ -201,9 +203,11 @@ export async function readTags(full: string, path: string): Promise<Tags> {
       isrc: normaliseIsrc(c.isrc?.[0]),
       bpm: bpmOf(c.bpm),
       musicKey: normaliseKey(clean(c.key, 20)),
+      composer: clean([...new Set([...(c.composer ?? []), ...(c.lyricist ?? [])].map((x) => x.trim()).filter(Boolean))].join(' / '), 300),
+      label: clean(c.label?.[0] ?? c.publisher?.[0], 200),
     };
   } catch {
-    return { ...fallback, album: '', genre: '', year: null, durationSeconds: null, bitrateKbps: null, gainDb: null, isrc: '', bpm: null, musicKey: '' };
+    return { ...fallback, album: '', genre: '', year: null, durationSeconds: null, bitrateKbps: null, gainDb: null, isrc: '', bpm: null, musicKey: '', composer: '', label: '' };
   }
 }
 
@@ -251,7 +255,7 @@ async function scanLocation(ctx: AppContext, stationId: string, location: string
   const files = await walk(root, location === STORAGE ? NOT_MUSIC : new Set());
   p.found += files.length;
   const existing = await ctx.db
-    .select({ id: schema.mediaFiles.id, path: schema.mediaFiles.path, size: schema.mediaFiles.sizeBytes, mtime: schema.mediaFiles.mtimeMs, edited: schema.mediaFiles.edited })
+    .select({ id: schema.mediaFiles.id, path: schema.mediaFiles.path, size: schema.mediaFiles.sizeBytes, mtime: schema.mediaFiles.mtimeMs, edited: schema.mediaFiles.edited, composer: schema.mediaFiles.composer })
     .from(schema.mediaFiles)
     .where(and(eq(schema.mediaFiles.stationId, stationId), eq(schema.mediaFiles.location, location)));
   const byPath = new Map(existing.map((e) => [e.path, e]));
@@ -260,7 +264,8 @@ async function scanLocation(ctx: AppContext, stationId: string, location: string
   for (const f of files) {
     seen.add(f.path);
     const e = byPath.get(f.path);
-    if (!e || e.size !== f.size || e.mtime !== f.mtimeMs) work.push(f);
+    // Files from before composer and label were read get their tags read once more.
+    if (!e || e.size !== f.size || e.mtime !== f.mtimeMs || e.composer === null) work.push(f);
   }
   let batch: (typeof schema.mediaFiles.$inferInsert)[] = [];
   const flush = async () => {
@@ -287,8 +292,10 @@ async function scanLocation(ctx: AppContext, stationId: string, location: string
           isrc: sql`case when ${schema.mediaFiles.edited} then ${schema.mediaFiles.isrc} else excluded.isrc end`,
           bpm: sql`case when ${schema.mediaFiles.edited} then ${schema.mediaFiles.bpm} else excluded.bpm end`,
           musicKey: sql`case when ${schema.mediaFiles.edited} then ${schema.mediaFiles.musicKey} else excluded.music_key end`,
-          // A changed file is measured again.
-          analysedAt: null,
+          composer: sql`case when ${schema.mediaFiles.edited} and ${schema.mediaFiles.composer} is not null then ${schema.mediaFiles.composer} else excluded.composer end`,
+          label: sql`case when ${schema.mediaFiles.edited} and ${schema.mediaFiles.label} is not null then ${schema.mediaFiles.label} else excluded.label end`,
+          // A changed file is measured again (not one that is only read again for new tags).
+          analysedAt: sql`case when ${schema.mediaFiles.sizeBytes} = excluded.size_bytes and ${schema.mediaFiles.mtimeMs} = excluded.mtime_ms then ${schema.mediaFiles.analysedAt} else null end`,
           updatedAt: new Date(),
         },
       });
