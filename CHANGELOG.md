@@ -22,6 +22,9 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   a full disk. The Recordings page gets a **Live shows** list of the last month (play with the play log, download)
   and the settings *Record live shows*, *Keep shows for* and *Shortest show to keep*; a recorder that records a show
   now says so. Fix: the recording settings no longer jump back while you edit them.
+- Recordings, after testing step 2: the play log shows a line "<DJ> goes live" where a broadcast starts (also when the
+  encoder sends no titles), and a show's play log no longer lists the AutoDJ title that was on before it. A recorder
+  reports a new or finished recording within seconds instead of at its next 30-second report.
 
 ## 1.5.0 (29 October 2026)
 

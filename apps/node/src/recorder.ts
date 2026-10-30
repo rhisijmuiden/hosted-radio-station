@@ -111,6 +111,8 @@ class Recording {
     readonly kind: Kind,
     readonly plan: LogPlan | RecorderShow,
     private readonly nodeId: string,
+    /** Called when a new file starts growing, so the server hears of it at once. */
+    private readonly onFile: () => void = () => undefined,
   ) {}
 
   get dir() {
@@ -154,7 +156,11 @@ class Recording {
     });
     // ffmpeg says nothing while it records: once a file has grown it is recording.
     const watch = setInterval(() => {
-      if (this.child === child && this.state === 'starting') void this.newestSize().then((n) => n > 0 && this.child === child && this.set('recording'));
+      if (this.child === child && this.state === 'starting') void this.newestSize().then((n) => {
+        if (n <= 0 || this.child !== child) return;
+        this.set('recording');
+        this.onFile();
+      });
     }, 3000);
     child.on('error', (err) => {
       last = err.message;
@@ -226,6 +232,8 @@ export class RecorderManager {
   constructor(
     private readonly nodeId: string,
     private readonly onEvent: (kind: string, level: 'info' | 'warning' | 'error', details: Record<string, string | number | null>) => void = () => undefined,
+    /** The list of files changed (a recording started, a show ended): the agent reports it now instead of in 30 s. */
+    private readonly onChange: () => void = () => undefined,
   ) {}
 
   apply(plan: RecorderPlan | null) {
@@ -246,11 +254,12 @@ export class RecorderManager {
       void r
         .stop()
         .then(() => (r.kind === 'show' && !want ? this.dropShort(r) : undefined))
+        .then(() => this.onChange())
         .catch((err) => log.warn('stopping a recording failed', { err }));
     }
     for (const [key, want] of wanted) {
       if (this.recordings.has(key)) continue;
-      const r = new Recording(want.stationId, want.kind, want.plan, this.nodeId);
+      const r = new Recording(want.stationId, want.kind, want.plan, this.nodeId, () => this.onChange());
       r.minSeconds = want.minSeconds;
       this.recordings.set(key, r);
       if (want.kind === 'show') log.info('recording a live show', { station: want.stationId, dj: (want.plan as RecorderShow).dj });
