@@ -62,6 +62,11 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   that record the station, and the version column shows the commit of the build, so test builds can be told apart. Escape
   closes the layout menu (and so does choosing a view), Coming hours shows times without seconds, and the delivery
   path on Overview wraps instead of being cut off.
+- Manage view, step 3: **Weekly schedule** in RHIS Studio. The week as a grid with the blocks in the colour of their
+  hour clock (live shows in coral, with their DJs), what runs now, earlier and later weeks, **Add show** and a click
+  on an empty spot to add a block, a click on a block to change it (the same form as the panel: music block or live
+  show, clock, days or one date, start and end, DJs, public, on/off). Drag a block up or down to move it in steps of
+  15 minutes. The schedule settings (on/off, time zone, clock outside the blocks, live rules) are below the grid.
 
 ## 1.5.0 (29 October 2026)
 

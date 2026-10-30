@@ -108,8 +108,11 @@ Ctrl+2 OmniPlayer). It sets up the station from Studio on the same data as the w
 - **Hour clocks**: the clocks as chips (the one on air first) and the hour as a donut with a slice per item. Edit the
   items like in the panel (minute, type, playlist and number of tracks, name, *Exactly on the minute*, *Locked*, order),
   then **Save clock**; **Duplicate** makes a copy to change on its own.
-- **Weekly schedule**, **Playlists & categories**, **Rotation rules**, **Library folders**, **Audio routing** and
-  **DJs & live access** come into Studio in the next steps; until then each opens at the same place in the web panel.
+- **Weekly schedule**: the week as a grid, each block in the colour of its hour clock (live shows in coral). Click an
+  empty spot or **Add show** to add a block, click a block to change it, or drag it up or down to move it in steps of
+  15 minutes. The schedule settings are below the grid.
+- **Playlists & categories**, **Rotation rules**, **Library folders**, **Audio routing** and **DJs & live access** come
+  into Studio in the next steps; until then each opens at the same place in the web panel.
 
 The bar at the bottom shows the track on air with its remaining time and goes back to the player. The view is kept in
 the DJ profile like the layout. It needs server 1.6 (the `manage` feature); with an older server, or for a DJ, the
