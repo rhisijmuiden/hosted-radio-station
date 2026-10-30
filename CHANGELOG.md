@@ -84,6 +84,12 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   code prefix, tempo and key) with **Save** and **Undo changes**. Library folders shows the folders of every location
   with their tracks and the playlists that use them (directly or through a parent folder), makes a new playlist from
   a folder in one click and starts a scan; shares are still managed in the web panel.
+- Manage view, step 5: **Audio routing** in RHIS Studio. The path of the audio now as a diagram (studio or encoders,
+  ingests, relays with their listeners, listeners), live paths in coral and standby paths dashed. Choose the delivery
+  (via the ingest or straight to the relays, for a station node), the main and backup ingest and the relays
+  (automatic or chosen, with spare relays) as in the panel, then **Apply** after a question; **Undo changes** goes
+  back. Only owners can change the route; managers see it.
+- RHIS Studio: a second click on Delete while a question is open no longer opens another question. NL wording fixes.
 - Fix: the AutoDJ could hang after a live broadcast. When a DJ went live again right after the previous broadcast
   ended (as the track had just changed), the skip to a new track at the end of the broadcast got lost: the old track
   played on, the player stopped reporting tracks, and the panel and RHIS Studio kept showing that track at -0:00 with

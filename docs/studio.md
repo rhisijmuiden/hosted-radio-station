@@ -119,8 +119,11 @@ Ctrl+2 OmniPlayer). It sets up the station from Studio on the same data as the w
 - **Library folders**: the folders of the station storage and every share, with their tracks and the playlists that
   use them (orange: the folder itself, grey: through a parent folder). The list button on a row makes a new playlist
   from that folder; **Scan for new files** looks for new, changed and removed files. Shares are managed in the panel.
-- **Audio routing** and **DJs & live access** come into Studio in the next steps; until then each opens at the same
-  place in the web panel.
+- **Audio routing**: the path of the audio now (studio or encoders → ingests → relays → listeners; coral lines carry
+  the station, dashed lines stand by) and the route settings of the panel: delivery for a station node (via the
+  ingest or straight to the relays), main and backup ingest, and the relays (automatic or chosen, with spare relays).
+  **Apply** asks first and then switches the streams within seconds. Only the owner can change the route.
+- **DJs & live access** comes into Studio in the next step; until then it opens at the same place in the web panel.
 
 The bar at the bottom shows the track on air with its remaining time and goes back to the player. The view is kept in
 the DJ profile like the layout. It needs server 1.6 (the `manage` feature); with an older server, or for a DJ, the
