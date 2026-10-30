@@ -4,6 +4,7 @@ import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ClocksSection } from '../components/manage/Clocks';
 import { Header, Label } from '../components/manage/common';
+import { ScheduleSection } from '../components/manage/Schedule';
 import { Button, Card, Spinner, Table } from '../components/ui';
 import type { NetworkNode, RundownRow, StationListItem } from '../lib/api';
 import { trackLength } from '../lib/cues';
@@ -314,7 +315,8 @@ export function ManageView({ station }: { station: StationListItem }) {
           {section === 'overview' && <Overview station={station} onSection={setSection} />}
           {section === 'nodes' && <Nodes station={station} />}
           {section === 'clocks' && <ClocksSection station={station} />}
-          {section !== 'overview' && section !== 'nodes' && section !== 'clocks' && <InPanel station={station} section={section} />}
+          {section === 'schedule' && <ScheduleSection station={station} />}
+          {!['overview', 'nodes', 'clocks', 'schedule'].includes(section) && <InPanel station={station} section={section} />}
         </div>
       </div>
       <PlayerBar station={station} />

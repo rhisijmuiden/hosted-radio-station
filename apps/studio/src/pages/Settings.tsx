@@ -6,7 +6,7 @@ import { ConnectionCard } from '../components/Connection';
 import { StereoMeter } from '../components/Meter';
 import { Button, Card, CardHeader, Fact, Field, Input, Select, Switch } from '../components/ui';
 import { useEngine } from '../lib/engine';
-import { call, type AudioConfig, type Devices, type OutputSel } from '../lib/native';
+import { ask, call, type AudioConfig, type Devices, type OutputSel } from '../lib/native';
 import { useSession } from '../lib/session';
 import { updateSettings, useSettings } from '../lib/settings';
 
@@ -248,7 +248,7 @@ export function SettingsPage() {
             <Fact label={t('info.signedInAs')}>{me ? `${me.user.name} (${me.user.email})` : '–'}</Fact>
             <Fact label={t('info.computer')}>{app?.hostname ?? '–'}</Fact>
           </div>
-          <Button variant="danger" onClick={() => confirm(t('signIn.signOutConfirm')) && void signOut()}>
+          <Button variant="danger" onClick={() => void ask(t('signIn.signOutConfirm')).then((yes) => (yes ? signOut() : undefined))}>
             {t('signIn.signOut')}
           </Button>
         </div>
