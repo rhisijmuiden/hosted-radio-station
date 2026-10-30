@@ -187,7 +187,7 @@ function ItemRow({
             onChange={(e) => onChange({ ...item, at: e.target.value === '' ? null : Math.max(0, Math.min(59, Math.round(Number(e.target.value)))) })}
           /></span>
         </label>
-        <span className="w-48 shrink-0"><Select aria-label={t('clocks.type')} className="h-8! text-[13px]" value={item.kind} onChange={(e) => onChange({ ...item, kind: e.target.value as ClockItem['kind'] })}>
+        <span className="w-60 shrink-0"><Select aria-label={t('clocks.type')} className="h-8! text-[13px]" value={item.kind} onChange={(e) => onChange({ ...item, kind: e.target.value as ClockItem['kind'] })}>
           <option value="rotation">{t('clocks.kinds.rotation')}</option>
           <option value="playlist">{t('clocks.kinds.playlist')}</option>
           <option value="track">{t('clocks.kinds.track')}</option>
@@ -481,9 +481,21 @@ export function ClocksSection({ station }: { station: StationListItem }) {
       {selected === 'new' || current ? (
         <ClockEditor key={current?.id ?? 'new'} stationId={station.id} clock={current} view={v} onSaved={(id) => setSelected(id)} />
       ) : (
-        <Card>
-          <EmptyState icon={<Radio className="size-5" />} title={t('clocks.empty')} description={t('clocks.emptyHint')} />
-        </Card>
+        <>
+          <Header title={t('manage.menu.clocks')} description={t('manage.text.clocks')} />
+          <Card>
+            <EmptyState
+              icon={<Radio className="size-5" />}
+              title={t('clocks.empty')}
+              description={t('clocks.emptyHint')}
+              action={
+                <Button variant="primary" size="sm" onClick={() => setSelected('new')}>
+                  <Plus className="size-4" /> {t('clocks.add')}
+                </Button>
+              }
+            />
+          </Card>
+        </>
       )}
     </>
   );

@@ -488,7 +488,7 @@ export const nl: Translation = {
       people: "DJ's & live-toegang",
     },
     text: {
-      clocks: 'Een uurklok bepaalt wat er op welke minuut speelt. Vaste items lopen op tijd; muziek vult de gaten uit je categorieën.',
+      clocks: 'Een uurklok bepaalt wat er op welke minuut speelt. Vaste onderdelen lopen op tijd; muziek vult de gaten uit je categorieën.',
       schedule: 'Welke uurklok of show wanneer loopt; live shows houden het blok vrij voor hun DJ.',
       playlists: 'De muziekcategorieën en playlists waar de AutoDJ uit kiest.',
       rotation: 'Hoe vaak een artiest of nummer terug mag komen, en hoe de AutoDJ de wachtrij vult.',
@@ -586,7 +586,7 @@ export const nl: Translation = {
     addTrack: 'Nummer',
     addNews: 'Nieuws',
     dialHint: 'Lengtes zijn geschat op de gemiddelde nummerlengte van elke playlist.',
-    help: 'Het eerste onderdeel opent het uur. Onderdelen met een minuut staan vast; de rest volgt op het onderdeel ervoor. "Muziek uit de wachtrijen" en "Tot het volgende vaste onderdeel" vullen de tijd tot het volgende vaste onderdeel. Verzoeken en met de hand toegevoegde nummers spelen tijdens de muziek. Dezelfde gegevens als in het webpaneel.',
+    help: 'Het eerste onderdeel opent het uur. Onderdelen met een minuut staan vast; de rest volgt op het onderdeel ervoor. "Muziek uit de wachtrijen", en een playlist op "Tot het volgende vaste onderdeel", vullen de tijd tot het volgende vaste onderdeel. Verzoeken en met de hand toegevoegde nummers spelen tijdens de muziek. Dezelfde gegevens als in het webpaneel.',
     pickTrack: 'Kies een nummer',
     pickTrackHint: 'Zoek in de bibliotheek, bijvoorbeeld een station-ID of een nieuwsintro.',
     search: 'Zoek op titel of artiest',

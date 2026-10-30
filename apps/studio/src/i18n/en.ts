@@ -486,7 +486,7 @@ export const en = {
       people: 'DJs & live access',
     },
     text: {
-      clocks: 'An hour clock says what plays at which minute. Fixed items run on time; music fills the gaps from your categories.',
+      clocks: 'An hour clock says what plays at which minute. Timed items run on time; music fills the gaps from your categories.',
       schedule: 'Which hour clock or show runs when; live shows reserve the slot for their DJ.',
       playlists: 'The music categories and playlists the AutoDJ picks from.',
       rotation: 'How often an artist or a track may come back, and how the AutoDJ fills the queue.',
@@ -584,7 +584,7 @@ export const en = {
     addTrack: 'Track',
     addNews: 'News',
     dialHint: 'Lengths are estimated from the average track length of each playlist.',
-    help: 'The first item starts the hour. Items with a minute are timed; the others follow the item before them. "Music from the queues" and "Until the next timed item" fill the time up to the next timed item. Requests and tracks added by hand play during the music. Same data as the web panel.',
+    help: 'The first item starts the hour. Items with a minute are timed; the others follow the item before them. "Music from the queues", and a playlist set to "Until the next timed item", fill the time up to the next timed item. Requests and tracks added by hand play during the music. Same data as the web panel.',
     pickTrack: 'Choose a track',
     pickTrackHint: 'Search the library, for example a station ID or a news intro.',
     search: 'Search title or artist',
