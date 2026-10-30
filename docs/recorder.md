@@ -47,9 +47,20 @@ app under backup settings, otherwise paste a token from `rclone authorize onedri
 there (logging, live shows or both) and whether it is active. **Test connection** checks the login and makes the
 folder.
 
+An SFTP account needs to be allowed to use SFTP: a user with only `nologin` as shell fails ("packet too long"). Give it a
+normal shell, or SFTP only with an sshd drop-in such as:
+
+```
+Match User radio-upload
+    ForceCommand internal-sftp
+    PermitTTY no
+    AllowTcpForwarding no
+    X11Forwarding no
+```
+
 The orchestrator does the uploads: every 30 seconds it looks for finished recordings a destination does not have yet,
 fetches each once from the recorder (the same way the player does, so a recorder behind NAT works) and copies it with
-rclone. Recordings made before a destination was added are not uploaded there (except the hour it was added in). A
+rclone. Recordings that had already ended when a destination was added are not uploaded there; the one still running is. A
 failed upload is tried again after 1, 5, 15 and 30 minutes, then every hour; the destination shows how many wait and
 the newest error, with **Try again now**. Changing a destination tries the failed ones again at once. The lists show a
 cloud icon per recording: green when uploaded, orange when an upload failed.

@@ -97,7 +97,7 @@ describe('uploads of recordings (phase 21 step 3)', () => {
     expect((await t.app.inject({ method: 'POST', url: `/api/stations/${stationId}/recording/destinations`, headers: admin, payload: { ...sftp('x'), type: 'local' } })).statusCode).toBe(400);
   });
 
-  it('uploads finished recordings once, tries a failed upload again later, and skips what is older than the destination', async () => {
+  it('uploads finished recordings once, tries a failed upload again later, and skips what ended before the destination came', async () => {
     await t.app.inject({ method: 'POST', url: `/api/stations/${stationId}/recording/destinations`, headers: admin, payload: sftp('flaky.example.com', ['log']) });
     const done = logFile(iso(50 * 60_000));
     const old = logFile(iso(5 * 3600_000));
@@ -125,8 +125,8 @@ describe('uploads of recordings (phase 21 step 3)', () => {
 
   it('makes a finished show an on-demand item once, and uploads it with the DJ in its name', async () => {
     uploads.length = 0;
-    const at = iso(40 * 60_000);
-    const show = { stationId, kind: 'show', sessionId, file: `${stationId}/show/${stamp(at)}Z_128k_${sessionId}.mp3`, startedAt: at, seconds: 2100, bytes: AUDIO.length, open: false };
+    const at = iso(30 * 60_000);
+    const show = { stationId, kind: 'show', sessionId, file: `${stationId}/show/${stamp(at)}Z_128k_${sessionId}.mp3`, startedAt: at, seconds: 1900, bytes: AUDIO.length, open: false };
     const log = logFile(iso(50 * 60_000));
     await report([log, show]);
     await delivery().tick();

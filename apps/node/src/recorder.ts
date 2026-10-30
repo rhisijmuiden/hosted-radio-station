@@ -57,9 +57,12 @@ export function parseLogFile(name: string): { startedAt: Date; kbps: number; ses
 
 type LogPlan = NonNullable<RecorderPlan['stations'][number]['logging']>;
 
-const input = (url: string, nodeId: string) => [
+const input = (url: string, nodeId: string, atEof = false) => [
   ...['-nostdin', '-hide_banner', '-loglevel', 'warning'],
   ...['-user_agent', `${AGENT} ${nodeId} recorder`],
+  // Logging: when the stream ends (a DJ goes off air and the relay switches back to the AutoDJ) ffmpeg connects again
+  // at once instead of stopping, so the hour is not cut in two. A show ends with its broadcast.
+  ...(atEof ? ['-reconnect_at_eof', '1'] : []),
   // A short drop is bridged by ffmpeg itself; a longer one ends it and the recorder starts again (through the listen
   // route, so possibly on another relay).
   ...['-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_on_network_error', '1', '-reconnect_delay_max', '10', '-rw_timeout', '20000000'],
@@ -69,7 +72,7 @@ const input = (url: string, nodeId: string) => [
 /** The ffmpeg command of a logging recording: the stream in, MP3 files of one clock hour out. */
 export function loggingArgs(url: string, kbps: number, dir: string, nodeId: string) {
   return [
-    ...input(url, nodeId),
+    ...input(url, nodeId, true),
     ...['-vn', '-map', '0:a:0', '-ac', '2', '-ar', '44100', '-c:a', 'libmp3lame', '-b:a', `${kbps}k`],
     // Every packet is written at once, so the file of the running hour can be played back almost live.
     ...['-f', 'segment', '-segment_format', 'mp3', '-segment_format_options', 'flush_packets=1', '-segment_time', '3600', '-segment_atclocktime', '1', '-reset_timestamps', '1', '-strftime', '1'],

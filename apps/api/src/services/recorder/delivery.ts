@@ -23,8 +23,8 @@ type Destination = typeof schema.recordingDestinations.$inferSelect;
 const PART = 8 * 1024 * 1024;
 /** Waits after a failed upload: 1, 5, 15, 30 minutes, then every hour. */
 const BACKOFF_MIN = [1, 5, 15, 30, 60];
-/** Recordings that finished before a destination was added are not uploaded there (except the hour it was added in). */
-const BACKFILL_MS = 3600_000;
+/** A recording goes to a destination when it was still running (or newer) when the destination was added. */
+const endedAt = (r: Pick<Recording, 'startedAt' | 'durationSeconds'>) => r.startedAt.getTime() + r.durationSeconds * 1000;
 /** Shows that ended longer ago than this do not become on-demand items any more. */
 const SHOW_WINDOW_MS = 7 * 86400_000;
 /** A show is taken this long after its broadcast ended: the recorder closes it, or throws it away when it was too short. */
@@ -170,7 +170,7 @@ export class RecordingDelivery {
           eq(r.stationId, dest.stationId),
           inArray(r.kind, dest.kinds.length ? dest.kinds : ['none']),
           eq(r.open, false),
-          gte(r.startedAt, new Date(dest.createdAt.getTime() - BACKFILL_MS)),
+          sql`${r.startedAt} + make_interval(secs => ${r.durationSeconds}) >= ${dest.createdAt.toISOString()}::timestamptz`,
           or(isNull(d.recordingId), and(eq(d.state, 'failed'), lte(d.nextAt, now))),
         ),
       )
@@ -347,7 +347,7 @@ export class RecordingDelivery {
     const wants = new Map(stations.map((s) => [s.id, stationRecording(s)]));
     for (const { rec, done } of rows) {
       if (this.removing.has(`${rec.nodeId}:${rec.file}`)) continue;
-      const need = dests.filter((x) => x.stationId === rec.stationId && x.kinds.includes(rec.kind) && rec.startedAt.getTime() >= x.createdAt.getTime() - BACKFILL_MS);
+      const need = dests.filter((x) => x.stationId === rec.stationId && x.kinds.includes(rec.kind) && endedAt(rec) >= x.createdAt.getTime());
       if (!need.length || !need.every((x) => done.includes(x.id))) continue;
       if (rec.kind === 'show' && wants.get(rec.stationId)?.showsOnDemand && !rec.ondemandAt) continue;
       if (this.hub.deleteRecording(rec.nodeId, rec.file)) this.removing.set(`${rec.nodeId}:${rec.file}`, now.getTime());

@@ -33,6 +33,9 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   destination has it. A finished show becomes an on-demand item (*Make shows available on demand*, on by default):
   a draft or published right away as the public page says, also for a station on a station node, and never twice
   for one broadcast. See [recorder](docs/recorder.md#uploads).
+- Recordings, after testing step 3: a new upload destination no longer takes logging hours that had already ended
+  when it was added, and a logging recording no longer breaks into a new file with a few seconds missing when a DJ
+  goes off air (it connects again at once when the stream ends).
 
 ## 1.5.0 (29 October 2026)
 
