@@ -242,7 +242,7 @@ function SectionDownload({ station, file, position }: { station: StationDetail; 
       <div className="mt-3 flex flex-wrap items-end gap-3">
         <Field label={t('recordings.sectionFrom')}>
           <div className="flex gap-1.5">
-            <Input className="w-28 font-mono" value={from} placeholder="0:00" onChange={(e) => setFrom(e.target.value)} aria-invalid={!!from && a === null} />
+            <Input className="w-28! shrink-0 font-mono" value={from} placeholder="0:00" onChange={(e) => setFrom(e.target.value)} aria-invalid={!!from && a === null} />
             <Button size="sm" variant="ghost" onClick={() => mark(setFrom)} title={t('recordings.sectionMarkHint')}>
               {t('recordings.sectionMark')}
             </Button>
@@ -250,7 +250,7 @@ function SectionDownload({ station, file, position }: { station: StationDetail; 
         </Field>
         <Field label={t('recordings.sectionTo')}>
           <div className="flex gap-1.5">
-            <Input className="w-28 font-mono" value={to} placeholder={length(file.durationSeconds)} onChange={(e) => setTo(e.target.value)} aria-invalid={!!to && b === null} />
+            <Input className="w-28! shrink-0 font-mono" value={to} placeholder={length(file.durationSeconds)} onChange={(e) => setTo(e.target.value)} aria-invalid={!!to && b === null} />
             <Button size="sm" variant="ghost" onClick={() => mark(setTo)} title={t('recordings.sectionMarkHint')}>
               {t('recordings.sectionMark')}
             </Button>
