@@ -602,7 +602,7 @@ export const nl: Translation = {
   },
   schedule: {
     settings: 'Programmering',
-    settingsHint: 'Welk uurklok wanneer draait, en wie er live is.',
+    settingsHint: 'Welke uurklok wanneer draait, en wie er live is.',
     enabledAll: 'Programmering gebruiken',
     enabledAllHint: 'Uit = de AutoDJ speelt alleen zijn wachtrijen, zonder uurklokken.',
     timezone: 'Tijdzone',
@@ -738,7 +738,7 @@ export const nl: Translation = {
     restartNote: 'De AutoDJ herstart even om dit toe te passen.',
     library: 'Bibliotheek',
     codePrefix: 'Voorvoegsel van de itemcodes',
-    codePrefixHint: 'Elk nummer krijgt een eigen nummer, zoals HF-03007. Leeg gebruikt de beginletters van het station. Een nieuw voorvoegsel geldt alleen voor nieuwe nummers.',
+    codePrefixHint: 'Elk nummer krijgt een eigen itemcode, zoals HF-03007. Leeg gebruikt de beginletters van het station. Een nieuw voorvoegsel geldt alleen voor nieuwe nummers.',
     analyse: 'Tempo en toonsoort meten',
     analyseHint: 'Voor nummers zonder BPM of toonsoort in de tags. Draait op de achtergrond met lage prioriteit.',
   },
