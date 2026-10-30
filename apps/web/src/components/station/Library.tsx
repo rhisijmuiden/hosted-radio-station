@@ -24,6 +24,17 @@ interface Selection {
   folder: string | null;
 }
 
+/** Folder by folder, so a sub folder stays right below its parent ("hits/2026" before "hits 2026"). */
+function byFolder(a: string, b: string) {
+  const x = a.split('/');
+  const y = b.split('/');
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    const c = x[i]!.localeCompare(y[i]!);
+    if (c) return c;
+  }
+  return x.length - y.length;
+}
+
 /** The folder tree of every location, built from the folders that hold tracks. */
 export function folderTree(data: LibraryFolders | undefined) {
   const out: { location: string; path: string; name: string; depth: number; tracks: number }[] = [];
@@ -37,7 +48,7 @@ export function folderTree(data: LibraryFolders | undefined) {
         paths.set(p, (paths.get(p) ?? 0) + (i === parts.length ? f.tracks : 0));
       }
     }
-    for (const p of [...paths.keys()].sort((a, b) => a.localeCompare(b))) {
+    for (const p of [...paths.keys()].sort(byFolder)) {
       out.push({ location: loc.id, path: p, name: p.split('/').pop()!, depth: p.split('/').length, tracks: paths.get(p)! });
     }
   }

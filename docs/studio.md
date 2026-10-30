@@ -119,6 +119,9 @@ Ctrl+2 OmniPlayer). It sets up the station from Studio on the same data as the w
 - **Library folders**: the folders of the station storage and every share, with their tracks and the playlists that
   use them (orange: the folder itself, grey: through a parent folder). The list button on a row makes a new playlist
   from that folder; **Scan for new files** looks for new, changed and removed files. Shares are managed in the panel.
+  **New folder** makes a folder in the station storage and asks for music to put in it right away (a folder exists on
+  the server from its first track). On every storage folder the file button adds music files of this PC and the
+  folder button a whole folder with its sub folders; a bar shows the upload, and the tags are read on the server.
 - **Audio routing**: the path of the audio now (studio or encoders → ingests → relays → listeners; coral lines carry
   the station, dashed lines stand by) and the route settings of the panel: delivery for a station node (via the
   ingest or straight to the relays), main and backup ingest, and the relays (automatic or chosen, with spare relays).

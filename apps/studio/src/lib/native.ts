@@ -401,6 +401,35 @@ export async function pickAudioFile(title: string): Promise<string | null> {
   return typeof res === 'string' ? res : null;
 }
 
+const AUDIO_EXTENSIONS = ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac', 'opus'];
+
+/** Several audio files of this PC, to upload into the station library. */
+export async function pickAudioFiles(title: string): Promise<string[]> {
+  if (!inTauri) return ['C:\\Music\\track one.mp3', 'C:\\Music\\track two.mp3'];
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const res = await open({ title, multiple: true, directory: false, filters: [{ name: 'Audio', extensions: AUDIO_EXTENSIONS }] });
+  return Array.isArray(res) ? res : typeof res === 'string' ? [res] : [];
+}
+
+/** A folder of this PC. */
+export async function pickFolder(title: string): Promise<string | null> {
+  if (!inTauri) return 'E:\\Jingles';
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const res = await open({ title, multiple: false, directory: true });
+  return typeof res === 'string' ? res : null;
+}
+
+/** The audio files in a folder of this PC and its sub folders, with their path below it ("sub/name.mp3"). */
+export async function audioFilesIn(dir: string, below = ''): Promise<{ path: string; sub: string }[]> {
+  const folder = await call<Folder>('list_folder', { path: dir });
+  const out: { path: string; sub: string }[] = [];
+  for (const e of folder.entries) {
+    if (e.dir) out.push(...(await audioFilesIn(e.path, below ? `${below}/${e.name}` : e.name)));
+    else if (AUDIO_EXTENSIONS.includes(e.name.split('.').pop()?.toLowerCase() ?? '')) out.push({ path: e.path, sub: below });
+  }
+  return out;
+}
+
 /** fetch() that is not bound by the browser's CORS rules in the app (requests go out from Rust). */
 export async function httpFetch(input: string, init?: RequestInit): Promise<Response> {
   if (!inTauri) return fetch(input, init);

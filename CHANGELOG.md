@@ -95,6 +95,11 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   weekly schedule, linked user and last use. Add or change an account (password generated and shown once), make a new
   password or delete one, each after a question. Every section of the Manage view now runs in Studio itself.
 - Audio routing in Studio: the backup ingest list no longer offers the main ingest; NL "Stationnode" in the diagram.
+- Manage view, step 7: **New folder** and music upload in RHIS Studio's Library folders. Make a folder in the station
+  storage (inside an existing one or at the top), then add music files or a whole folder of this PC (with its sub
+  folders) to it, or to any other storage folder; a bar shows the upload. The server reads the tags right after, and
+  the list button makes a playlist from the folder. Fix (panel and Studio): a sub folder stays right below its parent
+  in the folder tree ("hits/2026" no longer lands under "hits 2026").
 - Fix: the AutoDJ could hang after a live broadcast. When a DJ went live again right after the previous broadcast
   ended (as the track had just changed), the skip to a new track at the end of the broadcast got lost: the old track
   played on, the player stopped reporting tracks, and the panel and RHIS Studio kept showing that track at -0:00 with
