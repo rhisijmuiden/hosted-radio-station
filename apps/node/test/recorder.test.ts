@@ -201,3 +201,50 @@ test('records a live show as it is sent, and throws a short one away', { skip: !
     server.close();
   }
 });
+
+test('logs from the ingest at once while the relay route has no relay, and says so', { skip: !existsSync('/usr/bin/ffmpeg') }, async () => {
+  const src = join(process.env.HRS_NODE_DATA!, 'tone-fallback.mp3');
+  execFileSync('/usr/bin/ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=30', '-c:a', 'libmp3lame', '-b:a', '128k', src]);
+  const audio = readFileSync(src);
+  let routeCalls = 0;
+  const server = http.createServer((req, res) => {
+    // The listen route during a relay update: no relay has the stream.
+    if (req.url!.startsWith('/listen/')) {
+      routeCalls++;
+      res.writeHead(503, { 'content-type': 'application/json' });
+      return void res.end('{"error":{"code":"no_relay"}}');
+    }
+    // The ingest node.
+    res.writeHead(200, { 'content-type': 'audio/mpeg' });
+    let pos = 0;
+    const timer = setInterval(() => {
+      if (pos >= audio.length) return void (clearInterval(timer), res.end());
+      res.write(audio.subarray(pos, (pos += 16_000)));
+    }, 1000);
+    res.on('close', () => clearInterval(timer));
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const rec = new RecorderManager('n1');
+  const S4 = '44444444-4444-4444-8444-444444444444';
+  const plan = (fallback: string) => ({ stations: [{ stationId: S4, slug: 's4', name: 'S4', logging: { url: `${base}/listen/s4/live`, kbps: 32, days: 1, fallback } }] });
+  rec.apply(plan(`${base}/ingest/s4/live?token=t`));
+  try {
+    let st = (await rec.status())!.stations[0]!;
+    for (let i = 0; i < 40 && st.state !== 'recording'; i++) {
+      await wait(500);
+      st = (await rec.status())!.stations[0]!;
+    }
+    assert.equal(st.state, 'recording');
+    assert.equal(st.via, 'ingest');
+    assert.ok(routeCalls >= 1);
+    // Another fallback address (the ingest moved) does not start the recording again.
+    const since = st.since;
+    rec.apply(plan(`${base}/ingest/s4/live?token=u`));
+    await wait(500);
+    assert.equal((await rec.status())!.stations[0]!.since, since);
+  } finally {
+    rec.stop();
+    server.close();
+  }
+});

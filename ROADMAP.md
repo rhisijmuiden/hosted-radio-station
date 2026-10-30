@@ -689,7 +689,7 @@ Small fixes are collected here and handled one at a time in a separate thread, n
 - **Monitoring group named on the node hierarchy** (fixed, on test): the group of monitoring nodes on the hierarchy card on the Nodes page showed a raw translation key instead of "Monitoring".
 - **Uploads retry by themselves** (fixed, on test): after an outage a media library upload tries again on its own, with growing pauses, instead of standing on "Failed" until Resume is clicked.
 - **Upload to an older station node** (fixed, on test): an upload to a station node whose agent is too old for uploads in parts hangs at 0% without an error; it should say plainly that the node needs an update first.
-- **Recorder falls back to the ingest** (queued): when no relay carries a station (for example while its only relay is being updated) the recorder takes the stream straight from the ingest or station node and goes back to the relay later, so the logging misses no minutes.
+- **Recorder falls back to the ingest** (fixed, on test): when no relay carries a station (for example while its only relay is being updated) the recorder takes the stream straight from the ingest or station node and goes back to the relay later, so the logging misses no minutes.
 
 ### FM/MPX release: Stereo Tool processing (queued, not scheduled yet)
 

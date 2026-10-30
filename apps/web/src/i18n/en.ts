@@ -2157,6 +2157,8 @@ export const en = {
       since: 'Since',
       kinds: { log: 'Logging', show: 'Live show' },
       states: { starting: 'Starting', recording: 'Recording', waiting: 'Waiting for the stream', error: 'Failed' },
+      viaIngest: 'From the ingest',
+      viaIngestHint: 'No relay carries this station right now (for example during a relay update): the logging comes straight from the ingest node and goes back to the relay at the end of the hour.',
       settings: 'Recorder',
       settingsHint: 'The stations this node records. It listens to their default stream through the nearest relay.',
       perStation: 'Bitrate and how many days recordings are kept are set per station, under Recordings. When the disk runs full, the oldest logging files go first.',

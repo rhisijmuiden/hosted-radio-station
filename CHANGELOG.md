@@ -126,6 +126,11 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 - Upload to a station node that runs an older version: the panel no longer passes the upload on to a node that cannot
   take uploads in parts yet (it answered "not found" and the upload seemed to hang at 0%); it says at once that the
   station node needs an update first. Nodes report the new feature `library-uploads`.
+- Recorder: when no relay carries a station (for example while its only relay is updated) the logging no longer
+  misses minutes. For a station with an ingest node the recorder switches at once to the same stream straight from the
+  ingest (its encoder port, with a token per stream that the ingest checks itself) and goes back to the relay just
+  before the next hour once a relay has the station again. The node page shows *From the ingest* meanwhile. See
+  [recorder](docs/recorder.md).
 
 ## 1.5.0 (29 October 2026)
 

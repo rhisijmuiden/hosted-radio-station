@@ -109,10 +109,16 @@ class Recording {
   /** A show: shorter than this when it ends = thrown away (from the plans while it was on air). */
   minSeconds = 0;
 
+  /** Logging taken straight from the ingest node, while no relay carries the station. */
+  viaIngest = false;
+  private back: NodeJS.Timeout | null = null;
+  private returning = false;
+
   constructor(
     readonly stationId: string,
     readonly kind: Kind,
-    readonly plan: LogPlan | RecorderShow,
+    /** Can change in place: a new fallback address does not start the recording again. */
+    public plan: LogPlan | RecorderShow,
     private readonly nodeId: string,
     /** Called when a new file starts growing, so the server hears of it at once. */
     private readonly onFile: () => void = () => undefined,
@@ -132,8 +138,15 @@ class Recording {
     this.message = message;
   }
 
+  private get fallback() {
+    return this.kind === 'log' ? (this.plan as LogPlan).fallback : undefined;
+  }
+
   private args() {
-    if (this.kind === 'log') return loggingArgs((this.plan as LogPlan).url, (this.plan as LogPlan).kbps, this.dir, this.nodeId);
+    if (this.kind === 'log') {
+      const p = this.plan as LogPlan;
+      return loggingArgs(this.viaIngest && p.fallback ? p.fallback : p.url, p.kbps, this.dir, this.nodeId);
+    }
     const show = this.plan as RecorderShow;
     return showArgs(show, join(this.dir, showFileName(show)), this.nodeId);
   }
@@ -177,11 +190,60 @@ class Recording {
         if (this.stopped) return;
         // A recording that ran a while was fine: the next try starts at once.
         if (Date.now() - startedAt > 60_000) this.failures = 0;
+        if (this.returning) {
+          // The relay carries the station again: back on the relay route, at the change of the hour.
+          this.returning = false;
+          this.viaIngest = false;
+          log.info('logging back on the relay', { station: this.stationId });
+          return void this.start().catch((err) => log.warn('starting a recording failed', { err }));
+        }
         this.set(this.failures ? 'error' : 'waiting', last || `ffmpeg stopped (${code})`);
-        log.warn('recording stopped', { station: this.stationId, kind: this.kind, code, message: last });
+        log.warn('recording stopped', { station: this.stationId, kind: this.kind, code, message: last, viaIngest: this.viaIngest });
+        if (!this.viaIngest && this.fallback) {
+          // No relay has the stream (a relay update): go on from the ingest node at once, so no minutes go missing.
+          this.viaIngest = true;
+          log.info('logging from the ingest while no relay carries the station', { station: this.stationId });
+          this.timer = setTimeout(() => void this.start().catch((err) => log.warn('starting a recording failed', { err })), 1000);
+          this.watchRelay();
+          return;
+        }
+        // The ingest failed too (or has no fallback): the relay route again, a little later each time.
+        this.stopWatching();
+        this.viaIngest = false;
         this.retry();
       }),
     );
+  }
+
+  /**
+   * While logging from the ingest: asks the listen route every 30 seconds whether a relay has the station again (it
+   * then sends a redirect), and switches back just before the change of the hour, so the hour files stay whole.
+   */
+  private watchRelay() {
+    this.stopWatching();
+    const check = async () => {
+      if (this.stopped || !this.viaIngest) return;
+      const ctl = new AbortController();
+      const res = await fetch((this.plan as LogPlan).url, { redirect: 'manual', signal: ctl.signal, headers: { 'user-agent': `${AGENT} ${this.nodeId} recorder` } }).catch(() => null);
+      ctl.abort();
+      if (this.stopped || !this.viaIngest) return;
+      if (res?.status !== 302) {
+        this.back = setTimeout(() => void check(), 30_000);
+        return;
+      }
+      const toHour = 3600_000 - (Date.now() % 3600_000) - 2000;
+      this.back = setTimeout(() => {
+        if (this.stopped || !this.viaIngest || !this.child) return;
+        this.returning = true;
+        this.child.kill('SIGTERM');
+      }, Math.max(0, toHour));
+    };
+    this.back = setTimeout(() => void check(), 30_000);
+  }
+
+  private stopWatching() {
+    if (this.back) clearTimeout(this.back);
+    this.back = null;
   }
 
   private retry() {
@@ -209,6 +271,7 @@ class Recording {
   async stop() {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer);
+    this.stopWatching();
     this.child?.kill('SIGTERM');
     this.child = null;
     await Promise.race([this.closed, new Promise((r) => setTimeout(r, 5000))]);
@@ -259,8 +322,11 @@ export class RecorderManager {
     }
     for (const [key, r] of this.recordings) {
       const want = wanted.get(key);
-      if (want && JSON.stringify(want.plan) === JSON.stringify(r.plan)) {
+      // Only the ingest fallback changed (an ingest went on- or offline): the recording goes on as it is.
+      const same = (p: LogPlan | RecorderShow) => JSON.stringify({ ...p, fallback: undefined });
+      if (want && same(want.plan) === same(r.plan)) {
         r.minSeconds = want.minSeconds;
+        r.plan = want.plan;
         continue;
       }
       this.recordings.delete(key);
@@ -418,7 +484,7 @@ export class RecorderManager {
   async status(): Promise<RecorderStatus | null> {
     if (!this.plan) return null;
     return {
-      stations: [...this.recordings.values()].map((r) => ({ stationId: r.stationId, kind: r.kind, ...(r.sessionId ? { sessionId: r.sessionId } : {}), state: r.state, message: r.message, since: r.since.toISOString() })),
+      stations: [...this.recordings.values()].map((r) => ({ stationId: r.stationId, kind: r.kind, ...(r.sessionId ? { sessionId: r.sessionId } : {}), state: r.state, message: r.message, since: r.since.toISOString(), ...(r.viaIngest ? { via: 'ingest' as const } : {}) })),
       disk: await this.diskUsage(),
     };
   }

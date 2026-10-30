@@ -107,6 +107,7 @@ export function sanitizeRecorder(r: unknown): NodeRecorderStatus | null {
       state: states.includes(x?.state as never) ? (x.state as (typeof states)[number]) : 'error',
       message: str(x?.message, 300),
       since: str(x?.since, 40),
+      ...(x?.via === 'ingest' ? { via: 'ingest' as const } : {}),
     })),
     disk: d ? { totalBytes: Math.max(0, num(d.totalBytes)), freeBytes: Math.max(0, num(d.freeBytes)), usedBytes: Math.max(0, num(d.usedBytes)) } : null,
   };

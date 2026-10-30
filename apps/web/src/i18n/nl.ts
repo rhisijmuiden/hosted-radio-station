@@ -2159,6 +2159,8 @@ export const nl: Translation = {
       since: 'Sinds',
       kinds: { log: 'Logging', show: 'Live show' },
       states: { starting: 'Start', recording: 'Neemt op', waiting: 'Wacht op de stream', error: 'Mislukt' },
+      viaIngest: 'Via de ingest',
+      viaIngestHint: 'Geen relay heeft deze zender nu (bijvoorbeeld tijdens een relay-update): de logging komt direct van de ingestnode en gaat aan het eind van het uur terug naar de relay.',
       settings: 'Recorder',
       settingsHint: 'De zenders die deze node opneemt. Hij luistert naar hun standaardstream via de dichtstbijzijnde relay.',
       perStation: 'Kwaliteit en hoeveel dagen opnames bewaard blijven stel je per zender in, onder Opnames. Als de schijf volloopt, gaan de oudste loggingbestanden eerst weg.',
