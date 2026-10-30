@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Toaster } from 'sonner';
+import { useViewShortcuts } from './components/LayoutMenu';
 import { Shell, type Page } from './components/Shell';
 import { Spinner } from './components/ui';
 import { startEngineEvents } from './lib/engine';
@@ -27,6 +28,7 @@ loadAllCarts(getSettings().carts);
 function Main() {
   const { me } = useSession();
   const [page, setPage] = useState<Page>('assist');
+  useViewShortcuts(() => setPage('assist'));
 
   // F1–F12 fire the carts of the open cart page, from every screen.
   useEffect(() => {

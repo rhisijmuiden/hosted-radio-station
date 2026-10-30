@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRef } from 'react';
 import { api } from './api';
-import { useSession } from './session';
+import { useCanUpload, useSession } from './session';
 import { getSettings, updateSettings, useSettings } from './settings';
 
 /** What the big countdown of the dashboard counts down to. */
@@ -15,6 +15,8 @@ export type OmniPanel = 'history' | 'single' | 'news' | 'jingles' | 'stationCart
  */
 export interface StudioLayout {
   assist: 'classic' | 'omni';
+  /** The Manage view (phase 24) instead of the player: station managers only. Older clients ignore it and show the player. */
+  manage: boolean;
   panels: Record<OmniPanel, boolean>;
   /** Width of the column with players A/B and the log, in pixels. */
   deckWidth: number;
@@ -27,6 +29,7 @@ export const DECK_WIDTH = { min: 440, max: 900, default: 560 };
 
 export const defaultLayout: StudioLayout = {
   assist: 'classic',
+  manage: false,
   panels: { history: true, single: true, news: true, jingles: true, stationCarts: true, dashboard: true, library: true },
   deckWidth: DECK_WIDTH.default,
   countdown: 'block',
@@ -41,6 +44,7 @@ function parse(raw: unknown): StudioLayout {
   const width = typeof l.deckWidth === 'number' ? Math.round(l.deckWidth) : DECK_WIDTH.default;
   return {
     assist: l.assist === 'omni' ? 'omni' : 'classic',
+    manage: l.manage === true,
     panels,
     deckWidth: Math.min(DECK_WIDTH.max, Math.max(DECK_WIDTH.min, width)),
     countdown: l.countdown === 'track' || l.countdown === 'timer' ? l.countdown : 'block',
@@ -77,4 +81,18 @@ export function useLayout(): [StudioLayout, (patch: Partial<StudioLayout>) => vo
     timer.current = setTimeout(() => void api('/studio/profile', { method: 'PUT', body: { layout: getSettings().layout } }).catch(() => undefined), 600);
   };
   return [layout, update];
+}
+
+/** The station manager may open the Manage view: a Radio station, a manager or owner of its customer, and a server that has it. */
+export function useCanManage() {
+  const { station, supports } = useSession();
+  const manager = useCanUpload();
+  return manager && station?.edition === 'station' && supports('manage');
+}
+
+/** What Live assist shows: the Manage view, or the player in its layout. */
+export function useAssistView(): 'classic' | 'omni' | 'manage' {
+  const [layout] = useLayout();
+  const can = useCanManage();
+  return layout.manage && can ? 'manage' : layout.assist;
 }

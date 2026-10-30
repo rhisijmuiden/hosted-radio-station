@@ -53,6 +53,14 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   hours) for SENA, with a preview that counts plays without ISRC or composer. The library now reads composer and
   label from the tags (editable per track; existing files are read once more on the next scan). Also in the API.
   See [recorder](docs/recorder.md#music-reports).
+- Manage view in RHIS Studio (phase 24, step 1): RHIS Studio 0.23 gets a third view **Manage** next to Classic and
+  OmniPlayer in the layout menu (Ctrl+1, Ctrl+2, Ctrl+3), for the managers and owners of a Radio station. A menu on the
+  left (Station, AutoDJ, Network, People) and the track on air in a bar at the bottom, with a way back to the player.
+  **Overview** shows listeners, who is on air, how many nodes are healthy, the delivery path, the coming hours of the
+  format and what needs attention; **Nodes** lists the station node, ingests and relays of the station with status,
+  CPU, RAM, monitoring checks, firewall and version. The AutoDJ, routing and people sections open in the web panel
+  until the next steps bring them into Studio. API: GET /stations/:id/network (managers). See
+  [studio](docs/studio.md#manage-view).
 
 ## 1.5.0 (29 October 2026)
 
