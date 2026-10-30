@@ -105,7 +105,7 @@ describe('recording in RHIS Studio (phase 21 step 4)', () => {
 
     const stop = await t.app.inject({ method: 'PUT', url: `/api/studio/stations/${stationId}/live/${mine}/recording`, headers: dj, payload: { record: false } });
     expect(stop.json()).toMatchObject({ sessionId: mine, record: false, chosen: true });
-    expect((await liveOf())!.live.map((x) => x.sessionId)).toEqual([theirs]);
+    expect(await liveOf()).toMatchObject({ live: [expect.objectContaining({ sessionId: theirs })], paused: [mine] });
     expect((await t.app.inject({ method: 'PUT', url: `/api/studio/stations/${stationId}/live/${theirs}/recording`, headers: dj, payload: { record: false } })).statusCode).toBe(403);
     expect((await t.app.inject({ method: 'PUT', url: `/api/studio/stations/${stationId}/live/${theirs}/recording`, headers: owner, payload: { record: false } })).statusCode).toBe(200);
     expect((await liveOf())!.live).toEqual([]);
