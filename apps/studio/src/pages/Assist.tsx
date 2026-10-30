@@ -139,6 +139,7 @@ function NowPlaying({ data, stationId, lines, now }: { data: AutoDj; stationId: 
           )}
         </div>
         {data.player.paused && <Badge tone="warning">{t('assist.paused')}</Badge>}
+        {data.player.stuckSince && !data.player.paused && <Badge tone="warning">{t('assist.stuck')}</Badge>}
         {manual && (
           <>
             <Button

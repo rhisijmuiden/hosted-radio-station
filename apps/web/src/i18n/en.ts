@@ -1786,7 +1786,7 @@ export const en = {
     skip: 'Skip',
     skipped: 'Skipped to the next track',
     next: 'Next',
-    state: { off: 'AutoDJ off', stationOff: 'Station off', paused: 'Paused (DJ live)', playing: 'Playing', starting: 'Starting' },
+    state: { off: 'AutoDJ off', stationOff: 'Station off', paused: 'Paused (DJ live)', playing: 'Playing', starting: 'Starting', stuck: 'Hangs: the track should have ended' },
     queueTitle: 'Queue',
     queueHint: 'Plays from top to bottom. Drag tracks to change the order.',
     emptyQueue: 'This queue is empty.',

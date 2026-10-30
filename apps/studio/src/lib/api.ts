@@ -153,7 +153,8 @@ export interface QueueRow {
 export interface AutoDj {
   edition: 'distribution' | 'station';
   settings: { enabled: boolean; crossfadeSeconds?: number };
-  player: { expected: boolean; connected: boolean; paused: boolean };
+  /** stuckSince: the track on air ran more than five minutes past its end with no DJ live (server 1.5.1 and later). */
+  player: { expected: boolean; connected: boolean; paused: boolean; stuckSince?: string | null };
   /** Manual playout: every track waits for Play; holding = the track ended and the player waits. */
   playout: { manual: boolean; holding: boolean; until: string | null };
   nowPlaying: QueueRow | null;

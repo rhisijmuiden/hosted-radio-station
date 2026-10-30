@@ -90,6 +90,13 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   (automatic or chosen, with spare relays) as in the panel, then **Apply** after a question; **Undo changes** goes
   back. Only owners can change the route; managers see it.
 - RHIS Studio: a second click on Delete while a question is open no longer opens another question. NL wording fixes.
+- Fix: the AutoDJ could hang after a live broadcast. When a DJ went live again right after the previous broadcast
+  ended (as the track had just changed), the skip to a new track at the end of the broadcast got lost: the old track
+  played on, the player stopped reporting tracks, and the panel and RHIS Studio kept showing that track at -0:00 with
+  the next one sliding along to "now". The player now skips before the crossfade, which always takes. As a safety net
+  the streams service skips a track that runs more than five minutes past its end with no DJ live (once per track),
+  and the panel (AutoDJ: *Hangs*) and RHIS Studio (Manage: *Needs attention*, the on-air deck) show it. API: the
+  AutoDJ answer gets `player.stuckSince`.
 
 ## 1.5.0 (29 October 2026)
 

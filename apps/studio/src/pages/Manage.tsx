@@ -79,7 +79,9 @@ function Overview({ station, onSection }: { station: StationListItem; onSection:
   const path = direct ? t('manage.pathDirect', { from, count: relays }) : t('manage.pathIngest', { from, ingest: ingest ?? '–', count: relays });
 
   const coming = (rundown.data?.enabled ? rundown.data.rows : []).filter((x) => !x.past && new Date(x.startsAt).getTime() > now - 60_000).slice(0, 8);
+  const stuck = autodj.data?.player.stuckSince ?? null;
   const attention = [
+    ...(stuck ? [{ key: 'stuck', text: t('manage.playoutStuck', { time: time(stuck) }), tone: 'bg-offline', section: 'clocks' as Section }] : []),
     ...nodes.flatMap((n) => n.issues.map((i) => ({ key: `${n.id}-${i.kind}-${i.message}`, text: `${n.name}: ${t(`manage.issue.${i.kind}`)}${i.message ? ` (${i.message})` : ''}`, tone: i.kind === 'offline' ? 'bg-offline' : 'bg-warning', section: 'nodes' as Section }))),
     ...(r?.stale ?? []).map((s) => ({ key: `stale-${s.id}`, text: t('manage.staleRelay', { name: s.name }), tone: 'bg-warning', section: 'routing' as Section })),
   ];
@@ -90,8 +92,8 @@ function Overview({ station, onSection }: { station: StationListItem; onSection:
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <Tile value={status.data?.listeners ?? '–'} text={t('manage.listenersNow')} onClick={() => onSection('nodes')} />
         <Tile
-          value={live ? t('manage.liveBy', { name: live.accountName }) : t('manage.onAir')}
-          tone="online"
+          value={live ? t('manage.liveBy', { name: live.accountName }) : stuck ? t('manage.stuck') : t('manage.onAir')}
+          tone={stuck && !live ? 'warning' : 'online'}
           text={clockName ? t('manage.autodjClock', { name: clockName }) : t('manage.autodj')}
           onClick={() => onSection('clocks')}
         />
