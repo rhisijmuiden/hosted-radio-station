@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { ChevronLeft, ExternalLink, Lock } from 'lucide-react';
+import { ChevronLeft, Lock } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ClocksSection } from '../components/manage/Clocks';
@@ -8,16 +8,15 @@ import { FoldersSection } from '../components/manage/Folders';
 import { PlaylistsSection } from '../components/manage/Playlists';
 import { RotationSection } from '../components/manage/Rotation';
 import { RoutingSection } from '../components/manage/Routing';
+import { PeopleSection } from '../components/manage/People';
 import { ScheduleSection } from '../components/manage/Schedule';
 import { Button, Card, Spinner, Table } from '../components/ui';
 import type { NetworkNode, RundownRow, StationListItem } from '../lib/api';
 import { trackLength } from '../lib/cues';
 import { duration } from '../lib/format';
 import { useLayout } from '../lib/layout';
-import { openExternal } from '../lib/native';
 import { useNow } from '../lib/now';
 import { useAutoDj, useNetwork, useRouting, useRundown, useStatus } from '../lib/queries';
-import { useSettings } from '../lib/settings';
 
 type Section = 'overview' | 'clocks' | 'schedule' | 'playlists' | 'rotation' | 'folders' | 'routing' | 'nodes' | 'people';
 
@@ -28,10 +27,6 @@ const GROUPS: { key: string; items: Section[] }[] = [
   { key: 'people', items: ['people'] },
 ];
 
-/** Where each section lives in the web panel, until Studio has it itself. */
-const PANEL_TAB: Partial<Record<Section, string>> = { people: 'accounts' };
-/** The sections Studio has itself. */
-const BUILT: Section[] = ['overview', 'nodes', 'clocks', 'schedule', 'playlists', 'rotation', 'folders', 'routing'];
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
 const healthy = (n: NetworkNode) => n.state === 'online' || n.state === 'standby';
@@ -227,24 +222,6 @@ function Nodes({ station }: { station: StationListItem }) {
   );
 }
 
-/** A section Studio does not have yet: it opens at the same place in the web panel, on the same data. */
-function InPanel({ station, section }: { station: StationListItem; section: Section }) {
-  const { t } = useTranslation();
-  const server = useSettings().server.replace(/\/+$/, '');
-  const url = `${server}/stations/${station.id}?tab=${PANEL_TAB[section]}`;
-  return (
-    <>
-      <Header title={t(`manage.menu.${section}`)} description={t(`manage.text.${section}`)} />
-      <Card className="flex flex-wrap items-center justify-between gap-4 p-5">
-        <p className="max-w-xl text-[13px] text-muted">{t('manage.soon')}</p>
-        <Button variant="dark" onClick={() => void openExternal(url)}>
-          <ExternalLink className="size-4" /> {t('manage.openPanel')}
-        </Button>
-      </Card>
-    </>
-  );
-}
-
 /** The track on air and a way back to the player, at the bottom of the Manage view. */
 function PlayerBar({ station }: { station: StationListItem }) {
   const { t } = useTranslation();
@@ -328,7 +305,7 @@ export function ManageView({ station }: { station: StationListItem }) {
           {section === 'rotation' && <RotationSection station={station} />}
           {section === 'folders' && <FoldersSection station={station} />}
           {section === 'routing' && <RoutingSection station={station} />}
-          {!BUILT.includes(section) && <InPanel station={station} section={section} />}
+          {section === 'people' && <PeopleSection station={station} />}
         </div>
       </div>
       <PlayerBar station={station} />

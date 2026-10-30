@@ -175,6 +175,7 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 21 | Recorder node | In progress (step 8 in the order of work) |
 | 22 | Packaged installers and moving the orchestrator | Future (when the first customers come) |
 | 23 | Deployment wizard | Future (when the first customers come) |
+| 24 | Manage view in RHIS Studio | In progress (steps 1–5 tested, step 6 on test) |
 
 ## Order of work
 
@@ -208,6 +209,13 @@ One thing at a time; each item starts when the previous one is finished and test
    3. Upload targets per station: OneDrive or FTP/FTPS/SFTP, with retries and the option to delete the local copy after a confirmed upload; a show offered as an on-demand item (listen again) on the public page, which needs the file on the station's own server (moved here from step 2). The orchestrator does the uploads, so a recorder behind NAT needs nothing extra. *On test.*
    4. RHIS Studio: start/stop controls and the list of recordings; cutting a recording in the panel (an on-demand item cut down, or a part of an hour or show downloaded). *Tested.*
    5. Reports: CSV per period for Buma/Stemra and SENA, also in the API. *Tested.*
+9. **Phase 24: Manage view in RHIS Studio** (in progress, started 30 October 2026, after the approved sketch https://claude.ai/artifact/TKBEjSdBb8p2WH9RWbde4e): a third view **Manage** next to Classic and OmniPlayer, for station managers, on the same data as the web panel. In steps, one PR each, each tested before the next:
+   1. Manage view, Overview and Nodes (PR #186). *Tested.*
+   2. Hour clocks (PR #187). *Tested.*
+   3. Weekly schedule (PR #189). *Tested.*
+   4. Playlists & categories, rotation rules, library folders (PR #191). *Tested.*
+   5. Audio routing (PR #192). *Tested.*
+   6. DJs & live access. *On test.*
 
 Later: phase 14 (orchestrator redundancy) just before sales start; phases 22 and 23 when the first customers come.
 
@@ -590,6 +598,22 @@ A step-by-step wizard for a new customer or a new station, so every station land
 - Included by default where the customer uses the platform's services: shared ingest and relays, and monitoring by the monitoring node.
 - At the end the wizard creates the customer, the station, its routing and the dedicated nodes it needs, and puts a ready-made node installer (phase 22) in the delivery e-mail together with the connection details and the firewall checklist.
 - Every choice can be changed later in the station's settings; the wizard only sets a correct start.
+
+### Phase 24: Manage view in RHIS Studio
+
+A management interface inside RHIS Studio, so a station manager sets up the AutoDJ and checks the network without
+opening the web panel. It is a third choice in the layout menu (Ctrl+3), only for managers and owners of a Radio
+station, and works on the same data and API as the panel. A menu on the left holds:
+
+- **Station**: an overview with listeners, who is on air, node health, the delivery path, the coming hours and what
+  needs attention.
+- **AutoDJ**: hour clocks (as a donut, editable), the weekly schedule (a week grid with drag to move), playlists and
+  categories, rotation rules and library folders.
+- **Network**: audio routing (the path now as a diagram, and the route settings) and the nodes the station uses with
+  their health, checks, firewall and version.
+- **People**: DJs and live access (who is live, accounts and their rights and shows).
+
+A bar at the bottom keeps the track on air in view and goes back to the player. See [RHIS Studio](docs/studio.md).
 
 ## Queued fixes
 
