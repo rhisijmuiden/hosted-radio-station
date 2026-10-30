@@ -71,6 +71,7 @@ export interface Mount {
   isDefault: boolean;
 }
 export interface StationDetail extends StationListItem {
+  tenantId?: string;
   mounts: Mount[];
   role: Role;
   connection: {
@@ -112,6 +113,18 @@ export interface Account {
   canBroadcast: boolean;
   mountIds: string[];
   enabled: boolean;
+  /** Fields the Manage view uses (every server since 1.0 sends them). */
+  userName?: string | null;
+  canUpload?: boolean;
+  lastUsedAt?: string | null;
+  uploadLogin?: string;
+  /** Only in the answer that created the account or generated a new password. */
+  password?: string;
+}
+/** A user of the customer, from /tenants/:id/members. */
+export interface Member {
+  user: { id: string; name: string; email: string };
+  role: string;
 }
 /** Cue points in seconds from the start of the file; null = not set. Missing on servers before 1.3. */
 export interface Cues {

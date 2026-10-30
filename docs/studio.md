@@ -123,7 +123,10 @@ Ctrl+2 OmniPlayer). It sets up the station from Studio on the same data as the w
   the station, dashed lines stand by) and the route settings of the panel: delivery for a station node (via the
   ingest or straight to the relays), main and backup ingest, and the relays (automatic or chosen, with spare relays).
   **Apply** asks first and then switches the streams within seconds. Only the owner can change the route.
-- **DJs & live access** comes into Studio in the next step; until then it opens at the same place in the web panel.
+- **DJs & live access**: who is live now (account, mount, since when, encoder) and the live rule of the weekly schedule,
+  then the DJ and upload accounts with what they may do (go live on all or some mounts, upload), the live shows they
+  are in, the linked user and when they were last used. **Add account** and the pencil open the form of the panel; a
+  generated password is shown once to copy. The key makes a new password, the bin deletes the account; both ask first.
 
 The bar at the bottom shows the track on air with its remaining time and goes back to the player. The view is kept in
 the DJ profile like the layout. It needs server 1.6 (the `manage` feature); with an older server, or for a DJ, the

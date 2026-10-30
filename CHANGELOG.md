@@ -90,6 +90,11 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   (automatic or chosen, with spare relays) as in the panel, then **Apply** after a question; **Undo changes** goes
   back. Only owners can change the route; managers see it.
 - RHIS Studio: a second click on Delete while a question is open no longer opens another question. NL wording fixes.
+- Manage view, step 6: **DJs & live access** in RHIS Studio. Who is live now (account, mount, since when, encoder),
+  the live rule of the weekly schedule, and the DJ and upload accounts with their rights, mounts, live shows in the
+  weekly schedule, linked user and last use. Add or change an account (password generated and shown once), make a new
+  password or delete one, each after a question. Every section of the Manage view now runs in Studio itself.
+- Audio routing in Studio: the backup ingest list no longer offers the main ingest; NL "Stationnode" in the diagram.
 - Fix: the AutoDJ could hang after a live broadcast. When a DJ went live again right after the previous broadcast
   ended (as the track had just changed), the skip to a new track at the end of the broadcast got lost: the old track
   played on, the player stopped reporting tracks, and the panel and RHIS Studio kept showing that track at -0:00 with

@@ -134,13 +134,17 @@ export function RoutingSection({ station }: { station: StationListItem }) {
   const apply = async () => {
     if (await ask(t('routing.applyConfirm'))) save.mutate(form);
   };
-  const nodeOptions = v.options.ingests.map((n) => (
-    <option key={n.id} value={n.id}>
-      {n.name}
-      {n.location ? ` · ${n.location}` : ''}
-      {n.online ? '' : ` (${t('manage.state.offline')})`}
-    </option>
-  ));
+  // The backup cannot be the main ingest itself.
+  const nodeOptions = (except?: string) =>
+    v.options.ingests
+      .filter((n) => n.id !== except)
+      .map((n) => (
+        <option key={n.id} value={n.id}>
+          {n.name}
+          {n.location ? ` · ${n.location}` : ''}
+          {n.online ? '' : ` (${t('manage.state.offline')})`}
+        </option>
+      ));
 
   // The path as it runs now, from the server's view of the route and the nodes' health.
   const nodes = network.data?.nodes ?? [];
@@ -240,14 +244,14 @@ export function RoutingSection({ station }: { station: StationListItem }) {
                   onChange={(e) => setForm({ ...form, ingest: e.target.value, backupIngest: form.backupIngest === e.target.value ? null : form.backupIngest })}
                 >
                   {v.locked ? <option value="local">{t('routing.auto')}</option> : !v.orchestratorOnly && <option value="local">{nodes.find((n) => n.id === 'main')?.name ?? t('manage.thisServer')}</option>}
-                  {nodeOptions}
+                  {nodeOptions()}
                 </Select>
               </Field>
               <Field label={t('routing.backupIngest')} hint={v.locked ? t('routing.backupHintNode') : t('routing.backupIngestHint')}>
                 <Select value={form.backupIngest ?? ''} disabled={!edit} onChange={(e) => setForm({ ...form, backupIngest: e.target.value || null })}>
                   <option value="">{t('routing.noBackup')}</option>
                   {!v.locked && !v.orchestratorOnly && form.ingest !== 'local' && <option value="local">{t('manage.thisServer')}</option>}
-                  {nodeOptions}
+                  {nodeOptions(form.ingest)}
                 </Select>
               </Field>
             </Panel>
