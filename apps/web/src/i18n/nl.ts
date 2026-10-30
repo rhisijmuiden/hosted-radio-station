@@ -1788,7 +1788,7 @@ export const nl: Translation = {
     skip: 'Overslaan',
     skipped: 'Door naar het volgende nummer',
     next: 'Volgende',
-    state: { off: 'AutoDJ uit', stationOff: 'Station uit', paused: 'Gepauzeerd (DJ live)', playing: 'Speelt', starting: 'Start op' },
+    state: { off: 'AutoDJ uit', stationOff: 'Station uit', paused: 'Gepauzeerd (DJ live)', playing: 'Speelt', starting: 'Start op', stuck: 'Hangt: het nummer had afgelopen moeten zijn' },
     queueTitle: 'Wachtrij',
     queueHint: 'Speelt van boven naar beneden. Sleep nummers om de volgorde te wijzigen.',
     emptyQueue: 'Deze wachtrij is leeg.',

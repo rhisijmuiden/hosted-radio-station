@@ -251,6 +251,7 @@ export function Decks({ data, stationId, lines, now }: { data: AutoDj; stationId
       <div className="mt-2.5 flex items-center gap-3">
         <ModeSwitch data={data} stationId={stationId} />
         {data.player.paused && <Badge tone="warning">{t('assist.paused')}</Badge>}
+        {data.player.stuckSince && !data.player.paused && <Badge tone="warning">{t('assist.stuck')}</Badge>}
         <span className="min-w-0 flex-1 truncate text-right text-[12px] text-muted">{manual ? (holding ? t('playout.holdingText') : t('playout.manualText')) : t('playout.autoText')}</span>
       </div>
       {cue && <CueEditor stationId={stationId} track={cue} onClose={() => setCue(null)} />}

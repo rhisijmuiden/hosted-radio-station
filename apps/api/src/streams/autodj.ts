@@ -8,6 +8,7 @@ import type { AppContext } from '../lib/context.js';
 import { autodjSocketPath, autodjToken } from '../services/autodj/liquidsoap.js';
 import { cueNow, flushForClock, nextTrack, playerStarted, trackStarted } from '../services/autodj/planner.js';
 import { autodjSettings } from '../services/autodj/settings.js';
+import { stuckSince } from '../services/autodj/stuck.js';
 import type { LiveBroadcast } from './recorder.js';
 import type { Snapshot, StationView } from './snapshot.js';
 
@@ -58,6 +59,9 @@ export class AutodjController {
   private lastSnap: Snapshot | null = null;
   /** Hard timed clock items: the cut of the track that plays at their minute. */
   private cuts = new Map<string, NodeJS.Timeout>();
+  /** Stuck playout: when each player was last checked, and the track it was skipped past. */
+  private stuckCheckedAt = new Map<string, number>();
+  private stuckSkipped = new Map<string, string>();
 
   constructor(
     private readonly ctx: AppContext,
@@ -168,6 +172,7 @@ export class AutodjController {
       const covering = new Set(AutodjController.fallsBackTo(view, mount.id).map((m) => m.path));
       const paused = settings.pauseWhenLive && live.some((b) => b.stationId === view.station.id && covering.has(b.mountPath));
       const prev = this.status.get(view.station.id);
+      if (!paused) await this.watchStuck(view.station.id).catch((err) => this.log.warn({ err, stationId: view.station.id }, 'stuck playout check failed'));
       const due = Date.now() - (this.sentAt.get(view.station.id) ?? 0) > 30_000;
       if (prev?.paused === paused && !due) continue;
       try {
@@ -179,6 +184,28 @@ export class AutodjController {
         this.touch(view.station.id, { paused, reachable: false });
       }
     }
+  }
+
+  /**
+   * Once a minute per player: when the track on air ran well past its end with no DJ live, the player hangs (seen once
+   * after a live broadcast ended). It gets one skip for that track, which starts the next one from the queue. If that
+   * does not help, the panel and RHIS Studio keep showing it as stuck.
+   */
+  private async watchStuck(stationId: string) {
+    if (Date.now() - (this.stuckCheckedAt.get(stationId) ?? 0) < 60_000) return;
+    this.stuckCheckedAt.set(stationId, Date.now());
+    const [onAir] = await this.ctx.db
+      .select({ id: schema.queueItems.id, startedAt: schema.queueItems.startedAt, durationSeconds: schema.mediaFiles.durationSeconds, cueIn: schema.mediaFiles.cueIn, cueOut: schema.mediaFiles.cueOut })
+      .from(schema.queueItems)
+      .innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.queueItems.mediaId))
+      .where(and(eq(schema.queueItems.stationId, stationId), eq(schema.queueItems.state, 'playing')))
+      .limit(1);
+    if (!onAir || this.stuckSkipped.get(stationId) === onAir.id) return;
+    const since = await stuckSince(this.ctx, stationId, { startedAt: onAir.startedAt, media: onAir }, !!this.manualSent.get(stationId));
+    if (!since) return;
+    this.stuckSkipped.set(stationId, onAir.id);
+    this.log.warn({ stationId, item: onAir.id, since }, 'The AutoDJ hangs on a track that should have ended: skipping it');
+    await playerCommand(autodjSocketPath(this.ctx, stationId), 'skip');
   }
 
   /**

@@ -62,6 +62,10 @@ function NowPlaying({ station, view, canSkip }: { station: StationDetail; view: 
     <Badge tone="accent" dot>
       {t('autodj.state.paused')}
     </Badge>
+  ) : p.stuckSince ? (
+    <Badge tone="warning" dot>
+      {t('autodj.state.stuck')}
+    </Badge>
   ) : p.connected ? (
     <Badge tone="online" dot>
       {t('autodj.state.playing')}

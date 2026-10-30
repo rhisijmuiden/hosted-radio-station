@@ -244,6 +244,40 @@ describe('manual playout and the queue rule (RHIS Studio)', () => {
     }
   });
 
+  it('flags a track that hangs well past its end, allowing for live broadcasts, and skips it once', async () => {
+    await api('POST', '/autodj/mode', { manual: false });
+    const [m] = await t.db.insert(schema.mediaFiles).values({ stationId, location: 'storage', path: 'stuck.mp3', title: 'Long mix', durationSeconds: 3600 }).returning();
+    const started = new Date(Date.now() - 66 * 60_000);
+    const [item] = await t.db.insert(schema.queueItems).values({ stationId, mediaId: m!.id, queue: 'q1', state: 'playing', origin: 'test', position: 0, startedAt: started }).returning();
+    const path = autodjSocketPath(t.ctx, stationId);
+    const heard: string[] = [];
+    const server = net.createServer((c) => c.on('data', (d) => (heard.push(d.toString().split('\n')[0]!), c.end('OK\nEND\n'))));
+    rmSync(path, { force: true });
+    await new Promise<void>((r) => server.listen(path, () => r()));
+    try {
+      // A DJ was live for ten minutes during the track: it ends ten minutes later, so it is not stuck yet.
+      await t.db.insert(schema.liveSessions).values({ stationId, mountPath: '/live', accountName: 'DJ', via: 'plain', startedAt: new Date(started.getTime() + 60_000), endedAt: new Date(started.getTime() + 11 * 60_000) });
+      expect((await api('GET', '/autodj')).json().player.stuckSince).toBeNull();
+      await t.db.delete(schema.liveSessions).where(eq(schema.liveSessions.stationId, stationId));
+      expect((await api('GET', '/autodj')).json().player.stuckSince).toBe(new Date(started.getTime() + 65 * 60_000).toISOString());
+
+      const ctrl = new AutodjController(t.ctx, pino({ level: 'silent' }));
+      const snap = await loadSnapshot(t.ctx);
+      await ctrl.sync(snap, []);
+      expect(heard).toContain('skip');
+      // Once per track, also on the next check.
+      heard.length = 0;
+      (ctrl as unknown as { stuckCheckedAt: Map<string, number> }).stuckCheckedAt.clear();
+      await ctrl.sync(snap, []);
+      expect(heard).not.toContain('skip');
+    } finally {
+      server.close();
+      rmSync(path, { force: true });
+      await t.db.delete(schema.queueItems).where(eq(schema.queueItems.id, item!.id));
+      await t.db.delete(schema.mediaFiles).where(eq(schema.mediaFiles.id, m!.id));
+    }
+  });
+
   it('still takes the queue rule of older clients (no effect since there is one queue)', async () => {
     const res = await api('PUT', '/queue-rule', { mode: 'ratio', q1: 1, q2: 3 });
     expect(res.statusCode).toBe(200);
