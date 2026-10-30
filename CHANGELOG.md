@@ -100,6 +100,9 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   folders) to it, or to any other storage folder; a bar shows the upload. The server reads the tags right after, and
   the list button makes a playlist from the folder. Fix (panel and Studio): a sub folder stays right below its parent
   in the folder tree ("hits/2026" no longer lands under "hits 2026").
+- Library folders in Studio, after testing step 7: the name in New folder no longer clears itself every few seconds;
+  before an upload Studio asks "Upload n files to <folder>?"; the file and folder pickers open in the Music folder of
+  the PC; a folder shows its tracks together with its sub folders (and how many are in the folder itself). NL: "DJ’s".
 - Fix: the AutoDJ could hang after a live broadcast. When a DJ went live again right after the previous broadcast
   ended (as the track had just changed), the skip to a new track at the end of the broadcast got lost: the old track
   played on, the player stopped reporting tracks, and the panel and RHIS Studio kept showing that track at -0:00 with

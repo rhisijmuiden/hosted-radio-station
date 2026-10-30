@@ -744,6 +744,10 @@ export const en = {
     analyseHint: 'For tracks whose tags have no BPM or key. Runs in the background at low priority.',
   },
   folders: {
+    uploadConfirm_one: 'Upload {{count}} file to {{folder}}?',
+    uploadConfirm_other: 'Upload {{count}} files to {{folder}}?',
+    countHint: 'Tracks in this folder and its sub folders',
+    here: '{{count}} in this folder',
     newFolder: 'New folder',
     newFolderHint: 'A folder in the station storage. Add music to it right away: it is kept on the server from the first track on.',
     folderName: 'Name',
