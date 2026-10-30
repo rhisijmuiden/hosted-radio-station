@@ -43,6 +43,7 @@ import { stationPublicRoutes } from './routes/station-public.js';
 import { settingsRoutes } from './routes/settings.js';
 import { ssoAdminRoutes, ssoAuthRoutes } from './routes/sso.js';
 import { stationRoutingRoutes } from './routes/station-routing.js';
+import { stationNetworkRoutes } from './routes/station-network.js';
 import { stationRoutes } from './routes/stations.js';
 import { statsRoutes } from './routes/stats.js';
 import { jingleRoutes } from './routes/jingles.js';
@@ -253,6 +254,7 @@ export async function buildApp(ctx: AppContext) {
   await app.register(stationNodeAgentRoutes, { prefix: '/api/nodes/agent/station' });
   await app.register(stationPlacementRoutes, { prefix: '/api/stations' });
   await app.register(stationRoutingRoutes, { prefix: '/api/stations' });
+  await app.register(stationNetworkRoutes, { prefix: '/api/stations' });
   await app.register(stationConnectionRoutes, { prefix: '/api/stations' });
   await app.register(stationRecordingRoutes, { prefix: '/api/stations' });
   await app.register(recordingDestinationRoutes, { prefix: '/api/stations' });

@@ -93,6 +93,26 @@ tracks.
 
 ![The OmniPlayer layout](screenshots/studio-omni-en.png)
 
+### Manage view
+
+Managers and owners of a Radio station get a third view in the layout menu: **Manage** (Ctrl+3; Ctrl+1 is Classic,
+Ctrl+2 OmniPlayer). It sets up the station from Studio on the same data as the web panel, with a menu on the left:
+
+- **Overview**: listeners now, who is on air (AutoDJ with its hour clock, or the DJ), how many of the station's nodes
+  are healthy, the delivery path (via the ingest or direct to the relays), the coming hours of the format and what
+  needs attention (a node offline, a failing monitoring check, a relay mount that does not connect, a firewall
+  problem). A click on a tile or a line opens its section.
+- **Nodes**: the station node, ingests and relays the station uses, with status (Standby is a backup ingest that is
+  ready but does not carry the station now), CPU, RAM, the monitoring checks of this station, the firewall and the
+  version.
+- **Hour clocks**, **Weekly schedule**, **Playlists & categories**, **Rotation rules**, **Library folders**,
+  **Audio routing** and **DJs & live access** come into Studio in the next steps; until then each opens at the same
+  place in the web panel.
+
+The bar at the bottom shows the track on air with its remaining time and goes back to the player. The view is kept in
+the DJ profile like the layout. It needs server 1.6 (the `manage` feature); with an older server, or for a DJ, the
+menu only has Classic and OmniPlayer.
+
 ### Locked blocks
 
 An item of the hour clock can be **locked** (panel: *Hour clocks*, the *Locked* box on a playlist or track item), for

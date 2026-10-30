@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { api, type Account, type AutoDj, type Played, type Rundown, type StationDetail, type StationStatus } from './api';
+import { api, type Account, type AutoDj, type Played, type Rundown, type StationDetail, type StationNetwork, type StationRouting, type StationStatus } from './api';
 
 export const useStationDetail = (id: string | undefined) =>
   useQuery({ queryKey: ['station', id], queryFn: () => api<StationDetail>(`/stations/${id}`), enabled: !!id, staleTime: 30_000 });
@@ -19,3 +19,10 @@ export const useAccounts = (id: string | undefined) =>
 /** Last played, for the log of the OmniPlayer layout; refetched when the track on air changes. */
 export const useHistory = (id: string | undefined, onAir: string | undefined, enabled = true) =>
   useQuery({ queryKey: ['history', id, onAir], queryFn: () => api<{ items: Played[] }>(`/stations/${id}/autodj/history?limit=8`), enabled: !!id && enabled, staleTime: 60_000, placeholderData: (prev) => prev });
+
+/** The nodes of the station and their health, for the Manage view. */
+export const useNetwork = (id: string | undefined) =>
+  useQuery({ queryKey: ['network', id], queryFn: () => api<StationNetwork>(`/stations/${id}/network`), enabled: !!id, refetchInterval: 10_000 });
+
+export const useRouting = (id: string | undefined) =>
+  useQuery({ queryKey: ['routing', id], queryFn: () => api<StationRouting>(`/stations/${id}/routing`), enabled: !!id, refetchInterval: 10_000 });
