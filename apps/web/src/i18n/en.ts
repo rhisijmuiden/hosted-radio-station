@@ -2132,7 +2132,7 @@ export const en = {
     health: { online: 'Online', degraded: 'Degraded', offline: 'Offline', unpaired: 'Not paired' },
     tree: {
       online: '{{up}} of {{total}} nodes online',
-      groups: { source: 'Ingest', station: 'Station nodes', relay: 'Relays', fm: 'FM/MPX', recorder: 'Recorders' },
+      groups: { source: 'Ingest', station: 'Station nodes', relay: 'Relays', fm: 'FM/MPX', recorder: 'Recorders', monitor: 'Monitoring' },
     },
     roles: { relay: 'Relay', source: 'Ingest', station: 'Station node', fm: 'FM/MPX', monitor: 'Monitor', recorder: 'Recorder' },
     roleHints: {

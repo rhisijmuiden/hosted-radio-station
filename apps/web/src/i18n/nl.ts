@@ -2134,7 +2134,7 @@ export const nl: Translation = {
     health: { online: 'Online', degraded: 'Verminderd', offline: 'Offline', unpaired: 'Niet gekoppeld' },
     tree: {
       online: '{{up}} van {{total}} nodes online',
-      groups: { source: 'Ingest', station: 'Stationnodes', relay: 'Relays', fm: 'FM/MPX', recorder: 'Recorders' },
+      groups: { source: 'Ingest', station: 'Stationnodes', relay: 'Relays', fm: 'FM/MPX', recorder: 'Recorders', monitor: 'Monitoring' },
     },
     roles: { relay: 'Relay', source: 'Ingest', station: 'Station node', fm: 'FM/MPX', monitor: 'Monitor', recorder: 'Recorder' },
     roleHints: {
