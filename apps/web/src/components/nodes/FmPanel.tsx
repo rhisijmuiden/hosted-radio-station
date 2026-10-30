@@ -5,11 +5,12 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, type FmConfig, type FmStatus, type NodeItem, type StationDetail, type StationListItem } from '../../lib/api';
 import { Badge, Card, CardHeader, CopyField, Field, Input, Segmented, Select, Switch } from '../ui';
+import { ProcessingCard } from './StereoToolCard';
 
 /** RDS programme types (Europe); the names come from the translations by code. */
 const PTY = Array.from({ length: 32 }, (_, i) => i);
 const RT_PLUS_NAMES: Record<number, string> = { 1: 'title', 2: 'album', 4: 'artist' };
-const stateTone = { connected: 'online', running: 'online', connecting: 'warning', starting: 'warning', error: 'offline', idle: 'neutral', off: 'neutral' } as const;
+const stateTone = { connected: 'online', running: 'online', connecting: 'warning', starting: 'warning', installing: 'warning', error: 'offline', idle: 'neutral', off: 'neutral' } as const;
 
 /** One level bar, 0..max, with a mark at 100%. */
 function Meter({ label, value, max = 1.2, mark = 1, unit = '%' }: { label: string; value: number; max?: number; mark?: number; unit?: string }) {
@@ -173,8 +174,16 @@ export function FmOnAir({ node }: { node: NodeItem }) {
           <CardHeader title={t('nodes.fm.chain')} />
           <div className="flex flex-col divide-y divide-line px-5">
             <StatusRow label={t('nodes.fm.input')} state={fm.input} detail={station?.name} message={fm.inputMessage} />
+            {fm.stereoTool && (
+              <StatusRow
+                label="Stereo Tool"
+                state={fm.stereoTool.state}
+                detail={c.stMpx === 'stereotool' ? t('nodes.fm.st.chainMpx') : t('nodes.fm.st.chainProcess')}
+                message={fm.stereoTool.message}
+              />
+            )}
             {c.output !== 'none' && <StatusRow label={t('nodes.fm.output')} state={fm.output} detail={outputDetail} message={fm.outputMessage} />}
-            {c.uecp && <StatusRow label={t('nodes.fm.uecp')} state={fm.uecp} detail={c.uecpTransport === 'serial' ? c.uecpDevice : `${c.uecpTransport.toUpperCase()} ${c.uecpHost}:${c.uecpPort}`} message={fm.uecpMessage} />}
+            {fm.uecp !== 'off' && <StatusRow label={t('nodes.fm.uecp')} state={fm.uecp} detail={c.uecpTransport === 'serial' ? c.uecpDevice : `${c.uecpTransport.toUpperCase()} ${c.uecpHost}:${c.uecpPort}`} message={fm.uecpMessage} />}
           </div>
         </Card>
       </div>
@@ -212,6 +221,9 @@ export function FmSettingsCards({ node, value, onChange, stations }: { node: Nod
   useEffect(() => setAf(value.af.map((f) => f.toFixed(1)).join(', ')), [node.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const num = (v: string, fallback: number) => (v.trim() === '' || Number.isNaN(Number(v)) ? fallback : Number(v));
   const knownDevice = value.device === 'default' || cards.some((c) => c.device === value.device);
+  const stereoTool = value.processor === 'stereotool' && value.output !== 'none';
+  /** Stereo Tool makes the MPX: pilot, stereo and the RDS level are set in Stereo Tool itself. */
+  const stMpx = stereoTool && value.stMpx === 'stereotool';
 
   return (
     <>
@@ -385,28 +397,36 @@ export function FmSettingsCards({ node, value, onChange, stations }: { node: Nod
         </div>
       </Card>
 
+      {value.output !== 'none' && <ProcessingCard value={value} set={set} />}
+
       {value.output !== 'none' && (
         <Card>
-          <CardHeader title={t('nodes.fm.audioTitle')} description={t('nodes.fm.audioHint')} />
+          <CardHeader title={t('nodes.fm.audioTitle')} description={stereoTool ? t('nodes.fm.st.audioHint') : t('nodes.fm.audioHint')} />
           <div className="flex flex-col gap-4 p-5">
             <div className="grid gap-4 sm:grid-cols-2">
-              <Switch checked={value.stereo} onChange={(stereo) => set({ stereo })} label={t('nodes.fm.stereo')} description={t('nodes.fm.stereoHint')} />
-              <Switch checked={value.limiter} onChange={(limiter) => set({ limiter })} label={t('nodes.fm.limiter')} description={t('nodes.fm.limiterHint')} />
+              {!stMpx && <Switch checked={value.stereo} onChange={(stereo) => set({ stereo })} label={t('nodes.fm.stereo')} description={t('nodes.fm.stereoHint')} />}
+              {!stereoTool && <Switch checked={value.limiter} onChange={(limiter) => set({ limiter })} label={t('nodes.fm.limiter')} description={t('nodes.fm.limiterHint')} />}
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
-              <Field label={t('nodes.fm.preemphasis')}>
-                <Select value={value.preemphasis} onChange={(e) => set({ preemphasis: Number(e.target.value) as 0 | 50 | 75 })}>
-                  <option value={50}>{t('nodes.fm.pre50')}</option>
-                  <option value={75}>{t('nodes.fm.pre75')}</option>
-                  <option value={0}>{t('nodes.fm.preOff')}</option>
-                </Select>
-              </Field>
-              <Field label={t('nodes.fm.pilot')} hint={t('nodes.fm.pilotHint')}>
-                <Input type="number" step={0.1} min={6} max={12} value={pct(value.pilot)} disabled={!value.stereo} onChange={(e) => set({ pilot: num(e.target.value, 9) / 100 })} />
-              </Field>
-              <Field label={t('nodes.fm.rdsLevel')} hint={t('nodes.fm.rdsLevelHint')}>
-                <Input type="number" step={0.1} min={1} max={10} value={pct(value.rdsLevel)} disabled={!value.rds} onChange={(e) => set({ rdsLevel: num(e.target.value, 4) / 100 })} />
-              </Field>
+              {!stereoTool && (
+                <Field label={t('nodes.fm.preemphasis')}>
+                  <Select value={value.preemphasis} onChange={(e) => set({ preemphasis: Number(e.target.value) as 0 | 50 | 75 })}>
+                    <option value={50}>{t('nodes.fm.pre50')}</option>
+                    <option value={75}>{t('nodes.fm.pre75')}</option>
+                    <option value={0}>{t('nodes.fm.preOff')}</option>
+                  </Select>
+                </Field>
+              )}
+              {!stMpx && (
+                <>
+                  <Field label={t('nodes.fm.pilot')} hint={t('nodes.fm.pilotHint')}>
+                    <Input type="number" step={0.1} min={6} max={12} value={pct(value.pilot)} disabled={!value.stereo} onChange={(e) => set({ pilot: num(e.target.value, 9) / 100 })} />
+                  </Field>
+                  <Field label={t('nodes.fm.rdsLevel')} hint={t('nodes.fm.rdsLevelHint')}>
+                    <Input type="number" step={0.1} min={1} max={10} value={pct(value.rdsLevel)} disabled={!value.rds} onChange={(e) => set({ rdsLevel: num(e.target.value, 4) / 100 })} />
+                  </Field>
+                </>
+              )}
               <Field label={t('nodes.fm.gain')} hint={t('nodes.fm.gainHint')}>
                 <Input type="number" step={0.5} min={-24} max={12} value={value.gainDb} onChange={(e) => set({ gainDb: num(e.target.value, 0) })} />
               </Field>
@@ -418,55 +438,57 @@ export function FmSettingsCards({ node, value, onChange, stations }: { node: Nod
         </Card>
       )}
 
-      <Card>
-        <CardHeader title={t('nodes.fm.uecpTitle')} description={t('nodes.fm.uecpHint')} />
-        <div className="flex flex-col gap-4 p-5">
-          <Switch checked={value.uecp} onChange={(uecp) => set({ uecp })} label={t('nodes.fm.uecpOn')} description={t('nodes.fm.uecpOnHint')} />
-          {value.uecp && (
-            <div className="grid gap-3 sm:grid-cols-4">
-              <Field label={t('nodes.fm.transport')}>
-                <Select value={value.uecpTransport} onChange={(e) => set({ uecpTransport: e.target.value as FmConfig['uecpTransport'] })}>
-                  <option value="tcp">TCP</option>
-                  <option value="udp">UDP</option>
-                  <option value="serial">{t('nodes.fm.serial')}</option>
-                </Select>
-              </Field>
-              {value.uecpTransport === 'serial' ? (
-                <>
-                  <Field label={t('nodes.fm.serialDevice')}>
-                    <Input className="font-mono" value={value.uecpDevice} onChange={(e) => set({ uecpDevice: e.target.value.trim() })} />
-                  </Field>
-                  <Field label={t('nodes.fm.baud')}>
-                    <Select value={value.uecpBaud} onChange={(e) => set({ uecpBaud: Number(e.target.value) })}>
-                      {[1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200].map((b) => (
-                        <option key={b} value={b}>
-                          {b}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                </>
-              ) : (
-                <>
-                  <Field label={t('nodes.fm.encoderHost')}>
-                    <Input required className="font-mono" value={value.uecpHost} placeholder="10.0.0.20" onChange={(e) => set({ uecpHost: e.target.value.trim() })} />
-                  </Field>
-                  <Field label={t('nodes.fm.encoderPort')}>
-                    <Input type="number" min={1} max={65535} value={value.uecpPort} onChange={(e) => set({ uecpPort: num(e.target.value, 4001) })} />
-                  </Field>
-                </>
-              )}
-              <Field label={t('nodes.fm.addresses')} hint={t('nodes.fm.addressesHint')}>
-                <div className="flex gap-2">
-                  <Input type="number" min={0} max={1023} value={value.uecpSite} onChange={(e) => set({ uecpSite: num(e.target.value, 0) })} aria-label={t('nodes.fm.site')} />
-                  <Input type="number" min={0} max={63} value={value.uecpEncoder} onChange={(e) => set({ uecpEncoder: num(e.target.value, 0) })} aria-label={t('nodes.fm.encoder')} />
-                </div>
-              </Field>
-              <p className="text-xs text-muted sm:col-span-4">{t('nodes.fm.uecpSends')}</p>
-            </div>
-          )}
-        </div>
-      </Card>
+      {!stMpx && (
+        <Card>
+          <CardHeader title={t('nodes.fm.uecpTitle')} description={t('nodes.fm.uecpHint')} />
+          <div className="flex flex-col gap-4 p-5">
+            <Switch checked={value.uecp} onChange={(uecp) => set({ uecp })} label={t('nodes.fm.uecpOn')} description={t('nodes.fm.uecpOnHint')} />
+            {value.uecp && (
+              <div className="grid gap-3 sm:grid-cols-4">
+                <Field label={t('nodes.fm.transport')}>
+                  <Select value={value.uecpTransport} onChange={(e) => set({ uecpTransport: e.target.value as FmConfig['uecpTransport'] })}>
+                    <option value="tcp">TCP</option>
+                    <option value="udp">UDP</option>
+                    <option value="serial">{t('nodes.fm.serial')}</option>
+                  </Select>
+                </Field>
+                {value.uecpTransport === 'serial' ? (
+                  <>
+                    <Field label={t('nodes.fm.serialDevice')}>
+                      <Input className="font-mono" value={value.uecpDevice} onChange={(e) => set({ uecpDevice: e.target.value.trim() })} />
+                    </Field>
+                    <Field label={t('nodes.fm.baud')}>
+                      <Select value={value.uecpBaud} onChange={(e) => set({ uecpBaud: Number(e.target.value) })}>
+                        {[1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200].map((b) => (
+                          <option key={b} value={b}>
+                            {b}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  </>
+                ) : (
+                  <>
+                    <Field label={t('nodes.fm.encoderHost')}>
+                      <Input required className="font-mono" value={value.uecpHost} placeholder="10.0.0.20" onChange={(e) => set({ uecpHost: e.target.value.trim() })} />
+                    </Field>
+                    <Field label={t('nodes.fm.encoderPort')}>
+                      <Input type="number" min={1} max={65535} value={value.uecpPort} onChange={(e) => set({ uecpPort: num(e.target.value, 4001) })} />
+                    </Field>
+                  </>
+                )}
+                <Field label={t('nodes.fm.addresses')} hint={t('nodes.fm.addressesHint')}>
+                  <div className="flex gap-2">
+                    <Input type="number" min={0} max={1023} value={value.uecpSite} onChange={(e) => set({ uecpSite: num(e.target.value, 0) })} aria-label={t('nodes.fm.site')} />
+                    <Input type="number" min={0} max={63} value={value.uecpEncoder} onChange={(e) => set({ uecpEncoder: num(e.target.value, 0) })} aria-label={t('nodes.fm.encoder')} />
+                  </div>
+                </Field>
+                <p className="text-xs text-muted sm:col-span-4">{t('nodes.fm.uecpSends')}</p>
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
     </>
   );
 }

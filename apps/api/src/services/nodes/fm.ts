@@ -83,8 +83,33 @@ export const fmConfigSchema = z.object({
   uecpBaud: z.union([z.literal(1200), z.literal(2400), z.literal(4800), z.literal(9600), z.literal(19200), z.literal(38400), z.literal(57600), z.literal(115200)]).default(9600),
   uecpSite: z.number().int().min(0).max(1023).default(0),
   uecpEncoder: z.number().int().min(0).max(63).default(0),
+
+  // Processing (FM/MPX release): the node's own light chain, or Thimeo Stereo Tool
+  processor: z.enum(['builtin', 'stereotool']).default('builtin'),
+  /** Stereo Tool licence key of the station; empty = Stereo Tool's free mode. */
+  stLicence: z
+    .string()
+    .trim()
+    .max(300)
+    .regex(/^\S*$/, 'Paste the licence key without spaces')
+    .default(''),
+  /** stereotool: Stereo Tool's own stereo encoder makes the MPX (RDS through UECP); node: it only processes. */
+  stMpx: z.enum(['stereotool', 'node']).default('stereotool'),
+  stInputRate: z.union([z.literal(48000), z.literal(192000)]).default(192000),
+  stWebPort: z.number().int().min(1024).max(65535).default(17010),
+  stUecpPort: z.number().int().min(1024).max(65535).default(17011),
+  /** Extra command-line options for Stereo Tool, separated by spaces. */
+  stExtraArgs: z
+    .string()
+    .trim()
+    .max(300)
+    .regex(/^[A-Za-z0-9 ._:=,/+-]*$/, 'Only letters, digits, spaces and . _ : = , / + -')
+    .default(''),
 });
 export type FmSettings = z.infer<typeof fmConfigSchema>;
+
+/** The Stereo Tool program the administrator uploaded (one for all FM nodes), as kept in the settings. */
+export type StereoToolBinary = { sha256: string; size: number } | null;
 
 export const fmSettings = (raw: unknown): FmSettings => {
   const r = fmConfigSchema.safeParse(raw ?? {});
@@ -92,7 +117,7 @@ export const fmSettings = (raw: unknown): FmSettings => {
 };
 
 /** What the plan of an FM node holds; null when it has no station (yet). */
-export async function buildFmPlan(ctx: AppContext, c: FmSettings, base: string, stations: { id: string; slug: string; name: string }[]): Promise<FmPlan | null> {
+export async function buildFmPlan(ctx: AppContext, c: FmSettings, base: string, stations: { id: string; slug: string; name: string }[], binary: StereoToolBinary = null): Promise<FmPlan | null> {
   const station = c.stationId ? stations.find((s) => s.id === c.stationId) : undefined;
   if (!station) return null;
   const [row] = await ctx.db.select({ scheduler: schema.stations.scheduler }).from(schema.stations).where(eq(schema.stations.id, station.id));
@@ -102,17 +127,29 @@ export async function buildFmPlan(ctx: AppContext, c: FmSettings, base: string, 
     .where(and(eq(schema.stationMounts.stationId, station.id), eq(schema.stationMounts.isPublic, true)))
     .orderBy(asc(schema.stationMounts.sortOrder), asc(schema.stationMounts.createdAt));
   const mount = mounts.find((m) => m.path === c.mount) ?? mounts.find((m) => m.isDefault) ?? mounts[0];
+  const output: FmPlan['output'] = { kind: c.output === 'rtp' && !c.rtpHost ? 'none' : c.output, device: c.device || 'default', channels: c.channels, rtpHost: c.rtpHost, rtpPort: c.rtpPort, rtpTtl: c.rtpTtl };
+  const stereoTool: FmPlan['stereoTool'] =
+    c.processor === 'stereotool' && output.kind !== 'none'
+      ? { binary, licence: c.stLicence, mpx: c.stMpx, inputRate: c.stInputRate, webPort: c.stWebPort, uecpPort: c.stUecpPort, extraArgs: c.stExtraArgs.split(/\s+/).filter(Boolean) }
+      : null;
+  // With Stereo Tool as stereo encoder its own RDS encoder goes on air: the node steers it over UECP, on the node itself.
+  const uecp: FmPlan['uecp'] =
+    stereoTool?.mpx === 'stereotool'
+      ? c.rds
+        ? { transport: 'tcp', host: '127.0.0.1', port: c.stUecpPort, device: c.uecpDevice, baud: c.uecpBaud, site: 0, encoder: 0 }
+        : null
+      : c.uecp && (c.uecpTransport === 'serial' || c.uecpHost)
+        ? { transport: c.uecpTransport, host: c.uecpHost, port: c.uecpPort, device: c.uecpDevice, baud: c.uecpBaud, site: c.uecpSite, encoder: c.uecpEncoder }
+        : null;
   return {
     station,
     url: mount ? `${base}/listen/${station.slug}${mount.path}` : null,
     texts: { ps: c.ps, psMode: c.psMode, psSeconds: c.psSeconds, rtSong: c.rtSong, rtLive: c.rtLive, rtIdle: c.rtIdle },
     rds: { enabled: c.rds, pi: parseInt(c.pi, 16), pty: c.pty, tp: c.tp, ta: c.ta, music: c.music, af: c.af, rtPlus: c.rtPlus, clock: c.clock, timezone: row ? schedulerSettings(row).timezone : 'Europe/Amsterdam' },
     audio: { stereo: c.stereo, preemphasis: c.preemphasis, limiter: c.limiter, pilot: c.pilot, rdsLevel: c.rdsLevel, gainDb: c.gainDb, bufferSeconds: c.bufferSeconds },
-    output: { kind: c.output === 'rtp' && !c.rtpHost ? 'none' : c.output, device: c.device || 'default', channels: c.channels, rtpHost: c.rtpHost, rtpPort: c.rtpPort, rtpTtl: c.rtpTtl },
-    uecp:
-      c.uecp && (c.uecpTransport === 'serial' || c.uecpHost)
-        ? { transport: c.uecpTransport, host: c.uecpHost, port: c.uecpPort, device: c.uecpDevice, baud: c.uecpBaud, site: c.uecpSite, encoder: c.uecpEncoder }
-        : null,
+    output,
+    uecp,
+    stereoTool,
   };
 }
 

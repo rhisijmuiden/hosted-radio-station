@@ -294,6 +294,28 @@ export interface FmPlan {
   output: { kind: 'soundcard' | 'rtp' | 'none'; device: string; channels: 1 | 2; rtpHost: string; rtpPort: number; rtpTtl: number };
   /** An existing RDS encoder steered over UECP, or null. */
   uecp: { transport: 'tcp' | 'udp' | 'serial'; host: string; port: number; device: string; baud: number; site: number; encoder: number } | null;
+  /**
+   * Thimeo Stereo Tool (command-line version) as the audio processor, or null for the node's own light chain. Plans
+   * of older main servers have no such field.
+   */
+  stereoTool?: FmStereoTool | null;
+}
+
+export interface FmStereoTool {
+  /** The program the administrator uploaded; the agent fetches it from the main server. Null = none uploaded yet. */
+  binary: { sha256: string; size: number } | null;
+  /** Licence key of the station; empty = Stereo Tool's free mode. */
+  licence: string;
+  /** stereotool: Stereo Tool makes the MPX (its own stereo encoder, RDS through UECP); node: it only processes. */
+  mpx: 'stereotool' | 'node';
+  /** Sample rate of the audio fed to Stereo Tool. */
+  inputRate: 48000 | 192000;
+  /** Port of Stereo Tool's web interface on the node (local, behind the node firewall). */
+  webPort: number;
+  /** TCP port Stereo Tool's RDS encoder takes UECP on; the agent sends the RDS texts there. */
+  uecpPort: number;
+  /** Extra command-line arguments for Stereo Tool, for options this panel does not have. */
+  extraArgs: string[];
 }
 
 /** What an FM/MPX node reports about its output, in every stats message. */
@@ -314,6 +336,8 @@ export interface FmStatus {
   tags: { type: number; start: number; length: number }[];
   /** RDS groups sent since the agent started, by type. */
   groups: Record<string, number>;
+  /** Stereo Tool, when it is the processor. */
+  stereoTool?: { state: 'installing' | 'starting' | 'running' | 'error'; message?: string; restarts: number } | null;
 }
 
 export interface AgentHello {

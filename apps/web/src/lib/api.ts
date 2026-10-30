@@ -889,6 +889,18 @@ export interface FmConfig {
   uecpBaud: number;
   uecpSite: number;
   uecpEncoder: number;
+  processor: 'builtin' | 'stereotool';
+  stLicence: string;
+  stMpx: 'stereotool' | 'node';
+  stInputRate: 48000 | 192000;
+  stWebPort: number;
+  stUecpPort: number;
+  stExtraArgs: string;
+}
+
+/** The Stereo Tool program FM/MPX nodes fetch from this server (uploaded by an administrator). */
+export interface StereoToolInfo {
+  binary: { name: string; size: number; sha256: string; uploadedAt: string } | null;
 }
 export interface FmStatus {
   input: 'idle' | 'connecting' | 'connected' | 'error';
@@ -904,6 +916,7 @@ export interface FmStatus {
   rt: string;
   tags: { type: number; start: number; length: number }[];
   groups: Record<string, number>;
+  stereoTool?: { state: 'installing' | 'starting' | 'running' | 'error'; message?: string; restarts: number } | null;
 }
 export interface NodeConfig {
   publicHost: string;

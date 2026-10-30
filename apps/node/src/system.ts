@@ -11,7 +11,7 @@ import { soundCards } from './fm/manager.js';
  * "firewall": the node manages its own firewall from the plan (security hardening for external nodes). "recorder"
  * (phase 21): it records stations and sends recordings to the server on request.
  */
-const FEATURES = ['studio-ingest', 'portcheck', 'parked-stations', 'firewall', 'recorder'];
+const FEATURES = ['studio-ingest', 'portcheck', 'parked-stations', 'firewall', 'recorder', 'stereotool'];
 
 /** Facts the main server shows about the node. */
 export function facts(web: 'caddy' | 'direct') {

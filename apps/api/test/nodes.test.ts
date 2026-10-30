@@ -311,6 +311,58 @@ describe('nodes', () => {
     a.ws.close();
   });
 
+  it('puts Stereo Tool on an FM node: uploaded program, plan with local UECP, download for FM nodes only', async () => {
+    const { node, paired } = await pair(admin, { name: 'fm-stereotool', roles: ['fm'] });
+    // A tiny stand-in for the program: an ELF header for 64-bit x86-64.
+    const elf = Buffer.alloc(64);
+    elf.writeUInt32BE(0x7f454c46, 0);
+    elf[4] = 2;
+    elf.writeUInt16LE(0x3e, 18);
+    const form = (file: Buffer, name: string) => {
+      const boundary = 'xxBOUNDARYxx';
+      return {
+        headers: { ...admin, 'content-type': `multipart/form-data; boundary=${boundary}` },
+        payload: Buffer.concat([Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\nContent-Type: application/octet-stream\r\n\r\n`), file, Buffer.from(`\r\n--${boundary}--\r\n`)]),
+      };
+    };
+    const notElf = await t.app.inject({ method: 'POST', url: '/api/nodes/stereotool', ...form(Buffer.from('hello'), 'readme.txt') });
+    expect(notElf.statusCode).toBe(400);
+    expect((await t.app.inject({ method: 'POST', url: '/api/nodes/stereotool', headers: owner })).statusCode).toBe(403);
+    const up = await t.app.inject({ method: 'POST', url: '/api/nodes/stereotool', ...form(elf, 'stereo_tool_cmd_64') });
+    expect(up.statusCode).toBe(200);
+    expect(up.json().binary).toMatchObject({ name: 'stereo_tool_cmd_64', size: 64 });
+    const sha = up.json().binary.sha256 as string;
+
+    const res = await t.app.inject({
+      method: 'PATCH',
+      url: `/api/nodes/${node.id}`,
+      headers: admin,
+      payload: { config: { fm: { stationId, processor: 'stereotool', stLicence: 'ABC-123', stExtraArgs: '--foo 1', uecp: true, uecpHost: '10.0.0.20' } } },
+    });
+    expect(res.statusCode).toBe(200);
+    const a = agent(node.id, paired.json().secret);
+    const plan = (await a.next('plan')).plan as Record<string, any>;
+    expect(plan.fm.stereoTool).toEqual({ binary: { sha256: sha, size: 64 }, licence: 'ABC-123', mpx: 'stereotool', inputRate: 192000, webPort: 17010, uecpPort: 17011, extraArgs: ['--foo', '1'] });
+    // Stereo Tool's own RDS encoder is on air: the UECP goes to it, not to the external encoder.
+    expect(plan.fm.uecp).toMatchObject({ transport: 'tcp', host: '127.0.0.1', port: 17011 });
+    const bad = await t.app.inject({ method: 'PATCH', url: `/api/nodes/${node.id}`, headers: admin, payload: { config: { fm: { stExtraArgs: '; rm -rf /' } } } });
+    expect(bad.statusCode).toBe(400);
+
+    const auth = { authorization: `Node ${node.id}.${paired.json().secret}` };
+    const got = await t.app.inject({ method: 'GET', url: '/api/nodes/agent/stereotool/binary', headers: auth });
+    expect(got.statusCode).toBe(200);
+    expect(got.rawPayload.equals(elf)).toBe(true);
+    const relay = await pair(admin, { name: 'not-fm', roles: ['relay'] });
+    const refused = await t.app.inject({ method: 'GET', url: '/api/nodes/agent/stereotool/binary', headers: { authorization: `Node ${relay.node.id}.${relay.paired.json().secret}` } });
+    expect(refused.statusCode).toBe(403);
+
+    // Removing the program takes it out of the plan.
+    const next = a.nextNew('plan');
+    expect((await t.app.inject({ method: 'DELETE', url: '/api/nodes/stereotool', headers: admin })).statusCode).toBe(200);
+    expect(((await next).plan as Record<string, any>).fm.stereoTool.binary).toBeNull();
+    a.ws.close();
+  });
+
   it('takes a deleted station out of the relay nodes that carried it', async () => {
     // Room in the customer's listener budget for a second station.
     await t.db.update(schema.stations).set({ maxListeners: 50 }).where(eq(schema.stations.id, stationId));

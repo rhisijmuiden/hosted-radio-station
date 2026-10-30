@@ -86,6 +86,10 @@ export function sanitizeFm(f: FmStatus): FmStatus {
     rt: str(f.rt, 64) ?? '',
     tags: Array.isArray(f.tags) ? f.tags.slice(0, 2).map((t) => ({ type: num(t?.type, 63), start: num(t?.start, 64), length: num(t?.length, 64) })) : [],
     groups: Object.fromEntries(Object.entries(f.groups && typeof f.groups === 'object' ? f.groups : {}).slice(0, 8).map(([k, v]) => [k.slice(0, 4), num(v)])),
+    stereoTool:
+      f.stereoTool && typeof f.stereoTool === 'object'
+        ? { state: pick(f.stereoTool.state, ['installing', 'starting', 'running', 'error'] as const, 'error'), message: str(f.stereoTool.message, 300), restarts: num(f.stereoTool.restarts) }
+        : null,
   };
 }
 
