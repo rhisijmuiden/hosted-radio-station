@@ -701,7 +701,7 @@ export interface AutodjView {
   settings: AutodjSettings;
   mount: { id: string; path: string; format: AudioFormat; bitrateKbps: number } | null;
   coveredMounts: string[];
-  player: { expected: boolean; connected: boolean; seenAt: string | null; paused: boolean };
+  player: { expected: boolean; connected: boolean; seenAt: string | null; paused: boolean; stuckSince: string | null };
   nowPlaying: QueueRow | null;
   queues: { q1: QueueRow[]; q2: QueueRow[] };
   library: { tracks: number; enabled: number; playlists: number };
