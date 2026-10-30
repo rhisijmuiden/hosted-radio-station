@@ -642,9 +642,9 @@ A WordPress plugin for customer websites, built on the station node API above.
 - Blocks and shortcodes: weekly schedule, today's schedule, "on air now / who is live", now playing with player, recently played.
 - Creates a schedule page in one click; follows the site's theme; caches on the WordPress side.
 
-### AutoDJ view in RHIS Studio
+### Management view in RHIS Studio (AutoDJ, routing, nodes)
 
-A third option in RHIS Studio's layout switch, next to Classic and the OmniPlayer layout: **AutoDJ**. From that view a station manager sets up the whole AutoDJ without opening the web panel: hour clocks and clock items, the weekly schedule, playlists and categories, rotation rules and the library folders it uses. It uses the same server settings as the panel (only for users allowed to manage the station; DJs keep their normal views).
+A third option in RHIS Studio's layout switch, next to Classic and the OmniPlayer layout: a **management view**. From that view a station manager sets up the whole AutoDJ without opening the web panel: hour clocks and clock items, the weekly schedule, playlists and categories, rotation rules and the library folders it uses. It also shows the station's **audio routing** (delivery path, via ingest or direct, which relays, and changing it) and the **status of the nodes** involved (online, load, checks from the monitoring node, firewall), so the station can be managed from the studio PC. It uses the same server settings as the panel (only for users allowed to manage the station; DJs keep their normal views).
 
 ### RHIS Studio on a second screen, Stream Deck and a viewer screen
 
