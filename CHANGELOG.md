@@ -43,6 +43,9 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   panel, **Download a part** under the recordings player saves only a section of an hour or show, and the scissors
   under **Public page → On demand** cut an item down to a start and an end, both without encoding again.
   See [recorder](docs/recorder.md#in-rhis-studio).
+- Recordings, after testing step 4: when a DJ stops the recording of a show and starts it again, the parts are no
+  longer thrown away one by one as too short. The recorder keeps them until the broadcast ends and then measures the
+  whole show against *Shortest show to keep* (needs the recorder's node agent from this release).
 
 ## 1.5.0 (29 October 2026)
 

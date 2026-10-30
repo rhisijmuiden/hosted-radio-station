@@ -31,8 +31,13 @@ export function recorderPlan(c: Pick<NodeSettings, 'recordStations'>, served: St
       const def = own.find((m) => m.isDefault) ?? own[0];
       const listen = (m: Mount) => `${base}/api/public/stations/${s.slug}/listen${m.path}`;
       const live: RecorderShow[] = [];
+      const paused: string[] = [];
       for (const x of sessions) {
-        if (x.stationId !== s.id || now - x.startedAt.getTime() > STALE_SHOW_MS || !recordsShow(x, rec.shows)) continue;
+        if (x.stationId !== s.id || now - x.startedAt.getTime() > STALE_SHOW_MS) continue;
+        if (!recordsShow(x, rec.shows)) {
+          if (x.record === false) paused.push(x.id);
+          continue;
+        }
         const m = own.find((o) => o.path === x.mountPath) ?? def;
         if (!m) continue;
         live.push({ sessionId: x.id, dj: x.accountName, startedAt: x.startedAt.toISOString(), url: listen(m), format: m.format as RecorderShow['format'], kbps: m.bitrateKbps });
@@ -43,7 +48,7 @@ export function recorderPlan(c: Pick<NodeSettings, 'recordStations'>, served: St
         name: s.name,
         logging: rec.logging && def ? { url: listen(def), kbps: rec.loggingKbps, days: rec.loggingDays } : null,
         // A DJ can record a show when the station does not record them by itself.
-        shows: rec.shows || live.length ? { days: rec.showsDays, minMinutes: rec.showsMinMinutes, live } : null,
+        shows: rec.shows || live.length || paused.length ? { days: rec.showsDays, minMinutes: rec.showsMinMinutes, live, ...(paused.length ? { paused } : {}) } : null,
       };
     }),
   };

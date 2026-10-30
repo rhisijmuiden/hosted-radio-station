@@ -80,7 +80,8 @@ longer listed under Recordings; listen back from the destination.
 
 On the **Live** screen a **Recording** card shows whether the show is recorded. At Go live it is when the station
 records shows; the DJ can **Stop recording** during the show (what was recorded so far is kept) and **Start
-recording** again, which records a new part. When a station does not record shows by itself, a DJ starts the
+recording** again, which records a new part. The parts of one broadcast count together for *Shortest show to keep*, measured
+when the broadcast ends. When a station does not record shows by itself, a DJ starts the
 recording of their own show here. The choice holds for that one broadcast. The new screen **Recordings** lists the
 shows of the last month to play or download: a DJ sees their own shows, a manager all of the station. RHIS Studio
 plays and downloads with a link that works for six hours, so the API key never leaves the app.

@@ -115,8 +115,10 @@ export interface RecorderPlan {
     /**
      * Live shows (step 2): the broadcasts on air now, recorded as they are sent (no new encoding) until they leave
      * the plan. Shorter than minMinutes = thrown away; kept `days` days. Missing in plans of older servers.
+     * `paused`: broadcasts still on air whose recording the DJ stopped; their parts so far are kept until the
+     * broadcast ends, and only then measured against minMinutes together with later parts (step 4).
      */
-    shows?: { days: number; minMinutes: number; live: RecorderShow[] } | null;
+    shows?: { days: number; minMinutes: number; live: RecorderShow[]; paused?: string[] } | null;
   }[];
 }
 

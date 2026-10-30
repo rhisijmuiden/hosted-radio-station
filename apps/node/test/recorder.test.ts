@@ -186,6 +186,16 @@ test('records a live show as it is sent, and throws a short one away', { skip: !
     assert.ok(shows[0]!.bytes > 0);
     const probe = execFileSync('/usr/bin/ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_name,bit_rate', '-of', 'csv=p=0', join(recordingsDir(), shows[0]!.file)]).toString().trim();
     assert.equal(probe, 'mp3,128000');
+    // The DJ stops recording while still on air: the part waits for the end of the broadcast, and only then counts.
+    const SID3 = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    rec.apply({ stations: [station([{ sessionId: SID3 }], 1)] });
+    for (let i = 0; i < 40 && !(await rec.files()).some((f) => f.sessionId === SID3 && f.bytes > 0); i++) await wait(500);
+    rec.apply({ stations: [{ ...station([], 1), shows: { ...station([], 1).shows, paused: [SID3] } }] });
+    await wait(1500);
+    assert.deepEqual((await rec.files()).filter((f) => f.sessionId === SID3).map((f) => f.open), [false]);
+    rec.apply({ stations: [station([], 1)] });
+    await wait(1500);
+    assert.deepEqual((await rec.files()).filter((f) => f.sessionId === SID3), []);
   } finally {
     rec.stop();
     server.close();

@@ -224,6 +224,8 @@ export class RecorderManager {
   private plan: RecorderPlan | null = null;
   /** "log:<station id>" and "show:<session id>". */
   private recordings = new Map<string, Recording>();
+  /** Shows whose recording the DJ stopped while the broadcast goes on (see shows.paused in the plan). */
+  private paused = new Map<string, Recording>();
   private sweeper: NodeJS.Timeout | null = null;
   private disk: RecorderStatus['disk'] = null;
   private diskAt = 0;
@@ -246,6 +248,15 @@ export class RecorderManager {
       if (st.logging) wanted.set(`log:${st.stationId}`, { stationId: st.stationId, kind: 'log', plan: st.logging, minSeconds: 0 });
       for (const show of st.shows?.live ?? []) wanted.set(`show:${show.sessionId}`, { stationId: st.stationId, kind: 'show', plan: show, minSeconds: (st.shows?.minMinutes ?? 0) * 60 });
     }
+    const paused = new Set((plan?.stations ?? []).flatMap((st) => st.shows?.paused ?? []));
+    // A show the DJ stopped recording while still on air: its parts wait for the end of the broadcast.
+    for (const [key, r] of this.paused) {
+      if (paused.has(r.sessionId!)) continue;
+      this.paused.delete(key);
+      // Recording again: the new part ends the show and measures all its parts.
+      if (wanted.has(key)) continue;
+      void this.dropShort(r).catch((err) => log.warn('cleaning up a show failed', { err }));
+    }
     for (const [key, r] of this.recordings) {
       const want = wanted.get(key);
       if (want && JSON.stringify(want.plan) === JSON.stringify(r.plan)) {
@@ -253,10 +264,12 @@ export class RecorderManager {
         continue;
       }
       this.recordings.delete(key);
+      const pause = r.kind === 'show' && !want && paused.has(r.sessionId!);
+      if (pause) this.paused.set(key, r);
       // A show that went off air: its file is complete. One that was only a test is thrown away.
       void r
         .stop()
-        .then(() => (r.kind === 'show' && !want ? this.dropShort(r) : undefined))
+        .then(() => (r.kind === 'show' && !want && !pause ? this.dropShort(r) : undefined))
         .then(() => this.onChange())
         .catch((err) => log.warn('stopping a recording failed', { err }));
     }
