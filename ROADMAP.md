@@ -622,7 +622,7 @@ Small fixes are collected here and handled one at a time in a separate thread, n
 - **Ingest as its own step in the delivery path** (fixed, 1.5.0): a station node that sends through an ingest now shows that ingest stacked under it in the same column; the ingest gets its own step to the right (source → station node → ingest → relays → listeners).
 - **Station node silent with a chosen main ingest** (fixed, 1.5.0): when a station on a station node had a specific main ingest chosen (not Automatic), the node sent no audio at all, because the station's routing went along in its package and the node then thought it was not the ingest itself. The package no longer carries that routing choice; the node always treats itself as the source and follows the pushes the orchestrator hands it.
 
-### FM/MPX release: Stereo Tool processing (queued, not scheduled yet)
+### FM/MPX release: Stereo Tool processing (in progress, started 30 October 2026)
 
 The next release of the FM/MPX node adds proper FM audio processing.
 
