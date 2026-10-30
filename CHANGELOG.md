@@ -59,7 +59,8 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   hour as a donut with a slice per item, and the items to edit like in the panel: minute, type (music from the queues,
   a playlist, one track, news), playlist and number of tracks, name, *Exactly on the minute* and *Locked*, move up or
   down, remove. **Save clock**, **Duplicate** (a copy with new item ids) and delete. Nodes also lists the recorders
-  that record the station, and the version column shows the commit of the build, so test builds can be told apart.
+  that record the station, and the version column shows the commit of the build, so test builds can be told apart. Escape
+  closes the layout menu, and Coming hours shows times without seconds.
 
 ## 1.5.0 (29 October 2026)
 

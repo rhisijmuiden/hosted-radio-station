@@ -26,7 +26,7 @@ const GROUPS: { key: string; items: Section[] }[] = [
 /** Where each section lives in the web panel, until Studio has it itself. */
 const PANEL_TAB: Partial<Record<Section, string>> = { clocks: 'clocks', schedule: 'schedule', playlists: 'playlists', rotation: 'autodj', folders: 'library', routing: 'routing', people: 'accounts' };
 
-const time = (iso: string) => new Date(iso).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+const time = (iso: string) => new Date(iso).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
 const healthy = (n: NetworkNode) => n.state === 'online' || n.state === 'standby';
 const DOT: Record<NetworkNode['state'], string> = { online: 'bg-online', standby: 'bg-online', warning: 'bg-warning', offline: 'bg-offline' };
 
