@@ -158,6 +158,13 @@ describe('orchestrator as control plane (phase 13)', () => {
     expect(topo.links.filter((l: { kind: string; from: string; to: string }) => l.kind === 'stream' && (l.from === 'main' || l.to === 'main'))).toEqual([]);
     const status = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/routing`, headers: owner })).json().status;
     expect(status.active).toBe(ingest.id);
+    // The Manage view of RHIS Studio (phase 24): the nodes of the station with their health; the backup stands by.
+    const network = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/network`, headers: owner })).json();
+    expect(network.nodes).toEqual([
+      expect.objectContaining({ id: ingest.id, name: 'ingest-ams', role: 'ingest', shared: true, state: 'online', cpu: 10, memory: 20, version: '0.1.0', issues: [] }),
+      expect.objectContaining({ id: backup.id, role: 'backupIngest', state: 'standby' }),
+      expect.objectContaining({ id: relay.id, role: 'relay', state: 'online' }),
+    ]);
     for (const x of [a, b, r]) x.close();
   });
 

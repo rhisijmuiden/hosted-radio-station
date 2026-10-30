@@ -47,6 +47,14 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   longer thrown away one by one as too short. The recorder keeps them until the broadcast ends and then measures the
   whole show against *Shortest show to keep* (needs the recorder's node agent from this release).
 - The time fields of the cut dialog (on demand) and of *Download a part* no longer get squeezed.
+- Manage view in RHIS Studio (phase 24, step 1): RHIS Studio 0.23 gets a third view **Manage** next to Classic and
+  OmniPlayer in the layout menu (Ctrl+1, Ctrl+2, Ctrl+3), for the managers and owners of a Radio station. A menu on the
+  left (Station, AutoDJ, Network, People) and the track on air in a bar at the bottom, with a way back to the player.
+  **Overview** shows listeners, who is on air, how many nodes are healthy, the delivery path, the coming hours of the
+  format and what needs attention; **Nodes** lists the station node, ingests and relays of the station with status,
+  CPU, RAM, monitoring checks, firewall and version. The AutoDJ, routing and people sections open in the web panel
+  until the next steps bring them into Studio. API: GET /stations/:id/network (managers). See
+  [studio](docs/studio.md#manage-view).
 
 ## 1.5.0 (29 October 2026)
 

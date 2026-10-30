@@ -261,3 +261,39 @@ export interface ShowRecording {
   available: boolean;
   onDemand: boolean;
 }
+
+/** The nodes a station uses and their health, from /stations/:id/network (servers with the `manage` feature). */
+export interface NetworkNode {
+  /** A node id, or "main" for the orchestrator itself. */
+  id: string;
+  name: string;
+  role: 'station' | 'ingest' | 'backupIngest' | 'relay';
+  shared: boolean;
+  state: 'online' | 'standby' | 'warning' | 'offline';
+  cpu: number | null;
+  memory: number | null;
+  checks: { ok: number; total: number } | null;
+  firewall: string | null;
+  version: string | null;
+  listeners: number | null;
+  issues: { kind: 'offline' | 'problem' | 'check' | 'relay' | 'firewall'; message: string | null }[];
+}
+export interface StationNetwork {
+  nodes: NetworkNode[];
+}
+/** How a station travels, from /stations/:id/routing (managers). */
+export interface StationRouting {
+  routing: { ingest: string; backupIngest: string | null; relays: 'auto' | string[]; spareRelays: boolean; delivery: 'ingest' | 'direct' };
+  studio: { ingests: { id: string; name: string; online: boolean; priority: number }[]; direct: 'chosen' | 'update' | 'none' | 'offline' | 'nocert' | 'failing' | null; error: string | null } | null;
+  locked: 'station_node' | null;
+  orchestratorOnly: boolean;
+  autodjHere: boolean;
+  canEdit: boolean;
+  options: { ingests: { id: string; name: string; location: string; online: boolean; own: boolean }[]; relays: { id: string; name: string; location: string; online: boolean; own: boolean }[] };
+  stale: { id: string; name: string }[];
+  status: {
+    active: string | null;
+    ingests: { ref: string; priority: number; name: string; online: boolean; onAir: boolean }[];
+    relays: { id: string; name: string; online: boolean; connected: number; total: number; spare: boolean }[];
+  };
+}
