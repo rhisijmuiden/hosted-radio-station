@@ -35,7 +35,7 @@ function Tile({ value, text, tone, onClick }: { value: ReactNode; text: ReactNod
   return (
     <button type="button" onClick={onClick} className="min-w-0 rounded-lg border border-line bg-raised px-4 py-4 text-left transition-colors hover:bg-hover">
       <div className={clsx('display truncate text-[24px] leading-tight', tone === 'online' && 'text-online', tone === 'warning' && 'text-warning')}>{value}</div>
-      <div className="mt-1 truncate text-[12px] text-muted" title={typeof text === 'string' ? text : undefined}>
+      <div className="mt-1 line-clamp-2 text-[12px] text-muted" title={typeof text === 'string' ? text : undefined}>
         {text}
       </div>
     </button>
