@@ -504,6 +504,11 @@ export const liveSessions = pgTable(
     endReason: text('end_reason'),
     /** The encoder is on air on an ingest node (phase 13), which keeps this row up to date; else on this server. */
     onNode: boolean('on_node').notNull().default(false),
+    /**
+     * Recorder nodes (phase 21 step 4): record this broadcast or not, as the DJ chose in RHIS Studio. Null = as the
+     * station's setting says (record live shows). Kept on the main server only.
+     */
+    record: boolean('record'),
   },
   (t) => [index('live_sessions_station_idx').on(t.stationId, t.startedAt)],
 );

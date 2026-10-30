@@ -14,6 +14,8 @@ let secret: string;
 let sessionId: string;
 const sent: Record<string, unknown>[] = [];
 const AUDIO = Buffer.from('ID3 pretend audio of a recording');
+/** The finished logging hour, the same in every test (a later second would be another hour file). */
+let doneAt: string;
 
 const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString().replace(/\.\d+Z$/, '.000Z');
 const stamp = (at: string) => at.slice(0, 19).replace('T', '_').replace(/:/g, '-');
@@ -99,7 +101,8 @@ describe('uploads of recordings (phase 21 step 3)', () => {
 
   it('uploads finished recordings once, tries a failed upload again later, and skips what ended before the destination came', async () => {
     await t.app.inject({ method: 'POST', url: `/api/stations/${stationId}/recording/destinations`, headers: admin, payload: sftp('flaky.example.com', ['log']) });
-    const done = logFile(iso(50 * 60_000));
+    doneAt = iso(50 * 60_000);
+    const done = logFile(doneAt);
     const old = logFile(iso(5 * 3600_000));
     const open = logFile(iso(10 * 60_000), true);
     expect((await report([old, done, open])).statusCode).toBe(200);
@@ -127,7 +130,7 @@ describe('uploads of recordings (phase 21 step 3)', () => {
     uploads.length = 0;
     const at = iso(30 * 60_000);
     const show = { stationId, kind: 'show', sessionId, file: `${stationId}/show/${stamp(at)}Z_128k_${sessionId}.mp3`, startedAt: at, seconds: 1900, bytes: AUDIO.length, open: false };
-    const log = logFile(iso(50 * 60_000));
+    const log = logFile(doneAt);
     await report([log, show]);
     await delivery().tick();
     expect(uploads.map((u) => [u.dest, u.remotePath])).toEqual([['nas.example.com', expect.stringMatching(/^test-fm\/shows\/\d{4}-\d{2}\/test-fm_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}Z_DJ-Reinder_[0-9a-f]{6}\.mp3$/)]]);

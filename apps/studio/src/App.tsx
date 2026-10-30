@@ -12,6 +12,7 @@ import { ThemeContext } from './lib/theme-context';
 import { AssistPage } from './pages/Assist';
 import { CartsPage, loadAllCarts, PER_PAGE, triggerCart } from './pages/Carts';
 import { LivePage } from './pages/Live';
+import { RecordingsPage } from './pages/Recordings';
 import { SettingsPage } from './pages/Settings';
 import { SignInPage } from './pages/SignIn';
 
@@ -54,6 +55,7 @@ function Main() {
       {page === 'assist' && <AssistPage />}
       {page === 'live' && <LivePage onPage={setPage} />}
       {page === 'carts' && <CartsPage />}
+      {page === 'recordings' && <RecordingsPage />}
       {page === 'settings' && <SettingsPage />}
     </Shell>
   );

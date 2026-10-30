@@ -318,7 +318,7 @@ async function openSessions(ctx: AppContext, stationIds: string[]): Promise<Open
   if (!stationIds.length) return [];
   const ls = schema.liveSessions;
   return ctx.db
-    .select({ id: ls.id, stationId: ls.stationId, mountPath: ls.mountPath, accountName: ls.accountName, startedAt: ls.startedAt })
+    .select({ id: ls.id, stationId: ls.stationId, mountPath: ls.mountPath, accountName: ls.accountName, startedAt: ls.startedAt, record: ls.record })
     .from(ls)
     .where(and(inArray(ls.stationId, stationIds), isNull(ls.endedAt)))
     .orderBy(asc(ls.startedAt));

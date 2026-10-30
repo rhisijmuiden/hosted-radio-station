@@ -57,7 +57,8 @@ import { forgetMissingStations } from './services/nodes/routing.js';
 import { listenFallbackRoutes, listenRedirectRoutes, nodeAgentRoutes, nodeRoutes } from './routes/nodes.js';
 import { orchestratorRoutes, stationConnectionRoutes } from './routes/orchestrator.js';
 import { recordingDestinationRoutes } from './routes/recording-destinations.js';
-import { recordingAgentRoutes, stationRecordingRoutes } from './routes/recordings.js';
+import { recordingAgentRoutes, recordingLinkRoutes, stationRecordingRoutes } from './routes/recordings.js';
+import { studioRecordingRoutes } from './routes/studio-recordings.js';
 import { stationNodeAgentRoutes, stationPlacementRoutes, tenantStationNodeRoutes } from './routes/station-nodes.js';
 import { stationNodeInternalRoutes } from './routes/station-node-internal.js';
 import { RecordingDelivery } from './services/recorder/delivery.js';
@@ -236,6 +237,8 @@ export async function buildApp(ctx: AppContext) {
   await app.register(statsRoutes, { prefix: '/api/stats' });
   await app.register(studioRoutes, { prefix: '/api/studio' });
   await app.register(jingleRoutes, { prefix: '/api/studio' });
+  await app.register(studioRecordingRoutes, { prefix: '/api/studio' });
+  await app.register(recordingLinkRoutes, { prefix: '/api/recordings' });
   await app.register(publicRoutes, { prefix: '/api/public' });
   await app.register(listenRedirectRoutes, { prefix: '/api/public' });
   await app.register(listenFallbackRoutes);
