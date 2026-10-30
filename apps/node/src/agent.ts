@@ -274,6 +274,8 @@ export class Agent {
         }
         return;
       }
+      case 'rec_delete':
+        return this.recorder.remove(String(msg.file)).catch((err) => log.warn('removing an uploaded recording failed', { err }));
       case 'restart':
         log.info('the main server restarts; reconnecting');
         this.retries = 0;

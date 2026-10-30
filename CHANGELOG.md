@@ -25,6 +25,14 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 - Recordings, after testing step 2: the play log shows a line "<DJ> goes live" where a broadcast starts (also when the
   encoder sends no titles), and a show's play log no longer lists the AutoDJ title that was on before it. A recorder
   reports a new or finished recording within seconds instead of at its next 30-second report.
+- Recorder node, step 3: uploads and shows on demand. Under **Recordings → Upload** a station manager adds upload
+  destinations (SFTP, FTPS, FTP or OneDrive, like backup locations) for logging, live shows or both. The orchestrator
+  copies every finished recording there, fetched from the recorder once, and tries a failed upload again after 1, 5,
+  15 and 30 minutes and then every hour; the destination shows what waits and why, with *Try again now*, and the lists
+  show per recording whether it was uploaded. Optionally a recording is removed from the recorder once every
+  destination has it. A finished show becomes an on-demand item (*Make shows available on demand*, on by default):
+  a draft or published right away as the public page says, also for a station on a station node, and never twice
+  for one broadcast. See [recorder](docs/recorder.md#uploads).
 
 ## 1.5.0 (29 October 2026)
 

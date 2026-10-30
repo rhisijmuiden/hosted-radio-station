@@ -1274,9 +1274,49 @@ export const recordings = pgTable(
     sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull().default(0),
     /** The node is still writing it. */
     open: boolean('open').notNull().default(false),
+    /** A show: when it became an on-demand item (step 3), so it is made only once. */
+    ondemandAt: timestamp('ondemand_at', { withTimezone: true }),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('recordings_node_file_idx').on(t.nodeId, t.file), index('recordings_station_idx').on(t.stationId, t.kind, t.startedAt)],
+);
+
+/**
+ * Where the recordings of a station are uploaded to (phase 21 step 3): an FTP, FTPS or SFTP server or OneDrive, with
+ * the same settings as a backup location. Secrets in `config` are sealed. `kinds` says which recordings go there.
+ */
+export const recordingDestinations = pgTable(
+  'recording_destinations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    type: backupTargetType('type').notNull(),
+    config: jsonb('config').$type<Record<string, unknown>>().notNull(),
+    /** log and/or show */
+    kinds: jsonb('kinds').$type<string[]>().notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    createdAt: createdAt(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('recording_destinations_station_idx').on(t.stationId)],
+);
+
+/** How the upload of one recording to one destination went. No row = not tried yet. */
+export const recordingDeliveries = pgTable(
+  'recording_deliveries',
+  {
+    recordingId: uuid('recording_id').notNull().references(() => recordings.id, { onDelete: 'cascade' }),
+    destinationId: uuid('destination_id').notNull().references(() => recordingDestinations.id, { onDelete: 'cascade' }),
+    /** done | failed */
+    state: text('state').notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    /** A failed upload is tried again from this moment. */
+    nextAt: timestamp('next_at', { withTimezone: true }),
+    error: text('error'),
+    at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.recordingId, t.destinationId] }), index('recording_deliveries_destination_idx').on(t.destinationId, t.state)],
 );
 
 /**

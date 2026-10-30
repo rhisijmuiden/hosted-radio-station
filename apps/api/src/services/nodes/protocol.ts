@@ -420,7 +420,9 @@ export type ServerMessage =
    * Recorder (phase 21): post bytes start..end (end exclusive, null = up to the end) of this file to
    * POST /api/nodes/agent/recordings/<id>, or answer with rec_error.
    */
-  | { t: 'rec_send'; id: string; file: string; start: number; end: number | null };
+  | { t: 'rec_send'; id: string; file: string; start: number; end: number | null }
+  /** Recorder node (step 3): this finished file has been uploaded everywhere it had to go, remove it. */
+  | { t: 'rec_delete'; file: string };
 
 /** The bulk report a node posts every 30 seconds (POST /api/nodes/agent/report). */
 export interface AgentReport {

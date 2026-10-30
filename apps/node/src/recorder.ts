@@ -412,6 +412,17 @@ export class RecorderManager {
     return [...this.recordings.values()].filter((r) => r.state === 'error').map((r) => `Recording ${r.kind === 'show' ? 'the live show of ' : ''}${names.get(r.stationId) ?? r.stationId}: ${r.message ?? 'failed'}`);
   }
 
+  /** Removes a finished file the server has uploaded everywhere it had to go. A file still being written stays. */
+  async remove(file: string) {
+    const path = recordingPath(file);
+    if (!path) return;
+    const f = (await this.files()).find((x) => x.path === path);
+    if (!f || f.open) return;
+    await unlink(path).catch(() => undefined);
+    log.info('removed an uploaded recording', { file });
+    this.onChange();
+  }
+
   /**
    * Sends bytes start..end of a file to the server, which passes them on to the panel. Throws with a message for the
    * panel when the file is not there.
