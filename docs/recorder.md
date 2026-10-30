@@ -39,6 +39,43 @@ Per station, under **Recordings**: *Record live shows* (on by default), *Keep sh
 make room on a full disk, only after their retention. The **Live shows** list shows the last month with the DJ, length
 and size; play a show with its play log, or download it.
 
+## Uploads
+
+Per station, under **Recordings → Upload**, a manager adds destinations: an **SFTP**, **FTPS** or **FTP** server or
+**OneDrive**, set up the same way as a backup location (OneDrive: sign in with a code when the server has a Microsoft
+app under backup settings, otherwise paste a token from `rclone authorize onedrive`). Per destination: what goes
+there (logging, live shows or both) and whether it is active. **Test connection** checks the login and makes the
+folder.
+
+The orchestrator does the uploads: every 30 seconds it looks for finished recordings a destination does not have yet,
+fetches each once from the recorder (the same way the player does, so a recorder behind NAT works) and copies it with
+rclone. Recordings made before a destination was added are not uploaded there (except the hour it was added in). A
+failed upload is tried again after 1, 5, 15 and 30 minutes, then every hour; the destination shows how many wait and
+the newest error, with **Try again now**. Changing a destination tries the failed ones again at once. The lists show a
+cloud icon per recording: green when uploaded, orange when an upload failed.
+
+Layout at the destination, times in UTC:
+
+```
+<folder>/<station>/logging/2026-10/<station>_2026-10-29_21-00-00Z_64k.mp3
+<folder>/<station>/shows/2026-10/<station>_2026-10-29_21-04Z_DJ-Reinder_1a2b3c.mp3
+```
+
+**Remove from the recorder once uploaded** (off by default): a recording is removed from the recorder as soon as every
+active destination that takes it has it, and a show is an on-demand item when the station wants that. It is then no
+longer listed under Recordings; listen back from the destination.
+
+## Shows on demand
+
+With *Make shows available on demand* (on by default), a show becomes an on-demand item of the station two minutes
+after its broadcast ended: the orchestrator fetches it from the recorder (parts of one show are joined into one file
+without new encoding) and puts it in the station's `recordings` folder, on the orchestrator or, for a station on a
+station node, on that node. The item is a draft or published right away as set under **Public page → On demand**
+(*Publish recordings right away*), and drafts that are never published are removed after the days set there. A
+broadcast that already has an item (because *Record live broadcasts* on the public page recorded it on the server too)
+gets no second one; the Recordings page warns when both are on. Shows that ended more than 7 days ago are not offered
+any more.
+
 ## Disk space
 
 | Bitrate | Per hour | Per day | 31 days |
@@ -71,3 +108,9 @@ orchestrator keeps it in the `recordings` table.
 - `GET /api/stations/:id/recordings/:rid/songs`: the play log of a file.
 - `GET /api/stations/:id/recordings/:rid/audio`: the audio, with `Range` for seeking; `?download=1` for the whole file
   as an attachment.
+- `GET/POST /api/stations/:id/recording/destinations`, `PUT/DELETE …/destinations/:did`: upload destinations (secrets
+  are masked in answers; send the mask back to keep them). `POST …/destinations/test` checks one before or after
+  saving, `POST …/destinations/:did/retry` tries the failed uploads again now. `POST /api/stations/:id/recording/onedrive/device-code`
+  and `…/device-token` sign in to OneDrive.
+- The settings `showsOnDemand` and `deleteUploaded` are part of `PUT /api/stations/:id/recording`. The file list has
+  `uploads` (done, failed, newest error) and `onDemand` per file.

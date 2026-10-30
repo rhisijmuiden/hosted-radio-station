@@ -1,3 +1,4 @@
+import type { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -101,11 +102,18 @@ async function forward(req: FastifyRequest, reply: FastifyReply, peer: NonNullab
 }
 
 /** A request of this server to a station node, e.g. for files of a station that moves back. Throws when offline. */
-export async function nodeRequest(tunnels: StationTunnels, nodeId: string, method: string, path: string, opts: { body?: string; timeoutMs?: number } = {}) {
+export async function nodeRequest(
+  tunnels: StationTunnels,
+  nodeId: string,
+  method: string,
+  path: string,
+  opts: { body?: string | Readable; contentType?: string; contentLength?: number; timeoutMs?: number } = {},
+) {
   const peer = tunnels.peer(nodeId);
   if (!peer) throw new Error('The station node is offline');
   const headers: Record<string, string> = { [TUNNEL_HEADERS.system]: '1' };
-  if (opts.body !== undefined) headers['content-type'] = 'application/json';
+  if (opts.body !== undefined) headers['content-type'] = opts.contentType ?? 'application/json';
+  if (opts.contentLength !== undefined) headers['content-length'] = String(opts.contentLength);
   return peer.request({ method, path, headers }, opts.body ?? null, { timeoutMs: opts.timeoutMs });
 }
 

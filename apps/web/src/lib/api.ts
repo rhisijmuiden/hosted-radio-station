@@ -1048,12 +1048,34 @@ export interface StationRecordingSettings {
   shows: boolean;
   showsDays: number;
   showsMinMinutes: number;
+  /** Step 3: a finished show becomes an on-demand item; uploaded recordings are removed from the recorder. */
+  showsOnDemand: boolean;
+  deleteUploaded: boolean;
 }
 export interface StationRecording {
   settings: StationRecordingSettings;
   recorders: { id: string; name: string; location: string; online: boolean; own: boolean; state: RecorderState | null; message: string | null; recordingShow: boolean; disk: RecorderDisk | null }[];
   bitrates: number[];
   canEdit: boolean;
+  /** The public page shows on-demand items; live broadcasts are also recorded on the server (doubles). */
+  onDemandPage: boolean;
+  serverRecordsLive: boolean;
+}
+export type RecordingDestinationType = 'ftp' | 'ftps' | 'sftp' | 'onedrive';
+export interface RecordingDestination {
+  id: string;
+  name: string;
+  type: RecordingDestinationType;
+  description: string;
+  config: Record<string, unknown>;
+  kinds: ('log' | 'show')[];
+  enabled: boolean;
+  createdAt: string;
+  uploaded: number;
+  lastUploadAt: string | null;
+  failing: number;
+  lastError: string | null;
+  nextTryAt: string | null;
 }
 export interface RecordingFile {
   id: string;
@@ -1067,6 +1089,8 @@ export interface RecordingFile {
   sizeBytes: number;
   open: boolean;
   available: boolean;
+  uploads: { done: number; failed: number; error: string | null };
+  onDemand: boolean;
 }
 export interface RecordingSong {
   /** song = a title in the stream; live = a DJ went live here. */

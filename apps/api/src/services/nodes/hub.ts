@@ -648,6 +648,14 @@ export class NodeHub {
     });
   }
 
+  /** Asks a recorder node to remove a finished file that has been uploaded (step 3). False when the node is offline. */
+  deleteRecording(nodeId: string, file: string) {
+    const c = this.conns.get(nodeId);
+    if (!c) return false;
+    this.send(c, { t: 'rec_delete', file });
+    return true;
+  }
+
   /** The node posted the file it was asked for. False when nobody waits for it (any more). */
   recordingArrived(nodeId: string, id: string, part: RecordingPart) {
     const job = this.recordingJobs.get(id);

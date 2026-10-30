@@ -232,6 +232,13 @@
       "when": 1793361600000,
       "tag": "0033_recorder_shows",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1793365200000,
+      "tag": "0034_recording_uploads",
+      "breakpoints": true
     }
   ]
 }

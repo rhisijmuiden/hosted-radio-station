@@ -1,6 +1,6 @@
 import { PassThrough } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { and, asc, eq, gte, isNotNull, isNull, lt, or, gt, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNotNull, isNull, lt, or, gt, sql } from 'drizzle-orm';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { schema } from '../db/index.js';
@@ -10,6 +10,7 @@ import { serves } from '../services/nodes/dedication.js';
 import type { RecordingPart } from '../services/nodes/hub.js';
 import { nodeSettings } from '../services/nodes/plan.js';
 import { authenticateNode } from '../services/nodes/report.js';
+import { publicSettings } from '../services/public/settings.js';
 import { recordedStations } from '../services/recorder/plan.js';
 import { LOGGING_BITRATES, recordingPatch, recordingSchema, stationRecording } from '../services/recorder/settings.js';
 import { stationAccess } from './stations.js';
@@ -40,6 +41,9 @@ const recordingOut = z.object({
   recorders: z.array(recorderOut),
   bitrates: z.array(z.number()),
   canEdit: z.boolean(),
+  /** Public page settings that matter here: on-demand is on, and live broadcasts are also recorded on the server (phase 5). */
+  onDemandPage: z.boolean(),
+  serverRecordsLive: z.boolean(),
 });
 const fileOut = z.object({
   id: z.uuid(),
@@ -54,6 +58,10 @@ const fileOut = z.object({
   open: z.boolean(),
   /** The recorder is online, so the file can be played or downloaded now. */
   available: z.boolean(),
+  /** Uploads to the station's destinations (step 3): done, failing (tried again later) and the newest error. */
+  uploads: z.object({ done: z.number(), failed: z.number(), error: z.string().nullable() }),
+  /** A show that became an on-demand item. */
+  onDemand: z.boolean(),
 });
 const songOut = z.object({
   /** song = a title in the stream; live = a DJ went live here (also when the encoder sends no titles). */
@@ -115,7 +123,15 @@ export const stationRecordingRoutes: FastifyPluginAsyncZod = async (app) => {
           disk: status?.recorder?.disk ?? null,
         };
       });
-      return { settings: stationRecording(station), recorders, bitrates: [...LOGGING_BITRATES], canEdit: superadmin || access.role === 'owner' || access.role === 'manager' };
+      const pub = publicSettings(station);
+      return {
+        settings: stationRecording(station),
+        recorders,
+        bitrates: [...LOGGING_BITRATES],
+        canEdit: superadmin || access.role === 'owner' || access.role === 'manager',
+        onDemandPage: pub.onDemand.enabled,
+        serverRecordsLive: pub.recording.enabled,
+      };
     },
   );
 
@@ -161,6 +177,21 @@ export const stationRecordingRoutes: FastifyPluginAsyncZod = async (app) => {
         .where(and(eq(r.stationId, station.id), eq(r.kind, req.query.kind), lt(r.startedAt, to), sql`${r.startedAt} + make_interval(secs => ${r.durationSeconds}) > ${from.toISOString()}::timestamptz`))
         .orderBy(asc(r.startedAt))
         .limit(2000);
+      const d = schema.recordingDeliveries;
+      const ids = rows.map((x) => x.rec.id);
+      const deliveries = ids.length
+        ? await ctx.db.select({ id: d.recordingId, state: d.state, error: d.error }).from(d).where(inArray(d.recordingId, ids))
+        : [];
+      const uploads = new Map<string, { done: number; failed: number; error: string | null }>();
+      for (const x of deliveries) {
+        const u = uploads.get(x.id) ?? { done: 0, failed: 0, error: null };
+        if (x.state === 'done') u.done++;
+        else {
+          u.failed++;
+          u.error ??= x.error;
+        }
+        uploads.set(x.id, u);
+      }
       return rows.map(({ rec, nodeName, dj }) => ({
         id: rec.id,
         nodeId: rec.nodeId,
@@ -172,6 +203,8 @@ export const stationRecordingRoutes: FastifyPluginAsyncZod = async (app) => {
         sizeBytes: rec.sizeBytes,
         open: rec.open,
         available: hub.isOnline(rec.nodeId),
+        uploads: uploads.get(rec.id) ?? { done: 0, failed: 0, error: null },
+        onDemand: !!rec.ondemandAt,
       }));
     },
   );

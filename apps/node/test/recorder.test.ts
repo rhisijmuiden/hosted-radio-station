@@ -52,6 +52,19 @@ test('removes files past the retention, keeps the rest, and lists them for the s
   }
 });
 
+test('removes an uploaded file when the server asks, but not one that is not a recording', async () => {
+  const dir = join(recordingsDir(), S1, 'log');
+  mkdirSync(dir, { recursive: true });
+  const name = '2026-10-29_07-00-00Z_64k.mp3';
+  writeFileSync(join(dir, name), Buffer.from('uploaded'));
+  let changed = 0;
+  const rec = new RecorderManager('n1', undefined, () => changed++);
+  await rec.remove(`${S1}/log/../../node.json`);
+  await rec.remove(`${S1}/log/${name}`);
+  assert.equal(existsSync(join(dir, name)), false);
+  assert.equal(changed, 1);
+});
+
 test('sends a part of a file to the server', async () => {
   const dir = join(recordingsDir(), S1, 'log');
   mkdirSync(dir, { recursive: true });

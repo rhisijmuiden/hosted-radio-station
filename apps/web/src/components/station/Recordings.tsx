@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ChevronLeft, ChevronRight, Disc3, Download, Mic, Play } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, ChevronLeft, ChevronRight, CloudCheck, CloudAlert, Disc3, Download, Mic, Play, Radio } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import i18n from '../../i18n';
@@ -9,6 +9,7 @@ import { api, type RecordingFile, type RecordingSong, type StationDetail, type S
 import { formatBytes, formatDate } from '../../lib/format';
 import { DiskBar, recorderTone } from '../nodes/RecorderPanel';
 import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, Select, Spinner, Switch, Table } from '../ui';
+import { RecordingUploads } from './RecordingUploads';
 
 const clock = (iso: string | Date) => new Intl.DateTimeFormat(i18n.language, { hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
 const length = (s: number) => {
@@ -107,6 +108,16 @@ function LoggingSettings({ station, data }: { station: StationDetail; data: Stat
             </Field>
           </div>
         )}
+        {draft.shows && (
+          <div className="flex flex-col gap-2">
+            <Switch checked={draft.showsOnDemand} disabled={!data.canEdit} onChange={(showsOnDemand) => set({ showsOnDemand })} label={t('recordings.showsOnDemand')} description={t('recordings.showsOnDemandHint')} />
+            {draft.showsOnDemand && !data.onDemandPage && <Note>{t('recordings.onDemandPageOff')}</Note>}
+            {draft.showsOnDemand && data.serverRecordsLive && <Note>{t('recordings.serverRecordsLive')}</Note>}
+          </div>
+        )}
+        <div className="border-t border-line pt-4">
+          <Switch checked={draft.deleteUploaded} disabled={!data.canEdit} onChange={(deleteUploaded) => set({ deleteUploaded })} label={t('recordings.deleteUploaded')} description={t('recordings.deleteUploadedHint')} />
+        </div>
         {data.canEdit && (
           <div className="flex justify-end">
             <Button variant="dark" loading={save.isPending} onClick={() => save.mutate()}>
@@ -116,6 +127,38 @@ function LoggingSettings({ station, data }: { station: StationDetail; data: Stat
         )}
       </div>
     </Card>
+  );
+}
+
+function Note({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex gap-2 rounded-md bg-warning/10 px-3 py-2 text-xs">
+      <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" />
+      <span>{children}</span>
+    </div>
+  );
+}
+
+/** Upload and on-demand state of a recording, as small icons with a tooltip. */
+function Delivered({ file }: { file: RecordingFile }) {
+  const { t } = useTranslation();
+  return (
+    <span className="ml-2 inline-flex items-center gap-1 align-middle text-muted [&_svg]:size-3.5">
+      {file.uploads.failed > 0 ? (
+        <span title={t('recordings.uploadFailed', { error: file.uploads.error ?? '' })} className="text-warning">
+          <CloudAlert />
+        </span>
+      ) : file.uploads.done > 0 ? (
+        <span title={t('recordings.uploadedTo', { count: file.uploads.done })} className="text-online">
+          <CloudCheck />
+        </span>
+      ) : null}
+      {file.onDemand && (
+        <span title={t('recordings.onDemandItem')}>
+          <Radio />
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -209,7 +252,10 @@ function Shows({ station, current, onPlay }: { station: StationDetail; current: 
                 )}
               </td>
               <td className="text-[13px]">{f.dj ?? '—'}</td>
-              <td className="text-[13px] tabular-nums">{length(f.durationSeconds)}</td>
+              <td className="text-[13px] whitespace-nowrap tabular-nums">
+                {length(f.durationSeconds)}
+                <Delivered file={f} />
+              </td>
               <td className="text-[13px] tabular-nums">{formatBytes(f.sizeBytes)}</td>
               <td className="text-[13px] text-muted">
                 {f.nodeName}
@@ -265,6 +311,7 @@ export function RecordingsTab({ station }: { station: StationDetail }) {
   return (
     <div className="flex flex-col gap-4">
       <LoggingSettings station={station} data={recording.data} />
+      <RecordingUploads station={station} canEdit={recording.data.canEdit} />
       {current && <Player station={station} file={current} />}
       {recording.data.settings.shows && <Shows station={station} current={current} onPlay={setCurrent} />}
       <Card>
@@ -303,7 +350,10 @@ export function RecordingsTab({ station }: { station: StationDetail }) {
                     </span>
                   )}
                 </td>
-                <td className="text-[13px] tabular-nums">{length(f.durationSeconds)}</td>
+                <td className="text-[13px] whitespace-nowrap tabular-nums">
+                  {length(f.durationSeconds)}
+                  <Delivered file={f} />
+                </td>
                 <td className="text-[13px] tabular-nums">{formatBytes(f.sizeBytes)}</td>
                 <td className="text-[13px] text-muted">
                   {f.nodeName}
