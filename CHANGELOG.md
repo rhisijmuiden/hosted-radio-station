@@ -118,6 +118,7 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   over UECP on the node itself), or the node (Stereo Tool only processes, the node adds stereo, pilot and its RDS).
   The node page shows Stereo Tool in the chain with its state. API: GET/POST/DELETE /nodes/stereotool. See
   [FM/MPX](docs/fm.md#stereo-tool).
+- Nodes: the hierarchy card names the group of monitoring nodes "Monitoring" instead of showing a raw translation key.
 
 ## 1.5.0 (29 October 2026)
 
