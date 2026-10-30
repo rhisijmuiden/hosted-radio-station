@@ -58,7 +58,7 @@ export class Agent {
 
   constructor(private readonly file: NodeFile) {
     this.source = new SourceForwarder({ nodeId: file.nodeId, secret: file.secret });
-    this.fm = new FmManager(file.nodeId);
+    this.fm = new FmManager(file.nodeId, { url: file.server, secret: file.secret });
     this.recorder = new RecorderManager(
       file.nodeId,
       (kind, level, details) => this.event(kind, level, details),

@@ -73,10 +73,23 @@ That is about 4.6 Mb/s. Receivers that take an SDP (ffmpeg, Stereo Tool, many IP
 
 Turn on **Send RDS over UECP**, choose TCP, UDP or a serial port and the encoder's address; site and encoder address 0 reach every encoder. The node sends PI, PS, RadioText (with the A/B flag), PTY, TP/TA, music/speech and stereo, the changes right away and everything again every minute. RadioText+ and AF are set on the encoder itself.
 
+## Stereo Tool
+
+An FM node can process the audio with [Thimeo Stereo Tool](https://www.stereotool.com) (FM version) instead of its own light chain (pre-emphasis, limiter, 15 kHz low-pass). Choose it under the node's settings, **Processing**.
+
+1. **The program.** Thimeo does not allow shipping Stereo Tool, so an administrator downloads the Linux command-line version (64-bit, `stereo_tool_cmd_64`) from stereotool.com and uploads it once on any FM node page: the file itself or the `.zip`/`.tar.gz` it comes in. The orchestrator keeps it (also in its backups); FM nodes that use Stereo Tool fetch it from there and check it against its SHA-256. A new upload goes to every node within a minute.
+2. **Licence key.** The station's own key. Without one Stereo Tool runs in its free mode.
+3. **Stereo encoder.**
+   - *Stereo Tool makes the MPX* (default): Stereo Tool does the processing, the stereo encoder, pilot, composite clipper and RDS. The node sends the RDS texts (PS, RadioText from the station's songs and live DJs, PTY, TP/TA, music/speech) to Stereo Tool's RDS encoder over UECP on `127.0.0.1`, port 17011 by default. Set up once in Stereo Tool: output as MPX at 192 kHz, and under RDS turn on UECP input over TCP on that port.
+   - *Node makes the MPX*: Stereo Tool only processes; the node adds stereo, pilot and its own RDS, as without Stereo Tool.
+
+The chain on the node: the stream is decoded by ffmpeg to 16-bit stereo WAV at 192 kHz (or 48 kHz, under Advanced), Stereo Tool reads it on stdin and writes WAV on stdout (`stereo_tool_cmd_64 - - -q -k <key> -w <port>`), and a second ffmpeg reads that at 192 kHz into the MPX buffer, which keeps it in step with the sound card or RTP clock as before. When one of them stops, all three start again. Stereo Tool's web interface listens on port 17010 on the node; the node firewall keeps it closed from outside (opening it from the panel follows in a later step). Under Advanced you can add command-line options the page does not have.
+
 ## Troubleshooting
 
 - **No sound card in the list**: pass `/dev/snd` through (see above) and restart the container; `aplay -l` on the node shows what it sees.
 - **Output: aplay stopped**: another program uses the card, or the card cannot do 192 kHz. Choose a card that can.
 - **ffmpeg is not installed**: run `install-fm.sh` on the node again.
 - **The modulation meter goes over 100%**: lower the output gain, or let the limiter work (it is on by default).
+- **Stereo Tool: error**: the node page shows why. *Needs a 64-bit Intel or AMD node*: Stereo Tool for Linux runs on x86-64 only. *Stereo Tool stopped*: check the licence key and the extra options; run `/var/lib/hrs-node/stereotool/stereo_tool_cmd_64 --help` on the node to see what this version takes.
 - On the node, `hrs-node logs` shows what the FM role does.

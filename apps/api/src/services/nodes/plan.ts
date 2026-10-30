@@ -428,7 +428,7 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
           .map((r) => relayBaseUrl(r))
           .find(Boolean) ?? base)
       : base;
-  const fm = fmStation ? await buildFmPlan(ctx, c.fm, fmBase, stations) : null;
+  const fm = fmStation ? await buildFmPlan(ctx, c.fm, fmBase, stations, await stereoToolBinary(ctx)) : null;
   const firewall = await firewallPlan(ctx, node);
   const recorder = roles.includes('recorder') ? recorderPlan(c, stations, allMounts, base, await openSessions(ctx, recordedStations(c, stations).map((s) => s.id))) : null;
 
@@ -450,6 +450,12 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
     update: { branch: v.branch, commit: v.commit, auto: false },
   };
   return { ...plan, revision: createHash('sha256').update(JSON.stringify(plan)).digest('hex').slice(0, 16) };
+}
+
+/** The uploaded Stereo Tool program as FM nodes see it: only what tells them whether they have the right file. */
+async function stereoToolBinary(ctx: AppContext) {
+  const b = (await getSetting(ctx, 'stereoTool')).binary;
+  return b ? { sha256: b.sha256, size: b.size } : null;
 }
 
 /**

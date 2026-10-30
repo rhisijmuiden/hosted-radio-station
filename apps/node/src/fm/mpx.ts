@@ -79,9 +79,14 @@ export interface MpxSettings {
   gainDb: number;
   /** Audio the generator keeps ahead, in seconds. */
   bufferSeconds: number;
+  /**
+   * The input is a finished MPX signal (Stereo Tool's stereo encoder) on the first channel: it is only buffered and
+   * kept in step with the output clock, without adding a pilot or RDS.
+   */
+  passthrough: boolean;
 }
 
-export const DEFAULT_MPX: MpxSettings = { stereo: true, rds: true, pilot: 0.09, rdsLevel: 0.04, gainDb: 0, bufferSeconds: 1.5 };
+export const DEFAULT_MPX: MpxSettings = { stereo: true, rds: true, pilot: 0.09, rdsLevel: 0.04, gainDb: 0, bufferSeconds: 1.5, passthrough: false };
 
 export interface MpxMeters {
   /** Peak of the MPX signal over the last second, 1 = 100%. */
@@ -227,9 +232,10 @@ export class MpxGenerator {
       }
       const w = 2 * Math.PI * this.phase;
       let v: number;
-      if (s.stereo) v = audio * ((l + r) / 2 + ((l - r) / 2) * Math.sin(2 * w)) + s.pilot * Math.sin(w);
+      if (s.passthrough) v = l;
+      else if (s.stereo) v = audio * ((l + r) / 2 + ((l - r) / 2) * Math.sin(2 * w)) + s.pilot * Math.sin(w);
       else v = (audio * (l + r)) / 2;
-      if (s.rds && this.rds) {
+      if (s.rds && this.rds && !s.passthrough) {
         // Sum the shaped pulses of the symbols around this moment.
         let base = 0;
         const rel = this.bitPos - this.symbolBase;

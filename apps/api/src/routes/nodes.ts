@@ -94,6 +94,7 @@ const statusOut = z
         rt: z.string(),
         tags: z.array(z.object({ type: z.number(), start: z.number(), length: z.number() })),
         groups: z.record(z.string(), z.number()),
+        stereoTool: z.object({ state: z.enum(['installing', 'starting', 'running', 'error']), message: z.string().optional(), restarts: z.number() }).nullish(),
       })
       .nullish(),
     /** Recorder (phase 21): what it records per station, and its disk. */

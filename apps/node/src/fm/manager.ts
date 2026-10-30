@@ -5,10 +5,11 @@ import https from 'node:https';
 import { dataPath } from '../config.js';
 import { AGENT } from '../icecast.js';
 import { log } from '../log.js';
-import type { FmPlan, FmStatus } from '../protocol.js';
+import type { FmPlan, FmStatus, FmStereoTool } from '../protocol.js';
 import { IcyReader } from '../relay.js';
 import { MPX_RATE, MpxGenerator, toS32 } from './mpx.js';
 import { RdsEncoder } from './rds.js';
+import { StereoToolInstaller, stereoToolArgs, stereoToolDir, wavHeader } from './stereotool.js';
 import { renderTexts, type FmContext, type FmRendered } from './texts.js';
 import { UecpClient } from './uecp.js';
 
@@ -51,7 +52,16 @@ export function audioFilter(a: FmPlan['audio']): string {
   return f.join(',');
 }
 
+/** Stereo Tool in the chain: only with an MPX output, and only once its program has been uploaded. */
+const stereoToolOf = (plan: FmPlan): FmStereoTool | null => (plan.output.kind !== 'none' && plan.stereoTool ? plan.stereoTool : null);
+
+/** Before Stereo Tool only decoding and the sample rate: the processing is all its own. */
+export function stereoToolInputFilter(st: FmStereoTool): string {
+  return `aformat=channel_layouts=stereo,aresample=${st.inputRate}`;
+}
+
 type Part = 'idle' | 'connecting' | 'connected' | 'error';
+type StState = NonNullable<FmStatus['stereoTool']>['state'];
 
 /**
  * The FM/MPX role: pulls the station's stream from the main server, decodes it with ffmpeg, makes the MPX signal with
@@ -83,8 +93,21 @@ export class FmManager {
   private sinkRetries = 0;
   private problems: string[] = [];
   private stopped = false;
+  private installer: StereoToolInstaller | null;
+  /** The Stereo Tool program on the node, once fetched (by the sha256 of the plan). */
+  private stBinary: { sha: string; path: string } | null = null;
+  private stProc: ChildProcess | null = null;
+  private stPost: ChildProcess | null = null;
+  private stState: StState = 'starting';
+  private stMessage: string | undefined;
+  private stRestarts = 0;
 
-  constructor(private readonly nodeId: string) {}
+  constructor(
+    private readonly nodeId: string,
+    server?: { url: string; secret: string },
+  ) {
+    this.installer = server ? new StereoToolInstaller({ url: server.url, nodeId, secret: server.secret }) : null;
+  }
 
   get active() {
     return !!this.plan;
@@ -103,10 +126,20 @@ export class FmManager {
     const wantsMpx = plan.output.kind !== 'none';
     if (wantsMpx && !hasCommand('ffmpeg')) this.problems.push('FM: ffmpeg is not installed. Run install-fm.sh (or install-node.sh --fm) on the node again.');
     if (plan.output.kind === 'soundcard' && !hasCommand('aplay')) this.problems.push('FM: aplay (alsa-utils) is not installed. Run install-fm.sh on the node again.');
+    const st = stereoToolOf(plan);
+    if (st && !st.binary) this.problems.push('FM: Stereo Tool is chosen as processor, but its program has not been uploaded yet (node page, Processing).');
 
     if (wantsMpx) {
       this.gen ??= new MpxGenerator(this.rds);
-      this.gen.configure({ stereo: plan.audio.stereo, rds: r.enabled, pilot: plan.audio.pilot, rdsLevel: plan.audio.rdsLevel, gainDb: plan.audio.gainDb, bufferSeconds: plan.audio.bufferSeconds });
+      this.gen.configure({
+        stereo: plan.audio.stereo,
+        rds: r.enabled,
+        pilot: plan.audio.pilot,
+        rdsLevel: plan.audio.rdsLevel,
+        gainDb: plan.audio.gainDb,
+        bufferSeconds: plan.audio.bufferSeconds,
+        passthrough: st?.mpx === 'stereotool',
+      });
     } else {
       this.gen = null;
     }
@@ -120,7 +153,7 @@ export class FmManager {
       if (wantsMpx) this.startSink();
     }
     // Input: the stream (for the audio and for the song titles in it).
-    const inputKey = JSON.stringify([plan.url, wantsMpx ? audioFilter(plan.audio) : null]);
+    const inputKey = JSON.stringify([plan.url, wantsMpx ? (st ? st : audioFilter(plan.audio)) : null]);
     if (inputKey !== this.inputKey) {
       this.inputKey = inputKey;
       this.stopInput();
@@ -183,6 +216,25 @@ export class FmManager {
     if (!plan?.url || this.stopped) return;
     const url = plan.url;
     const key = this.inputKey;
+    const st = stereoToolOf(plan);
+    if (st) {
+      // Without the program there is nothing to put on air: the stream waits until it is there.
+      if (!st.binary) return this.stereoToolFailed('the Stereo Tool program has not been uploaded yet', key, false);
+      if (this.stBinary?.sha !== st.binary.sha256) {
+        if (!this.installer) return this.stereoToolFailed('this agent cannot fetch Stereo Tool', key, false);
+        this.stState = 'installing';
+        this.stMessage = undefined;
+        const sha = st.binary.sha256;
+        this.installer.ensure(st.binary).then(
+          (path) => {
+            this.stBinary = { sha, path };
+            if (key === this.inputKey && !this.stopped) this.startInput();
+          },
+          (err: Error) => this.stereoToolFailed(err.message, key, true),
+        );
+        return;
+      }
+    }
     this.inputState = 'connecting';
     const mod = url.startsWith('https:') ? https : http;
     const req = mod.get(url, { headers: { 'user-agent': `${AGENT} ${this.nodeId} fm`, 'icy-metadata': '1' }, timeout: 15_000 }, (res) => {
@@ -219,14 +271,25 @@ export class FmManager {
     this.later(() => key === this.inputKey && this.startInput(), delay);
   }
 
+  /** Stereo Tool could not be fetched or started: tried again after a minute (or when the plan changes). */
+  private stereoToolFailed(message: string, key: string, retry: boolean) {
+    this.stState = 'error';
+    this.stMessage = message;
+    log.warn('Stereo Tool', { message });
+    if (retry) this.later(() => key === this.inputKey && !this.stopped && this.startInput(), 60_000);
+  }
+
   private stopInput(clearState = true) {
     this.input?.destroy();
     this.input = null;
-    if (this.decoder) {
-      this.decoder.removeAllListeners('exit');
-      this.decoder.kill('SIGKILL');
-      this.decoder = null;
+    for (const p of [this.decoder, this.stProc, this.stPost]) {
+      if (!p) continue;
+      p.removeAllListeners('exit');
+      p.kill('SIGKILL');
     }
+    this.decoder = null;
+    this.stProc = null;
+    this.stPost = null;
     if (clearState) {
       this.inputState = 'idle';
       this.inputMessage = undefined;
@@ -243,6 +306,8 @@ export class FmManager {
 
   private startDecoder(): ChildProcess | null {
     if (!this.plan || !this.gen) return null;
+    const st = stereoToolOf(this.plan);
+    if (st && this.stBinary) return this.startStereoTool(st, this.stBinary.path);
     const args = ['-hide_banner', '-loglevel', 'error', '-nostdin', '-i', 'pipe:0', '-vn', '-af', audioFilter(this.plan.audio), '-ac', '2', '-ar', String(MPX_RATE), '-f', 'f32le', 'pipe:1'];
     const p = spawn('ffmpeg', args, { stdio: ['pipe', 'pipe', 'pipe'] });
     this.decoder = p;
@@ -257,6 +322,70 @@ export class FmManager {
       this.inputFailed(`the decoder stopped (${code}): ${err.trim().split('\n').pop() ?? ''}`.trim(), this.inputKey);
     });
     return p;
+  }
+
+  /**
+   * The chain with Stereo Tool: ffmpeg decodes the stream to WAV for Stereo Tool, Stereo Tool processes it (and makes
+   * the MPX when it is the stereo encoder), and a second ffmpeg reads its WAV output at 192 kHz for the MPX buffer. When
+   * one of the three stops, all three start again.
+   */
+  private startStereoTool(st: FmStereoTool, binary: string): ChildProcess {
+    const key = this.inputKey;
+    const decoder = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-nostdin', '-i', 'pipe:0', '-vn', '-af', stereoToolInputFilter(st), '-ac', '2', '-ar', String(st.inputRate), '-f', 's16le', 'pipe:1'], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const proc = spawn(binary, stereoToolArgs(st, null), { cwd: stereoToolDir(), env: { ...process.env, HOME: stereoToolDir() }, stdio: ['pipe', 'pipe', 'pipe'] });
+    const post = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-nostdin', '-ignore_length', '1', '-f', 'wav', '-i', 'pipe:0', '-ac', '2', '-ar', String(MPX_RATE), '-f', 'f32le', 'pipe:1'], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    this.decoder = decoder;
+    this.stProc = proc;
+    this.stPost = post;
+    this.stState = 'starting';
+    this.stMessage = undefined;
+    const errs = new Map<ChildProcess, string>();
+    for (const p of [decoder, proc, post]) {
+      errs.set(p, '');
+      p.stderr!.on('data', (c: Buffer) => errs.set(p, (errs.get(p)! + c.toString()).slice(-500)));
+      p.stdin!.on('error', () => undefined);
+    }
+    proc.stdin!.write(wavHeader(st.inputRate));
+    decoder.stdout!.pipe(proc.stdin!);
+    proc.stdout!.pipe(post.stdin!);
+    proc.stdout!.once('data', () => {
+      if (this.stProc !== proc) return;
+      this.stState = 'running';
+      this.stMessage = undefined;
+    });
+    post.stdout!.on('data', (c: Buffer) => this.gen?.push(c));
+    const names = new Map<ChildProcess, string>([
+      [decoder, 'the decoder'],
+      [proc, 'Stereo Tool'],
+      [post, 'the MPX reader'],
+    ]);
+    const failed = (p: ChildProcess, why: string) => {
+      if (this.decoder !== decoder) return;
+      const detail = (errs.get(p) ?? '').trim().split('\n').pop() ?? '';
+      const message = `${names.get(p)} stopped (${why})${detail ? `: ${detail}` : ''}`;
+      if (p === proc) {
+        this.stState = 'error';
+        this.stMessage = message.slice(0, 200);
+        this.stRestarts++;
+      }
+      this.decoder = null;
+      for (const q of [decoder, proc, post]) {
+        q.removeAllListeners('exit');
+        if (q !== p) q.kill('SIGKILL');
+      }
+      this.stProc = null;
+      this.stPost = null;
+      this.inputFailed(message, key);
+    };
+    for (const p of [decoder, proc, post]) {
+      p.once('error', (e) => failed(p, e.message));
+      p.once('exit', (code, signal) => failed(p, signal ?? String(code)));
+    }
+    return decoder;
   }
 
   // Output
@@ -371,6 +500,7 @@ export class FmManager {
       rt: this.rendered.rt,
       tags: this.rendered.tags,
       groups: { ...this.rds.sent },
+      stereoTool: stereoToolOf(this.plan) ? { state: this.stState, message: this.stMessage?.slice(0, 200), restarts: this.stRestarts } : null,
     };
   }
 }

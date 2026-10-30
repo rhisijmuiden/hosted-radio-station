@@ -110,6 +110,14 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   the streams service skips a track that runs more than five minutes past its end with no DJ live (once per track),
   and the panel (AutoDJ: *Hangs*) and RHIS Studio (Manage: *Needs attention*, the on-air deck) show it. API: the
   AutoDJ answer gets `player.stuckSince`.
+- FM/MPX release, step 1: **Stereo Tool** as the audio processor of an FM/MPX node. Under the node's settings,
+  **Processing** chooses between the node's own light chain and Thimeo Stereo Tool (Linux command-line version). An
+  administrator uploads the Stereo Tool program once (the file itself or the .zip it comes in; Thimeo does not allow
+  shipping it), FM nodes fetch it from the orchestrator. Per node: the station's licence key, and who makes the MPX:
+  Stereo Tool's own stereo encoder (the node sends PS, RadioText and the other RDS data to Stereo Tool's RDS encoder
+  over UECP on the node itself), or the node (Stereo Tool only processes, the node adds stereo, pilot and its RDS).
+  The node page shows Stereo Tool in the chain with its state. API: GET/POST/DELETE /nodes/stereotool. See
+  [FM/MPX](docs/fm.md#stereo-tool).
 
 ## 1.5.0 (29 October 2026)
 
