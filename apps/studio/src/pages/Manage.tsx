@@ -2,6 +2,8 @@ import clsx from 'clsx';
 import { ChevronLeft, ExternalLink, Lock } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ClocksSection } from '../components/manage/Clocks';
+import { Header, Label } from '../components/manage/common';
 import { Button, Card, Spinner, Table } from '../components/ui';
 import type { NetworkNode, RundownRow, StationListItem } from '../lib/api';
 import { trackLength } from '../lib/cues';
@@ -27,22 +29,6 @@ const PANEL_TAB: Partial<Record<Section, string>> = { clocks: 'clocks', schedule
 const time = (iso: string) => new Date(iso).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const healthy = (n: NetworkNode) => n.state === 'online' || n.state === 'standby';
 const DOT: Record<NetworkNode['state'], string> = { online: 'bg-online', standby: 'bg-online', warning: 'bg-warning', offline: 'bg-offline' };
-
-function Header({ title, description, actions }: { title: ReactNode; description?: ReactNode; actions?: ReactNode }) {
-  return (
-    <header className="mb-5 flex flex-wrap items-start justify-between gap-4">
-      <div className="min-w-0">
-        <h1 className="display text-[22px] leading-tight">{title}</h1>
-        {description && <p className="mt-1 text-[13px] text-muted">{description}</p>}
-      </div>
-      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
-    </header>
-  );
-}
-
-function Label({ children }: { children: ReactNode }) {
-  return <div className="text-[11px] font-bold tracking-[0.08em] text-muted uppercase">{children}</div>;
-}
 
 /** One tile of the overview: a big value and a line under it; a click opens its section. */
 function Tile({ value, text, tone, onClick }: { value: ReactNode; text: ReactNode; tone?: 'online' | 'warning'; onClick: () => void }) {
@@ -219,7 +205,10 @@ function Nodes({ station }: { station: StationListItem }) {
                 {n.checks ? `${n.checks.ok === n.checks.total ? '✓' : '!'} ${n.checks.ok}/${n.checks.total}` : '–'}
               </td>
               <td className="whitespace-nowrap">{n.firewall ? t(`manage.firewall.${n.firewall}`, { defaultValue: n.firewall }) : '–'}</td>
-              <td className="font-mono tabular">{n.version ?? '–'}</td>
+              <td className="font-mono whitespace-nowrap tabular" title={n.commit ?? undefined}>
+                {n.version ?? '–'}
+                {n.commit && <span className="text-muted"> · {n.commit.slice(0, 7)}</span>}
+              </td>
             </tr>
           ))}
         </Table>
@@ -324,7 +313,8 @@ export function ManageView({ station }: { station: StationListItem }) {
         <div className="min-w-0 flex-1 overflow-y-auto px-6 py-5">
           {section === 'overview' && <Overview station={station} onSection={setSection} />}
           {section === 'nodes' && <Nodes station={station} />}
-          {section !== 'overview' && section !== 'nodes' && <InPanel station={station} section={section} />}
+          {section === 'clocks' && <ClocksSection station={station} />}
+          {section !== 'overview' && section !== 'nodes' && section !== 'clocks' && <InPanel station={station} section={section} />}
         </div>
       </div>
       <PlayerBar station={station} />

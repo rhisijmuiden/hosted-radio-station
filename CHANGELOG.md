@@ -55,6 +55,11 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   CPU, RAM, monitoring checks, firewall and version. The AutoDJ, routing and people sections open in the web panel
   until the next steps bring them into Studio. API: GET /stations/:id/network (managers). See
   [studio](docs/studio.md#manage-view).
+- Manage view, step 2: **Hour clocks** in RHIS Studio. The clocks of the station as chips (the one on air first), the
+  hour as a donut with a slice per item, and the items to edit like in the panel: minute, type (music from the queues,
+  a playlist, one track, news), playlist and number of tracks, name, *Exactly on the minute* and *Locked*, move up or
+  down, remove. **Save clock**, **Duplicate** (a copy with new item ids) and delete. Nodes also lists the recorders
+  that record the station, and the version column shows the commit of the build, so test builds can be told apart.
 
 ## 1.5.0 (29 October 2026)
 

@@ -28,7 +28,7 @@ const networkOut = z.object({
       /** A node id, or "main" for this server. */
       id: z.string(),
       name: z.string(),
-      role: z.enum(['station', 'ingest', 'backupIngest', 'relay']),
+      role: z.enum(['station', 'ingest', 'backupIngest', 'relay', 'recorder']),
       shared: z.boolean(),
       state: z.enum(['online', 'standby', 'warning', 'offline']),
       /** Percent of the node's CPU and memory in use. */
@@ -39,6 +39,8 @@ const networkOut = z.object({
       /** The state the node reports for its firewall (see firewall.node.state), or null when it reports none. */
       firewall: z.string().nullable(),
       version: z.string().nullable(),
+      /** The commit of the build, so test builds can be told apart. */
+      commit: z.string().nullable(),
       listeners: z.number().nullable(),
       issues: z.array(issueOut),
     }),
@@ -109,6 +111,7 @@ export const stationNetworkRoutes: FastifyPluginAsyncZod = async (app) => {
           checks: c ? { ok: c.ok, total: c.total } : null,
           firewall: s.firewall?.state ?? null,
           version: s.version ?? null,
+          commit: s.commit ?? null,
           listeners: role === 'relay' ? (s.relays ?? []).filter((x) => x.key.startsWith(`${station.slug}/`)).reduce((a, x) => a + (x.listeners ?? 0), 0) : null,
           issues,
         });
@@ -131,6 +134,7 @@ export const stationNetworkRoutes: FastifyPluginAsyncZod = async (app) => {
           checks: c ? { ok: c.ok, total: c.total } : null,
           firewall: null,
           version: version.version,
+          commit: version.commit ?? null,
           listeners: null,
           issues,
         });
@@ -156,6 +160,11 @@ export const stationNetworkRoutes: FastifyPluginAsyncZod = async (app) => {
       for (const n of relaysOf(station, relays)) {
         const failing = (n.status.relays ?? []).filter((x) => x.key.startsWith(`${station.slug}/`) && x.state === 'error').map((x) => `${x.key.slice(station.slug.length)}: ${x.message ?? 'error'}`);
         add(n as (typeof nodes)[number], 'relay', false, failing);
+      }
+      // The recorders that record this station (phase 21).
+      for (const n of nodes) {
+        const rec = n.config?.recordStations ?? [];
+        if (n.roles.includes('recorder') && serves(n, station) && (rec === 'all' || rec.includes(station.id))) add(n, 'recorder');
       }
       return { nodes: out };
     },
