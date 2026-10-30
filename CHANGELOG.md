@@ -119,6 +119,10 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   The node page shows Stereo Tool in the chain with its state. API: GET/POST/DELETE /nodes/stereotool. See
   [FM/MPX](docs/fm.md#stereo-tool).
 - Nodes: the hierarchy card names the group of monitoring nodes "Monitoring" instead of showing a raw translation key.
+- Media library upload: after an outage (no connection, the server restarting, a proxy error page) an upload tries
+  again by itself with growing pauses (2 s up to 1 min) and shows "Reconnecting" with the time to the next try; it
+  goes on where it stopped as soon as the server answers, and only shows "Failed" after half an hour without
+  progress. A part that gets no answer at all counts as a broken connection after 10 minutes.
 
 ## 1.5.0 (29 October 2026)
 
