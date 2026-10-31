@@ -190,7 +190,9 @@ interface UploadRow extends UploadItem {
 function UploadDialog({ station, open, onClose, folder }: { station: StationDetail; open: boolean; onClose: () => void; folder: string }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const [target, setTarget] = useState(folder);
+  // A subfolder of the folder that is open (music by default), as the hint says: "Hardstyle/2024" lands in music/Hardstyle/2024.
+  const [sub, setSub] = useState('');
+  const target = [folder, ...sub.split('/').map((x) => x.trim()).filter(Boolean)].join('/');
   const [rows, setRows] = useState<UploadRow[]>([]);
   const [skipped, setSkipped] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
@@ -198,7 +200,7 @@ function UploadDialog({ station, open, onClose, folder }: { station: StationDeta
   const abort = useRef<AbortController | null>(null);
   useEffect(() => {
     if (open) {
-      setTarget(folder);
+      setSub('');
       setRows([]);
       setSkipped([]);
     }
@@ -282,7 +284,12 @@ function UploadDialog({ station, open, onClose, folder }: { station: StationDeta
     >
       <div className="flex flex-col gap-4">
         <Field label={t('library.folder')} hint={t('library.folderHint')}>
-          <Input className="font-mono" value={target} disabled={running} onChange={(e) => setTarget(e.target.value)} placeholder="music/hardstyle" />
+          <div className="flex min-w-0 items-stretch">
+            <span className="flex max-w-[45%] items-center truncate rounded-l-sm border border-r-0 border-line bg-chip px-3 font-mono text-[13px] text-muted" title={folder}>
+              {folder}/
+            </span>
+            <Input className="min-w-0 flex-1 rounded-l-none font-mono" value={sub} disabled={running} onChange={(e) => setSub(e.target.value)} placeholder="Hardstyle/2024" />
+          </div>
         </Field>
         <div
           className={clsx('flex flex-col items-center gap-3 rounded-lg border-2 border-dashed px-4 py-7 text-center', dragging ? 'border-koraal bg-koraal/8' : 'border-line')}
