@@ -172,10 +172,10 @@ Phase 13: Orchestrator as control plane: audio runs from the studio through the 
 | 18 | Server names and topology views | Done (1.1.0) |
 | 19 | Clearer control panels and node assignment | Done (1.2.0) |
 | 20 | Monitoring node | Done (1.4.0) |
-| 21 | Recorder node | In progress (step 8 in the order of work) |
+| 21 | Recorder node | Done (1.6.0) |
 | 22 | Packaged installers and moving the orchestrator | Future (when the first customers come) |
 | 23 | Deployment wizard | Future (when the first customers come) |
-| 24 | Manage view in RHIS Studio | Done (on test, steps 1–7 tested) |
+| 24 | Manage view in RHIS Studio | Done (1.6.0) |
 
 ## Order of work
 
@@ -203,13 +203,13 @@ One thing at a time; each item starts when the previous one is finished and test
    - **Downgrading safely**: going from Radio station back to Distribution only needs an explicit confirmation that explains what it means (from then on the station only receives a stream from the customer's own software; AutoDJ, clocks, library and DJ logins stop). The station's content is kept in the background for 24 hours, with a clear warning and countdown, so the customer can switch back without loss. After 24 hours the content is deleted.
 7. **Security hardening for external nodes** (done, 1.5.0, PRs #160–#165): see the item below. On by default for nodes with a public address; pub-relay-01 has it on since 29 October 2026.
    **Release 1.5.0** (29 October 2026): item 7 and the small fixes (PRs #159 and #166–#171) go to `main` as one release.
-8. **Phase 21: Recorder node** (in progress): recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download. In steps:
+8. **Phase 21: Recorder node** (done, 1.6.0, PRs #174–#185 and #188): recording on the server; RHIS Studio gets start/stop controls and the list of recordings to listen back or download. In steps:
    1. The role **Recorder**, linked to stations, with continuous logging in files of one hour (bitrate and retention per station), the play log, and the station page **Recordings** to listen back and download. *On test.*
    2. Live shows: when a broadcast starts or ends (Go Live or an encoder) the recorder starts or stops recording the show, as it is sent and in full quality, one file per show, listed under Recordings → Live shows. Taken from the nearest relay, which carries exactly the bytes the station node sends (chosen 30 October 2026; no extra port on the station node). *On test.*
    3. Upload targets per station: OneDrive or FTP/FTPS/SFTP, with retries and the option to delete the local copy after a confirmed upload; a show offered as an on-demand item (listen again) on the public page, which needs the file on the station's own server (moved here from step 2). The orchestrator does the uploads, so a recorder behind NAT needs nothing extra. *On test.*
    4. RHIS Studio: start/stop controls and the list of recordings; cutting a recording in the panel (an on-demand item cut down, or a part of an hour or show downloaded). *Tested.*
    5. Reports: CSV per period for Buma/Stemra and SENA, also in the API. *Tested.*
-9. **Phase 24: Manage view in RHIS Studio** (done on test, 30 October 2026, after the approved sketch https://claude.ai/artifact/TKBEjSdBb8p2WH9RWbde4e): a third view **Manage** next to Classic and OmniPlayer, for station managers, on the same data as the web panel. In steps, one PR each, each tested before the next:
+9. **Phase 24: Manage view in RHIS Studio** (done, 1.6.0, 30 October 2026, after the approved sketch https://claude.ai/artifact/TKBEjSdBb8p2WH9RWbde4e): a third view **Manage** next to Classic and OmniPlayer, for station managers, on the same data as the web panel. In steps, one PR each, each tested before the next:
    1. Manage view, Overview and Nodes (PR #186). *Tested.*
    2. Hour clocks (PR #187). *Tested.*
    3. Weekly schedule (PR #189). *Tested.*
@@ -217,6 +217,7 @@ One thing at a time; each item starts when the previous one is finished and test
    5. Audio routing (PR #192). *Tested.*
    6. DJs & live access (PR #193). *Tested.*
    7. New folders and music upload from Studio in Library folders (PR #194, asked by Reinder 30 October 2026). *Tested.*
+   **Release 1.6.0** (31 October 2026): items 8 and 9, the fix for the AutoDJ hanging after a live broadcast (PR #190), the small fixes (PRs #197–#203) and step 1 of the Stereo Tool release (PR #196, off by default) go to `main` as one release.
 
 Later: phase 14 (orchestrator redundancy) just before sales start; phases 22 and 23 when the first customers come.
 
@@ -686,15 +687,17 @@ Small fixes are collected here and handled one at a time in a separate thread, n
 - **Ingest as its own step in the delivery path** (fixed, 1.5.0): a station node that sends through an ingest now shows that ingest stacked under it in the same column; the ingest gets its own step to the right (source → station node → ingest → relays → listeners).
 - **Station node silent with a chosen main ingest** (fixed, 1.5.0): when a station on a station node had a specific main ingest chosen (not Automatic), the node sent no audio at all, because the station's routing went along in its package and the node then thought it was not the ingest itself. The package no longer carries that routing choice; the node always treats itself as the source and follows the pushes the orchestrator hands it.
 
-- **Monitoring group named on the node hierarchy** (fixed, on test): the group of monitoring nodes on the hierarchy card on the Nodes page showed a raw translation key instead of "Monitoring".
-- **Uploads retry by themselves** (fixed, on test): after an outage a media library upload tries again on its own, with growing pauses, instead of standing on "Failed" until Resume is clicked.
-- **Upload to an older station node** (fixed, on test): an upload to a station node whose agent is too old for uploads in parts hangs at 0% without an error; it should say plainly that the node needs an update first.
-- **Recorder falls back to the ingest** (fixed, on test): when no relay carries a station (for example while its only relay is being updated) the recorder takes the stream straight from the ingest or station node and goes back to the relay later, so the logging misses no minutes.
-- **Restart a node from its page** (fixed, on test): a **Restart** button on the node page restarts the node agent or only its Icecast, for a node that hangs or to test what happens when a node is briefly away.
-- **Update all nodes at once** (fixed, on test): an option for test setups to update every node at the same time instead of one by one.
-- **Upload folder under the chosen folder** (fixed, on test): the folder typed in the upload dialog landed at the root of the library instead of under the folder that is open (music by default); the dialog now shows that folder as a fixed start and the field is only the subfolder.
+- **Monitoring group named on the node hierarchy** (fixed, 1.6.0): the group of monitoring nodes on the hierarchy card on the Nodes page showed a raw translation key instead of "Monitoring".
+- **Uploads retry by themselves** (fixed, 1.6.0): after an outage a media library upload tries again on its own, with growing pauses, instead of standing on "Failed" until Resume is clicked.
+- **Upload to an older station node** (fixed, 1.6.0): an upload to a station node whose agent is too old for uploads in parts hangs at 0% without an error; it should say plainly that the node needs an update first.
+- **Recorder falls back to the ingest** (fixed, 1.6.0): when no relay carries a station (for example while its only relay is being updated) the recorder takes the stream straight from the ingest or station node and goes back to the relay later, so the logging misses no minutes.
+- **Restart a node from its page** (fixed, 1.6.0): a **Restart** button on the node page restarts the node agent or only its Icecast, for a node that hangs or to test what happens when a node is briefly away.
+- **Update all nodes at once** (fixed, 1.6.0): an option for test setups to update every node at the same time instead of one by one.
+- **Upload folder under the chosen folder** (fixed, 1.6.0): the folder typed in the upload dialog landed at the root of the library instead of under the folder that is open (music by default); the dialog now shows that folder as a fixed start and the field is only the subfolder.
 
-### FM/MPX release: Stereo Tool processing (queued, not scheduled yet)
+### FM/MPX release: Stereo Tool processing (parked)
+
+Step 1 (Stereo Tool as the processor on an FM/MPX node, PR #196) is in 1.6.0 but not tested yet, and off by default: every FM node keeps the built-in processing until Stereo Tool is chosen on it. Testing is parked (31 October 2026) because the Stereo Tool download (stereotool.com) is unavailable. It resumes once the Stereo Tool binary is uploaded in the panel and RS-MPX has a station and mount linked; then steps 2 to 4 follow (presets, the Stereo Tool web interface through the node connection, the lossless feed).
 
 The next release of the FM/MPX node adds proper FM audio processing.
 
@@ -727,6 +730,16 @@ A WordPress plugin for customer websites, built on the station node API above.
 - **Second screen (optional)**: spread RHIS Studio over two monitors and choose per screen what it shows (extra jingle grids, library, log, clock), building on free docking of panels.
 - **Stream Deck support**: hot keys on an Elgato Stream Deck (or similar button panel) for jingles, players, Next and Go Live, with the button labels and colours taken from the jingle grid.
 - **Viewer screen for sidekicks**: a stripped-down read-only screen (a second monitor in the studio, or a browser on a tablet) showing what is on air, the next tracks, time to the next ad block or news, and who is live. No controls; locked blocks such as ads are clearly marked.
+
+### Studio mode in RHIS Studio: microphone over the queue
+
+Today Go Live stops the server's music and sends only what RHIS Studio plays itself (sound card input, jingles, single player). Studio mode lets a DJ present a show from the queue with their own microphone:
+
+- RHIS Studio becomes the playout: it plays the queue (players A and B, with the cue points and crossfades from the server) itself, together with the jingles and the microphone, and sends that one mix live. The DJ hears everything without stream delay, so talking over intros works.
+- Tracks are fetched ahead from the station node (over the LAN when on site) and cached, so a network hiccup does not stop the music.
+- Microphone on/off with ducking of the music, and a mic level on the meter.
+- Locked blocks (news, ads) and the hour clock keep running as planned; the log stays the server's.
+- If RHIS Studio stops or loses the connection, the server's AutoDJ takes over by itself at the right point in the queue.
 
 ### Reporter mode (remote contributions)
 

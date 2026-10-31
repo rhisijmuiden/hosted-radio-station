@@ -3,7 +3,16 @@
 All notable changes to Hosted Radio Station. Versions follow [semantic versioning](https://semver.org). The
 [roadmap](ROADMAP.md) has the full description of each phase, with screenshots.
 
-## Unreleased
+## 1.6.0 (31 October 2026)
+
+Phase 21 (the recorder node: logging, live shows, uploads and on demand, recording in RHIS Studio, cutting, music
+reports for Buma/Stemra and SENA), phase 24 (the Manage view in RHIS Studio 0.23: overview, nodes, hour clocks, weekly
+schedule, playlists, rotation rules, library folders, audio routing, DJs and live access), the fix for the AutoDJ
+hanging after a live broadcast, and the small fixes (node restart button, update all nodes at once, uploads that retry
+by themselves, and more). Also step 1 of the Stereo Tool release for FM/MPX nodes: in this release but not tested yet
+and off by default, so every FM node keeps its built-in processing until Stereo Tool is chosen on it.
+
+Update the nodes after the orchestrator: recorder and upload changes need the node agent from this release.
 
 - Recorder node (phase 21, step 1): a new node role **Recorder** records stations. Choose the stations it records
   under the node's settings (none until chosen; a dedicated or customer recorder only offers its own stations). It
