@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { AlertTriangle, ArrowLeft, CheckCircle2, KeyRound, Link2Off, Radio, Trash2, XCircle } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CheckCircle2, KeyRound, Link2Off, Radio, RotateCw, Trash2, XCircle } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
@@ -550,6 +550,16 @@ export function NodeDetailPage() {
     },
     onError: (err) => toast.error((err as Error).message),
   });
+  const [restartOpen, setRestartOpen] = useState(false);
+  const restart = useMutation({
+    mutationFn: (service: 'agent' | 'icecast') => api(`/nodes/${id}/restart`, { method: 'POST', body: { service } }),
+    onSuccess: (_r, service) => {
+      toast.success(t(`nodes.detail.restart.done.${service}`));
+      setRestartOpen(false);
+      refresh();
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
   const remove = useMutation({
     mutationFn: () => api(`/nodes/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
@@ -599,6 +609,11 @@ export function NodeDetailPage() {
               <Button onClick={() => newCode.mutate()} loading={newCode.isPending}>
                 <KeyRound className="size-4" /> {n.paired ? t('nodes.detail.repair') : t('nodes.detail.newCode')}
               </Button>
+              {n.paired && s.features?.includes('restart') && (
+                <Button disabled={!s.online} onClick={() => setRestartOpen(true)}>
+                  <RotateCw className="size-4" /> {t('nodes.detail.restart.button')}
+                </Button>
+              )}
               {n.paired && (
                 <Button variant="danger" loading={unpair.isPending} onClick={() => confirm(t('nodes.detail.unpairConfirm', { name: n.name })) && unpair.mutate()}>
                   <Link2Off className="size-4" /> {t('nodes.detail.unpair')}
@@ -678,6 +693,34 @@ export function NodeDetailPage() {
       )}
       {tab === 'settings' && canEdit && <SettingsForm node={n} admin={admin} />}
 
+      <Dialog
+        open={restartOpen}
+        onClose={() => !restart.isPending && setRestartOpen(false)}
+        title={t('nodes.detail.restart.title', { name: n.name })}
+        description={t('nodes.detail.restart.hint')}
+        footer={
+          <Button variant="ghost" onClick={() => setRestartOpen(false)}>
+            {t('common.cancel')}
+          </Button>
+        }
+      >
+        <div className="flex flex-col gap-2">
+          {(['agent', 'icecast'] as const).map((service) => (
+            <button
+              key={service}
+              type="button"
+              disabled={restart.isPending}
+              onClick={() => restart.mutate(service)}
+              className="flex flex-col items-start gap-0.5 rounded-lg border border-line px-4 py-3 text-left transition-colors hover:bg-hover disabled:opacity-50"
+            >
+              <span className="flex items-center gap-2 text-sm font-semibold">
+                <RotateCw className="size-4 text-accent-text" /> {t(`nodes.detail.restart.${service}`)}
+              </span>
+              <span className="text-xs text-muted">{t(`nodes.detail.restart.${service}Hint`)}</span>
+            </button>
+          ))}
+        </div>
+      </Dialog>
       <Dialog open={!!pairing && n.paired} onClose={() => setPairing(null)} wide title={t('nodes.detail.repairTitle')} description={t('nodes.detail.repairHint')}>
         {pairing && <PairingPanel pairing={pairing} />}
       </Dialog>

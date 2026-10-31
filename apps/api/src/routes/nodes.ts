@@ -627,6 +627,30 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
   );
 
   app.post(
+    '/:id/restart',
+    {
+      config: { audit: 'node.restart' },
+      schema: {
+        tags: ['Nodes'],
+        summary:
+          'Restart the node agent (its service starts it again within about 10 seconds) or the Icecast of the node (about 3 seconds). Listeners and pushes on the node break off meanwhile; players reconnect through the listen route.',
+        params: nodeParams,
+        body: z.object({ service: z.enum(['agent', 'icecast']) }),
+        response: { 200: okOut },
+      },
+    },
+    async (req) => {
+      const node = await nodeAccess(ctx, req, req.params.id, 'owner');
+      if (!hub.liveStatus(node.id)) throw conflict('The node is offline');
+      if (!hub.canRestart(node.id)) throw conflict('Update the node first: this version of it cannot restart itself on request');
+      hub.restartService(node.id, req.body.service);
+      await nodeEvent(ctx, node.id, 'restart_requested', 'info', { service: req.body.service, by: req.auth?.user.email ?? null });
+      Object.assign(req.auditInfo, { tenantId: node.tenantId, targetId: node.id, details: { name: node.name, service: req.body.service } });
+      return { ok: true as const };
+    },
+  );
+
+  app.post(
     '/:id/rollback',
     {
       config: { audit: 'node.rollback' },

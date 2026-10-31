@@ -436,6 +436,8 @@ export type ServerMessage =
   /** The main server restarts: reconnect soon. A proxy in between (Caddy) may keep the WebSocket open after the server closed it. */
   | { t: 'restart' }
   | { t: 'update'; branch: string | null; commit: string | null }
+  /** Restart the agent (its service starts it again) or the node's Icecast, from the node page (feature "restart"). */
+  | { t: 'restart_service'; service: 'agent' | 'icecast' }
   /**
    * An update of this node is coming: no new listeners are sent here, and the agent moves the ones it has over this
    * many seconds (they reconnect through the listen route, which picks another relay). 0 = stop draining.
