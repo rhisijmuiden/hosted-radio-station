@@ -138,6 +138,9 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   update at the same time, for test setups: no draining and no checks one by one; each node still rolls itself back
   when its new version does not start, and the rollout leaves those nodes alone meanwhile. API: POST
   /nodes/updates/all.
+- Media library upload: the folder field is now a subfolder of the folder that is open (music by default), shown in
+  front of it, as its hint says; "Hardstyle/2024" lands in music/Hardstyle/2024 instead of in a new folder at the root of
+  the library.
 
 ## 1.5.0 (29 October 2026)
 

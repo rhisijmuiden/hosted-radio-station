@@ -692,7 +692,7 @@ Small fixes are collected here and handled one at a time in a separate thread, n
 - **Recorder falls back to the ingest** (fixed, on test): when no relay carries a station (for example while its only relay is being updated) the recorder takes the stream straight from the ingest or station node and goes back to the relay later, so the logging misses no minutes.
 - **Restart a node from its page** (fixed, on test): a **Restart** button on the node page restarts the node agent or only its Icecast, for a node that hangs or to test what happens when a node is briefly away.
 - **Update all nodes at once** (fixed, on test): an option for test setups to update every node at the same time instead of one by one.
-- **Upload folder under the chosen folder** (queued): the folder typed in the upload dialog lands at the root of the library instead of under the folder that is open.
+- **Upload folder under the chosen folder** (fixed, on test): the folder typed in the upload dialog landed at the root of the library instead of under the folder that is open (music by default); the dialog now shows that folder as a fixed start and the field is only the subfolder.
 
 ### FM/MPX release: Stereo Tool processing (queued, not scheduled yet)
 
