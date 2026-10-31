@@ -170,6 +170,31 @@ describe('node updates', () => {
     await reset();
   });
 
+  it('updates all nodes at once on request, and the planner leaves them alone meanwhile', async () => {
+    await setUpdates({ drainSeconds: 0, healthSeconds: 15 });
+    const n1 = await pairNode('p-relay-1');
+    const n2 = await pairNode('p-relay-2');
+    const a1 = agent(n1.id, n1.secret);
+    const a2 = agent(n2.id, n2.secret);
+    await Promise.all([a1.open(), a2.open()]);
+    const res = await t.app.inject({ method: 'POST', url: '/api/nodes/updates/all', headers: admin });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().sent).toBe(2);
+    await eventually(() => expect(a1.updates()).toEqual([expect.objectContaining({ commit: target })]));
+    await eventually(() => expect(a2.updates()).toEqual([expect.objectContaining({ commit: target })]));
+    // No second request from the rollout while they update.
+    await tick();
+    await tick();
+    expect(a1.updates().length + a2.updates().length).toBe(2);
+    expect((await getSetting(t.ctx, 'nodeRollout')).current).toBeNull();
+    // Only administrators.
+    const owner = await login(t.app, 'owner@harder.fm', 'owner-password');
+    expect((await t.app.inject({ method: 'POST', url: '/api/nodes/updates/all', headers: owner })).statusCode).toBe(403);
+    a1.close();
+    a2.close();
+    await reset();
+  });
+
   it('rolls a node back when it is not healthy after its update, and pauses the rest', async () => {
     await setUpdates({ drainSeconds: 0, healthSeconds: 15 });
     const n = await pairNode('c-relay-3');

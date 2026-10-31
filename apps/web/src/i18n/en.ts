@@ -2566,6 +2566,7 @@ export const en = {
       firewall_off: 'Firewall left off by default: the node is behind a router',
       update_failed: 'Update failed: {{message}}',
       update_queued: 'In line for an update to {{commit}} ({{by}})',
+      update_all: 'Update to {{commit}} started with all nodes at once (was {{from}}) by {{by}}',
       update_cancelled: 'Update cancelled by {{by}}',
       update_skipped: 'Update skipped: {{message}}',
       update_begins: 'Update {{from}} → {{commit}} begins',
@@ -2580,6 +2581,11 @@ export const en = {
     },
   },
   nodeUpdates: {
+    allNow: 'Update all at once',
+    allNowHint: 'For test setups: every node that is behind updates now, all at the same time, without draining or checks one by one.',
+    allNowConfirm: 'Update {{count}} nodes at the same time? They are all briefly away together, and listeners and streams break off. Meant for test setups.',
+    allNowSent_one: '{{count}} node is updating',
+    allNowSent_other: '{{count}} nodes are updating',
     cardTitle: 'Updates',
     cardHint: 'New versions reach the nodes one at a time: listeners move to other relays first, and a node that is not healthy afterwards goes back to its previous version.',
     state: {

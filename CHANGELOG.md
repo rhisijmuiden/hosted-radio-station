@@ -134,6 +134,10 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 - Nodes: a **Restart** button on the node page restarts the node agent (back in about 10 seconds) or only its Icecast
   (a few seconds), for a node that hangs or to test a short outage. It is logged as an event of the node. Nodes
   report the feature `restart`; older ones get "update the node first". API: POST /nodes/:id/restart.
+- Node updates: **Update all at once** on the Nodes page (administrators) sends every connected node that is behind its
+  update at the same time, for test setups: no draining and no checks one by one; each node still rolls itself back
+  when its new version does not start, and the rollout leaves those nodes alone meanwhile. API: POST
+  /nodes/updates/all.
 
 ## 1.5.0 (29 October 2026)
 

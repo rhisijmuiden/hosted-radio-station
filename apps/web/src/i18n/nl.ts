@@ -2568,6 +2568,7 @@ export const nl: Translation = {
       firewall_off: 'Firewall standaard uit gelaten: de node zit achter een router',
       update_failed: 'Update mislukt: {{message}}',
       update_queued: 'In de rij voor een update naar {{commit}} ({{by}})',
+      update_all: 'Update naar {{commit}} gestart met alle nodes tegelijk (was {{from}}) door {{by}}',
       update_cancelled: 'Update geannuleerd door {{by}}',
       update_skipped: 'Update overgeslagen: {{message}}',
       update_begins: 'Update {{from}} → {{commit}} begint',
@@ -2582,6 +2583,11 @@ export const nl: Translation = {
     },
   },
   nodeUpdates: {
+    allNow: 'Alles tegelijk bijwerken',
+    allNowHint: 'Voor testopstellingen: elke node die achterloopt werkt nu bij, allemaal tegelijk, zonder leegmaken of controles één voor één.',
+    allNowConfirm: '{{count}} nodes tegelijk bijwerken? Ze zijn allemaal even weg, en luisteraars en streams vallen weg. Bedoeld voor testopstellingen.',
+    allNowSent_one: '{{count}} node werkt bij',
+    allNowSent_other: '{{count}} nodes werken bij',
     cardTitle: 'Updates',
     cardHint: 'Nieuwe versies gaan node voor node: luisteraars gaan eerst naar andere relays, en een node die daarna niet gezond is gaat terug naar zijn vorige versie.',
     state: {

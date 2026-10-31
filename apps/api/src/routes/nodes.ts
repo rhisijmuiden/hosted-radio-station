@@ -725,6 +725,25 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
   );
 
   app.post(
+    '/updates/all',
+    {
+      config: { audit: 'nodes.update_all' },
+      schema: {
+        tags: ['Nodes'],
+        summary:
+          'Update every connected node that is behind at the same time, for test setups: no draining and no checks one by one, so all nodes are briefly away together. Each node still rolls itself back when its new version does not start.',
+        response: { 200: rolloutOut.extend({ sent: z.number() }) },
+      },
+    },
+    async (req) => {
+      requireSuperadmin(req);
+      const sent = await app.nodeUpdates.updateAllNow(req.auth?.user.email ?? null);
+      Object.assign(req.auditInfo, { details: { nodes: sent.length } });
+      return { ...(await rollout()), sent: sent.length };
+    },
+  );
+
+  app.post(
     '/updates/resume',
     { config: { audit: 'nodes.updates_resume' }, schema: { tags: ['Nodes'], summary: 'Resume automatic node updates after a pause or a failed update', response: { 200: rolloutOut } } },
     async (req) => {
