@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowDown, ArrowUp, ArrowUpCircle, CalendarClock, Pause, Play, Plus, RotateCcw, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpCircle, CalendarClock, Pause, Play, Plus, RotateCcw, Trash2, X, Zap } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
@@ -456,6 +456,15 @@ export function RolloutCard() {
     },
     onError: (err) => toast.error((err as Error).message),
   });
+  const updateAll = useMutation({
+    mutationFn: () => api<NodeRolloutInfo & { sent: number }>('/nodes/updates/all', { method: 'POST' }),
+    onSuccess: (res) => {
+      qc.setQueryData(['nodes', 'updates'], res);
+      void qc.invalidateQueries({ queryKey: ['nodes'] });
+      toast.success(t('nodeUpdates.allNowSent', { count: res.sent }));
+    },
+    onError: (err) => toast.error((err as Error).message),
+  });
   const r = rollout.data;
   if (!r || !r.paired) return null;
   const all = r.upToDate === r.paired;
@@ -500,6 +509,11 @@ export function RolloutCard() {
                 <Pause className="size-4" /> {t('nodeUpdates.pause')}
               </Button>
             ))}
+          {!all && (
+            <Button size="sm" loading={updateAll.isPending} title={t('nodeUpdates.allNowHint')} onClick={() => confirm(t('nodeUpdates.allNowConfirm', { count: r.paired - r.upToDate })) && updateAll.mutate()}>
+              <Zap className="size-4" /> {t('nodeUpdates.allNow')}
+            </Button>
+          )}
           <Button size="sm" onClick={() => setOpen(true)}>
             <CalendarClock className="size-4" /> {t('nodeUpdates.policyButton')}
           </Button>

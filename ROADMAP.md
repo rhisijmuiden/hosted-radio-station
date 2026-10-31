@@ -691,7 +691,7 @@ Small fixes are collected here and handled one at a time in a separate thread, n
 - **Upload to an older station node** (fixed, on test): an upload to a station node whose agent is too old for uploads in parts hangs at 0% without an error; it should say plainly that the node needs an update first.
 - **Recorder falls back to the ingest** (fixed, on test): when no relay carries a station (for example while its only relay is being updated) the recorder takes the stream straight from the ingest or station node and goes back to the relay later, so the logging misses no minutes.
 - **Restart a node from its page** (fixed, on test): a **Restart** button on the node page restarts the node agent or only its Icecast, for a node that hangs or to test what happens when a node is briefly away.
-- **Update all nodes at once** (queued): an option for test setups to update every node at the same time instead of one by one.
+- **Update all nodes at once** (fixed, on test): an option for test setups to update every node at the same time instead of one by one.
 - **Upload folder under the chosen folder** (queued): the folder typed in the upload dialog lands at the root of the library instead of under the folder that is open.
 
 ### FM/MPX release: Stereo Tool processing (queued, not scheduled yet)
