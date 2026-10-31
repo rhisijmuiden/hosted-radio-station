@@ -661,7 +661,7 @@ Nodes with a direct public IP address get a firewall that is closed by default. 
 - **On by default** for nodes with a public address on their own interface (a server in a data centre), new and existing, decided at their next connection; nodes behind a router keep it off and can switch it on. Existing firewall rules on the server still hold it back until the administrator takes over.
 - **Outside check**: the port check from outside also tries SSH and well-known ports a node never needs (databases, mail, admin pages, 8080 and the like) and warns when one answers. For a node behind a router (NAT) it says the ports may belong to the router or another machine, and a monitoring node in the same network is named as such.
 
-### Clear navigation for customers and station managers (queued, not scheduled yet; own thread)
+### Clear navigation for customers and station managers (in progress)
 
 The customer side has many buttons in one row. It gets a small, logical structure with drop-down menus from the top menu:
 
@@ -673,6 +673,13 @@ The customer side has many buttons in one row. It gets a small, logical structur
 - **Customer permissions in the admin panel**: per customer a clear overview of what they may do. Own nodes on or off; when on, a station node is allowed by default and other roles (FM/MPX, ingest, relay, recorder, monitoring) are switched on one by one; a total number of own nodes (for example 10), so a customer can run their own distribution network. The main limit for licensing is the number of radio stations; node limits come on top.
 - **Routing for customers**: a Routing menu where customers decide themselves which of their stations uses which of their own nodes (and the shared ones), and how (via ingest or direct, which relays).
 - A sketch first, for Reinder's choice, before building.
+
+Reinder chose option A of the sketch (31 October 2026): a top menu with large drop-downs for customers; the admin panel keeps its left menu. It is built in four steps:
+
+1. **Top bar** (in test): station switcher top left (all your stations with edition, where each runs and whether it is on air, and how many of your stations and Radio stations are used), then Overview, Radio station (a large drop-down in four columns: Programme, Media library, DJs & live, Public pages, each page with a one-line explanation), Broadcast, My network, Audience and Settings. A Distribution station shows the Radio station pages with a lock and an **Upgrade to Radio station** button. On smaller screens the menu folds into a side panel.
+2. **Routing** for customers: per station where it runs, via ingest or direct, which relays.
+3. **My nodes**: limits used and the roles a customer may run.
+4. **Permissions** tab on a customer in the admin panel (station limits, own nodes on/off and maximum, roles, station node on by default), enforced by the API.
 
 ### Small fixes (own thread, done in between)
 

@@ -16,6 +16,7 @@ export function usePendingRequests(stationId: string) {
     queryKey: ['station-requests', stationId, 'open'],
     queryFn: () => api<{ items: SongRequest[]; pending: number }>(`/stations/${stationId}/requests?status=open`),
     refetchInterval: 10_000,
+    enabled: !!stationId,
   });
 }
 
