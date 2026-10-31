@@ -656,6 +656,16 @@ A WordPress plugin for customer websites, built on the station node API above.
 - **Stream Deck support**: hot keys on an Elgato Stream Deck (or similar button panel) for jingles, players, Next and Go Live, with the button labels and colours taken from the jingle grid.
 - **Viewer screen for sidekicks**: a stripped-down read-only screen (a second monitor in the studio, or a browser on a tablet) showing what is on air, the next tracks, time to the next ad block or news, and who is live. No controls; locked blocks such as ads are clearly marked.
 
+### Studio mode in RHIS Studio: microphone over the queue
+
+Today Go Live stops the server's music and sends only what RHIS Studio plays itself (sound card input, jingles, single player). Studio mode lets a DJ present a show from the queue with their own microphone:
+
+- RHIS Studio becomes the playout: it plays the queue (players A and B, with the cue points and crossfades from the server) itself, together with the jingles and the microphone, and sends that one mix live. The DJ hears everything without stream delay, so talking over intros works.
+- Tracks are fetched ahead from the station node (over the LAN when on site) and cached, so a network hiccup does not stop the music.
+- Microphone on/off with ducking of the music, and a mic level on the meter.
+- Locked blocks (news, ads) and the hour clock keep running as planned; the log stays the server's.
+- If RHIS Studio stops or loses the connection, the server's AutoDJ takes over by itself at the right point in the queue.
+
 ### Reporter mode (remote contributions)
 
 - A reporter on location joins the broadcast from a phone: a simple web page on the station node (later a small Android app; iOS is harder) that uses the phone's microphone, like a phone call but in better quality (WebRTC/Opus), with a talk-back channel from the studio.
