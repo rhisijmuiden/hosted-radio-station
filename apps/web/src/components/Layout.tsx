@@ -1,14 +1,14 @@
 import clsx from 'clsx';
-import { Activity, ArrowLeft, BarChart3, BookOpen, Building2, ChevronDown, ChevronUp, Cloud, CreditCard, DatabaseBackup, FileText, Globe, KeyRound, Landmark, LayoutDashboard, LogOut, Mail, Menu, MonitorSmartphone, Moon, Network, Package, Radio, RadioTower, Receipt, RefreshCw, ScrollText, Search, Server, Sun, Tag, UserRound, Users, Webhook, type LucideIcon } from 'lucide-react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Activity, ArrowLeft, BarChart3, BookOpen, Building2, ChevronDown, ChevronUp, Cloud, DatabaseBackup, FileText, Globe, KeyRound, Landmark, LayoutDashboard, LogOut, Mail, Menu, MonitorSmartphone, Network, Package, Radio, RadioTower, Receipt, RefreshCw, ScrollText, Search, Server, Tag, UserRound, Users, Webhook, type LucideIcon } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, NavLink, Outlet, useLocation, useMatch, useSearchParams } from 'react-router';
-import { api, type AlertSummary, type Me, type NodeRegistration, type StationDetail, type StationStatus } from '../lib/api';
+import { api, type AlertSummary, type NodeRegistration, type StationDetail, type StationStatus } from '../lib/api';
 import { isAdmin, useLogout, useMe } from '../lib/auth';
-import { useThemeContext } from '../lib/theme-context';
-import { setLanguage } from '../i18n';
 import { InfoButton, useSystemInfo } from './InfoDialog';
+import { LanguageToggle, ThemeToggle } from './toggles';
+import { CustomerShell } from './topbar/CustomerShell';
 import { QuickSearch } from './QuickSearch';
 import { usePendingRequests } from './station/Requests';
 import { stationMenu, stationTabHref, stationTabs, type StationTab } from './station/menu';
@@ -46,56 +46,6 @@ function NavItemLink({ item, onNavigate, active }: { item: NavItem; onNavigate: 
         </span>
       )}
     </Link>
-  );
-}
-
-function ThemeToggle() {
-  const { theme, setTheme } = useThemeContext();
-  const { t } = useTranslation();
-  const options = [
-    { value: 'light' as const, icon: Sun, label: t('theme.light') },
-    { value: 'dark' as const, icon: Moon, label: t('theme.dark') },
-  ];
-  return (
-    <div className="flex rounded-full border border-line p-0.5" role="radiogroup" aria-label={t('theme.label')}>
-      {options.map(({ value, icon: Icon, label }) => (
-        <button
-          key={value}
-          role="radio"
-          aria-checked={theme === value}
-          title={label}
-          onClick={() => setTheme(value)}
-          className={clsx('grid h-6 w-7 place-items-center rounded-full transition-colors', theme === value ? 'bg-[var(--nav-active-bg)]' : 'hover:bg-hover')}
-        >
-          <Icon className={clsx('size-3.5', theme === value ? 'text-koraal' : 'text-muted')} strokeWidth={2} />
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function LanguageToggle() {
-  const { i18n, t } = useTranslation();
-  const qc = useQueryClient();
-  const current = i18n.language.startsWith('nl') ? 'nl' : 'en';
-  const choose = async (lng: 'en' | 'nl') => {
-    await setLanguage(lng);
-    qc.setQueryData<Me>(['me'], (old) => (old ? { ...old, user: { ...old.user, locale: lng } } : old));
-  };
-  return (
-    <div className="flex rounded-full border border-line p-0.5 text-[11px] font-semibold" role="radiogroup" aria-label={t('language.label')}>
-      {(['en', 'nl'] as const).map((lng) => (
-        <button
-          key={lng}
-          role="radio"
-          aria-checked={current === lng}
-          onClick={() => void choose(lng)}
-          className={clsx('h-6 rounded-full px-2 uppercase transition-colors', current === lng ? 'bg-[var(--nav-active-bg)] text-[var(--nav-active-ink)]' : 'text-muted hover:bg-hover')}
-        >
-          {lng}
-        </button>
-      ))}
-    </div>
   );
 }
 
@@ -196,19 +146,18 @@ function NavGroups({ groups, isActive, onNavigate, scope }: { groups: NavGroup[]
   );
 }
 
-/** The main menu (phase 19): the admin menu in five groups, the customer menu in three. */
+/** The admin menu (phase 19) in five groups. Customers use the top menu (topbar/menu.ts). */
 function useMainMenu(): NavGroup[] {
   const me = useMe().data!;
   const { t } = useTranslation();
   const admin = isAdmin(me);
-  const notDj = admin || me.memberships.some((m) => m.role !== 'dj');
   const pending = useQuery({ queryKey: ['nodes', 'pending'], queryFn: () => api<NodeRegistration[]>('/nodes/pending'), enabled: admin, refetchInterval: 30_000 });
   const alerts = useQuery({ queryKey: ['alerts', 'summary'], queryFn: () => api<AlertSummary>('/alerts/summary'), enabled: admin, refetchInterval: 30_000 });
   const info = useSystemInfo();
   const updateReady = admin && !!info.data?.lastCheck?.updateAvailable;
 
-  if (admin)
-    return [
+  if (!admin) return [];
+  return [
       {
         key: 'radio',
         title: t('nav.groups.radio'),
@@ -265,41 +214,6 @@ function useMainMenu(): NavGroup[] {
         ],
       },
     ];
-
-  return [
-    {
-      key: 'radio',
-      title: t('nav.groups.myRadio'),
-      items: [
-        { to: '/', label: t('nav.dashboard'), icon: LayoutDashboard },
-        { to: '/stations', label: t('nav.myStations'), icon: Radio },
-        ...(notDj ? [{ to: '/statistics', label: t('nav.statistics'), icon: BarChart3 }] : []),
-        { to: '/studio', label: t('nav.studio'), icon: MonitorSmartphone },
-      ],
-    },
-    ...(notDj
-      ? [
-          {
-            key: 'network',
-            title: t('nav.groups.myNetwork'),
-            items: [
-              { to: '/nodes', label: t('nav.myNodes'), icon: Server },
-              { to: '/topology', label: t('nav.mySetup'), icon: Network },
-            ],
-          },
-        ]
-      : []),
-    {
-      key: 'account',
-      title: t('nav.groups.account'),
-      items: [
-        ...(notDj ? [{ to: '/customers', label: me.memberships.length > 1 ? t('nav.myCustomers') : t('nav.company'), icon: Building2 }] : []),
-        ...(me.memberships.some((m) => m.billed && m.role !== 'dj') ? [{ to: '/subscription', label: t('nav.subscription'), icon: CreditCard }] : []),
-        { to: '/api-keys', label: t('nav.apiKeys'), icon: KeyRound },
-        { to: '/api/docs', label: t('nav.apiDocs'), icon: BookOpen, external: true },
-      ],
-    },
-  ];
 }
 
 /** Inside a station the sidebar becomes that station's menu, with a way back to all stations (phase 19). */
@@ -394,7 +308,13 @@ function Sidebar({ onNavigate, onSearch }: { onNavigate: () => void; onSearch: (
   );
 }
 
+/** Administrators keep the left menu; customers get the top menu with drop-downs (customer navigation, option A). */
 export function Layout() {
+  const me = useMe().data!;
+  return isAdmin(me) ? <AdminLayout /> : <CustomerShell />;
+}
+
+function AdminLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const menu = useMainMenu();
