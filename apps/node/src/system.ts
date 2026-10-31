@@ -10,9 +10,9 @@ import { soundCards } from './fm/manager.js';
  * the station software keeps a station that went back to Distribution only for 24 hours instead of removing it.
  * "firewall": the node manages its own firewall from the plan (security hardening for external nodes). "recorder"
  * (phase 21): it records stations and sends recordings to the server on request. "library-uploads" (1.5.0): the station
- * software takes library uploads in parts.
+ * software takes library uploads in parts. "restart": the agent or its Icecast restarts on request from the node page.
  */
-const FEATURES = ['studio-ingest', 'portcheck', 'parked-stations', 'firewall', 'recorder', 'stereotool', 'library-uploads'];
+const FEATURES = ['studio-ingest', 'portcheck', 'parked-stations', 'firewall', 'recorder', 'stereotool', 'library-uploads', 'restart'];
 
 /** Facts the main server shows about the node. */
 export function facts(web: 'caddy' | 'direct') {

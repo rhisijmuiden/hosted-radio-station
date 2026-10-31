@@ -2,7 +2,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { dataPath, ports, readVersion, writeAtomic, type NodeFile } from './config.js';
 import { applyFirewall, applyStatus, applyWeb, confirmFirewall, firewallStatus, requestUpdate, updateStatus, type FirewallStatus, type JobStatus } from './helpers.js';
-import { icecastConfigPath, icecastSecrets, reloadIcecast, renderIcecastConfig, type IcecastLayout, type IcecastSecrets } from './icecast.js';
+import { icecastConfigPath, icecastSecrets, reloadIcecast, renderIcecastConfig, restartIcecast, type IcecastLayout, type IcecastSecrets } from './icecast.js';
 import { FmManager } from './fm/manager.js';
 import { log } from './log.js';
 import { Prober } from './probe.js';
@@ -277,6 +277,14 @@ export class Agent {
       }
       case 'rec_delete':
         return this.recorder.remove(String(msg.file)).catch((err) => log.warn('removing an uploaded recording failed', { err }));
+      case 'restart_service':
+        if (msg.service === 'icecast') {
+          log.warn('restarting Icecast on request of the main server');
+          return void restartIcecast().then((ok) => !ok && log.warn('Icecast is not running; nothing to restart'));
+        }
+        // The service (Restart=always) starts the agent again; a moment first so the log line gets out.
+        log.warn('restarting the agent on request of the main server');
+        return void setTimeout(() => process.kill(process.pid, 'SIGTERM'), 500);
       case 'restart':
         log.info('the main server restarts; reconnecting');
         this.retries = 0;

@@ -131,6 +131,9 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   ingest (its encoder port, with a token per stream that the ingest checks itself) and goes back to the relay just
   before the next hour once a relay has the station again. The node page shows *From the ingest* meanwhile. See
   [recorder](docs/recorder.md).
+- Nodes: a **Restart** button on the node page restarts the node agent (back in about 10 seconds) or only its Icecast
+  (a few seconds), for a node that hangs or to test a short outage. It is logged as an event of the node. Nodes
+  report the feature `restart`; older ones get "update the node first". API: POST /nodes/:id/restart.
 
 ## 1.5.0 (29 October 2026)
 

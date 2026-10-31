@@ -591,6 +591,19 @@ export class NodeHub {
     return true;
   }
 
+  /** Whether a connected node can restart its agent or Icecast on request. */
+  canRestart(nodeId: string) {
+    return !!this.conns.get(nodeId)?.status.features?.includes('restart');
+  }
+
+  /** Restarts the agent or the Icecast of a node. Returns false when it is not connected. */
+  restartService(nodeId: string, service: 'agent' | 'icecast') {
+    const c = this.conns.get(nodeId);
+    if (!c) return false;
+    this.send(c, { t: 'restart_service', service });
+    return true;
+  }
+
   /** Tells a node an update is coming (seconds > 0) or that it is over (0). Returns false when it is not connected. */
   drain(nodeId: string, seconds: number) {
     const c = this.conns.get(nodeId);
