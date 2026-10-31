@@ -39,6 +39,8 @@ export interface TenantLimits {
   storageQuotaMb: number;
   /** Own nodes the customer may register (phase 8). */
   maxNodes: number;
+  /** Roles the customer may give its own nodes; left out = every role (see allowedNodeRoles). */
+  nodeRoles?: NodeRole[];
 }
 
 export const tenants = pgTable('tenants', {
