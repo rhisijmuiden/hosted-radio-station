@@ -4,6 +4,7 @@ import { schema } from '../../db/index.js';
 import type { BillingContact, InvoiceLine, InvoiceParty } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
 import { badRequest } from '../../lib/errors.js';
+import { PERMISSION_KEYS } from '../../lib/schemas.js';
 import { emailLocale, emailWords, fill, renderTemplate } from '../email-templates.js';
 import { mailConfigured, sendMail } from '../mail.js';
 import { getSetting, type BillingSettings } from '../settings.js';
@@ -110,7 +111,8 @@ async function billingRecipients(ctx: AppContext, tenantId: string, contact: { e
 export async function applyPackageToTenant(ctx: AppContext, tenantId: string, pkg: Package, customLimits: boolean) {
   // A package without node roles keeps the roles the customer was given by hand (customer permissions).
   const [cur] = await ctx.db.select({ limits: schema.tenants.limits }).from(schema.tenants).where(eq(schema.tenants.id, tenantId));
-  const limits = pkg.limits.nodeRoles === undefined && cur?.limits.nodeRoles ? { ...pkg.limits, nodeRoles: cur.limits.nodeRoles } : pkg.limits;
+  const limits = { ...pkg.limits };
+  for (const key of PERMISSION_KEYS) if (limits[key] === undefined && cur?.limits[key] !== undefined) Object.assign(limits, { [key]: cur.limits[key] });
   await ctx.db
     .update(schema.tenants)
     .set({ plan: pkg.limits.maxRadioStations > 0 ? 'station' : 'distribution', ...(customLimits ? {} : { limits }) })

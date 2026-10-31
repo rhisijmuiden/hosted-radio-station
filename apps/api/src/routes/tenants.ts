@@ -21,6 +21,7 @@ import {
   slugSchema,
   tenantLimitsSchema,
   withRadioLimit,
+  PERMISSION_KEYS,
   tenantOut,
   userOut,
   toUserOut,
@@ -181,7 +182,8 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
         if (!cur) throw notFound('Customer');
         const base = sentLimits ?? (adminOnly.plan ? { ...cur.limits, maxRadioStations: adminOnly.plan === 'distribution' ? 0 : Math.max(cur.limits.maxRadioStations ?? 0, cur.limits.maxStations) } : cur.limits);
         // Clients that do not know the node roles yet leave them out: keep what is set.
-        const limits = { ...withRadioLimit(base, adminOnly.plan ?? cur.plan), ...(base.nodeRoles === undefined && cur.limits.nodeRoles ? { nodeRoles: cur.limits.nodeRoles } : {}) };
+        const limits: TenantLimits = { ...withRadioLimit(base, adminOnly.plan ?? cur.plan) };
+        for (const key of PERMISSION_KEYS) if (base[key] === undefined && cur.limits[key] !== undefined) Object.assign(limits, { [key]: cur.limits[key] });
         adminOnly.limits = limits;
         adminOnly.plan = limits.maxRadioStations > 0 ? 'station' : 'distribution';
       }

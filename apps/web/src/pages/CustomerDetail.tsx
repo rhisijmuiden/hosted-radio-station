@@ -2,9 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Plus, Send, Trash2, UserPlus } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
-import { Avatar, Badge, Button, Card, CardHeader, Dialog, Field, Input, PageHeader, Select, Spinner, Switch, Table } from '../components/ui';
+import { Avatar, Badge, Button, Card, CardHeader, Dialog, Field, Input, PageHeader, Select, Spinner, Switch, Table, Tabs } from '../components/ui';
+import { CustomerPermissions } from '../components/CustomerPermissions';
 import { AuditLogView } from '../components/AuditLog';
 import { SsoCard } from '../components/SsoCard';
 import { SubscriptionPanel, TenantInvoicesCard } from '../components/billing';
@@ -308,6 +309,9 @@ export function CustomerDetailPage() {
   const admin = isAdmin(me);
   const tenant = useQuery({ queryKey: ['tenant', id], queryFn: () => api<Tenant>(`/tenants/${id}`) });
   const myRole: Role | 'superadmin' = admin ? 'superadmin' : (me.memberships.find((m) => m.tenantId === id)?.role ?? 'dj');
+  // Administrators get a second tab with what this customer may do (customer permissions).
+  const [params, setParams] = useSearchParams();
+  const tab = admin && params.get('tab') === 'permissions' ? 'permissions' : 'overview';
 
   const del = useMutation({
     mutationFn: () => api(`/tenants/${id}`, { method: 'DELETE' }),
@@ -346,6 +350,19 @@ export function CustomerDetailPage() {
           </span>
         }
       />
+      {admin && (
+        <Tabs
+          value={tab}
+          onChange={(v) => setParams(v === 'overview' ? {} : { tab: v }, { replace: true })}
+          tabs={[
+            { value: 'overview', label: t('permissions.tabOverview') },
+            { value: 'permissions', label: t('permissions.tab') },
+          ]}
+        />
+      )}
+      {tab === 'permissions' && <CustomerPermissions tenant={c} />}
+      {tab === 'overview' && (
+      <>
       <div className="mb-4">
         <StationsCard tenantId={c.id} canCreate={c.active && rank[myRole] >= rank.owner} />
       </div>
@@ -379,6 +396,8 @@ export function CustomerDetailPage() {
           <CardHeader title={t('nav.auditLog')} description={t('audit.customerSubtitle')} />
           <AuditLogView tenantId={c.id} compact />
         </Card>
+      )}
+      </>
       )}
     </>
   );

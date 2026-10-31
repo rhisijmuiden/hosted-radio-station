@@ -41,6 +41,10 @@ export interface TenantLimits {
   maxNodes: number;
   /** Roles the customer may give its own nodes; left out = every role (see allowedNodeRoles). */
   nodeRoles?: NodeRole[];
+  /** What the customer may do itself; left out = allowed (customer permissions). */
+  mayRoute?: boolean;
+  mayCreateStations?: boolean;
+  maySwitchEdition?: boolean;
 }
 
 export const tenants = pgTable('tenants', {
