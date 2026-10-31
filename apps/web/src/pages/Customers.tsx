@@ -23,7 +23,7 @@ export const slugify = (s: string) =>
 
 export function LimitsFields({ value, onChange, disabled }: { value: TenantLimits; onChange: (v: TenantLimits) => void; disabled?: boolean }) {
   const { t } = useTranslation();
-  const num = (key: keyof TenantLimits) => ({
+  const num = (key: 'maxStations' | 'maxRadioStations' | 'maxListeners' | 'maxBitrateKbps' | 'storageQuotaMb' | 'maxNodes') => ({
     type: 'number',
     min: 0,
     disabled,

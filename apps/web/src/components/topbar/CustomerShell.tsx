@@ -105,7 +105,9 @@ function StationSwitcher({ current, compact, onDone }: { current: ReturnType<typ
         maxRadio: tenant.limits.maxRadioStations,
       })
     : null;
-  const room = creatable.some((x) => current.list.filter((y) => y.tenantId === x.id).length < x.limits.maxStations);
+  // Customer permissions: an administrator can take away creating stations.
+  const creatableHere = creatable.filter((x) => x.limits.mayCreateStations !== false);
+  const room = creatableHere.some((x) => current.list.filter((y) => y.tenantId === x.id).length < x.limits.maxStations);
   const shown = current.list.filter((x) => !q || `${x.name} ${x.tenantName}`.toLowerCase().includes(q.toLowerCase()));
 
   const choose = (id: string) => {
@@ -184,7 +186,7 @@ function StationSwitcher({ current, compact, onDone }: { current: ReturnType<typ
             ))}
             {!shown.length && <p className="px-2 py-3 text-[13px] text-muted">{current.list.length ? t('topnav.switcher.noMatch') : t('topnav.switcher.empty')}</p>}
           </div>
-          {creatable.length > 0 && (
+          {creatableHere.length > 0 && (
             <div className="border-t border-line p-2">
               <button
                 disabled={!room}
@@ -235,12 +237,14 @@ function ItemRow({ item, active, onNavigate }: { item: TopItem; active: boolean;
 /** The bottom line of the Radio station menu: an upgrade for a Distribution station, otherwise a short explanation. */
 function MegaFoot({ station, onNavigate }: { station: StationDetail; onNavigate: () => void }) {
   const { t } = useTranslation();
-  const owner = station.role === 'owner' || station.role === 'superadmin';
+  const tenants = useQuery({ queryKey: ['tenants'], queryFn: () => api<Tenant[]>('/tenants') });
+  const mayUpgrade = tenants.data?.find((x) => x.id === station.tenantId)?.limits.maySwitchEdition !== false;
+  const owner = (station.role === 'owner' || station.role === 'superadmin') && mayUpgrade;
   if (station.edition === 'distribution')
     return (
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-3 pt-3">
         <span className="flex items-center gap-2 text-[12.5px] text-muted">
-          <Sparkles className="size-4 shrink-0 text-koraal" /> {owner ? t('topnav.upgradeHint') : t('topnav.upgradeAskOwner')}
+          <Sparkles className="size-4 shrink-0 text-koraal" /> {owner ? t('topnav.upgradeHint') : mayUpgrade ? t('topnav.upgradeAskOwner') : t('topnav.upgradeAskProvider')}
         </span>
         {owner && (
           <Link to={stationTabHref(station.id, 'settings')} onClick={onNavigate} className="rounded-md bg-koraal px-3.5 py-1.5 text-[13px] font-bold text-nacht hover:brightness-95">

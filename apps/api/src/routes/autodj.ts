@@ -11,7 +11,7 @@ import { z } from 'zod';
 import { schema } from '../db/index.js';
 import type { MediaSourceConfig } from '../db/schema.js';
 import { badRequest, forbidden, HttpError, notFound } from '../lib/errors.js';
-import { okOut } from '../lib/schemas.js';
+import { assertPermitted, okOut } from '../lib/schemas.js';
 import { assertRadioStationAllowed, downgradeKeeping, makeRadioStation, radioStationNode, undoDowngrade } from '../services/autodj/edition.js';
 import {
   filePath,
@@ -297,6 +297,7 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
     async (req) => {
       const { station, tenant, access } = await stationAccess(ctx, req, req.params.id, 'owner');
       if (station.edition === 'station') return describe(station);
+      assertPermitted(tenant.limits, 'maySwitchEdition', access.role);
       await assertRadioStationAllowed(ctx, tenant, station.id);
       // Within 24 hours of going back to Distribution only: it returns where it ran, with all its content.
       if (station.downgrade) {
@@ -337,8 +338,9 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (req) => {
-      const { station } = await stationAccess(ctx, req, req.params.id, 'owner');
+      const { station, tenant, access } = await stationAccess(ctx, req, req.params.id, 'owner');
       if (station.edition !== 'station') throw badRequest('This station has the Distribution edition');
+      assertPermitted(tenant.limits, 'maySwitchEdition', access.role);
       if (!req.body.confirm) throw badRequest('Confirm that the station goes back to Distribution only: its AutoDJ, hour clocks, library and DJ logins stop, and its content is deleted after 24 hours');
       const updated = await downgradeKeeping(ctx, station, req.auth?.user.email);
       req.auditInfo.details = { from: 'station', to: 'distribution', until: updated.downgrade!.until, nodeId: station.nodeId };

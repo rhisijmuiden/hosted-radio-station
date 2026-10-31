@@ -661,7 +661,7 @@ Nodes with a direct public IP address get a firewall that is closed by default. 
 - **On by default** for nodes with a public address on their own interface (a server in a data centre), new and existing, decided at their next connection; nodes behind a router keep it off and can switch it on. Existing firewall rules on the server still hold it back until the administrator takes over.
 - **Outside check**: the port check from outside also tries SSH and well-known ports a node never needs (databases, mail, admin pages, 8080 and the like) and warns when one answers. For a node behind a router (NAT) it says the ports may belong to the router or another machine, and a monitoring node in the same network is named as such.
 
-### Clear navigation for customers and station managers (in progress)
+### Clear navigation for customers and station managers (in test)
 
 The customer side has many buttons in one row. It gets a small, logical structure with drop-down menus from the top menu:
 
@@ -679,7 +679,7 @@ Reinder chose option A of the sketch (31 October 2026): a top menu with large dr
 1. **Top bar** (in test): station switcher top left (all your stations with edition, where each runs and whether it is on air, and how many of your stations and Radio stations are used), then Overview, Radio station (a large drop-down in four columns: Programme, Media library, DJs & live, Public pages, each page with a one-line explanation), Broadcast, My network, Audience and Settings. A Distribution station shows the Radio station pages with a lock and an **Upgrade to Radio station** button. On smaller screens the menu folds into a side panel.
 2. **Routing** for customers (in test): one page under My network with every station: where it runs (own node or shared station node), how it sends (ingest or direct) and which relays carry it (shared and own), with the editor of one station below the list.
 3. **My nodes** (in test): a "Your limits" block with own nodes, stations, Radio stations and storage used against the package, and the roles the customer may give its own nodes (others shown with a lock). The API refuses roles outside the package when a customer adds a node or changes its roles; roles a node already has may stay. New customers start with a station node only; customers from before keep every role until the administrator sets them.
-4. **Permissions** tab on a customer in the admin panel (station limits, own nodes on/off and maximum, roles, station node on by default), enforced by the API.
+4. **Permissions** tab on a customer in the admin panel (in test): stations in total and of which Radio stations, own nodes on/off and maximum, storage, listeners and bitrate (each with what is in use), the roles own nodes may have (station node on by default), and what the customer may do itself: change routing and placement, create stations, switch the edition. The API enforces each; administrators can always.
 
 ### Small fixes (own thread, done in between)
 

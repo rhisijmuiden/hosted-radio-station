@@ -8,7 +8,7 @@ import type { OutputConfig } from '../db/schema.js';
 import { hashPassword, requireTenantRole, requireUser, type Role } from '../lib/auth.js';
 import type { AppContext } from '../lib/context.js';
 import { badRequest, conflict, forbidden, isUniqueViolation, notFound } from '../lib/errors.js';
-import { okOut, slugSchema } from '../lib/schemas.js';
+import { assertPermitted, okOut, slugSchema } from '../lib/schemas.js';
 import { assertRadioStationAllowed, downgradeKeeping, makeRadioStation, radioStationNode, undoDowngrade } from '../services/autodj/edition.js';
 import { autodjSettings } from '../services/autodj/settings.js';
 import { getSetting, SECRET_MASK } from '../services/settings.js';
@@ -410,6 +410,7 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
       const access = await requireTenantRole(ctx, req, req.body.tenantId, 'owner');
       const [tenant] = await ctx.db.select().from(schema.tenants).where(eq(schema.tenants.id, req.body.tenantId));
       if (!tenant) throw notFound('Customer');
+      assertPermitted(tenant.limits, 'mayCreateStations', access.role);
       if (req.body.edition === 'station') await assertRadioStationAllowed(ctx, tenant);
       else if (req.body.nodeId) throw badRequest('A Distribution station does not run on a station node');
       const [{ n }] = (await ctx.db.select({ n: count() }).from(schema.stations).where(eq(schema.stations.tenantId, tenant.id))) as [{ n: number }];
@@ -522,6 +523,7 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
       }
       const ownerOnly = body.slug !== undefined || body.edition !== undefined || legacy !== undefined;
       if (ownerOnly && access.role === 'manager') throw forbidden('Only the customer owner can change these fields');
+      if (body.edition !== undefined && body.edition !== station.edition) assertPermitted(tenant.limits, 'maySwitchEdition', access.role);
       // Orchestrator only (phase 18): legacy ports are encoder ports here.
       if (!station.nodeId && legacy?.enabled) await assertAudioAllowedHere(ctx, 'it has no Shoutcast ports');
       const upgrading = body.edition === 'station' && station.edition !== 'station';
