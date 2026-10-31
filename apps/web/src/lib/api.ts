@@ -701,7 +701,7 @@ export interface AutodjView {
   settings: AutodjSettings;
   mount: { id: string; path: string; format: AudioFormat; bitrateKbps: number } | null;
   coveredMounts: string[];
-  player: { expected: boolean; connected: boolean; seenAt: string | null; paused: boolean };
+  player: { expected: boolean; connected: boolean; seenAt: string | null; paused: boolean; stuckSince: string | null };
   nowPlaying: QueueRow | null;
   queues: { q1: QueueRow[]; q2: QueueRow[] };
   library: { tracks: number; enabled: number; playlists: number };
@@ -725,6 +725,9 @@ export interface MediaFile {
   bpm?: number | null;
   /** "Am", "F#" or empty. */
   musicKey?: string;
+  /** Composers/writers and label for the music reports (null until read; missing on servers before 1.6). */
+  composer?: string | null;
+  label?: string | null;
   sizeBytes: number;
   enabled: boolean;
   edited: boolean;
@@ -845,7 +848,7 @@ export interface SchedulerView {
 
 // Nodes (distribution network)
 
-export type NodeRole = 'relay' | 'source' | 'station' | 'fm' | 'monitor';
+export type NodeRole = 'relay' | 'source' | 'station' | 'fm' | 'monitor' | 'recorder';
 /** FM/MPX settings of a node (phase 11). Shares are 0..1 of 100% modulation. */
 export interface FmConfig {
   stationId: string | null;
@@ -886,6 +889,18 @@ export interface FmConfig {
   uecpBaud: number;
   uecpSite: number;
   uecpEncoder: number;
+  processor: 'builtin' | 'stereotool';
+  stLicence: string;
+  stMpx: 'stereotool' | 'node';
+  stInputRate: 48000 | 192000;
+  stWebPort: number;
+  stUecpPort: number;
+  stExtraArgs: string;
+}
+
+/** The Stereo Tool program FM/MPX nodes fetch from this server (uploaded by an administrator). */
+export interface StereoToolInfo {
+  binary: { name: string; size: number; sha256: string; uploadedAt: string } | null;
 }
 export interface FmStatus {
   input: 'idle' | 'connecting' | 'connected' | 'error';
@@ -901,6 +916,7 @@ export interface FmStatus {
   rt: string;
   tags: { type: number; start: number; length: number }[];
   groups: Record<string, number>;
+  stereoTool?: { state: 'installing' | 'starting' | 'running' | 'error'; message?: string; restarts: number } | null;
 }
 export interface NodeConfig {
   publicHost: string;
@@ -933,6 +949,8 @@ export interface NodeConfig {
   dedication: NodeDedication;
   dedicatedTenantId: string | null;
   dedicatedStationId: string | null;
+  /** Recorder (phase 21): the stations it records, "all" = every station it serves. */
+  recordStations: 'all' | string[];
 }
 export type NodeDedication = 'auto' | 'shared' | 'customer' | 'station';
 /** Who a node serves: everyone, one customer, one station, or the stations that run on it (a station node). */
@@ -1027,7 +1045,78 @@ export interface NodeStatus {
   features?: string[];
   /** The node's own firewall as the node reports it (security hardening for external nodes). */
   firewall?: { state: string; message?: string; foreign?: string[]; ports?: { ssh: string[]; tcp: string[]; udp: string[] }; ssh?: { from: string[]; limit: boolean; password: string }; at?: string } | null;
+  /** Recorder (phase 21): what it records per station, and its disk. */
+  recorder?: { stations: { stationId: string; kind: 'log' | 'show'; sessionId?: string; state: RecorderState; message?: string; since?: string; via?: 'ingest' }[]; disk: RecorderDisk | null } | null;
   updatedAt?: string;
+}
+export type RecorderState = 'starting' | 'recording' | 'waiting' | 'error';
+export interface RecorderDisk {
+  totalBytes: number;
+  freeBytes: number;
+  usedBytes: number;
+}
+/** Logging settings of a station (phase 21). */
+export interface StationRecordingSettings {
+  logging: boolean;
+  loggingKbps: number;
+  loggingDays: number;
+  /** Live shows (step 2): recorded as sent, kept showsDays days; shorter than showsMinMinutes = thrown away. */
+  shows: boolean;
+  showsDays: number;
+  showsMinMinutes: number;
+  /** Step 3: a finished show becomes an on-demand item; uploaded recordings are removed from the recorder. */
+  showsOnDemand: boolean;
+  deleteUploaded: boolean;
+}
+export interface StationRecording {
+  settings: StationRecordingSettings;
+  recorders: { id: string; name: string; location: string; online: boolean; own: boolean; state: RecorderState | null; message: string | null; recordingShow: boolean; disk: RecorderDisk | null }[];
+  bitrates: number[];
+  canEdit: boolean;
+  /** The public page shows on-demand items; live broadcasts are also recorded on the server (doubles). */
+  onDemandPage: boolean;
+  serverRecordsLive: boolean;
+}
+export type RecordingDestinationType = 'ftp' | 'ftps' | 'sftp' | 'onedrive';
+export interface RecordingDestination {
+  id: string;
+  name: string;
+  type: RecordingDestinationType;
+  description: string;
+  config: Record<string, unknown>;
+  kinds: ('log' | 'show')[];
+  enabled: boolean;
+  createdAt: string;
+  uploaded: number;
+  lastUploadAt: string | null;
+  failing: number;
+  lastError: string | null;
+  nextTryAt: string | null;
+}
+export interface RecordingFile {
+  id: string;
+  nodeId: string;
+  nodeName: string;
+  kind: 'log' | 'show';
+  /** A show: who was live. */
+  dj: string | null;
+  startedAt: string;
+  durationSeconds: number;
+  sizeBytes: number;
+  open: boolean;
+  available: boolean;
+  uploads: { done: number; failed: number; error: string | null };
+  onDemand: boolean;
+}
+export interface RecordingSong {
+  /** song = a title in the stream; live = a DJ went live here. */
+  kind: 'song' | 'live';
+  title: string;
+  startedAt: string;
+  endedAt: string | null;
+  offsetSeconds: number;
+  live: boolean;
+  dj: string | null;
 }
 export type NodeFirewallState = 'off' | 'running' | 'pending' | 'active' | 'foreign' | 'rolledBack' | 'failed' | 'unsupported';
 export interface NodeFirewallConfig {
@@ -1717,4 +1806,27 @@ export interface TelegramChat {
   id: string;
   name: string;
   type: string;
+}
+
+/** A music play for the rights reports (phase 21 step 5). */
+export interface RightsPlay {
+  startedAt: string;
+  endedAt: string | null;
+  date: string;
+  time: string;
+  durationSeconds: number;
+  artist: string;
+  title: string;
+  composer: string;
+  album: string;
+  label: string;
+  year: number | null;
+  isrc: string;
+  code: string;
+  source: 'autodj' | 'live';
+  dj: string | null;
+  mount: string;
+  avgListeners: number;
+  peakListeners: number;
+  listenerHours: number;
 }

@@ -7,7 +7,7 @@ import { schema } from '../db/index.js';
 import { badRequest, notFound } from '../lib/errors.js';
 import { okOut } from '../lib/schemas.js';
 import { queueRequest } from '../services/autodj/requests.js';
-import { itemPath, scanOnDemand } from '../services/public/ondemand.js';
+import { itemPath, scanOnDemand, trimItem } from '../services/public/ondemand.js';
 import { publicPageSchema, publicSettings } from '../services/public/settings.js';
 import { connectionInfo } from '../services/streaming/info.js';
 import { STREAMS_CHANNEL } from '../services/streaming/state.js';
@@ -295,6 +295,36 @@ export const stationPublicRoutes: FastifyPluginAsyncZod = async (app) => {
         .where(eq(schema.onDemandItems.id, current.id))
         .returning();
       return toItem(station.id, row!);
+    },
+  );
+
+  app.post(
+    '/:id/ondemand/:itemId/trim',
+    {
+      config: { audit: 'station.ondemand_trim' },
+      schema: {
+        tags: ['Public pages'],
+        summary: 'Cut an on-demand item down to from..to (seconds), without encoding again. The file is replaced.',
+        params: stationParams.extend({ itemId: z.uuid() }),
+        body: z.object({ from: z.number().min(0), to: z.number().positive() }),
+        response: { 200: itemOut },
+      },
+    },
+    async (req) => {
+      const { station } = await stationAccess(ctx, req, req.params.id, 'manager');
+      const [item] = await ctx.db.select().from(schema.onDemandItems).where(and(eq(schema.onDemandItems.id, req.params.itemId), eq(schema.onDemandItems.stationId, station.id)));
+      if (!item) throw notFound('Item');
+      if (item.source === 'recording' && !item.recordedAt) throw badRequest('This broadcast is still being recorded');
+      const { from, to } = req.body;
+      if (to <= from || to - from < 1) throw badRequest('The end must come at least a second after the start');
+      if (item.durationSeconds && from >= item.durationSeconds) throw badRequest('The start lies after the end of the item');
+      try {
+        const row = await trimItem(ctx, item, from, to);
+        req.auditInfo.details = { title: item.title, from, to };
+        return toItem(station.id, row);
+      } catch (err) {
+        throw badRequest(`Cutting failed: ${(err as Error).message}`);
+      }
     },
   );
 

@@ -160,6 +160,20 @@ export async function reloadIcecast(): Promise<boolean> {
   return false;
 }
 
+/** Stops the running Icecast; its service (Restart=always) starts it again within a few seconds. */
+export async function restartIcecast(): Promise<boolean> {
+  try {
+    const pid = Number((await readFile(icecastPidPath(), 'utf8')).trim());
+    if (pid > 1) {
+      process.kill(pid, 'SIGTERM');
+      return true;
+    }
+  } catch {
+    /* not running */
+  }
+  return false;
+}
+
 export interface IcecastClient {
   id: string;
   ip: string;

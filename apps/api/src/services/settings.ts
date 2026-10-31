@@ -496,6 +496,17 @@ export const billingSettingsSchema = z.object({
 });
 export type BillingSettings = z.infer<typeof billingSettingsSchema>;
 
+/**
+ * The Stereo Tool program (Thimeo, Linux command-line version) for FM/MPX nodes. The administrator uploads it once:
+ * its licence does not allow shipping it with this software. The file lives under DATA_DIR/stereotool.
+ */
+export const stereoToolSettingsSchema = z.object({
+  binary: z
+    .object({ sha256: z.string().regex(/^[0-9a-f]{64}$/), size: z.number().int().positive(), name: z.string().max(200), uploadedAt: z.string() })
+    .nullable()
+    .default(null),
+});
+
 const registry = {
   smtp: { schema: smtpSchema, secrets: ['password', 'dkim.privateKey'] },
   proxy: { schema: proxySchema, secrets: [] },
@@ -511,6 +522,7 @@ const registry = {
   cloudflare: { schema: cloudflareSchema, secrets: ['apiToken'] },
   dnsState: { schema: dnsStateSchema, secrets: [] },
   alerts: { schema: alertSettingsSchema, secrets: ['telegram.botToken'] },
+  stereoTool: { schema: stereoToolSettingsSchema, secrets: [] },
 } as const;
 type Registry = typeof registry;
 export type SettingKey = keyof Registry;

@@ -71,6 +71,7 @@ export interface Mount {
   isDefault: boolean;
 }
 export interface StationDetail extends StationListItem {
+  tenantId?: string;
   mounts: Mount[];
   role: Role;
   connection: {
@@ -112,6 +113,18 @@ export interface Account {
   canBroadcast: boolean;
   mountIds: string[];
   enabled: boolean;
+  /** Fields the Manage view uses (every server since 1.0 sends them). */
+  userName?: string | null;
+  canUpload?: boolean;
+  lastUsedAt?: string | null;
+  uploadLogin?: string;
+  /** Only in the answer that created the account or generated a new password. */
+  password?: string;
+}
+/** A user of the customer, from /tenants/:id/members. */
+export interface Member {
+  user: { id: string; name: string; email: string };
+  role: string;
 }
 /** Cue points in seconds from the start of the file; null = not set. Missing on servers before 1.3. */
 export interface Cues {
@@ -153,7 +166,8 @@ export interface QueueRow {
 export interface AutoDj {
   edition: 'distribution' | 'station';
   settings: { enabled: boolean; crossfadeSeconds?: number };
-  player: { expected: boolean; connected: boolean; paused: boolean };
+  /** stuckSince: the track on air ran more than five minutes past its end with no DJ live (server 1.5.1 and later). */
+  player: { expected: boolean; connected: boolean; paused: boolean; stuckSince?: string | null };
   /** Manual playout: every track waits for Play; holding = the track ended and the player waits. */
   playout: { manual: boolean; holding: boolean; until: string | null };
   nowPlaying: QueueRow | null;
@@ -243,4 +257,157 @@ export interface StudioReleases {
   production: StudioRelease | null;
   test: StudioRelease | null;
   error: string | null;
+}
+
+/** Recording of live shows (phase 21 step 4). */
+export interface LiveRecording {
+  recorder: boolean;
+  showsByDefault: boolean;
+  live: { sessionId: string; accountName: string; startedAt: string; record: boolean; chosen: boolean; recording: boolean }[];
+}
+export interface ShowRecording {
+  id: string;
+  dj: string | null;
+  startedAt: string;
+  durationSeconds: number;
+  sizeBytes: number;
+  open: boolean;
+  available: boolean;
+  onDemand: boolean;
+}
+
+/** The nodes a station uses and their health, from /stations/:id/network (servers with the `manage` feature). */
+export interface NetworkNode {
+  /** A node id, or "main" for the orchestrator itself. */
+  id: string;
+  name: string;
+  role: 'station' | 'ingest' | 'backupIngest' | 'relay' | 'recorder';
+  shared: boolean;
+  state: 'online' | 'standby' | 'warning' | 'offline';
+  cpu: number | null;
+  memory: number | null;
+  checks: { ok: number; total: number } | null;
+  firewall: string | null;
+  version: string | null;
+  /** The commit of the build (servers after 1.6 step 2). */
+  commit?: string | null;
+  listeners: number | null;
+  issues: { kind: 'offline' | 'problem' | 'check' | 'relay' | 'firewall'; message: string | null }[];
+}
+export interface StationNetwork {
+  nodes: NetworkNode[];
+}
+/** How a station travels, from /stations/:id/routing (managers). */
+export interface StationRouting {
+  routing: { ingest: string; backupIngest: string | null; relays: 'auto' | string[]; spareRelays: boolean; delivery: 'ingest' | 'direct' };
+  studio: { ingests: { id: string; name: string; online: boolean; priority: number }[]; direct: 'chosen' | 'update' | 'none' | 'offline' | 'nocert' | 'failing' | null; error: string | null } | null;
+  locked: 'station_node' | null;
+  orchestratorOnly: boolean;
+  autodjHere: boolean;
+  canEdit: boolean;
+  options: { ingests: { id: string; name: string; location: string; online: boolean; own: boolean }[]; relays: { id: string; name: string; location: string; online: boolean; own: boolean }[] };
+  stale: { id: string; name: string }[];
+  status: {
+    active: string | null;
+    ingests: { ref: string; priority: number; name: string; online: boolean; onAir: boolean }[];
+    relays: { id: string; name: string; online: boolean; connected: number; total: number; spare: boolean }[];
+  };
+}
+/** A playlist (music category) of the AutoDJ, from /stations/:id/playlists. */
+export interface Playlist {
+  id: string;
+  name: string;
+  queue: 'q1' | 'q2';
+  weight: number;
+  order: 'shuffle' | 'random' | 'sequential';
+  folders: { location: string; path: string }[];
+  enabled: boolean;
+  /** Feeds its queue; off = only for hour clocks. */
+  rotation: boolean;
+  trackCount: number;
+  averageSeconds: number | null;
+  createdAt: string;
+}
+export type PlaylistFolder = Playlist['folders'][number];
+/** The folders of the library per location, from /stations/:id/library/folders. */
+export interface LibraryFolders {
+  locations: { id: string; name: string; type: 'storage' | 'local' | 'smb' | 'nfs'; tracks: number }[];
+  folders: { location: string; path: string; tracks: number }[];
+}
+/** Progress of the last library scan. */
+export interface ScanProgress {
+  running: boolean;
+  location: string | null;
+  found: number;
+  added: number;
+  updated: number;
+  removed: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+  errors: string[];
+}
+/** The rotation rules and sound of the AutoDJ (the settings of /stations/:id/autodj), as the web panel edits them. */
+export interface AutodjSettings {
+  enabled: boolean;
+  mountId: string | null;
+  crossfadeSeconds: number;
+  normalize: boolean;
+  rule: { mode: string; q1: number; q2: number };
+  queueDepth: number;
+  fill: { q1: boolean; q2: boolean };
+  artistSeparationMinutes: number;
+  trackSeparationMinutes: number;
+  pauseWhenLive: boolean;
+  codePrefix?: string;
+  analyse?: boolean;
+  requests: { fromLibrary: boolean; autoQueue: boolean; queue: string; repeatMinutes: number };
+}
+/** One item of an hour clock (phase 7). */
+export interface ClockItem {
+  id: string;
+  kind: 'rotation' | 'playlist' | 'track' | 'news';
+  label: string;
+  playlistId: string | null;
+  mediaId: string | null;
+  /** Tracks (playlist); 0 = until the next timed item. */
+  count: number;
+  /** Minute of the hour; null = after the item before. */
+  at: number | null;
+  hard: boolean;
+  /** DJs cannot skip it or play something else over it (missing on clocks saved before 1.3). */
+  locked?: boolean;
+}
+export interface Clock {
+  id: string;
+  name: string;
+  color: string;
+  items: ClockItem[];
+  createdAt: string;
+  updatedAt: string;
+}
+export interface ScheduleEntry {
+  id: string;
+  name: string;
+  description: string;
+  clockId: string | null;
+  live: boolean;
+  accountIds: string[];
+  /** ISO weekdays, 1 = Monday. */
+  days: number[];
+  date: string | null;
+  startMinute: number;
+  durationMinutes: number;
+  isPublic: boolean;
+  enabled: boolean;
+  createdAt: string;
+}
+/** Hour clocks and the weekly schedule, from /stations/:id/scheduler. */
+export interface SchedulerView {
+  settings: { enabled: boolean; timezone: string; defaultClockId: string | null; liveOnlyInShows: boolean; liveEarlyMinutes: number; publicSchedule: boolean };
+  clocks: Clock[];
+  entries: ScheduleEntry[];
+  accounts: { id: string; username: string; displayName: string }[];
+  now: { date: string; weekday: number; minuteOfDay: number; second: number };
+  onAir: { entryId: string | null; clockId: string | null };
+  tracks: { id: string; title: string; artist: string; durationSeconds: number | null }[];
 }

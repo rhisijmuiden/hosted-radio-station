@@ -93,6 +93,48 @@ tracks.
 
 ![The OmniPlayer layout](screenshots/studio-omni-en.png)
 
+### Manage view
+
+Managers and owners of a Radio station get a third view in the layout menu: **Manage** (Ctrl+3; Ctrl+1 is Classic,
+Ctrl+2 OmniPlayer). It sets up the station from Studio on the same data as the web panel, with a menu on the left:
+
+- **Overview**: listeners now, who is on air (AutoDJ with its hour clock, or the DJ), how many of the station's nodes
+  are healthy, the delivery path (via the ingest or direct to the relays), the coming hours of the format and what
+  needs attention (a node offline, a failing monitoring check, a relay mount that does not connect, a firewall
+  problem). A click on a tile or a line opens its section.
+- **Nodes**: the station node, ingests and relays the station uses, with status (Standby is a backup ingest that is
+  ready but does not carry the station now), CPU, RAM, the monitoring checks of this station, the firewall and the
+  version with its commit. The recorders that record the station are listed too.
+- **Hour clocks**: the clocks as chips (the one on air first) and the hour as a donut with a slice per item. Edit the
+  items like in the panel (minute, type, playlist and number of tracks, name, *Exactly on the minute*, *Locked*, order),
+  then **Save clock**; **Duplicate** makes a copy to change on its own.
+- **Weekly schedule**: the week as a grid, each block in the colour of its hour clock (live shows in coral). Click an
+  empty spot or **Add show** to add a block, click a block to change it, or drag it up or down to move it in steps of
+  15 minutes. The schedule settings are below the grid.
+- **Playlists & categories**: the playlists that feed the rotation and the ones only hour clocks use (news, ads,
+  jingles). Add or edit one (folders, order, weight), switch it on or off, or delete it.
+- **Rotation rules**: the AutoDJ settings of the panel: on/off, tracks in the queue, artist and track separation,
+  crossfade, the mount it follows, normalise, pause while a DJ is live, requests, the prefix of the track codes and
+  tempo/key analysis. **Save** applies them, **Undo changes** goes back to what is saved.
+- **Library folders**: the folders of the station storage and every share, with their tracks and the playlists that
+  use them (orange: the folder itself, grey: through a parent folder). The list button on a row makes a new playlist
+  from that folder; **Scan for new files** looks for new, changed and removed files. Shares are managed in the panel.
+  **New folder** makes a folder in the station storage and asks for music to put in it right away (a folder exists on
+  the server from its first track). On every storage folder the file button adds music files of this PC and the
+  folder button a whole folder with its sub folders; a bar shows the upload, and the tags are read on the server.
+- **Audio routing**: the path of the audio now (studio or encoders → ingests → relays → listeners; coral lines carry
+  the station, dashed lines stand by) and the route settings of the panel: delivery for a station node (via the
+  ingest or straight to the relays), main and backup ingest, and the relays (automatic or chosen, with spare relays).
+  **Apply** asks first and then switches the streams within seconds. Only the owner can change the route.
+- **DJs & live access**: who is live now (account, mount, since when, encoder) and the live rule of the weekly schedule,
+  then the DJ and upload accounts with what they may do (go live on all or some mounts, upload), the live shows they
+  are in, the linked user and when they were last used. **Add account** and the pencil open the form of the panel; a
+  generated password is shown once to copy. The key makes a new password, the bin deletes the account; both ask first.
+
+The bar at the bottom shows the track on air with its remaining time and goes back to the player. The view is kept in
+the DJ profile like the layout. It needs server 1.6 (the `manage` feature); with an older server, or for a DJ, the
+menu only has Classic and OmniPlayer.
+
 ### Locked blocks
 
 An item of the hour clock can be **locked** (panel: *Hour clocks*, the *Locked* box on a playlist or track item), for

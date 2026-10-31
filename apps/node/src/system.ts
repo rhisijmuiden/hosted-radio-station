@@ -8,9 +8,11 @@ import { soundCards } from './fm/manager.js';
  * of this version sends its streams through an ingest node (it is updated together with the agent). "portcheck"
  * (phase 20): as a monitoring node it tries the ports of other nodes from outside for the server. "parked-stations":
  * the station software keeps a station that went back to Distribution only for 24 hours instead of removing it.
- * "firewall": the node manages its own firewall from the plan (security hardening for external nodes).
+ * "firewall": the node manages its own firewall from the plan (security hardening for external nodes). "recorder"
+ * (phase 21): it records stations and sends recordings to the server on request. "library-uploads" (1.5.0): the station
+ * software takes library uploads in parts. "restart": the agent or its Icecast restarts on request from the node page.
  */
-const FEATURES = ['studio-ingest', 'portcheck', 'parked-stations', 'firewall'];
+const FEATURES = ['studio-ingest', 'portcheck', 'parked-stations', 'firewall', 'recorder', 'stereotool', 'library-uploads', 'restart'];
 
 /** Facts the main server shows about the node. */
 export function facts(web: 'caddy' | 'direct') {

@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
@@ -22,6 +22,8 @@ interface Ctx {
   icecastPort: () => number;
   secrets: IcecastSecrets;
   nodeId: string;
+  /** The node's own secret: recorders read a stream with a token made from it (see read()). */
+  secret: () => string;
   /** Asks the main server about an encoder log-in; null when it cannot be reached. */
   auth: (q: { stationId: string; mount: string; user: string | null; pass: string; ip: string; purpose: 'source' | 'metadata' }) => Promise<AuthResult | null>;
   /** Tells the main server about a broadcast (queued while it is unreachable). */
@@ -413,6 +415,7 @@ export class IngestManager {
   takes(req: EncoderRequest, host: string | null) {
     if (!this.plan) return false;
     if (req.method === 'SOURCE' || req.method === 'PUT') return !!this.resolve(req.path, host);
+    if (req.method === 'GET' && req.path.startsWith('/ingest/')) return !!this.readable(req.path);
     if (req.method === 'GET' && req.path.startsWith('/admin/metadata')) return !!this.resolve(new URL(req.path, 'http://x').searchParams.get('mount') ?? '', host);
     return false;
   }
@@ -433,6 +436,7 @@ export class IngestManager {
 
   /** An encoder (SOURCE/PUT) or a title update for a station routed here. */
   async handle(socket: net.Socket, req: EncoderRequest, via: 'tls' | 'plain', ip: string, host: string | null) {
+    if (req.method === 'GET' && req.path.startsWith('/ingest/')) return this.read(socket, req, ip);
     if (req.method === 'GET') return this.metadata(socket, req, ip, host);
     const target = this.resolve(req.path, host)!;
     const creds = basicAuth(req.headers.get('authorization'));
@@ -514,6 +518,50 @@ export class IngestManager {
       upstream.on('drain', () => socket.resume());
       socket.resume();
     });
+  }
+
+  /** The public mount a recorder asks for: GET /ingest/<station>/<mount>?token=…, or null. */
+  private readable(path: string) {
+    const url = new URL(path, 'http://x');
+    const m = url.pathname.match(/^\/ingest\/([^/]+)(\/.+)$/);
+    const station = m ? this.plan?.stations.find((s) => s.slug === m[1]) : undefined;
+    const mount = station?.mounts.find((x) => x.path === m![2] && x.isPublic);
+    return station && mount ? { station, mount, token: url.searchParams.get('token') ?? '' } : null;
+  }
+
+  /**
+   * A recorder reads a stream straight from here while no relay carries the station (a relay update), so its logging
+   * misses no minutes. The token is an HMAC of the stream key under this node's secret, made by the main server for
+   * the recorders of the station; nobody else reads here.
+   */
+  private async read(socket: net.Socket, req: EncoderRequest, ip: string) {
+    const target = this.readable(req.path);
+    if (!target) return reply(socket, '404 Not Found', 'Stream not found');
+    const key = `${target.station.slug}${target.mount.path}`;
+    const want = Buffer.from(createHmac('sha256', this.ctx.secret()).update(`record:${key}`).digest('base64url'));
+    const got = Buffer.from(target.token);
+    if (got.length !== want.length || !timingSafeEqual(got, want)) {
+      await new Promise((res) => setTimeout(res, 1000));
+      return reply(socket, '403 Forbidden', 'Refused');
+    }
+    let local: http.IncomingMessage;
+    try {
+      local = await readLocal(this.ctx.icecastPort(), ingestMount(target.station.slug, target.mount.path));
+    } catch (err) {
+      return reply(socket, '404 Not Found', (err as Error).message);
+    }
+    if (socket.destroyed) return local.destroy();
+    const type = local.headers['content-type'] ?? CONTENT_TYPES[target.mount.format] ?? 'audio/mpeg';
+    socket.write(`HTTP/1.0 200 OK\r\nServer: Hosted Radio Station node\r\nContent-Type: ${type}\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n`);
+    local.pipe(socket);
+    const done = () => {
+      local.destroy();
+      socket.destroy();
+    };
+    socket.on('close', done);
+    socket.on('error', done);
+    local.on('close', done);
+    log.info('recorder reads from the ingest', { mount: key, ip });
   }
 
   /** Title updates from encoders: GET /admin/metadata?mount=…&song=… with the DJ's log-in. */

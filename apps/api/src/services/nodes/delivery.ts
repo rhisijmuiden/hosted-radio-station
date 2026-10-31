@@ -96,6 +96,15 @@ export function studioToken(ctx: AppContext, stationNode: Pick<Node, 'secret'>, 
   return createHmac('sha256', secret).update(`ingest:${stationId}`).digest('base64url');
 }
 
+/**
+ * The token a recorder reads one stream straight from an ingest node with (GET /ingest/<station>/<mount>), while no
+ * relay carries it: an HMAC of the stream key under the ingest's own secret, so the ingest checks it itself.
+ */
+export function recorderToken(ctx: AppContext, ingest: Pick<Node, 'secret'>, key: string): string {
+  const secret = ingest.secret ? ctx.box.decrypt(ingest.secret) : '';
+  return createHmac('sha256', secret).update(`record:${key}`).digest('base64url');
+}
+
 /** Same rule as publicName() of the connection details: only such a name can carry a certificate encoders trust. */
 const INTERNAL_TLDS = new Set(['loc', 'local', 'lan', 'home', 'internal', 'intranet', 'corp', 'localdomain', 'test', 'invalid', 'localhost', 'arpa']);
 const certName = (h: string) => !!h && !net.isIP(h) && h.includes('.') && !INTERNAL_TLDS.has(h.slice(h.lastIndexOf('.') + 1).toLowerCase());

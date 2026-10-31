@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { ChevronsUpDown, Clock3, Grid3x3, Headphones, Lock, LogOut, Mic, Radio, Settings, type LucideIcon } from 'lucide-react';
+import { ChevronsUpDown, Clock3, Disc3, Grid3x3, Headphones, Lock, LogOut, Mic, Radio, Settings, type LucideIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEngine } from '../lib/engine';
@@ -16,13 +16,15 @@ import { LayoutMenu } from './LayoutMenu';
 import { StereoMeter } from './Meter';
 import { LanguageToggle, ThemeToggle } from './Toggles';
 import { Avatar } from './ui';
+import { ask } from '../lib/native';
 
-export type Page = 'assist' | 'live' | 'carts' | 'settings';
+export type Page = 'assist' | 'live' | 'carts' | 'recordings' | 'settings';
 
 const NAV: { page: Page; icon: LucideIcon }[] = [
   { page: 'assist', icon: Headphones },
   { page: 'live', icon: Mic },
   { page: 'carts', icon: Grid3x3 },
+  { page: 'recordings', icon: Disc3 },
   { page: 'settings', icon: Settings },
 ];
 
@@ -79,7 +81,7 @@ function StationPicker() {
 /** The narrow menu on the left: the pages as icons with a short label, and the signed-in DJ at the bottom. */
 function NavRail({ page, onPage }: { page: Page; onPage: (p: Page) => void }) {
   const { t } = useTranslation();
-  const { me, signOut } = useSession();
+  const { me, signOut, supports } = useSession();
   const broadcast = useEngine((s) => s.broadcast.state);
   const user = me ? me.user : null;
   const role = me ? (me.user.isSuperadmin ? t('roles.superadmin') : me.memberships[0] ? t(`roles.${me.memberships[0].role}`) : '') : '';
@@ -88,7 +90,7 @@ function NavRail({ page, onPage }: { page: Page; onPage: (p: Page) => void }) {
       <img src="/brand/rhis-icon.svg" alt="RHIS Studio" className="size-9 dark:hidden" />
       <img src="/brand/rhis-icon-koraal.svg" alt="RHIS Studio" className="hidden size-9 dark:block" />
       <nav className="mt-5 flex w-full flex-col items-center gap-1 px-2">
-        {NAV.map(({ page: p, icon: Icon }) => (
+        {NAV.filter((n) => n.page !== 'recordings' || supports('recordings')).map(({ page: p, icon: Icon }) => (
           <button
             key={p}
             onClick={() => onPage(p)}
@@ -108,7 +110,7 @@ function NavRail({ page, onPage }: { page: Page; onPage: (p: Page) => void }) {
       <div className="flex-1" />
       {user && (
         <button
-          onClick={() => confirm(t('signIn.signOutConfirm')) && void signOut()}
+          onClick={() => void ask(t('signIn.signOutConfirm')).then((yes) => (yes ? signOut() : undefined))}
           title={`${user.name}${role ? ` · ${role}` : ''}\n${t('signIn.signOut')}`}
           className="group relative rounded-full"
         >

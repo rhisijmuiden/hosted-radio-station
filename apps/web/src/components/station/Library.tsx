@@ -24,6 +24,17 @@ interface Selection {
   folder: string | null;
 }
 
+/** Folder by folder, so a sub folder stays right below its parent ("hits/2026" before "hits 2026"). */
+function byFolder(a: string, b: string) {
+  const x = a.split('/');
+  const y = b.split('/');
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    const c = x[i]!.localeCompare(y[i]!);
+    if (c) return c;
+  }
+  return x.length - y.length;
+}
+
 /** The folder tree of every location, built from the folders that hold tracks. */
 export function folderTree(data: LibraryFolders | undefined) {
   const out: { location: string; path: string; name: string; depth: number; tracks: number }[] = [];
@@ -37,7 +48,7 @@ export function folderTree(data: LibraryFolders | undefined) {
         paths.set(p, (paths.get(p) ?? 0) + (i === parts.length ? f.tracks : 0));
       }
     }
-    for (const p of [...paths.keys()].sort((a, b) => a.localeCompare(b))) {
+    for (const p of [...paths.keys()].sort(byFolder)) {
       out.push({ location: loc.id, path: p, name: p.split('/').pop()!, depth: p.split('/').length, tracks: paths.get(p)! });
     }
   }
@@ -49,7 +60,7 @@ const locationIcon = (type: string) => (type === 'storage' ? HardDrive : type ==
 function TagsDialog({ station, file, onClose }: { station: StationDetail; file: MediaFile | null; onClose: () => void }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const [draft, setDraft] = useState({ title: '', artist: '', album: '', genre: '', year: '' as string, isrc: '', bpm: '', musicKey: '', enabled: true });
+  const [draft, setDraft] = useState({ title: '', artist: '', album: '', genre: '', year: '' as string, isrc: '', bpm: '', musicKey: '', composer: '', label: '', enabled: true });
   useEffect(() => {
     if (file)
       setDraft({
@@ -61,6 +72,8 @@ function TagsDialog({ station, file, onClose }: { station: StationDetail; file: 
         isrc: file.isrc ?? '',
         bpm: file.bpm != null ? String(file.bpm) : '',
         musicKey: file.musicKey ?? '',
+        composer: file.composer ?? '',
+        label: file.label ?? '',
         enabled: file.enabled,
       });
   }, [file]);
@@ -78,6 +91,7 @@ function TagsDialog({ station, file, onClose }: { station: StationDetail; file: 
           year: draft.year ? Number(draft.year) : null,
           enabled: draft.enabled,
           ...(extended ? { isrc: draft.isrc, bpm: draft.bpm ? Number(draft.bpm.replace(',', '.')) : null, musicKey: draft.musicKey } : {}),
+          ...(file?.composer !== undefined ? { composer: draft.composer, label: draft.label } : {}),
         },
       }),
     onSuccess: () => {
@@ -142,6 +156,16 @@ function TagsDialog({ station, file, onClose }: { station: StationDetail; file: 
             </Field>
           </div>
         )}
+        {file?.composer !== undefined && (
+          <div className="grid gap-3 sm:grid-cols-[1fr_200px]">
+            <Field label={t('library.composer')}>
+              <Input value={draft.composer} maxLength={300} onChange={(e) => setDraft({ ...draft, composer: e.target.value })} />
+            </Field>
+            <Field label={t('library.label')}>
+              <Input value={draft.label} maxLength={200} onChange={(e) => setDraft({ ...draft, label: e.target.value })} />
+            </Field>
+          </div>
+        )}
         <p className="text-xs text-muted">{extended ? t('library.tagsHintExtended') : t('library.tagsHint')}</p>
         <Switch checked={draft.enabled} onChange={(enabled) => setDraft({ ...draft, enabled })} label={t('library.enabled')} description={t('library.enabledHint')} />
       </div>
@@ -149,22 +173,26 @@ function TagsDialog({ station, file, onClose }: { station: StationDetail; file: 
   );
 }
 
-type UploadState = 'waiting' | 'uploading' | 'done' | 'failed';
+type UploadState = 'waiting' | 'uploading' | 'retrying' | 'done' | 'failed';
 interface UploadRow extends UploadItem {
   key: string;
   state: UploadState;
   sent: number;
   error?: string;
+  /** Seconds until the next try after an outage. */
+  retryIn?: number;
 }
 
 /**
  * Upload many files or whole folders at once, also big ones (a DJ set): every file goes in parts, one file after the
- * other, with its own progress. A file that broke off resumes where it stopped.
+ * other, with its own progress. A file that broke off resumes where it stopped; after an outage it tries again by itself.
  */
 function UploadDialog({ station, open, onClose, folder }: { station: StationDetail; open: boolean; onClose: () => void; folder: string }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const [target, setTarget] = useState(folder);
+  // A subfolder of the folder that is open (music by default), as the hint says: "Hardstyle/2024" lands in music/Hardstyle/2024.
+  const [sub, setSub] = useState('');
+  const target = [folder, ...sub.split('/').map((x) => x.trim()).filter(Boolean)].join('/');
   const [rows, setRows] = useState<UploadRow[]>([]);
   const [skipped, setSkipped] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
@@ -172,7 +200,7 @@ function UploadDialog({ station, open, onClose, folder }: { station: StationDeta
   const abort = useRef<AbortController | null>(null);
   useEffect(() => {
     if (open) {
-      setTarget(folder);
+      setSub('');
       setRows([]);
       setSkipped([]);
     }
@@ -200,15 +228,17 @@ function UploadDialog({ station, open, onClose, folder }: { station: StationDeta
       if (ctl.signal.aborted) break;
       update(row.key, { state: 'uploading', error: undefined });
       try {
-        await uploadInParts(station.id, target, row, (sent) => update(row.key, { sent }), ctl.signal);
+        await uploadInParts(station.id, target, row, (sent) => update(row.key, { sent }), ctl.signal, (secs) =>
+          update(row.key, secs ? { state: 'retrying', retryIn: secs } : { state: 'uploading', retryIn: undefined }),
+        );
         update(row.key, { state: 'done', sent: row.file.size });
         done++;
       } catch (err) {
         if (ctl.signal.aborted) {
-          update(row.key, { state: 'waiting' });
+          update(row.key, { state: 'waiting', retryIn: undefined });
           break;
         }
-        update(row.key, { state: 'failed', error: (err as Error).message });
+        update(row.key, { state: 'failed', retryIn: undefined, error: (err as Error).message });
         failed++;
       }
     }
@@ -254,7 +284,12 @@ function UploadDialog({ station, open, onClose, folder }: { station: StationDeta
     >
       <div className="flex flex-col gap-4">
         <Field label={t('library.folder')} hint={t('library.folderHint')}>
-          <Input className="font-mono" value={target} disabled={running} onChange={(e) => setTarget(e.target.value)} placeholder="music/hardstyle" />
+          <div className="flex min-w-0 items-stretch">
+            <span className="flex max-w-[45%] items-center truncate rounded-l-sm border border-r-0 border-line bg-chip px-3 font-mono text-[13px] text-muted" title={folder}>
+              {folder}/
+            </span>
+            <Input className="min-w-0 flex-1 rounded-l-none font-mono" value={sub} disabled={running} onChange={(e) => setSub(e.target.value)} placeholder="Hardstyle/2024" />
+          </div>
         </Field>
         <div
           className={clsx('flex flex-col items-center gap-3 rounded-lg border-2 border-dashed px-4 py-7 text-center', dragging ? 'border-koraal bg-koraal/8' : 'border-line')}
@@ -309,15 +344,16 @@ function UploadDialog({ station, open, onClose, folder }: { station: StationDeta
                     <div className="truncate font-mono text-[12px]" title={r.path}>
                       {r.path}
                     </div>
-                    {r.state === 'uploading' && (
+                    {(r.state === 'uploading' || r.state === 'retrying') && (
                       <div className="mt-1 h-1 overflow-hidden rounded-full bg-chip">
                         <div className="h-full bg-koraal" style={{ width: `${r.file.size ? (r.sent / r.file.size) * 100 : 0}%` }} />
                       </div>
                     )}
+                    {r.state === 'retrying' && <div className="text-xs text-warning">{t('library.uploadRetrying', { seconds: r.retryIn })}</div>}
                     {r.error && <div className="text-xs text-offline">{r.error}</div>}
                   </div>
                   <span className="shrink-0 text-xs text-muted tabular-nums">{mb(r.file.size)}</span>
-                  <Badge tone={r.state === 'done' ? 'online' : r.state === 'failed' ? 'offline' : r.state === 'uploading' ? 'accent' : 'neutral'}>{t(`library.uploadState.${r.state}`)}</Badge>
+                  <Badge tone={r.state === 'done' ? 'online' : r.state === 'failed' ? 'offline' : r.state === 'uploading' ? 'accent' : r.state === 'retrying' ? 'warning' : 'neutral'}>{t(`library.uploadState.${r.state}`)}</Badge>
                   {!running && r.state !== 'done' && (
                     <button type="button" className="text-muted hover:text-ink" title={t('common.remove')} onClick={() => setRows((x) => x.filter((y) => y.key !== r.key))}>
                       <Trash2 className="size-4" />

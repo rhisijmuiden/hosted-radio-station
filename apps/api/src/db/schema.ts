@@ -359,6 +359,8 @@ export const stations = pgTable(
     downgrade: jsonb('downgrade').$type<StationDowngrade>(),
     /** Which ingest takes the encoders and which relays it feeds (phase 13). Read through routingSchema for defaults. */
     routing: jsonb('routing').$type<Record<string, unknown>>().notNull().default({}),
+    /** What a recorder node records of this station (phase 21). Read through recordingSchema for defaults. */
+    recording: jsonb('recording').$type<Record<string, unknown>>().notNull().default({}),
     createdAt: createdAt(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -502,6 +504,11 @@ export const liveSessions = pgTable(
     endReason: text('end_reason'),
     /** The encoder is on air on an ingest node (phase 13), which keeps this row up to date; else on this server. */
     onNode: boolean('on_node').notNull().default(false),
+    /**
+     * Recorder nodes (phase 21 step 4): record this broadcast or not, as the DJ chose in RHIS Studio. Null = as the
+     * station's setting says (record live shows). Kept on the main server only.
+     */
+    record: boolean('record'),
   },
   (t) => [index('live_sessions_station_idx').on(t.stationId, t.startedAt)],
 );
@@ -783,6 +790,9 @@ export const mediaFiles = pgTable(
     /** The station's own number for the track (e.g. HF-03007): given once when the file is first found, never reused. */
     code: text('code'),
     isrc: text('isrc').notNull().default(''),
+    /** Composers/writers and record label from the tags, for the rights reports (phase 21 step 5); null = not read yet. */
+    composer: text('composer'),
+    label: text('label'),
     /** Tempo and musical key ("Am", "F#"): from the tags, otherwise measured by the server (`analysedAt`). */
     bpm: doublePrecision('bpm'),
     musicKey: text('music_key').notNull().default(''),
@@ -993,7 +1003,7 @@ export const scheduleEntries = pgTable(
 
 // Phase 8: distribution network and orchestration
 
-export const NODE_ROLES = ['relay', 'source', 'station', 'fm', 'monitor'] as const;
+export const NODE_ROLES = ['relay', 'source', 'station', 'fm', 'monitor', 'recorder'] as const;
 export type NodeRole = (typeof NODE_ROLES)[number];
 
 /** Settings of a node, made in the panel. Read through nodeConfigSchema for defaults. */
@@ -1035,6 +1045,8 @@ export interface NodeConfig {
   dedication?: 'auto' | 'shared' | 'customer' | 'station';
   dedicatedTenantId?: string | null;
   dedicatedStationId?: string | null;
+  /** Recorder (phase 21): the stations it records, "all" = every station it serves. */
+  recordStations?: 'all' | string[];
 }
 
 /** What a node reported last, kept with the node so every process (API, streams) can read it. */
@@ -1090,9 +1102,18 @@ export interface NodeStatus {
   fm?: FmStatus | null;
   /** The node's firewall as the node reports it (security hardening for external nodes). */
   firewall?: { state: string; message?: string; foreign?: string[]; ports?: { ssh: string[]; tcp: string[]; udp: string[] }; ssh?: { from: string[]; limit: boolean; password: string }; at?: string } | null;
+  /** Recorder (phase 21): what it records per station, and the room left on its disk. */
+  recorder?: NodeRecorderStatus | null;
   updatedAt?: string;
   /** When the last bulk report (relays, listeners) came in. */
   reportedAt?: string;
+}
+
+/** What a recorder node reports (phase 21). */
+export interface NodeRecorderStatus {
+  /** via ingest: logging taken straight from the ingest node while no relay carries the station. */
+  stations: { stationId: string; kind: 'log' | 'show'; sessionId?: string; state: 'starting' | 'recording' | 'waiting' | 'error'; message?: string; since?: string; via?: 'ingest' }[];
+  disk: { totalBytes: number; freeBytes: number; usedBytes: number } | null;
 }
 
 /** A mount on air on an ingest node. */
@@ -1238,6 +1259,73 @@ export const nodeProbes = pgTable(
     silent: boolean('silent'),
   },
   (t) => [primaryKey({ columns: [t.nodeId, t.target] }), index('node_probes_station_idx').on(t.stationId)],
+);
+
+/**
+ * A file on a recorder node (phase 21), as the node reported it: an hour of logging (`log`) or a live show. The audio stays on the
+ * node; the panel fetches it from there when someone listens or downloads. `file` is relative to the node's recordings
+ * folder. Rows go away when the node no longer has the file (retention, or the station left the node).
+ */
+export const recordings = pgTable(
+  'recordings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    nodeId: uuid('node_id').notNull().references(() => nodes.id, { onDelete: 'cascade' }),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    /** log = an hour of logging, show = a live broadcast (step 2). */
+    kind: text('kind').notNull(),
+    file: text('file').notNull(),
+    /** A show: the live broadcast (live_sessions.id) it records. */
+    sessionId: uuid('session_id'),
+    contentType: text('content_type').notNull(),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+    durationSeconds: integer('duration_seconds').notNull().default(0),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull().default(0),
+    /** The node is still writing it. */
+    open: boolean('open').notNull().default(false),
+    /** A show: when it became an on-demand item (step 3), so it is made only once. */
+    ondemandAt: timestamp('ondemand_at', { withTimezone: true }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('recordings_node_file_idx').on(t.nodeId, t.file), index('recordings_station_idx').on(t.stationId, t.kind, t.startedAt)],
+);
+
+/**
+ * Where the recordings of a station are uploaded to (phase 21 step 3): an FTP, FTPS or SFTP server or OneDrive, with
+ * the same settings as a backup location. Secrets in `config` are sealed. `kinds` says which recordings go there.
+ */
+export const recordingDestinations = pgTable(
+  'recording_destinations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    type: backupTargetType('type').notNull(),
+    config: jsonb('config').$type<Record<string, unknown>>().notNull(),
+    /** log and/or show */
+    kinds: jsonb('kinds').$type<string[]>().notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    createdAt: createdAt(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('recording_destinations_station_idx').on(t.stationId)],
+);
+
+/** How the upload of one recording to one destination went. No row = not tried yet. */
+export const recordingDeliveries = pgTable(
+  'recording_deliveries',
+  {
+    recordingId: uuid('recording_id').notNull().references(() => recordings.id, { onDelete: 'cascade' }),
+    destinationId: uuid('destination_id').notNull().references(() => recordingDestinations.id, { onDelete: 'cascade' }),
+    /** done | failed */
+    state: text('state').notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    /** A failed upload is tried again from this moment. */
+    nextAt: timestamp('next_at', { withTimezone: true }),
+    error: text('error'),
+    at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.recordingId, t.destinationId] }), index('recording_deliveries_destination_idx').on(t.destinationId, t.state)],
 );
 
 /**

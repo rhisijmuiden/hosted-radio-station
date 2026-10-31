@@ -218,6 +218,41 @@
       "when": 1793354400000,
       "tag": "0031_node_firewall_existing",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1793358000000,
+      "tag": "0032_recorder_node",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1793361600000,
+      "tag": "0033_recorder_shows",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1793365200000,
+      "tag": "0034_recording_uploads",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1793368800000,
+      "tag": "0035_live_session_record",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1793372400000,
+      "tag": "0036_media_rights",
+      "breakpoints": true
     }
   ]
 }

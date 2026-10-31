@@ -20,7 +20,7 @@ const PROFILE_BYTES = 16 * 1024;
  * What this server offers RHIS Studio beyond version 0.9 of the client. The client switches a feature off, and says the
  * server needs an update, when its name is missing here.
  */
-export const STUDIO_FEATURES = ['playout', 'rundown', 'play-now', 'jingles', 'one-queue', 'cues', 'profile', 'history', 'station-carts', 'track-codes', 'news', 'log-editor'] as const;
+export const STUDIO_FEATURES = ['playout', 'rundown', 'play-now', 'jingles', 'one-queue', 'cues', 'profile', 'history', 'station-carts', 'track-codes', 'news', 'log-editor', 'recordings', 'manage'] as const;
 /** No 0/O, 1/I/L: the code is read from one screen and typed or compared on another. */
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 

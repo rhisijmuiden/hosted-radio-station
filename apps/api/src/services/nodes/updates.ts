@@ -31,6 +31,8 @@ const CHECK_GRACE_MS = 60_000;
 const FAILURE_TRUST_MS = 60_000;
 /** After this server starts, nodes need a moment to connect again; until then nobody counts as offline. */
 const START_GRACE_MS = 30_000;
+/** How long the planner leaves a node alone after "update all at once" sent it an update. */
+const PARALLEL_MS = 15 * 60_000;
 
 export type Ref = { commit: string | null; branch: string | null };
 type Current = NonNullable<NodeRollout['current']>;
@@ -204,6 +206,8 @@ export function nodeUpdateInfo(node: Pick<Node, 'id' | 'config' | 'roles' | 'pai
 
 export class NodeUpdater {
   private timer: NodeJS.Timeout | null = null;
+  /** Nodes sent an update by "update all at once", until they run the target (or 15 minutes): the planner leaves them. */
+  private parallel = new Map<string, number>();
   private lock: Promise<unknown> = Promise.resolve();
   private startedAt = Date.now();
 
@@ -262,6 +266,44 @@ export class NodeUpdater {
       await nodeEvent(this.ctx, nodeId, 'update_queued', 'info', { commit: target?.commit?.slice(0, 7) ?? null, by });
       return r.queue.length;
     });
+  }
+
+  /**
+   * Updates every connected node that is behind at the same time (meant for test setups): no draining, no checks one
+   * by one and no pause on a failure; each node still rolls itself back when its new version does not start. A node
+   * being updated by the rollout right now is left to it. Returns the nodes that were sent the update.
+   */
+  updateAllNow(by: string | null) {
+    return this.serial(async () => {
+      const target = await this.target();
+      if (!target.commit) throw conflict('The version of this server is not known');
+      const r = await getSetting(this.ctx, 'nodeRollout');
+      const nodes = await this.ctx.db.select().from(schema.nodes).where(isNotNull(schema.nodes.pairedAt)).orderBy(asc(schema.nodes.name));
+      const sent: string[] = [];
+      for (const n of nodes) {
+        const st = this.hub.liveStatus(n.id);
+        if (!st?.commit || st.commit === target.commit || r.current?.nodeId === n.id) continue;
+        if (!this.hub.requestUpdate(n.id, target.branch, target.commit)) continue;
+        this.parallel.set(n.id, Date.now() + PARALLEL_MS);
+        r.queue = r.queue.filter((q) => q.nodeId !== n.id);
+        sent.push(n.id);
+        await nodeEvent(this.ctx, n.id, 'update_all', 'info', { commit: target.commit.slice(0, 7), from: st.commit.slice(0, 7), by });
+      }
+      await putSetting(this.ctx, 'nodeRollout', r);
+      this.log.info({ nodes: sent.length, commit: target.commit.slice(0, 7), by }, 'all nodes update at once');
+      return sent;
+    });
+  }
+
+  /** Whether a node is busy with an update of "update all at once". */
+  private inParallel(nodeId: string, commit: string | null | undefined, target: string | null) {
+    const until = this.parallel.get(nodeId);
+    if (!until) return false;
+    if (Date.now() > until || (commit && commit === target)) {
+      this.parallel.delete(nodeId);
+      return false;
+    }
+    return true;
   }
 
   /** Takes a node out of the line, or stops its update while it is still draining. */
@@ -328,7 +370,7 @@ export class NodeUpdater {
         continue;
       }
       const s = this.hub.liveStatus(node.id);
-      if (!s) continue;
+      if (!s || this.inParallel(node.id, s.commit, want.commit)) continue;
       r.queue = r.queue.filter((x) => x !== q);
       if (s.commit === want.commit) {
         await nodeEvent(this.ctx, node.id, 'update_skipped', 'info', { message: 'Already on this version.' });
@@ -347,7 +389,7 @@ export class NodeUpdater {
     const due = nodes
       .filter((n) => {
         const s = this.hub.liveStatus(n.id);
-        if (!s?.commit || s.commit === target.commit) return false;
+        if (!s?.commit || s.commit === target.commit || this.inParallel(n.id, s.commit, target.commit)) return false;
         const last = r.results[n.id];
         if (last && last.state !== 'succeeded' && last.target.commit === target.commit) return false;
         const p = policyOf(n, u);

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { StereoMeter } from '../components/Meter';
+import { RecordingCard } from '../components/RecordingCard';
 import { Badge, Button, Card, CardHeader, EmptyState, Fact, Field, Input, Select } from '../components/ui';
 import { api, type StationDetail } from '../lib/api';
 import { useEngine } from '../lib/engine';
@@ -183,6 +184,7 @@ export function LivePage({ onPage }: { onPage: (p: Page) => void }) {
       </Card>
 
       <div className="flex flex-col gap-4">
+        <RecordingCard account={account?.username ?? null} onAir={broadcast.state === 'live'} />
         <Card>
           <CardHeader title={t('live.setup')} description={t('live.setupText')} />
           <div className="grid gap-4 px-5 py-4">

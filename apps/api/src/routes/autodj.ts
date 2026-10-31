@@ -41,6 +41,7 @@ import { AUTODJ_CHANNEL } from '../streams/autodj.js';
 import { sendFile } from './public.js';
 import { stationAccess } from './stations.js';
 import { cueProblem, playSeconds } from '../services/autodj/cues.js';
+import { stuckSince } from '../services/autodj/stuck.js';
 import { stationRouting } from '../services/nodes/routing-rules.js';
 
 const stationParams = z.object({ id: z.uuid() });
@@ -83,6 +84,9 @@ const mediaOut = z.object({
   bpm: z.number().nullable(),
   /** "Am", "F#" or empty. */
   musicKey: z.string(),
+  /** Composers/writers and record label, for the rights reports; null until the tags were read for them. */
+  composer: z.string().nullable(),
+  label: z.string().nullable(),
   ...cuesOut.shape,
   sizeBytes: z.number(),
   enabled: z.boolean(),
@@ -201,6 +205,8 @@ const autodjOut = z.object({
     connected: z.boolean(),
     seenAt: z.string().nullable(),
     paused: z.boolean(),
+    /** The track on air ran more than five minutes past its end, with no DJ live: the player hangs. */
+    stuckSince: z.date().nullable(),
   }),
   /** Manual playout (RHIS Studio): every track waits for Play. Falls back to Auto when the client stops renewing it. */
   playout: z.object({ manual: z.boolean(), holding: z.boolean(), until: z.date().nullable() }),
@@ -376,6 +382,8 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
     const playing = rows.find((r) => r.state === 'playing') ?? null;
     const plan = await loadSchedule(ctx.db, station);
     const now = Date.now();
+    const manual = !!db?.manualUntil && db.manualUntil.getTime() > now;
+    const stuck = expected ? await stuckSince(ctx, station.id, playing, manual, now) : null;
     const clock = plan.settings.enabled ? plan.clockAt(now) : null;
     const entry = plan.settings.enabled ? plan.entryAt(now) : null;
     return {
@@ -389,9 +397,10 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
         connected: expected && !!(p?.reachable || (seenAt && Date.now() - new Date(seenAt).getTime() < 20 * 60_000)),
         seenAt,
         paused: !!p?.paused,
+        stuckSince: stuck,
       },
       playout: {
-        manual: !!db?.manualUntil && db.manualUntil.getTime() > now,
+        manual,
         holding: !!(db?.manualUntil && db.manualUntil.getTime() > now && p?.holding),
         until: db?.manualUntil && db.manualUntil.getTime() > now ? db.manualUntil : null,
       },
@@ -1089,6 +1098,8 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
           bpm: z.number().min(40).max(250).nullable().optional(),
           /** "Am", "A minor", "8A" (Camelot) and the like; empty clears it. */
           musicKey: z.string().trim().max(20).optional(),
+          composer: z.string().trim().max(300).optional(),
+          label: z.string().trim().max(200).optional(),
           enabled: z.boolean().optional(),
           /** All five cue points at once; null clears one. */
           cues: z.object({ cueIn: cueSecond, cueIntro: cueSecond, cueSegue: cueSecond, cueFadeOut: cueSecond, cueOut: cueSecond }).optional(),

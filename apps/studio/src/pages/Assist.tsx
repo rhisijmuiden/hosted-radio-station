@@ -15,7 +15,8 @@ import type { AutoDj } from '../lib/api';
 import { introLeft, playLength, trackLength } from '../lib/cues';
 import { duration } from '../lib/format';
 import { useNow } from '../lib/now';
-import { DECK_WIDTH, useLayout } from '../lib/layout';
+import { DECK_WIDTH, useAssistView, useLayout } from '../lib/layout';
+import { ManageView } from './Manage';
 import { useAutoDj, useHistory, useRundown } from '../lib/queries';
 import { clock, DRAG, queueOf, useLineText, useQueueActions } from '../lib/queue';
 import { useSession } from '../lib/session';
@@ -138,6 +139,7 @@ function NowPlaying({ data, stationId, lines, now }: { data: AutoDj; stationId: 
           )}
         </div>
         {data.player.paused && <Badge tone="warning">{t('assist.paused')}</Badge>}
+        {data.player.stuckSince && !data.player.paused && <Badge tone="warning">{t('assist.stuck')}</Badge>}
         {manual && (
           <>
             <Button
@@ -223,8 +225,10 @@ export function AssistPage() {
   const queueActions = useQueueActions(station?.id ?? '');
   const now = useNow();
   const [layout] = useLayout();
-  const omni = layout.assist === 'omni';
+  const view = useAssistView();
+  const omni = view === 'omni';
   const history = useHistory(station?.id, autodj.data?.nowPlaying?.id, omni && layout.panels.history && station?.edition === 'station' && supports('history'));
+  if (view === 'manage' && station) return <ManageView station={station} />;
   if (!station) return <EmptyState icon={<ListMusic className="size-6" />} title={t('station.none')} description={t('station.noneText')} />;
   if (autodj.isPending) {
     return (

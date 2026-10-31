@@ -16,7 +16,7 @@ import { PortPlanCard } from '../components/nodes/PortPlan';
 import { OrchestratorOnlyCard, OrchestratorRoles, useOrchestratorView } from '../components/nodes/OrchestratorOnly';
 import { PendingNodesCard } from '../components/nodes/PendingNodes';
 
-export const ROLES: NodeRole[] = ['relay', 'source', 'station', 'fm', 'monitor'];
+export const ROLES: NodeRole[] = ['relay', 'source', 'station', 'fm', 'monitor', 'recorder'];
 
 /** Role toggles with a line on what each role does. */
 export function RolePicker({ value, onChange }: { value: NodeRole[]; onChange: (v: NodeRole[]) => void }) {

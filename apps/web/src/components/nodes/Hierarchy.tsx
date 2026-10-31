@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { Activity, Building2, Cpu, Radio, RadioTower, Server, ServerOff } from 'lucide-react';
+import { Activity, Building2, Cpu, Disc3, Radio, RadioTower, Server, ServerOff } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
@@ -9,9 +9,9 @@ import { Card } from '../ui';
 import { nodeHealth, type NodeHealth } from './common';
 
 type Group = NodeRole | 'none';
-// In the order the audio flows: what takes it in, what carries it, what puts it on air; then what watches it all.
-const GROUPS: Group[] = ['source', 'station', 'relay', 'fm', 'monitor', 'none'];
-const ICONS: Record<Group, ReactNode> = { source: <Server />, station: <Building2 />, relay: <Radio />, fm: <RadioTower />, monitor: <Activity />, none: <ServerOff /> };
+// In the order the audio flows: what takes it in, what carries it, what puts it on air; then what keeps and watches it.
+const GROUPS: Group[] = ['source', 'station', 'relay', 'fm', 'recorder', 'monitor', 'none'];
+const ICONS: Record<Group, ReactNode> = { source: <Server />, station: <Building2 />, relay: <Radio />, fm: <RadioTower />, recorder: <Disc3 />, monitor: <Activity />, none: <ServerOff /> };
 const DOT: Record<NodeHealth, string> = { online: 'bg-online', degraded: 'bg-warning', offline: 'bg-offline', unpaired: 'bg-muted/50' };
 
 /**
@@ -24,7 +24,7 @@ export function NodeHierarchy({ nodes, warnMs }: { nodes: NodeItem[]; warnMs: nu
   const groups = GROUPS.map((g) => ({ g, list: nodes.filter((n) => (g === 'none' ? !n.roles.length : n.roles.includes(g))) })).filter((x) => x.list.length);
   if (!groups.length) return null;
   const online = nodes.filter((n) => n.status.online).length;
-  const cols = { 1: 'lg:grid-cols-1', 2: 'lg:grid-cols-2', 3: 'lg:grid-cols-3', 4: 'lg:grid-cols-4', 5: 'lg:grid-cols-5', 6: 'lg:grid-cols-6' }[groups.length];
+  const cols = { 1: 'lg:grid-cols-1', 2: 'lg:grid-cols-2', 3: 'lg:grid-cols-3', 4: 'lg:grid-cols-4', 5: 'lg:grid-cols-5', 6: 'lg:grid-cols-6', 7: 'lg:grid-cols-7' }[groups.length];
 
   return (
     <Card className="mb-4 p-5">

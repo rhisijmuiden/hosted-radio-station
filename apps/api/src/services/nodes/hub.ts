@@ -1,10 +1,11 @@
-import { timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import net from 'node:net';
+import type { Readable } from 'node:stream';
 import { and, eq, gt, lt, sql } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import type { WebSocket } from 'ws';
 import { schema } from '../../db/index.js';
-import type { NodeStatus } from '../../db/schema.js';
+import type { NodeRecorderStatus, NodeStatus } from '../../db/schema.js';
 import type { AppContext } from '../../lib/context.js';
 import { isCloudflareAddress } from '../../lib/cloudflare-ips.js';
 import { isPublicAddress } from '../dns/records.js';
@@ -44,6 +45,8 @@ interface Conn {
   /** FM/MPX: the station it puts on air and the live DJ/show it was told last. */
   fmStation: string | null;
   fmSent: string;
+  /** Recorder (phase 21): the stations it records, so a live broadcast starting or ending re-plans it at once. */
+  recorded: Set<string>;
 }
 
 /** Compares a secret with the stored (encrypted) one in constant time. */
@@ -83,7 +86,39 @@ export function sanitizeFm(f: FmStatus): FmStatus {
     rt: str(f.rt, 64) ?? '',
     tags: Array.isArray(f.tags) ? f.tags.slice(0, 2).map((t) => ({ type: num(t?.type, 63), start: num(t?.start, 64), length: num(t?.length, 64) })) : [],
     groups: Object.fromEntries(Object.entries(f.groups && typeof f.groups === 'object' ? f.groups : {}).slice(0, 8).map(([k, v]) => [k.slice(0, 4), num(v)])),
+    stereoTool:
+      f.stereoTool && typeof f.stereoTool === 'object'
+        ? { state: pick(f.stereoTool.state, ['installing', 'starting', 'running', 'error'] as const, 'error'), message: str(f.stereoTool.message, 300), restarts: num(f.stereoTool.restarts) }
+        : null,
   };
+}
+
+/** The recorder status of a node, checked field by field (phase 21). */
+export function sanitizeRecorder(r: unknown): NodeRecorderStatus | null {
+  if (!r || typeof r !== 'object') return null;
+  const v = r as { stations?: unknown; disk?: unknown };
+  const states = ['starting', 'recording', 'waiting', 'error'] as const;
+  const d = v.disk && typeof v.disk === 'object' ? (v.disk as Record<string, unknown>) : null;
+  return {
+    stations: (Array.isArray(v.stations) ? v.stations : []).slice(0, 500).map((x: Record<string, unknown>) => ({
+      stationId: String(x?.stationId ?? '').slice(0, 36),
+      kind: x?.kind === 'show' ? ('show' as const) : ('log' as const),
+      ...(typeof x?.sessionId === 'string' ? { sessionId: x.sessionId.slice(0, 36) } : {}),
+      state: states.includes(x?.state as never) ? (x.state as (typeof states)[number]) : 'error',
+      message: str(x?.message, 300),
+      since: str(x?.since, 40),
+      ...(x?.via === 'ingest' ? { via: 'ingest' as const } : {}),
+    })),
+    disk: d ? { totalBytes: Math.max(0, num(d.totalBytes)), freeBytes: Math.max(0, num(d.freeBytes)), usedBytes: Math.max(0, num(d.usedBytes)) } : null,
+  };
+}
+
+/** A part of a file a recorder node sends (phase 21): its bytes, where they start, and the size of the whole file. */
+export interface RecordingPart {
+  body: Readable;
+  start: number;
+  length: number;
+  size: number;
 }
 
 export async function nodeEvent(ctx: AppContext, nodeId: string, kind: string, level: 'info' | 'warning' | 'error' = 'info', details: Record<string, string | number | null> = {}) {
@@ -106,6 +141,8 @@ export class NodeHub {
   /** Port checks a monitoring node is busy with (phase 20), by id. */
   private portChecks = new Map<number, { nodeId: string; done: (r: { address: string | null; results: PortCheckResult[] } | null) => void }>();
   private portCheckSeq = 0;
+  /** Files asked of recorder nodes (phase 21), by id, until the node posts them. */
+  private recordingJobs = new Map<string, { nodeId: string; done: (r: RecordingPart | Error) => void }>();
 
   constructor(
     private readonly ctx: AppContext,
@@ -245,6 +282,7 @@ export class NodeHub {
       timer: setInterval(() => this.ping(conn), PING_MS),
       fmStation: null,
       fmSent: '',
+      recorded: new Set(),
     };
     conn.timer.unref();
     this.conns.set(node.id, conn);
@@ -308,6 +346,9 @@ export class NodeHub {
         address: typeof msg.address === 'string' ? msg.address.slice(0, 100) : null,
         results: (Array.isArray(msg.results) ? msg.results : []).slice(0, 200).map((r) => ({ port: Number(r.port), ok: r.ok === true, message: r.message == null ? null : String(r.message).slice(0, 60), ms: num(r.ms) })),
       });
+    } else if (msg.t === 'rec_error') {
+      const job = this.recordingJobs.get(String(msg.id));
+      if (job?.nodeId === c.nodeId) job.done(new Error(String(msg.message ?? 'The recorder could not send the file').slice(0, 200)));
     } else if (msg.t === 'event' && typeof msg.kind === 'string' && /^[a-z_]{1,40}$/.test(msg.kind)) {
       const level = msg.level === 'warning' || msg.level === 'error' ? msg.level : 'info';
       const details: Record<string, string | number | null> = {};
@@ -376,6 +417,7 @@ export class NodeHub {
       }
     }
     s.fm = m.fm && typeof m.fm === 'object' ? sanitizeFm(m.fm) : null;
+    s.recorder = sanitizeRecorder(m.recorder);
     s.updatedAt = new Date().toISOString();
     // Ingest status feeds now playing on this server, so it is saved more often.
     if (Date.now() - c.savedAt > (s.ingest?.length ? 3000 : 10_000)) void this.save(c);
@@ -454,6 +496,7 @@ export class NodeHub {
     const plan = await buildPlan(this.ctx, node);
     if (plan.revision === c.revision) return;
     c.revision = plan.revision;
+    c.recorded = new Set(plan.recorder?.stations.map((s) => s.stationId) ?? []);
     this.send(c, { t: 'plan', plan });
     const station = plan.fm?.station.id ?? null;
     if (station !== c.fmStation) {
@@ -476,6 +519,14 @@ export class NodeHub {
   /** A DJ went live or off air on a station (from the streams service): its FM nodes update their RadioText. */
   fmNotify(stationId: string) {
     for (const c of this.conns.values()) if (c.fmStation === stationId) void this.fmSend(c).catch((err) => this.log.warn({ err }, 'telling an FM node failed'));
+  }
+
+  /**
+   * A DJ went live or off air on a station, or a title changed (from the streams service, an ingest node or a station
+   * node): its recorders get a new plan, which starts or ends the recording of the show. An unchanged plan is not sent.
+   */
+  recorderNotify(stationId: string) {
+    for (const c of this.conns.values()) if (c.recorded.has(stationId)) void this.refresh(c.nodeId).catch((err) => this.log.warn({ err }, 'telling a recorder failed'));
   }
 
   private async fmRefresh() {
@@ -540,6 +591,19 @@ export class NodeHub {
     return true;
   }
 
+  /** Whether a connected node can restart its agent or Icecast on request. */
+  canRestart(nodeId: string) {
+    return !!this.conns.get(nodeId)?.status.features?.includes('restart');
+  }
+
+  /** Restarts the agent or the Icecast of a node. Returns false when it is not connected. */
+  restartService(nodeId: string, service: 'agent' | 'icecast') {
+    const c = this.conns.get(nodeId);
+    if (!c) return false;
+    this.send(c, { t: 'restart_service', service });
+    return true;
+  }
+
   /** Tells a node an update is coming (seconds > 0) or that it is over (0). Returns false when it is not connected. */
   drain(nodeId: string, seconds: number) {
     const c = this.conns.get(nodeId);
@@ -572,6 +636,50 @@ export class NodeHub {
       this.portChecks.set(id, { nodeId, done: finish });
       this.send(c, { t: 'portcheck', id, host, ports });
     });
+  }
+
+  /** Whether a connected node can record and send recordings (phase 21). */
+  canRecord(nodeId: string) {
+    return !!this.conns.get(nodeId)?.status.features?.includes('recorder');
+  }
+
+  /**
+   * Asks a recorder node for bytes start..end (end exclusive, null = to the end) of one of its files (phase 21). The
+   * node posts them to /api/nodes/agent/recordings/<id> (it may sit behind NAT, so it sends instead of being fetched);
+   * that request hands them over with recordingArrived. Rejects when the node is offline, answers with an error, or
+   * does not start sending in time.
+   */
+  fetchRecording(nodeId: string, file: string, start: number, end: number | null, timeoutMs = 20_000): Promise<RecordingPart> {
+    const c = this.conns.get(nodeId);
+    if (!c) return Promise.reject(new Error('The recorder is offline'));
+    const id = randomUUID();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => finish(new Error('The recorder did not answer in time')), timeoutMs);
+      const finish = (r: RecordingPart | Error) => {
+        clearTimeout(timer);
+        this.recordingJobs.delete(id);
+        if (r instanceof Error) reject(r);
+        else resolve(r);
+      };
+      this.recordingJobs.set(id, { nodeId, done: finish });
+      this.send(c, { t: 'rec_send', id, file, start, end });
+    });
+  }
+
+  /** Asks a recorder node to remove a finished file that has been uploaded (step 3). False when the node is offline. */
+  deleteRecording(nodeId: string, file: string) {
+    const c = this.conns.get(nodeId);
+    if (!c) return false;
+    this.send(c, { t: 'rec_delete', file });
+    return true;
+  }
+
+  /** The node posted the file it was asked for. False when nobody waits for it (any more). */
+  recordingArrived(nodeId: string, id: string, part: RecordingPart) {
+    const job = this.recordingJobs.get(id);
+    if (!job || job.nodeId !== nodeId) return false;
+    job.done(part);
+    return true;
   }
 
   /** Closes the connection of a node that was unpaired or removed; the agent stops trying. */

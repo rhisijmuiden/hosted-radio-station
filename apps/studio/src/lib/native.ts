@@ -376,11 +376,68 @@ export async function openExternal(url: string) {
   await openUrl(url);
 }
 
+let asking = false;
+/**
+ * Asks yes or no before something that cannot be undone. In the app window.confirm() does not wait for an answer (it
+ * returns at once), so the question goes through the dialog plugin; in a browser it is window.confirm().
+ */
+export async function ask(message: string): Promise<boolean> {
+  if (!inTauri) return window.confirm(message);
+  // One question at a time: another click while a question is open does not open a second one (it counts as No).
+  if (asking) return false;
+  asking = true;
+  try {
+    const { ask: dialogAsk } = await import('@tauri-apps/plugin-dialog');
+    return await dialogAsk(message, { title: 'RHIS Studio', kind: 'warning' });
+  } finally {
+    asking = false;
+  }
+}
+
 export async function pickAudioFile(title: string): Promise<string | null> {
   if (!inTauri) return 'C:\\Jingles\\station-id.mp3';
   const { open } = await import('@tauri-apps/plugin-dialog');
   const res = await open({ title, multiple: false, directory: false, filters: [{ name: 'Audio', extensions: ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac'] }] });
   return typeof res === 'string' ? res : null;
+}
+
+const AUDIO_EXTENSIONS = ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac', 'opus'];
+
+/** The Music folder of this PC, where the pickers open (instead of the last folder Windows used, such as Downloads). */
+async function musicDir(): Promise<string | undefined> {
+  try {
+    const { audioDir } = await import('@tauri-apps/api/path');
+    return await audioDir();
+  } catch {
+    return undefined;
+  }
+}
+
+/** Several audio files of this PC, to upload into the station library. */
+export async function pickAudioFiles(title: string): Promise<string[]> {
+  if (!inTauri) return ['C:\\Music\\track one.mp3', 'C:\\Music\\track two.mp3'];
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const res = await open({ title, multiple: true, directory: false, defaultPath: await musicDir(), filters: [{ name: 'Audio', extensions: AUDIO_EXTENSIONS }] });
+  return Array.isArray(res) ? res : typeof res === 'string' ? [res] : [];
+}
+
+/** A folder of this PC. */
+export async function pickFolder(title: string): Promise<string | null> {
+  if (!inTauri) return 'E:\\Jingles';
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const res = await open({ title, multiple: false, directory: true, defaultPath: await musicDir() });
+  return typeof res === 'string' ? res : null;
+}
+
+/** The audio files in a folder of this PC and its sub folders, with their path below it ("sub/name.mp3"). */
+export async function audioFilesIn(dir: string, below = ''): Promise<{ path: string; sub: string }[]> {
+  const folder = await call<Folder>('list_folder', { path: dir });
+  const out: { path: string; sub: string }[] = [];
+  for (const e of folder.entries) {
+    if (e.dir) out.push(...(await audioFilesIn(e.path, below ? `${below}/${e.name}` : e.name)));
+    else if (AUDIO_EXTENSIONS.includes(e.name.split('.').pop()?.toLowerCase() ?? '')) out.push({ path: e.path, sub: below });
+  }
+  return out;
 }
 
 /** fetch() that is not bound by the browser's CORS rules in the app (requests go out from Rust). */

@@ -94,6 +94,14 @@ const statusOut = z
         rt: z.string(),
         tags: z.array(z.object({ type: z.number(), start: z.number(), length: z.number() })),
         groups: z.record(z.string(), z.number()),
+        stereoTool: z.object({ state: z.enum(['installing', 'starting', 'running', 'error']), message: z.string().optional(), restarts: z.number() }).nullish(),
+      })
+      .nullish(),
+    /** Recorder (phase 21): what it records per station, and its disk. */
+    recorder: z
+      .object({
+        stations: z.array(z.object({ stationId: z.string(), kind: z.enum(['log', 'show']), sessionId: z.string().optional(), state: z.enum(['starting', 'recording', 'waiting', 'error']), message: z.string().optional(), since: z.string().optional(), via: z.literal('ingest').optional() })),
+        disk: z.object({ totalBytes: z.number(), freeBytes: z.number(), usedBytes: z.number() }).nullable(),
       })
       .nullish(),
     updatedAt: z.string().optional(),
@@ -326,6 +334,9 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
     const named = patch.relayStations && patch.relayStations !== 'all' ? new Set(patch.relayStations) : new Set<string>();
     if (c.relayStations !== 'all' && c.relayStations.some((id) => (byId.has(id) ? !serves(next, byId.get(id)!) : named.has(id))))
       throw badRequest(node.tenantId ? 'A node of a customer can only carry that customer\'s stations' : 'This node is dedicated: it can only carry the stations it is dedicated to');
+    const namedRec = patch.recordStations && patch.recordStations !== 'all' ? new Set(patch.recordStations) : new Set<string>();
+    if (c.recordStations !== 'all' && c.recordStations.some((id) => (byId.has(id) ? !serves(next, byId.get(id)!) : namedRec.has(id))))
+      throw badRequest(node.tenantId ? 'A node of a customer can only record that customer\'s stations' : 'This node is dedicated: it can only record the stations it is dedicated to');
     if (c.fm.stationId) {
       const st = byId.get(c.fm.stationId);
       if (!st) throw badRequest('Unknown station');
@@ -616,6 +627,30 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
   );
 
   app.post(
+    '/:id/restart',
+    {
+      config: { audit: 'node.restart' },
+      schema: {
+        tags: ['Nodes'],
+        summary:
+          'Restart the node agent (its service starts it again within about 10 seconds) or the Icecast of the node (about 3 seconds). Listeners and pushes on the node break off meanwhile; players reconnect through the listen route.',
+        params: nodeParams,
+        body: z.object({ service: z.enum(['agent', 'icecast']) }),
+        response: { 200: okOut },
+      },
+    },
+    async (req) => {
+      const node = await nodeAccess(ctx, req, req.params.id, 'owner');
+      if (!hub.liveStatus(node.id)) throw conflict('The node is offline');
+      if (!hub.canRestart(node.id)) throw conflict('Update the node first: this version of it cannot restart itself on request');
+      hub.restartService(node.id, req.body.service);
+      await nodeEvent(ctx, node.id, 'restart_requested', 'info', { service: req.body.service, by: req.auth?.user.email ?? null });
+      Object.assign(req.auditInfo, { tenantId: node.tenantId, targetId: node.id, details: { name: node.name, service: req.body.service } });
+      return { ok: true as const };
+    },
+  );
+
+  app.post(
     '/:id/rollback',
     {
       config: { audit: 'node.rollback' },
@@ -686,6 +721,25 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       requireSuperadmin(req);
       await app.nodeUpdates.setPaused(true, req.auth?.user.email ?? null);
       return rollout();
+    },
+  );
+
+  app.post(
+    '/updates/all',
+    {
+      config: { audit: 'nodes.update_all' },
+      schema: {
+        tags: ['Nodes'],
+        summary:
+          'Update every connected node that is behind at the same time, for test setups: no draining and no checks one by one, so all nodes are briefly away together. Each node still rolls itself back when its new version does not start.',
+        response: { 200: rolloutOut.extend({ sent: z.number() }) },
+      },
+    },
+    async (req) => {
+      requireSuperadmin(req);
+      const sent = await app.nodeUpdates.updateAllNow(req.auth?.user.email ?? null);
+      Object.assign(req.auditInfo, { details: { nodes: sent.length } });
+      return { ...(await rollout()), sent: sent.length };
     },
   );
 

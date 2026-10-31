@@ -11,8 +11,9 @@ import { platformHost } from '../streaming/state.js';
 import { runningVersion } from '../system.js';
 import { DEDICATIONS, scopeOf, serves } from './dedication.js';
 import { buildFmPlan, fmConfigSchema } from './fm.js';
+import { recordedStations, recorderPlan, type OpenSession } from '../recorder/plan.js';
 import { firewallPlan } from './firewall-plan.js';
-import { plannedIngests } from './delivery.js';
+import { ingestTarget, plannedIngests, recorderToken } from './delivery.js';
 import { OLD_PORTS, PORTS } from './portplan.js';
 import { ingestsOf, pushedRouting, stationRouting } from './routing-rules.js';
 import type { IngestStation, NodePlan, ProbeTarget, RelayMount } from './protocol.js';
@@ -126,6 +127,8 @@ export const nodeConfigSchema = z.object({
   dedicatedTenantId: z.uuid().nullable().default(null),
   /** Dedicated to this station (dedication "station"). */
   dedicatedStationId: z.uuid().nullable().default(null),
+  /** Recorder (phase 21): the stations it records, "all" = every station it serves. None until they are chosen. */
+  recordStations: z.union([z.literal('all'), z.array(z.uuid()).max(500)]).default([]),
   /** Set by the DNS manager, not by hand: the node's platform name while its record exists. */
   dnsHost: z.string().default(''),
   /** Set by the DNS manager: the check of the node's own host name (publicHost) when it is not a platform name. */
@@ -186,7 +189,7 @@ export function relayBaseUrl(node: Pick<Node, 'config' | 'status'>): string | nu
   return port === 80 ? `http://${h}` : `http://${h}:${port}`;
 }
 
-type StationRow = { id: string; slug: string; tenantId: string; name: string; nodeId: string | null; edition: string; routing: Record<string, unknown> };
+type StationRow = { id: string; slug: string; tenantId: string; name: string; nodeId: string | null; edition: string; routing: Record<string, unknown>; recording: Record<string, unknown> };
 
 const stationColumns = {
   id: schema.stations.id,
@@ -196,6 +199,7 @@ const stationColumns = {
   nodeId: schema.stations.nodeId,
   edition: schema.stations.edition,
   routing: schema.stations.routing,
+  recording: schema.stations.recording,
 };
 
 /** Active stations a node may serve: all of them, or only its customer's. */
@@ -309,6 +313,40 @@ export function monitorTargets(stations: StationRow[], mounts: (typeof schema.st
 
 const baseUrl = (ctx: AppContext) => ctx.config.PUBLIC_URL.replace(/\/$/, '');
 
+/** Live broadcasts on air now on these stations (phase 21: a recorder records them). */
+/**
+ * Where a recorder reads a station straight from its ingest node while no relay carries it (small fixes): the
+ * station's main ingest first, online ones only, at the address the recorder can reach (as a station node would:
+ * on the same site plain, from elsewhere only over checked TLS). Null for a station without an ingest node.
+ */
+async function ingestFallbacks(ctx: AppContext, recorder: Node, stations: StationRow[]): Promise<(stationId: string, path: string) => string | null> {
+  if (!stations.some((s) => s.nodeId || pushedRouting(stationRouting(s)))) return () => null;
+  const paired = await ctx.db.select().from(schema.nodes).where(isNotNull(schema.nodes.pairedAt)).orderBy(asc(schema.nodes.id));
+  return (stationId, path) => {
+    const s = stations.find((x) => x.id === stationId);
+    if (!s) return null;
+    const refs = s.nodeId ? (plannedIngests(s, paired) ?? []).map((i) => i.node.id) : ingestsOf(stationRouting(s)).map((i) => i.ref);
+    for (const id of refs) {
+      const n = paired.find((x) => x.id === id && x.roles.includes('source') && x.status.online);
+      const at = n && ingestTarget(n, recorder);
+      if (!n || !at) continue;
+      const key = `${s.slug}${path}`;
+      return `${at.tls ? 'https' : 'http'}://${at.host}:${at.port}/ingest/${key}?token=${recorderToken(ctx, n, key)}`;
+    }
+    return null;
+  };
+}
+
+async function openSessions(ctx: AppContext, stationIds: string[]): Promise<OpenSession[]> {
+  if (!stationIds.length) return [];
+  const ls = schema.liveSessions;
+  return ctx.db
+    .select({ id: ls.id, stationId: ls.stationId, mountPath: ls.mountPath, accountName: ls.accountName, startedAt: ls.startedAt, record: ls.record })
+    .from(ls)
+    .where(and(inArray(ls.stationId, stationIds), isNull(ls.endedAt)))
+    .orderBy(asc(ls.startedAt));
+}
+
 /** What a node must do now. */
 export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> {
   const c = nodeSettings(node);
@@ -413,8 +451,11 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
           .map((r) => relayBaseUrl(r))
           .find(Boolean) ?? base)
       : base;
-  const fm = fmStation ? await buildFmPlan(ctx, c.fm, fmBase, stations) : null;
+  const fm = fmStation ? await buildFmPlan(ctx, c.fm, fmBase, stations, await stereoToolBinary(ctx)) : null;
   const firewall = await firewallPlan(ctx, node);
+  const recorder = roles.includes('recorder')
+    ? recorderPlan(c, stations, allMounts, base, await openSessions(ctx, recordedStations(c, stations).map((s) => s.id)), Date.now(), await ingestFallbacks(ctx, node, recordedStations(c, stations)))
+    : null;
 
   const plan: Omit<NodePlan, 'revision'> = {
     nodeId: node.id,
@@ -428,11 +469,18 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
     station,
     fm,
     firewall,
+    recorder,
     // Never true: agents up to this version update themselves as soon as it is, all at the same time. The update
     // planner (updates.ts) sends each node an update message when its turn comes.
     update: { branch: v.branch, commit: v.commit, auto: false },
   };
   return { ...plan, revision: createHash('sha256').update(JSON.stringify(plan)).digest('hex').slice(0, 16) };
+}
+
+/** The uploaded Stereo Tool program as FM nodes see it: only what tells them whether they have the right file. */
+async function stereoToolBinary(ctx: AppContext) {
+  const b = (await getSetting(ctx, 'stereoTool')).binary;
+  return b ? { sha256: b.sha256, size: b.size } : null;
 }
 
 /**

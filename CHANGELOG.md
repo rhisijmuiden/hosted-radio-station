@@ -3,6 +3,154 @@
 All notable changes to Hosted Radio Station. Versions follow [semantic versioning](https://semver.org). The
 [roadmap](ROADMAP.md) has the full description of each phase, with screenshots.
 
+## 1.6.0 (31 October 2026)
+
+Phase 21 (the recorder node: logging, live shows, uploads and on demand, recording in RHIS Studio, cutting, music
+reports for Buma/Stemra and SENA), phase 24 (the Manage view in RHIS Studio 0.23: overview, nodes, hour clocks, weekly
+schedule, playlists, rotation rules, library folders, audio routing, DJs and live access), the fix for the AutoDJ
+hanging after a live broadcast, and the small fixes (node restart button, update all nodes at once, uploads that retry
+by themselves, and more). Also step 1 of the Stereo Tool release for FM/MPX nodes: in this release but not tested yet
+and off by default, so every FM node keeps its built-in processing until Stereo Tool is chosen on it.
+
+Update the nodes after the orchestrator: recorder and upload changes need the node agent from this release.
+
+- Recorder node (phase 21, step 1): a new node role **Recorder** records stations. Choose the stations it records
+  under the node's settings (none until chosen; a dedicated or customer recorder only offers its own stations). It
+  listens to each station's default stream through the nearest relay and makes a continuous **logging** recording in
+  MP3 files of one clock hour, at the bitrate and for the number of days set per station (default 64 kbps, 31 days).
+  When its disk runs full, the oldest logging files go first. The files stay on the recorder: the new station page
+  **Recordings** lists them per day, plays an hour with its play log (every song, live with the DJ or AutoDJ; a click
+  jumps to it) and downloads it, fetched from the recorder on demand, also when it sits behind NAT at a customer's
+  site. The node page shows what it records per station and its disk; on the 2D map a customer's recorder stands in
+  the customer's block. API: GET/PUT /stations/:id/recording, GET /stations/:id/recordings, …/:rid/songs and
+  …/:rid/audio. See [recorder](docs/recorder.md).
+- Recorder node, step 2: live shows. When a DJ goes live (Go live in RHIS Studio, or an encoder) on a station a
+  recorder records, the recorder records the show as it is sent, without new encoding, through the nearest relay,
+  one file per show with the DJ's name; it starts and stops within seconds of the broadcast. Shows shorter than a set
+  number of minutes (default 2) are thrown away; shows are kept 90 days by default and never removed to make room on
+  a full disk. The Recordings page gets a **Live shows** list of the last month (play with the play log, download)
+  and the settings *Record live shows*, *Keep shows for* and *Shortest show to keep*; a recorder that records a show
+  now says so. Fix: the recording settings no longer jump back while you edit them.
+- Recordings, after testing step 2: the play log shows a line "<DJ> goes live" where a broadcast starts (also when the
+  encoder sends no titles), and a show's play log no longer lists the AutoDJ title that was on before it. A recorder
+  reports a new or finished recording within seconds instead of at its next 30-second report.
+- Recorder node, step 3: uploads and shows on demand. Under **Recordings → Upload** a station manager adds upload
+  destinations (SFTP, FTPS, FTP or OneDrive, like backup locations) for logging, live shows or both. The orchestrator
+  copies every finished recording there, fetched from the recorder once, and tries a failed upload again after 1, 5,
+  15 and 30 minutes and then every hour; the destination shows what waits and why, with *Try again now*, and the lists
+  show per recording whether it was uploaded. Optionally a recording is removed from the recorder once every
+  destination has it. A finished show becomes an on-demand item (*Make shows available on demand*, on by default):
+  a draft or published right away as the public page says, also for a station on a station node, and never twice
+  for one broadcast. See [recorder](docs/recorder.md#uploads).
+- Recordings, after testing step 3: a new upload destination no longer takes logging hours that had already ended
+  when it was added, and a logging recording no longer breaks into a new file with a few seconds missing when a DJ
+  goes off air (it connects again at once when the stream ends).
+- Recorder node, step 4: recording in RHIS Studio and cutting in the panel. The **Live** screen of RHIS Studio 0.22 gets a
+  **Recording** card: the show is recorded from Go live when the station records shows, and the DJ can stop the
+  recording early or start it again (a new part), or start it when the station does not record by itself. A new
+  Studio screen **Recordings** lists the shows of the last month to play or download (a DJ sees their own). In the
+  panel, **Download a part** under the recordings player saves only a section of an hour or show, and the scissors
+  under **Public page → On demand** cut an item down to a start and an end, both without encoding again.
+  See [recorder](docs/recorder.md#in-rhis-studio).
+- Recordings, after testing step 4: when a DJ stops the recording of a show and starts it again, the parts are no
+  longer thrown away one by one as too short. The recorder keeps them until the broadcast ends and then measures the
+  whole show against *Shortest show to keep* (needs the recorder's node agent from this release).
+- The time fields of the cut dialog (on demand) and of *Download a part* no longer get squeezed.
+- Recorder node, step 5: music reports. The station page **Music reports** downloads the music of a period as CSV:
+  every play (date, time, duration, artist, title, composer, album, label, ISRC, AutoDJ or live with the DJ,
+  listeners and listening hours) for Buma/Stemra, and the plays per recording (plays, total duration, listening
+  hours) for SENA, with a preview that counts plays without ISRC or composer. The library now reads composer and
+  label from the tags (editable per track; existing files are read once more on the next scan). Also in the API.
+  See [recorder](docs/recorder.md#music-reports).
+- Manage view in RHIS Studio (phase 24, step 1): RHIS Studio 0.23 gets a third view **Manage** next to Classic and
+  OmniPlayer in the layout menu (Ctrl+1, Ctrl+2, Ctrl+3), for the managers and owners of a Radio station. A menu on the
+  left (Station, AutoDJ, Network, People) and the track on air in a bar at the bottom, with a way back to the player.
+  **Overview** shows listeners, who is on air, how many nodes are healthy, the delivery path, the coming hours of the
+  format and what needs attention; **Nodes** lists the station node, ingests and relays of the station with status,
+  CPU, RAM, monitoring checks, firewall and version. The AutoDJ, routing and people sections open in the web panel
+  until the next steps bring them into Studio. API: GET /stations/:id/network (managers). See
+  [studio](docs/studio.md#manage-view).
+- Manage view, step 2: **Hour clocks** in RHIS Studio. The clocks of the station as chips (the one on air first), the
+  hour as a donut with a slice per item, and the items to edit like in the panel: minute, type (music from the queues,
+  a playlist, one track, news), playlist and number of tracks, name, *Exactly on the minute* and *Locked*, move up or
+  down, remove. **Save clock**, **Duplicate** (a copy with new item ids) and delete. Nodes also lists the recorders
+  that record the station, and the version column shows the commit of the build, so test builds can be told apart. Escape
+  closes the layout menu (and so does choosing a view), Coming hours shows times without seconds, and the delivery
+  path on Overview wraps instead of being cut off.
+- Manage view, step 3: **Weekly schedule** in RHIS Studio. The week as a grid with the blocks in the colour of their
+  hour clock (live shows in coral, with their DJs), what runs now, earlier and later weeks, **Add show** and a click
+  on an empty spot to add a block, a click on a block to change it (the same form as the panel: music block or live
+  show, clock, days or one date, start and end, DJs, public, on/off). Drag a block up or down to move it in steps of
+  15 minutes. The schedule settings (on/off, time zone, clock outside the blocks, live rules) are below the grid.
+- RHIS Studio: questions before something that cannot be undone (delete a clock or a block of the schedule, clear the
+  playlist, stop a recording, sign out) now wait for the answer. In the app they went ahead at once without asking.
+  The hour clock editor gets a wider type list, a heading on its empty page, clearer help, and the clock's name no
+  longer runs out of the middle of the donut.
+- Manage view, step 4: **Playlists & categories**, **Rotation rules** and **Library folders** in RHIS Studio.
+  Playlists are split into the rotation and the ones only hour clocks use; add, edit (folders, order, weight), switch
+  on or off and delete them, with the same form as the panel. Rotation rules has the AutoDJ settings of the panel
+  (on/off, queue depth, artist and track separation, crossfade, mount, normalise, pause while live, requests, track
+  code prefix, tempo and key) with **Save** and **Undo changes**. Library folders shows the folders of every location
+  with their tracks and the playlists that use them (directly or through a parent folder), makes a new playlist from
+  a folder in one click and starts a scan; shares are still managed in the web panel.
+- Manage view, step 5: **Audio routing** in RHIS Studio. The path of the audio now as a diagram (studio or encoders,
+  ingests, relays with their listeners, listeners), live paths in coral and standby paths dashed. Choose the delivery
+  (via the ingest or straight to the relays, for a station node), the main and backup ingest and the relays
+  (automatic or chosen, with spare relays) as in the panel, then **Apply** after a question; **Undo changes** goes
+  back. Only owners can change the route; managers see it.
+- RHIS Studio: a second click on Delete while a question is open no longer opens another question. NL wording fixes.
+- Manage view, step 6: **DJs & live access** in RHIS Studio. Who is live now (account, mount, since when, encoder),
+  the live rule of the weekly schedule, and the DJ and upload accounts with their rights, mounts, live shows in the
+  weekly schedule, linked user and last use. Add or change an account (password generated and shown once), make a new
+  password or delete one, each after a question. Every section of the Manage view now runs in Studio itself.
+- Audio routing in Studio: the backup ingest list no longer offers the main ingest; NL "Stationnode" in the diagram.
+- Manage view, step 7: **New folder** and music upload in RHIS Studio's Library folders. Make a folder in the station
+  storage (inside an existing one or at the top), then add music files or a whole folder of this PC (with its sub
+  folders) to it, or to any other storage folder; a bar shows the upload. The server reads the tags right after, and
+  the list button makes a playlist from the folder. Fix (panel and Studio): a sub folder stays right below its parent
+  in the folder tree ("hits/2026" no longer lands under "hits 2026").
+- Library folders in Studio, after testing step 7: the name in New folder no longer clears itself every few seconds;
+  before an upload Studio asks "Upload n files to <folder>?"; the file and folder pickers open in the Music folder of
+  the PC; a folder shows its tracks together with its sub folders (and how many are in the folder itself). NL: "DJ’s".
+- Fix: the AutoDJ could hang after a live broadcast. When a DJ went live again right after the previous broadcast
+  ended (as the track had just changed), the skip to a new track at the end of the broadcast got lost: the old track
+  played on, the player stopped reporting tracks, and the panel and RHIS Studio kept showing that track at -0:00 with
+  the next one sliding along to "now". The player now skips before the crossfade, which always takes. As a safety net
+  the streams service skips a track that runs more than five minutes past its end with no DJ live (once per track),
+  and the panel (AutoDJ: *Hangs*) and RHIS Studio (Manage: *Needs attention*, the on-air deck) show it. API: the
+  AutoDJ answer gets `player.stuckSince`.
+- FM/MPX release, step 1: **Stereo Tool** as the audio processor of an FM/MPX node. Under the node's settings,
+  **Processing** chooses between the node's own light chain and Thimeo Stereo Tool (Linux command-line version). An
+  administrator uploads the Stereo Tool program once (the file itself or the .zip it comes in; Thimeo does not allow
+  shipping it), FM nodes fetch it from the orchestrator. Per node: the station's licence key, and who makes the MPX:
+  Stereo Tool's own stereo encoder (the node sends PS, RadioText and the other RDS data to Stereo Tool's RDS encoder
+  over UECP on the node itself), or the node (Stereo Tool only processes, the node adds stereo, pilot and its RDS).
+  The node page shows Stereo Tool in the chain with its state. API: GET/POST/DELETE /nodes/stereotool. See
+  [FM/MPX](docs/fm.md#stereo-tool).
+- Nodes: the hierarchy card names the group of monitoring nodes "Monitoring" instead of showing a raw translation key.
+- Media library upload: after an outage (no connection, the server restarting, a proxy error page) an upload tries
+  again by itself with growing pauses (2 s up to 1 min) and shows "Reconnecting" with the time to the next try; it
+  goes on where it stopped as soon as the server answers, and only shows "Failed" after half an hour without
+  progress. A part that gets no answer at all counts as a broken connection after 10 minutes.
+- Upload to a station node that runs an older version: the panel no longer passes the upload on to a node that cannot
+  take uploads in parts yet (it answered "not found" and the upload seemed to hang at 0%); it says at once that the
+  station node needs an update first. Nodes report the new feature `library-uploads`.
+- Recorder: when no relay carries a station (for example while its only relay is updated) the logging no longer
+  misses minutes. For a station with an ingest node the recorder switches at once to the same stream straight from the
+  ingest (its encoder port, with a token per stream that the ingest checks itself) and goes back to the relay just
+  before the next hour once a relay has the station again. The node page shows *From the ingest* meanwhile. See
+  [recorder](docs/recorder.md).
+- Nodes: a **Restart** button on the node page restarts the node agent (back in about 10 seconds) or only its Icecast
+  (a few seconds), for a node that hangs or to test a short outage. It is logged as an event of the node. Nodes
+  report the feature `restart`; older ones get "update the node first". API: POST /nodes/:id/restart.
+- Node updates: **Update all at once** on the Nodes page (administrators) sends every connected node that is behind its
+  update at the same time, for test setups: no draining and no checks one by one; each node still rolls itself back
+  when its new version does not start, and the rollout leaves those nodes alone meanwhile. API: POST
+  /nodes/updates/all.
+- Media library upload: the folder field is now a subfolder of the folder that is open (music by default), shown in
+  front of it, as its hint says; "Hardstyle/2024" lands in music/Hardstyle/2024 instead of in a new folder at the root of
+  the library.
+
 ## 1.5.0 (29 October 2026)
 
 Security hardening for external nodes (a node firewall with nftables, on by default for nodes with a public address,

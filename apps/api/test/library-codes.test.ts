@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { schema } from '../src/db/index.js';
 import { analysePending, measureBpm, measureKey } from '../src/services/autodj/analyse.js';
@@ -119,7 +119,7 @@ describe.runIf(hasFfmpeg)('track codes, ISRC, tempo and key in the library', () 
     mkdirSync(join(music, 'music'), { recursive: true });
     execFileSync('ffmpeg', [
       '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2',
-      '-metadata', 'title=Tagged', '-metadata', 'artist=Artist', '-metadata', 'TBPM=150', '-metadata', 'TKEY=8A', '-metadata', 'TSRC=NL-A1R-24-00123',
+      '-metadata', 'title=Tagged', '-metadata', 'artist=Artist', '-metadata', 'TBPM=150', '-metadata', 'TKEY=8A', '-metadata', 'TSRC=NL-A1R-24-00123', '-metadata', 'composer=J. Writer', '-metadata', 'publisher=Indie Records',
       '-b:a', '64k', join(music, 'music', 'tagged.mp3'),
     ]);
     wav(join(music, 'music', 'Artist - Measured.wav'), song(128, [57, 60, 64, 69]));
@@ -133,6 +133,15 @@ describe.runIf(hasFfmpeg)('track codes, ISRC, tempo and key in the library', () 
     expect(items.find((i) => i.title === 'Tagged')).toMatchObject({ isrc: 'NLA1R2400123', bpm: 150, musicKey: 'Am' });
     expect((await api('GET', '/library?q=HF-00002')).json().total).toBe(1);
     expect((await api('GET', '/library?q=NL-A1R')).json().total).toBe(1);
+    // Composer and label for the rights reports; a file read before those existed is read once more, not measured again.
+    const mf = schema.mediaFiles;
+    const [tagged] = await t.db.select().from(mf).where(and(eq(mf.stationId, stationId), eq(mf.title, 'Tagged')));
+    expect(tagged).toMatchObject({ composer: 'J. Writer', label: 'Indie Records' });
+    const measured = new Date('2026-10-01T00:00:00Z');
+    await t.db.update(mf).set({ composer: null, label: null, analysedAt: measured }).where(eq(mf.id, tagged!.id));
+    await scanLibrary(t.ctx, stationId);
+    const [again] = await t.db.select().from(mf).where(eq(mf.id, tagged!.id));
+    expect(again).toMatchObject({ composer: 'J. Writer', label: 'Indie Records', analysedAt: measured });
   });
 
   it('measures tempo and key where the tags have none, once', async () => {

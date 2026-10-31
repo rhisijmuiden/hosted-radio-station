@@ -43,6 +43,7 @@ import { stationPublicRoutes } from './routes/station-public.js';
 import { settingsRoutes } from './routes/settings.js';
 import { ssoAdminRoutes, ssoAuthRoutes } from './routes/sso.js';
 import { stationRoutingRoutes } from './routes/station-routing.js';
+import { stationNetworkRoutes } from './routes/station-network.js';
 import { stationRoutes } from './routes/stations.js';
 import { statsRoutes } from './routes/stats.js';
 import { jingleRoutes } from './routes/jingles.js';
@@ -56,8 +57,14 @@ import { NodeUpdater } from './services/nodes/updates.js';
 import { forgetMissingStations } from './services/nodes/routing.js';
 import { listenFallbackRoutes, listenRedirectRoutes, nodeAgentRoutes, nodeRoutes } from './routes/nodes.js';
 import { orchestratorRoutes, stationConnectionRoutes } from './routes/orchestrator.js';
+import { recordingDestinationRoutes } from './routes/recording-destinations.js';
+import { recordingAgentRoutes, recordingLinkRoutes, stationRecordingRoutes } from './routes/recordings.js';
+import { stereoToolRoutes } from './routes/stereotool.js';
+import { reportRoutes } from './routes/reports.js';
+import { studioRecordingRoutes } from './routes/studio-recordings.js';
 import { stationNodeAgentRoutes, stationPlacementRoutes, tenantStationNodeRoutes } from './routes/station-nodes.js';
 import { stationNodeInternalRoutes } from './routes/station-node-internal.js';
+import { RecordingDelivery } from './services/recorder/delivery.js';
 import { StationTunnels } from './services/stationnode/hub.js';
 import { StationNodeLink } from './services/stationnode/link.js';
 import { registerStationProxy } from './services/stationnode/proxy.js';
@@ -75,6 +82,8 @@ declare module 'fastify' {
     stationTunnels: StationTunnels;
     /** On a station node: the link with the main server (started by server.ts). */
     stationNode: StationNodeLink | null;
+    /** Uploads and on-demand items of recorder node recordings (phase 21); null on a station node. */
+    recordingDelivery: RecordingDelivery | null;
   }
 }
 
@@ -134,6 +143,12 @@ export async function buildApp(ctx: AppContext) {
   const link = config.STATION_NODE ? new StationNodeLink(ctx, app.log) : null;
   app.decorate('stationNode', link);
   app.addHook('onClose', async () => link?.stop());
+  const delivery = config.STATION_NODE ? null : new RecordingDelivery(ctx, nodeHub, tunnels, app.log);
+  app.decorate('recordingDelivery', delivery);
+  if (delivery) {
+    if (config.NODE_ENV !== 'test') delivery.start();
+    app.addHook('onClose', async () => delivery.stop());
+  }
 
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof HttpError) {
@@ -225,6 +240,8 @@ export async function buildApp(ctx: AppContext) {
   await app.register(statsRoutes, { prefix: '/api/stats' });
   await app.register(studioRoutes, { prefix: '/api/studio' });
   await app.register(jingleRoutes, { prefix: '/api/studio' });
+  await app.register(studioRecordingRoutes, { prefix: '/api/studio' });
+  await app.register(recordingLinkRoutes, { prefix: '/api/recordings' });
   await app.register(publicRoutes, { prefix: '/api/public' });
   await app.register(listenRedirectRoutes, { prefix: '/api/public' });
   await app.register(listenFallbackRoutes);
@@ -239,7 +256,13 @@ export async function buildApp(ctx: AppContext) {
   await app.register(stationNodeAgentRoutes, { prefix: '/api/nodes/agent/station' });
   await app.register(stationPlacementRoutes, { prefix: '/api/stations' });
   await app.register(stationRoutingRoutes, { prefix: '/api/stations' });
+  await app.register(stationNetworkRoutes, { prefix: '/api/stations' });
   await app.register(stationConnectionRoutes, { prefix: '/api/stations' });
+  await app.register(stationRecordingRoutes, { prefix: '/api/stations' });
+  await app.register(reportRoutes, { prefix: '/api/stations' });
+  await app.register(recordingDestinationRoutes, { prefix: '/api/stations' });
+  await app.register(recordingAgentRoutes, { prefix: '/api/nodes' });
+  await app.register(stereoToolRoutes, { prefix: '/api/nodes' });
   await app.register(tenantStationNodeRoutes, { prefix: '/api/tenants' });
   await app.register(dnsRoutes, { prefix: '/api/dns' });
   await app.register(alertRoutes, { prefix: '/api/alerts' });

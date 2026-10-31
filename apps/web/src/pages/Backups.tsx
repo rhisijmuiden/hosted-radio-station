@@ -36,7 +36,7 @@ import {
 import { formatBytes, formatDate, formatRelative } from '../lib/format';
 
 const TYPES: BackupTargetType[] = ['sftp', 'ftps', 'ftp', 'onedrive', 'local'];
-const typeIcon: Record<BackupTargetType, LucideIcon> = { ftp: Server, ftps: Server, sftp: HardDrive, onedrive: Cloud, local: FolderOpen };
+export const typeIcon: Record<BackupTargetType, LucideIcon> = { ftp: Server, ftps: Server, sftp: HardDrive, onedrive: Cloud, local: FolderOpen };
 const MASK = '••••••••';
 
 const defaultSchedule: BackupSchedule = { incremental: { enabled: true, everyHours: 24, at: '02:00' }, full: { enabled: true, weekday: 0, at: '03:00' } };
@@ -83,7 +83,27 @@ function Stat({ label, value, note, tone = 'muted' }: { label: string; value: Re
 
 // Location dialog
 
-function ConfigFields({ type, config, onChange, settings }: { type: BackupTargetType; config: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void; settings?: BackupSettings }) {
+/** Signing in to OneDrive somewhere else than the backups: its own endpoints, and a hint when the server has no Microsoft app. */
+export interface OneDriveSignIn {
+  base: string;
+  hasApp: boolean;
+  noAppHint: string;
+}
+
+/** The connection fields of a location (FTP, FTPS, SFTP, OneDrive or a folder); also used for recording uploads. */
+export function ConfigFields({
+  type,
+  config,
+  onChange,
+  settings,
+  onedrive,
+}: {
+  type: BackupTargetType;
+  config: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void;
+  settings?: BackupSettings;
+  onedrive?: OneDriveSignIn;
+}) {
   const { t } = useTranslation();
   const v = (k: string) => (config[k] as string | number | boolean | undefined) ?? '';
   const set = (k: string, value: unknown) => onChange({ ...config, [k]: value });
@@ -94,7 +114,8 @@ function ConfigFields({ type, config, onChange, settings }: { type: BackupTarget
       </Field>
     );
   }
-  if (type === 'onedrive') return <OneDriveFields config={config} onChange={onChange} settings={settings} />;
+  if (type === 'onedrive')
+    return <OneDriveFields config={config} onChange={onChange} signIn={onedrive ?? { base: '/backups/onedrive', hasApp: !!settings?.onedriveClientId, noAppHint: t('backups.onedriveNeedsApp') }} />;
   return (
     <div className="flex flex-col gap-4">
       <div className="grid gap-3 sm:grid-cols-[1fr_110px]">
@@ -149,17 +170,17 @@ function ConfigFields({ type, config, onChange, settings }: { type: BackupTarget
   );
 }
 
-function OneDriveFields({ config, onChange, settings }: { config: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void; settings?: BackupSettings }) {
+function OneDriveFields({ config, onChange, signIn }: { config: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void; signIn: OneDriveSignIn }) {
   const { t } = useTranslation();
   const [paste, setPaste] = useState(false);
   const [code, setCode] = useState<{ deviceCode: string; userCode: string; verificationUri: string; interval: number } | null>(null);
   const configRef = useRef(config);
   configRef.current = config;
-  const hasApp = !!settings?.onedriveClientId;
+  const { hasApp } = signIn;
   const connected = !!config.token && (config.token === MASK || String(config.token).includes('access_token'));
 
   const start = useMutation({
-    mutationFn: () => api<{ deviceCode: string; userCode: string; verificationUri: string; interval: number }>('/backups/onedrive/device-code', { method: 'POST' }),
+    mutationFn: () => api<{ deviceCode: string; userCode: string; verificationUri: string; interval: number }>(`${signIn.base}/device-code`, { method: 'POST' }),
     onSuccess: (res) => {
       setCode(res);
       window.open(res.verificationUri, '_blank', 'noopener');
@@ -176,7 +197,7 @@ function OneDriveFields({ config, onChange, settings }: { config: Record<string,
         if (stop) return;
         try {
           const res = await api<{ status: 'pending' | 'ok'; token?: string; clientId?: string; driveId?: string; driveType?: string; account?: string }>(
-            '/backups/onedrive/device-token',
+            `${signIn.base}/device-token`,
             { method: 'POST', body: { deviceCode: code.deviceCode } },
           );
           if (res.status === 'ok') {
@@ -196,7 +217,7 @@ function OneDriveFields({ config, onChange, settings }: { config: Record<string,
     return () => {
       stop = true;
     };
-  }, [code, onChange, t]);
+  }, [code, onChange, t, signIn.base]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -236,7 +257,7 @@ function OneDriveFields({ config, onChange, settings }: { config: Record<string,
             </Button>
           </div>
         )}
-        {!hasApp && !code && <p className="mt-2 text-xs text-muted">{t('backups.onedriveNeedsApp')}</p>}
+        {!hasApp && !code && <p className="mt-2 text-xs text-muted">{signIn.noAppHint}</p>}
         {paste && (
           <Field label={t('backups.onedriveToken')} hint={t('backups.onedrivePasteHint')} className="mt-3">
             <Textarea

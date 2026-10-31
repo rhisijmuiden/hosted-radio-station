@@ -1,4 +1,4 @@
-import { BarChart3, CalendarDays, Clock, Disc3, Eye, Grid3x3, History, LayoutDashboard, ListMusic, ListOrdered, Newspaper, MessageSquare, PlayCircle, Plug, Route, Settings, SquareArrowOutUpRight, UserRound, Bot, Waypoints, type LucideIcon } from 'lucide-react';
+import { BarChart3, CalendarDays, FileSpreadsheet, CircleDot, Clock, Disc3, Eye, Grid3x3, History, LayoutDashboard, ListMusic, ListOrdered, Newspaper, MessageSquare, PlayCircle, Plug, Route, Settings, SquareArrowOutUpRight, UserRound, Bot, Waypoints, type LucideIcon } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import type { StationDetail } from '../../lib/api';
 
@@ -18,8 +18,10 @@ export type StationTab =
   | 'news'
   | 'log'
   | 'ondemand'
+  | 'recordings'
   | 'requests'
   | 'statistics'
+  | 'reports'
   | 'public'
   | 'accounts'
   | 'settings';
@@ -80,6 +82,7 @@ export function stationMenu(station: Pick<StationDetail, 'role' | 'edition'>, t:
             ]
           : []),
         { value: 'ondemand', label: t('stations.tabs.ondemand'), icon: PlayCircle },
+        ...(manager ? [{ value: 'recordings' as const, label: t('stations.tabs.recordings'), icon: CircleDot }] : []),
         { value: 'requests', label: t('stations.tabs.requests'), icon: MessageSquare, badge: pendingRequests || undefined },
       ],
     },
@@ -89,6 +92,7 @@ export function stationMenu(station: Pick<StationDetail, 'role' | 'edition'>, t:
       items: manager
         ? [
             { value: 'statistics', label: t('stations.tabs.statistics'), icon: BarChart3 },
+            { value: 'reports', label: t('stations.tabs.reports'), icon: FileSpreadsheet },
             { value: 'public', label: t('stations.tabs.public'), icon: Eye },
           ]
         : [],
