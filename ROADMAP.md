@@ -678,7 +678,7 @@ Reinder chose option A of the sketch (31 October 2026): a top menu with large dr
 
 1. **Top bar** (in test): station switcher top left (all your stations with edition, where each runs and whether it is on air, and how many of your stations and Radio stations are used), then Overview, Radio station (a large drop-down in four columns: Programme, Media library, DJs & live, Public pages, each page with a one-line explanation), Broadcast, My network, Audience and Settings. A Distribution station shows the Radio station pages with a lock and an **Upgrade to Radio station** button. On smaller screens the menu folds into a side panel.
 2. **Routing** for customers (in test): one page under My network with every station: where it runs (own node or shared station node), how it sends (ingest or direct) and which relays carry it (shared and own), with the editor of one station below the list.
-3. **My nodes**: limits used and the roles a customer may run.
+3. **My nodes** (in test): a "Your limits" block with own nodes, stations, Radio stations and storage used against the package, and the roles the customer may give its own nodes (others shown with a lock). The API refuses roles outside the package when a customer adds a node or changes its roles; roles a node already has may stay. New customers start with a station node only; customers from before keep every role until the administrator sets them.
 4. **Permissions** tab on a customer in the admin panel (station limits, own nodes on/off and maximum, roles, station node on by default), enforced by the API.
 
 ### Small fixes (own thread, done in between)

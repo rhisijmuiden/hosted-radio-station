@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { schema } from '../db/index.js';
+import { NODE_ROLES, type NodeRole } from '../db/schema.js';
 
 export const LOCALES = ['en', 'nl'] as const;
 
@@ -18,7 +19,17 @@ export const tenantLimitsSchema = z.object({
   maxBitrateKbps: z.number().int().min(32).max(512).default(192),
   storageQuotaMb: z.number().int().min(0).max(10_000_000).default(10_240),
   maxNodes: z.number().int().min(0).max(100).default(0),
+  /**
+   * Roles the customer may give its own nodes (customer navigation). Left out (customers from before this setting):
+   * every role, so nothing they run stops working. New customers start with a station node only.
+   */
+  nodeRoles: z.array(z.enum(NODE_ROLES)).optional(),
 });
+
+/** The roles a customer may give its own nodes; every role when the limit was never set. */
+export function allowedNodeRoles(limits: { nodeRoles?: NodeRole[] | null }): NodeRole[] {
+  return limits.nodeRoles ? [...limits.nodeRoles] : [...NODE_ROLES];
+}
 
 /** Limits as stored: the number of Radio stations filled in from the old edition when a client left it out. */
 export function withRadioLimit(limits: z.infer<typeof tenantLimitsSchema>, edition?: 'distribution' | 'station'): z.infer<typeof tenantLimitsSchema> & { maxRadioStations: number } {

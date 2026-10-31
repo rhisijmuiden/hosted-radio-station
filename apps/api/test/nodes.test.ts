@@ -228,8 +228,22 @@ describe('nodes', () => {
     expect(list).toEqual([]);
     const platform = await t.app.inject({ method: 'POST', url: '/api/nodes', headers: owner, payload: { name: 'mine' } });
     expect(platform.statusCode).toBe(403);
+    // A new customer may only run a station node of its own; other roles are switched on by the administrator.
+    expect((await t.app.inject({ method: 'GET', url: `/api/tenants/${tenantId}`, headers: owner })).json().limits.nodeRoles).toEqual(['station']);
+    const notAllowed = await t.app.inject({ method: 'POST', url: '/api/nodes', headers: owner, payload: { name: 'harder-01', tenantId, roles: ['source'] } });
+    expect(notAllowed.statusCode).toBe(403);
+    expect(notAllowed.json().error.message).toMatch(/source role/);
+    const limits = { maxStations: 2, maxRadioStations: 0, maxListeners: 100, maxBitrateKbps: 192, storageQuotaMb: 1, maxNodes: 1, nodeRoles: ['station', 'source'] };
+    expect((await t.app.inject({ method: 'PATCH', url: `/api/tenants/${tenantId}`, headers: admin, payload: { limits } })).statusCode).toBe(200);
+    // A client that leaves the node roles out keeps them.
+    const { nodeRoles: _kept, ...older } = limits;
+    expect((await t.app.inject({ method: 'PATCH', url: `/api/tenants/${tenantId}`, headers: admin, payload: { limits: older } })).json().limits.nodeRoles).toEqual(['station', 'source']);
     const own = await t.app.inject({ method: 'POST', url: '/api/nodes', headers: owner, payload: { name: 'harder-01', tenantId, roles: ['source'] } });
     expect(own.statusCode).toBe(201);
+    // Roles outside the package cannot be added later either; the ones it has may stay.
+    const relay = await t.app.inject({ method: 'PATCH', url: `/api/nodes/${own.json().node.id}`, headers: owner, payload: { roles: ['source', 'relay'] } });
+    expect(relay.statusCode).toBe(403);
+    expect((await t.app.inject({ method: 'PATCH', url: `/api/nodes/${own.json().node.id}`, headers: owner, payload: { roles: ['source'] } })).statusCode).toBe(200);
     const second = await t.app.inject({ method: 'POST', url: '/api/nodes', headers: owner, payload: { name: 'harder-02', tenantId } });
     expect(second.statusCode).toBe(409);
     expect(second.json().error.message).toMatch(/1 own node/);

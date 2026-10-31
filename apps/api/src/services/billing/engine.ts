@@ -108,9 +108,12 @@ async function billingRecipients(ctx: AppContext, tenantId: string, contact: { e
  * Radio stations than the customer runs is refused up front (usageProblems).
  */
 export async function applyPackageToTenant(ctx: AppContext, tenantId: string, pkg: Package, customLimits: boolean) {
+  // A package without node roles keeps the roles the customer was given by hand (customer permissions).
+  const [cur] = await ctx.db.select({ limits: schema.tenants.limits }).from(schema.tenants).where(eq(schema.tenants.id, tenantId));
+  const limits = pkg.limits.nodeRoles === undefined && cur?.limits.nodeRoles ? { ...pkg.limits, nodeRoles: cur.limits.nodeRoles } : pkg.limits;
   await ctx.db
     .update(schema.tenants)
-    .set({ plan: pkg.limits.maxRadioStations > 0 ? 'station' : 'distribution', ...(customLimits ? {} : { limits: pkg.limits }) })
+    .set({ plan: pkg.limits.maxRadioStations > 0 ? 'station' : 'distribution', ...(customLimits ? {} : { limits }) })
     .where(eq(schema.tenants.id, tenantId));
   if (!customLimits) await applyStreams(ctx, { by: 'billing' }).catch(() => undefined);
 }

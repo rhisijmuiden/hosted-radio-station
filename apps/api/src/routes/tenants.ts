@@ -102,7 +102,8 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
     async (req, reply) => {
       const auth = requireSuperadmin(req);
       const { owner, plan, ...rest } = req.body;
-      const limits = withRadioLimit(rest.limits, plan);
+      // New customers may run a station node of their own; other roles are switched on one by one (customer permissions).
+      const limits = { ...withRadioLimit(rest.limits, plan), nodeRoles: rest.limits.nodeRoles ?? ['station' as const] };
       const data = { ...rest, limits, plan: limits.maxRadioStations > 0 ? ('station' as const) : ('distribution' as const) };
       if (owner?.sendInvite && !(await mailConfigured(ctx))) throw badRequest('Set up the mail server first to send invitations');
       let ownerUser: typeof schema.users.$inferSelect | undefined;
@@ -179,7 +180,8 @@ export const tenantRoutes: FastifyPluginAsyncZod = async (app) => {
         const [cur] = await ctx.db.select().from(schema.tenants).where(eq(schema.tenants.id, req.params.id));
         if (!cur) throw notFound('Customer');
         const base = sentLimits ?? (adminOnly.plan ? { ...cur.limits, maxRadioStations: adminOnly.plan === 'distribution' ? 0 : Math.max(cur.limits.maxRadioStations ?? 0, cur.limits.maxStations) } : cur.limits);
-        const limits = withRadioLimit(base, adminOnly.plan ?? cur.plan);
+        // Clients that do not know the node roles yet leave them out: keep what is set.
+        const limits = { ...withRadioLimit(base, adminOnly.plan ?? cur.plan), ...(base.nodeRoles === undefined && cur.limits.nodeRoles ? { nodeRoles: cur.limits.nodeRoles } : {}) };
         adminOnly.limits = limits;
         adminOnly.plan = limits.maxRadioStations > 0 ? 'station' : 'distribution';
       }
