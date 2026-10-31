@@ -133,7 +133,7 @@ export function topMenu(input: TopMenuInput, t: TFunction): TopEntry[] {
         {
           key: 'network',
           title: null,
-          items: [item('nodes', Server, '/nodes'), ...(manager ? [item('routing', Route, tab('routing'))] : []), item('map', Network, '/topology')],
+          items: [item('nodes', Server, '/nodes'), ...(manager ? [item('routing', Route, s ? `/routing?station=${s.id}` : '/routing')] : []), item('map', Network, '/topology')],
         },
       ],
     });
