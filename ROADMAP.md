@@ -740,6 +740,7 @@ Today Go Live stops the server's music and sends only what RHIS Studio plays its
 - RHIS Studio becomes the playout: it plays the queue (players A and B, with the cue points and crossfades from the server) itself, together with the jingles and the microphone, and sends that one mix live. The DJ hears everything without stream delay, so talking over intros works.
 - Tracks are fetched ahead from the station node (over the LAN when on site) and cached, so a network hiccup does not stop the music.
 - Microphone on/off with ducking of the music, and a mic level on the meter.
+- Fader start (MIDI/GPIO, see the parked fader start item) works in studio mode too: a fader up starts the track on that player (or the jingle/mic), a fader down stops it and cues the next item from the queue.
 - Locked blocks (news, ads) and the hour clock keep running as planned; the log stays the server's.
 - If RHIS Studio stops or loses the connection, the server's AutoDJ takes over by itself at the right point in the queue.
 
