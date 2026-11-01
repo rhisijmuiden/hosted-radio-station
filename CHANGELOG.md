@@ -3,6 +3,16 @@
 All notable changes to Hosted Radio Station. Versions follow [semantic versioning](https://semver.org). The
 [roadmap](ROADMAP.md) has the full description of each phase, with screenshots.
 
+## Unreleased
+
+- RHIS Studio 0.24: a fourth view **AutoDJ** in the layout menu (Ctrl+4; Ctrl+1–3 stay Classic, OmniPlayer and
+  Manage), for every DJ of a Radio station. It shows what the AutoDJ plays now and in the coming hours: what is on
+  air, the hour clock and block of the schedule now, the next fixed item and the next change in the schedule; the hour
+  clock on air as a dial with a hand at the minute now, its items with the part already played dimmed and the item
+  now marked; and the next five hours with their clock, show (live shows in red) and fixed items. Only to look at:
+  hour clocks and the schedule are changed in the Manage view or the web panel. No server change; it uses the
+  rundown and scheduler the DJ could already read.
+
 ## 1.6.0 (31 October 2026)
 
 Phase 21 (the recorder node: logging, live shows, uploads and on demand, recording in RHIS Studio, cutting, music
