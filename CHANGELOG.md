@@ -35,6 +35,10 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   migration 0037, feature `studio-mode`. The AutoDJ script gets a `studio_end` command, so every AutoDJ restarts once
   on this update.
 
+- RHIS Studio 0.27.1: studio mode refuses to start on a PC whose sound engine has no output sound card (it says so and
+  where to choose one), and the banner after studio mode ended by itself now says why: the broadcast did not connect,
+  it dropped, the server was not reachable, or the encoder's own error.
+
 ## 1.6.0 (31 October 2026)
 
 Phase 21 (the recorder node: logging, live shows, uploads and on demand, recording in RHIS Studio, cutting, music
