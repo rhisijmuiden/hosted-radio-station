@@ -93,7 +93,7 @@ function TakeOverDialog({ data, onClose }: { data: AutoDj; onClose: () => void }
   const go = () => {
     if (!station) return;
     onClose();
-    studio.start(station, me, data, how === 'now' && np ? 'now' : 'end', { notReady: t('studio.needsLive') }).catch((err) => toast.error((err as Error).message));
+    studio.start(station, me, data, how === 'now' && np ? 'now' : 'end', { notReady: t('studio.needsLive'), noOutput: t('studio.noOutput') }).catch((err) => toast.error((err as Error).message));
   };
   const option = (value: 'end' | 'now', title: string, text: string, disabled = false) => (
     <label
@@ -142,6 +142,9 @@ function TakeOverDialog({ data, onClose }: { data: AutoDj; onClose: () => void }
   );
 }
 
+/** Reasons studio mode ended that the banner translates; any other text is the encoder's own error. */
+const LOST_REASONS = ['noBroadcast', 'broadcastLost', 'serverLost'];
+
 /** The line under the top bar while studio mode runs, waits or has ended by itself. */
 export function StudioBanner() {
   const { t } = useTranslation();
@@ -156,7 +159,7 @@ export function StudioBanner() {
   };
   const takeBack = () => {
     if (!autodj.data) return;
-    studio.start(station, me, autodj.data, 'now', { notReady: t('studio.needsLive') }).catch((err) => toast.error((err as Error).message));
+    studio.start(station, me, autodj.data, 'now', { notReady: t('studio.needsLive'), noOutput: t('studio.noOutput') }).catch((err) => toast.error((err as Error).message));
   };
   const tone = s.phase === 'lost' ? 'bg-offline/15 text-offline' : s.phase === 'on' || s.phase === 'stopping' ? 'bg-studio/15 text-ink' : 'bg-lucht/20 text-ink';
   return (
@@ -174,7 +177,7 @@ export function StudioBanner() {
         {s.phase === 'lost' && (
           <>
             <b>{t('studio.lostTitle', { time: clock(s.lostAt ?? now) })}</b> {t('studio.lost')}
-            {s.error && <span className="ml-1 opacity-80">({s.error})</span>}
+            {s.error && <span className="ml-1 opacity-80">({LOST_REASONS.includes(s.error) ? t(`studio.${s.error}`) : t('studio.encoderSaid', { error: s.error })})</span>}
           </>
         )}
       </span>

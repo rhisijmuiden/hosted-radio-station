@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { api, ApiError, getApiKey, type Account, type AutoDj, type Me, type QueueRow, type StationDetail, type StationListItem } from './api';
 import { engineState, onDeck } from './engine';
 import { liveChoice, sendTitle, startLive, stopLive } from './golive';
-import { call, type AppInfo, type DeckLoad, type DeckState } from './native';
+import { call, type AppInfo, type BroadcastStatus, type DeckLoad, type DeckState } from './native';
 import { getSettings } from './settings';
 import { playLength } from './cues';
 import { queueOf } from './queue';
@@ -81,6 +81,8 @@ let run: {
   takenOver: string | null;
   renew: ReturnType<typeof setInterval> | null;
   lastLive: number;
+  /** The broadcast was live at least once in this run. */
+  everLive: boolean;
   lastRenewed: number;
   requesting: boolean;
   retry: ReturnType<typeof setTimeout> | null;
@@ -220,10 +222,11 @@ onDeck(
 async function renew() {
   const r = run;
   if (!r || view.phase !== 'on') return;
-  const b = engineState().broadcast.state;
+  const b = engineState().broadcast;
+  if (b.state === 'live') r.everLive = true;
   const now = Date.now();
-  if (b === 'live') r.lastLive = now;
-  if (b === 'failed' || b === 'off' || now - r.lastLive > LOST_AFTER_MS) return lost(null);
+  if (b.state === 'live') r.lastLive = now;
+  if (b.state === 'failed' || b.state === 'off' || now - r.lastLive > LOST_AFTER_MS) return lost(broadcastReason(b, r.everLive));
   try {
     await post('', { on: true, pc: await pc() });
     r.lastRenewed = Date.now();
@@ -231,7 +234,7 @@ async function renew() {
     if (run !== r) return;
     if (err instanceof ApiError && err.status === 409) return lost(err.message);
     // The server answers again within the grace time, or it took over meanwhile.
-    if (Date.now() - r.lastRenewed > 10_000) lost(null);
+    if (Date.now() - r.lastRenewed > 10_000) lost('serverLost');
   }
 }
 
@@ -244,6 +247,15 @@ function clearTimers() {
 
 async function silenceDecks(fade: number) {
   for (const deck of [0, 1]) await call('deck_stop', { deck, fade }).catch(() => undefined);
+}
+
+/**
+ * Why the broadcast ended studio mode, for the banner: the encoder's own error, or `noBroadcast` (translated there)
+ * when it never got through to the station.
+ */
+function broadcastReason(b: BroadcastStatus, everLive: boolean) {
+  if ((b.state === 'failed' || b.state === 'reconnecting') && b.error) return b.error;
+  return everLive ? 'broadcastLost' : 'noBroadcast';
 }
 
 /** The connection or the server ended studio mode: the AutoDJ plays; this PC is off air. */
@@ -265,11 +277,14 @@ function lost(reason: string | null) {
  * Takes over from the AutoDJ: at the end of the track on air (`end`), or now with that same track from the same place
  * (`now`). Throws with the reason when it cannot (no live account, the server said no).
  */
-export async function startStudio(station: StationListItem, me: Me | null | false, data: AutoDj, how: 'end' | 'now', texts: { notReady: string }) {
+export async function startStudio(station: StationListItem, me: Me | null | false, data: AutoDj, how: 'end' | 'now', texts: { notReady: string; noOutput: string }) {
   if (run || (view.phase !== 'off' && view.phase !== 'lost')) return;
+  // Without a sound card for the output the DJ hears nothing and the mix may not reach the station: refuse up front.
+  const info = engineState().info;
+  if (!info?.output) throw new Error(texts.noOutput.replace('{{error}}', info?.error ?? '–'));
   const crossfade = data.settings.crossfadeSeconds ?? 0;
   const manual = !!data.playout?.manual;
-  run = { station, crossfade, normalize: true, takenOver: null, renew: null, lastLive: Date.now(), lastRenewed: Date.now(), requesting: false, retry: null, cut: null, startFirst: true, cancelled: false };
+  run = { station, crossfade, normalize: true, takenOver: null, renew: null, lastLive: Date.now(), everLive: false, lastRenewed: Date.now(), requesting: false, retry: null, cut: null, startFirst: true, cancelled: false };
   const r = run;
   set({ phase: 'preparing', stationId: station.id, mic: false, tracks: [null, null], air: null, waitUntil: null, first: null, error: null, lostAt: null, manual });
   let on = false;
