@@ -493,7 +493,7 @@ export const nl: Translation = {
     clockNow: 'Uurklok nu',
     inBlock: 'In blok {{name}}',
     inLiveShow: 'In live show {{name}}',
-    noBlock: 'Geen blok in het schema: standaardklok',
+    noBlock: 'Standaardklok',
     noClock: 'Geen uurklok',
     noClockText: 'Dit uur loopt er geen uurklok: de AutoDJ speelt de wachtrij en de muziekcategorieën.',
     nextFixed: 'Volgend vast onderdeel',

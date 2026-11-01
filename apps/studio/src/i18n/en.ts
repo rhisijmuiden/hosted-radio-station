@@ -491,7 +491,7 @@ export const en = {
     clockNow: 'Hour clock now',
     inBlock: 'In block {{name}}',
     inLiveShow: 'In live show {{name}}',
-    noBlock: 'No block in the schedule: default clock',
+    noBlock: 'Default clock',
     noClock: 'No hour clock',
     noClockText: 'No hour clock runs this hour: the AutoDJ plays the queue and the music categories.',
     nextFixed: 'Next fixed item',

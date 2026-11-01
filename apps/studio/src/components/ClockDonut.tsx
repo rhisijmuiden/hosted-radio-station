@@ -51,7 +51,7 @@ export function ClockDonut({
             key={s.item.id}
             d={slice(s.start, s.end, highlight === s.index ? outer + 4 : outer, inner)}
             fill={colorOf(s.item)}
-            fillOpacity={hand != null && s.end <= hand && highlight !== s.index ? 0.3 : s.item.kind === 'rotation' ? 0.85 : highlight != null && highlight !== s.index ? 0.55 : 1}
+            fillOpacity={s.item.kind === 'rotation' ? 0.85 : highlight != null && highlight !== s.index ? 0.55 : 1}
             stroke="var(--surface-raised)"
             strokeWidth={small ? 2 : 1.5}
           />
@@ -80,13 +80,17 @@ export function ClockDonut({
       {!small && (
         <>
           <circle cx="120" cy="120" r={inner - 2} fill="var(--nacht)" />
-          <text x="120" y="118" textAnchor="middle" className="display" fontSize="12" fill="#fff">
-            {title && title.length > 11 ? `${title.slice(0, 10)}…` : title}
+          <text x="120" y="118" textAnchor="middle" className="display" fontSize={title && title.length > 11 ? 8.5 : 12} fill="#fff">
+            {title && title.length > 15 ? `${title.slice(0, 14)}…` : title}
           </text>
           <text x="120" y="133" textAnchor="middle" fontSize="7.5" fill="#A3AEC4">
             {subtitle && subtitle.length > 18 ? `${subtitle.slice(0, 17)}…` : subtitle}
           </text>
         </>
+      )}
+      {hand != null && !small && hand > 0.05 && (
+        // The part of the hour already played, the running item included, is dimmed up to the hand.
+        <path d={slice(0, hand, outer + 4, inner)} fill="var(--surface-raised)" fillOpacity={0.55} pointerEvents="none" />
       )}
       {hand != null && !small && (
         <g>
