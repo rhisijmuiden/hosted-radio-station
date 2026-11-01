@@ -518,6 +518,7 @@ export const en = {
     tab: { now: 'Now & coming hours', schedule: 'Schedule' },
     schedule: {
       liveBadge: 'Live show',
+      blockBadge: 'Block',
       today: 'Today',
       week: 'Week',
       gaps: 'Outside the blocks the default clock runs: {{name}}.',

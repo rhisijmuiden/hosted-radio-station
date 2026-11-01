@@ -70,7 +70,7 @@ function EntryDetails({ view, info, entry, onClose, onEdit }: { view: SchedulerV
                 <Mic className="size-3" /> {t('autodjView.schedule.liveBadge')}
               </Badge>
             ) : (
-              <Badge>{t('autodjView.block')}</Badge>
+              <Badge>{t('autodjView.schedule.blockBadge')}</Badge>
             )}
             {!entry.enabled && (
               <span className="ml-2">

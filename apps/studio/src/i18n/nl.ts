@@ -520,6 +520,7 @@ export const nl: Translation = {
     tab: { now: 'Nu & komende uren', schedule: 'Schema' },
     schedule: {
       liveBadge: 'Live show',
+      blockBadge: 'Blok',
       today: 'Vandaag',
       week: 'Week',
       gaps: 'Buiten de blokken loopt de standaardklok: {{name}}.',
