@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { CalendarDays, ChevronLeft, ChevronRight, Mic } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, Mic, Pencil } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ClockDonut } from './ClockDonut';
@@ -20,7 +20,7 @@ function colorOf(entry: ScheduleEntry, clocks: Map<string, Clock>) {
 }
 
 /** One block of the schedule: when it runs, its clock, live or not, its DJs. Only to look at. */
-function EntryDetails({ view, info, entry, onClose }: { view: SchedulerView; info: Info; entry: ScheduleEntry | null; onClose: () => void }) {
+function EntryDetails({ view, info, entry, onClose, onEdit }: { view: SchedulerView; info: Info; entry: ScheduleEntry | null; onClose: () => void; onEdit?: (entryId: string) => void }) {
   const { t, i18n } = useTranslation();
   if (!entry) return null;
   const clocks = new Map(view.clocks.map((c) => [c.id, c]));
@@ -45,7 +45,17 @@ function EntryDetails({ view, info, entry, onClose }: { view: SchedulerView; inf
       ? t('autodjView.schedule.everyDay')
       : entry.days.map(dayName).join(', ');
   return (
-    <Dialog open onClose={onClose} title={entry.name} description={entry.description || undefined} footer={<Button onClick={onClose}>{t('common.close')}</Button>}>
+    <Dialog open onClose={onClose} title={entry.name} description={entry.description || undefined} footer={
+        <>
+          {onEdit && (
+            <Button variant="primary" className="mr-auto" onClick={() => onEdit(entry.id)}>
+              <Pencil className="size-4" /> {t('autodjView.editInManage')}
+            </Button>
+          )}
+          <Button onClick={onClose}>{t('common.close')}</Button>
+        </>
+      }
+    >
       <div className="flex gap-5">
         {clock ? (
           <ClockDonut size={160} segments={clockLayout(clock.items, info.seconds)} colorOf={(item) => info.color(item, clock.color)} nameOf={() => ''} title={clock.name} />
@@ -60,7 +70,7 @@ function EntryDetails({ view, info, entry, onClose }: { view: SchedulerView; inf
                 <Mic className="size-3" /> {t('autodjView.schedule.liveBadge')}
               </Badge>
             ) : (
-              <Badge>{t('autodjView.block')}</Badge>
+              <Badge>{t('autodjView.schedule.blockBadge')}</Badge>
             )}
             {!entry.enabled && (
               <span className="ml-2">
@@ -186,7 +196,7 @@ function Today({ view, onOpen }: { view: SchedulerView; onOpen: (e: ScheduleEntr
 }
 
 /** The week as seven columns, like the editor of the Manage view but smaller and only to look at. */
-function Week({ view, onOpen }: { view: SchedulerView; onOpen: (e: ScheduleEntry) => void }) {
+function Week({ view, onOpen, onEdit }: { view: SchedulerView; onOpen: (e: ScheduleEntry) => void; onEdit?: (entryId: string | null) => void }) {
   const { t, i18n } = useTranslation();
   const [week, setWeek] = useState(0);
   const clocks = new Map(view.clocks.map((c) => [c.id, c]));
@@ -200,6 +210,11 @@ function Week({ view, onOpen }: { view: SchedulerView; onOpen: (e: ScheduleEntry
           {t('autodjView.schedule.week')} · {fmt(dates[0]!, { day: 'numeric', month: 'short' })} – {fmt(dates[6]!, { day: 'numeric', month: 'short' })}
         </Label>
         <div className="flex items-center gap-1">
+          {onEdit && (
+            <Button size="sm" variant="ghost" onClick={() => onEdit(null)}>
+              <Pencil className="size-3.5" /> {t('autodjView.editSchedule')}
+            </Button>
+          )}
           <Button size="sm" variant="ghost" title={t('schedule.prevWeek')} onClick={() => setWeek((w) => w - 1)}>
             <ChevronLeft className="size-4" />
           </Button>
@@ -280,13 +295,24 @@ function Week({ view, onOpen }: { view: SchedulerView; onOpen: (e: ScheduleEntry
 }
 
 /** The schedule tab of the AutoDJ view: today and the week, only to look at. A click on a block shows its details. */
-export function AutoDjSchedule({ view, info }: { view: SchedulerView; info: Info }) {
+export function AutoDjSchedule({ view, info, onEdit }: { view: SchedulerView; info: Info; onEdit?: (entryId: string | null) => void }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState<ScheduleEntry | null>(null);
   if (!view.settings.enabled && !view.entries.length) {
     return (
       <Card>
-        <EmptyState icon={<CalendarDays className="size-6" />} title={t('autodjView.schedule.emptyTitle')} description={t('autodjView.schedulerOffText')} />
+        <EmptyState
+          icon={<CalendarDays className="size-6" />}
+          title={t('autodjView.schedule.emptyTitle')}
+          description={t('autodjView.schedulerOffText')}
+          action={
+            onEdit && (
+              <Button size="sm" variant="primary" onClick={() => onEdit(null)}>
+                <Pencil className="size-3.5" /> {t('autodjView.editSchedule')}
+              </Button>
+            )
+          }
+        />
       </Card>
     );
   }
@@ -295,9 +321,9 @@ export function AutoDjSchedule({ view, info }: { view: SchedulerView; info: Info
       {!view.settings.enabled && <p className="text-[13px] text-warning">{t('autodjView.schedule.offNote')}</p>}
       <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <Today view={view} onOpen={setOpen} />
-        <Week view={view} onOpen={setOpen} />
+        <Week view={view} onOpen={setOpen} onEdit={onEdit} />
       </div>
-      <EntryDetails view={view} info={info} entry={open} onClose={() => setOpen(null)} />
+      <EntryDetails view={view} info={info} entry={open} onClose={() => setOpen(null)} onEdit={onEdit} />
     </>
   );
 }

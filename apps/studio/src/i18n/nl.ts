@@ -520,6 +520,7 @@ export const nl: Translation = {
     tab: { now: 'Nu & komende uren', schedule: 'Schema' },
     schedule: {
       liveBadge: 'Live show',
+      blockBadge: 'Blok',
       today: 'Vandaag',
       week: 'Week',
       gaps: 'Buiten de blokken loopt de standaardklok: {{name}}.',
@@ -539,6 +540,10 @@ export const nl: Translation = {
       yes: 'Ja',
       no: 'Nee',
     },
+    editClock: 'Klok bewerken',
+    editSchedule: 'Schema bewerken',
+    editInManage: 'Bewerken in Beheer',
+    readOnlyManager: 'Klokken en blokken pas je aan met Bewerken: ze openen in de beheerweergave (Ctrl+4 brengt je terug).',
     coming: 'Komende uren',
     onlyMusic: 'Alleen muziek, geen vaste onderdelen',
     readOnly: 'Uurklokken en het schema pas je aan in de beheerweergave of het webpaneel.',

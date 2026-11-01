@@ -516,10 +516,18 @@ function WeekGrid({ stationId, view, onNew, onEdit }: { stationId: string; view:
 }
 
 /** Weekly schedule in the Manage view (phase 24): which hour clock or show runs when, on the same data as the web panel. */
-export function ScheduleSection({ station }: { station: StationListItem }) {
+export function ScheduleSection({ station, initialEntryId = null }: { station: StationListItem; initialEntryId?: string | null }) {
   const { t } = useTranslation();
   const view = useScheduler(station.id);
   const [editing, setEditing] = useState<ScheduleEntry | Draft | null>(null);
+  // Opened at a block (from the AutoDJ view): its dialog opens once the schedule is loaded.
+  const [opened, setOpened] = useState(!initialEntryId);
+  useEffect(() => {
+    if (opened || !view.data) return;
+    setOpened(true);
+    const entry = view.data.entries.find((e) => e.id === initialEntryId);
+    if (entry) setEditing(entry);
+  }, [opened, view.data, initialEntryId]);
   if (view.isPending) return <Spinner />;
   if (!view.data) return <Card className="p-8 text-center text-muted">{(view.error as Error)?.message}</Card>;
   const v = view.data;

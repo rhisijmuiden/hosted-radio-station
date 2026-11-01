@@ -518,6 +518,7 @@ export const en = {
     tab: { now: 'Now & coming hours', schedule: 'Schedule' },
     schedule: {
       liveBadge: 'Live show',
+      blockBadge: 'Block',
       today: 'Today',
       week: 'Week',
       gaps: 'Outside the blocks the default clock runs: {{name}}.',
@@ -537,6 +538,10 @@ export const en = {
       yes: 'Yes',
       no: 'No',
     },
+    editClock: 'Edit clock',
+    editSchedule: 'Edit schedule',
+    editInManage: 'Edit in Manage',
+    readOnlyManager: 'Edit clocks and blocks with Edit: they open in the Manage view (Ctrl+4 brings you back).',
     coming: 'Coming hours',
     onlyMusic: 'Only music, no fixed items',
     readOnly: 'Hour clocks and the schedule are changed in the Manage view or the web panel.',

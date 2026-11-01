@@ -1,15 +1,17 @@
 import clsx from 'clsx';
-import { Clock3, ListMusic, Lock, Mic, Music2, Newspaper, Radio } from 'lucide-react';
+import { Clock3, ListMusic, Lock, Mic, Music2, Newspaper, Pencil, Radio } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AutoDjSchedule } from '../components/AutoDjSchedule';
 import { ClockDonut } from '../components/ClockDonut';
 import { Label } from '../components/manage/common';
-import { Badge, Card, EmptyState, Spinner, Tabs } from '../components/ui';
+import { Badge, Button, Card, EmptyState, Spinner, Tabs } from '../components/ui';
 import type { Clock, RundownRow, StationListItem } from '../lib/api';
 import { clockLayout, paint, usePlaylists, useItemInfo, useScheduler } from '../lib/clocks';
 import { trackLength } from '../lib/cues';
 import { duration } from '../lib/format';
+import { useCanManage } from '../lib/layout';
+import { useOpenInManage } from '../lib/manageTarget';
 import { useNow } from '../lib/now';
 import { useAutoDj, useRundown, useStatus } from '../lib/queries';
 import { blocksOf } from '../lib/timeline';
@@ -72,6 +74,9 @@ export function AutoDjView({ station }: { station: StationListItem }) {
   const scheduler = useScheduler(station.id);
   const playlists = usePlaylists(station.id);
   const info = useItemInfo(playlists.data, scheduler.data?.tracks ?? [], {});
+  // Managers jump from here to the clock or block in the Manage view; DJs only look.
+  const canManage = useCanManage();
+  const openInManage = useOpenInManage();
   const now = useNow(1000);
   const [tab, setTab] = useState<'now' | 'schedule'>('now');
 
@@ -148,7 +153,7 @@ export function AutoDjView({ station }: { station: StationListItem }) {
       </div>
       {tab === 'schedule' ? (
         scheduler.data ? (
-          <AutoDjSchedule view={scheduler.data} info={info} />
+          <AutoDjSchedule view={scheduler.data} info={info} onEdit={canManage ? (entryId) => openInManage({ section: 'schedule', entryId }) : undefined} />
         ) : scheduler.isPending ? (
           <Spinner />
         ) : (
@@ -237,11 +242,18 @@ export function AutoDjView({ station }: { station: StationListItem }) {
                       })
                     : t('autodjView.thisHourEmpty')}
                 </Label>
-                {live && (
-                  <Badge tone="onair">
-                    <Mic className="size-3" /> {t('autodjView.paused')}
-                  </Badge>
-                )}
+                <div className="flex items-center gap-2">
+                  {live && (
+                    <Badge tone="onair">
+                      <Mic className="size-3" /> {t('autodjView.paused')}
+                    </Badge>
+                  )}
+                  {canManage && clock && (
+                    <Button size="sm" variant="ghost" onClick={() => openInManage({ section: 'clocks', clockId: clock.id })}>
+                      <Pencil className="size-3.5" /> {t('autodjView.editClock')}
+                    </Button>
+                  )}
+                </div>
               </div>
               {current && clock && segments.length ? (
                 <div className="mt-3 flex min-h-0 flex-1 flex-wrap items-start gap-5">
@@ -306,7 +318,18 @@ export function AutoDjView({ station }: { station: StationListItem }) {
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2 text-[13px]">
                           <span className="font-mono tabular text-muted">{time(h.at)}</span>
-                          <b className="truncate">{h.clock?.name ?? t('autodjView.noClock')}</b>
+                          {canManage && h.clock ? (
+                            <button
+                              type="button"
+                              onClick={() => openInManage({ section: 'clocks', clockId: h.clock!.id })}
+                              className="truncate font-bold hover:text-accent-text hover:underline"
+                              title={t('autodjView.editClock')}
+                            >
+                              {h.clock.name}
+                            </button>
+                          ) : (
+                            <b className="truncate">{h.clock?.name ?? t('autodjView.noClock')}</b>
+                          )}
                           {h.show && (
                             <Badge tone={h.show.live ? 'onair' : 'neutral'}>
                               {h.show.live && <Mic className="size-3" />} {h.show.name}
@@ -326,7 +349,7 @@ export function AutoDjView({ station }: { station: StationListItem }) {
                   );
                 })}
               </ol>
-              <p className="mt-2 border-t border-line pt-2 text-[11px] text-muted">{t('autodjView.readOnly')}</p>
+              <p className="mt-2 border-t border-line pt-2 text-[11px] text-muted">{canManage ? t('autodjView.readOnlyManager') : t('autodjView.readOnly')}</p>
             </Card>
           </div>
         </>
