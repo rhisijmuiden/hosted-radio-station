@@ -219,6 +219,8 @@ One thing at a time; each item starts when the previous one is finished and test
    7. New folders and music upload from Studio in Library folders (PR #194, asked by Reinder 30 October 2026). *Tested.*
    **Release 1.6.0** (31 October 2026): items 8 and 9, the fix for the AutoDJ hanging after a live broadcast (PR #190), the small fixes (PRs #197–#203) and step 1 of the Stereo Tool release (PR #196, off by default) go to `main` as one release.
 
+10. **Studio mode in RHIS Studio: microphone over the queue** (queued 1 November 2026, the next main item once the current one is finished and tested): see the item under Future ideas and the approved sketch https://claude.ai/artifact/2mGWnZo4P7G4MNxugKares. Fader start (MIDI/GPIO) belongs with it and follows when the hardware is there.
+
 Later: phase 14 (orchestrator redundancy) just before sales start; phases 22 and 23 when the first customers come.
 
 ## Phases
