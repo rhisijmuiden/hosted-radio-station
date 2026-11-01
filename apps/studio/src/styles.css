@@ -15,6 +15,8 @@
 :root {
   /* On air: a clear broadcast red, apart from the coral accent of the house style. */
   --onair: #e11d2e;
+  /* Studio mode: this PC plays the queue; a warm orange beside the coral accent. */
+  --studio: #ff8a3d;
   --hover: #eef1f7;
   --chip: #e8f0ff;
   --nav-active-bg: var(--nacht);
@@ -54,6 +56,7 @@
   --color-warning: var(--status-warning);
   --color-offline: var(--status-offline);
   --color-onair: var(--onair);
+  --color-studio: var(--studio);
   --color-hover: var(--hover);
   --color-chip: var(--chip);
   --color-meter: var(--meter-bg);

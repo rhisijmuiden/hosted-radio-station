@@ -24,6 +24,17 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   Manage** in the details of a block opens that block, **Edit schedule** opens the weekly schedule. Ctrl+4 or Back to
   the player returns to the AutoDJ view, on the tab it was on. DJs keep the view without these buttons.
 
+- RHIS Studio 0.27, studio mode (step 1): **Studio mode** next to AutoDJ in the top bar. This PC then plays the queue
+  itself on players A and B, with the cue points, crossfade and loudness of the server, mixes the microphone in and
+  sends that mix live; the DJ hears it without delay. Take over at the end of the track on air, or now with that same
+  track from the same point. A big microphone button (space bar) switches the mic; the players go down while the DJ
+  talks. The server still chooses every next track (queue, hour clock, locked items) and keeps the log: the PC reports
+  each track it starts. When the PC stops renewing studio mode (closed, crashed, broadcast down) the server's AutoDJ
+  takes over after 10 seconds at the next track of the queue; **Back to AutoDJ** hands back at once. Server: new
+  `POST /stations/:id/autodj/studio`, `/studio/next` and `/studio/playing/:item`, `studio` in the AutoDJ state,
+  migration 0037, feature `studio-mode`. The AutoDJ script gets a `studio_end` command, so every AutoDJ restarts once
+  on this update.
+
 ## 1.6.0 (31 October 2026)
 
 Phase 21 (the recorder node: logging, live shows, uploads and on demand, recording in RHIS Studio, cutting, music

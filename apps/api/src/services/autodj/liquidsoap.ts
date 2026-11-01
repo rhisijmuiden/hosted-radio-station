@@ -156,6 +156,8 @@ export function renderScript(ctx: AppContext, input: ScriptInput): string {
     `  end`,
     `  "OK"`,
     `end)`,
+    `# Studio mode ended (RHIS Studio played the queue meanwhile): the held track is old, so live false skips it.`,
+    `server.register("studio_end", fun (_) -> begin paused_at := 0.; "OK" end)`,
     `# Skip starts the next track at once, also in manual playout.`,
     `server.register("skip", fun (_) -> begin armed := true; music.skip(); "OK" end)`,
     `# Leaving the hold (play, or back to Auto): the gate lets the cued track through now. Liquidsoap 2.3 does not always`,

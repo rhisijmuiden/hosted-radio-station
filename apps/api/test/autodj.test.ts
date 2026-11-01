@@ -582,6 +582,98 @@ describe.runIf(hasFfmpeg)('library and AutoDJ', () => {
     }
   });
 
+  it('lets a studio PC play the queue in studio mode, holds the AutoDJ and hands back at the next track', async () => {
+    const ctrl = new AutodjController(t.ctx, pino({ level: 'silent' }));
+    const hook = http.createServer((req, res) => {
+      if (!ctrl.handle(req, res)) res.writeHead(404).end();
+    });
+    await new Promise<void>((r) => hook.listen(0, '127.0.0.1', () => r()));
+    const base = `http://127.0.0.1:${(hook.address() as AddressInfo).port}/autodj/${stationId}`;
+    const token = { 'x-hrs-token': autodjToken(t.ctx, stationId) };
+    const ask = async () => (await fetch(`${base}/next`, { method: 'POST', headers: token })).text();
+    const path = autodjSocketPath(t.ctx, stationId);
+    const heard: string[] = [];
+    const player = net.createServer((c) => {
+      c.on('data', (d) => {
+        heard.push(d.toString().split('\n')[0]!);
+        c.end('OK\nEND\n');
+      });
+    });
+    rmSync(path, { force: true });
+    await new Promise<void>((r) => player.listen(path, () => r()));
+    const state = async (id: string) => (await t.db.select().from(schema.queueItems).where(eq(schema.queueItems.id, id)))[0]?.state;
+    const pc = { pc: 'studio-pc-1' };
+    try {
+      await playerStarted(t.ctx, stationId);
+      const ahead = (await ask()).match(/hrs_item="([^"]+)"/)![1]!;
+      expect(await state(ahead)).toBe('cued');
+      const snap = await loadSnapshot(t.ctx);
+      const covered = (await api('GET', '/autodj')).json().coveredMounts[0] as string;
+      const live = [{ sessionId: 's1', stationId, mountPath: covered, accountName: 'dj', startedAt: new Date() }];
+      await ctrl.sync(snap, []);
+      heard.length = 0;
+
+      // Studio mode on: the track the AutoDJ loaded ahead is for the studio PC now, and the player drops it.
+      let res = await api('POST', '/autodj/studio', { on: true, ...pc });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().studio).toMatchObject({ active: true, pc: 'studio-pc-1', user: 'Owner' });
+      expect(await state(ahead)).toBe('queued');
+      await ctrl.command(JSON.stringify({ stationId, command: 'studio' }));
+      expect(heard).toContain('flush');
+      expect(await ask()).toBe('');
+      // One PC at a time.
+      res = await api('POST', '/autodj/studio', { on: true, pc: 'other-pc' });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error.code).toBe('studio_taken');
+      expect((await api('POST', '/autodj/studio/next', { pc: 'other-pc' })).statusCode).toBe(409);
+
+      // The PC gets the queue in order, with what it needs to play it like the AutoDJ.
+      res = await api('POST', '/autodj/studio/next', pc);
+      expect(res.statusCode).toBe(200);
+      const first = res.json();
+      expect(first.track.id).toBe(ahead);
+      expect(first.track.state).toBe('cued');
+      expect(first.track.media).toHaveProperty('gainDb');
+      expect(typeof first.crossfadeSeconds).toBe('number');
+      expect((await api('POST', `/autodj/studio/playing/${ahead}`, pc)).statusCode).toBe(200);
+      expect(await state(ahead)).toBe('playing');
+      expect((await api('GET', '/autodj')).json().nowPlaying.id).toBe(ahead);
+
+      // Held once the studio broadcast is live, also while it reconnects.
+      heard.length = 0;
+      await ctrl.sync(snap, live);
+      expect(heard).toContain('live true');
+      heard.length = 0;
+      await ctrl.sync(snap, []);
+      expect(heard).not.toContain('live false');
+
+      // The PC hands back: the track it had loaded is the AutoDJ's next one; the player asks for it first, then plays
+      // again past the old track it held.
+      const loaded = (await api('POST', '/autodj/studio/next', pc)).json().track.id as string;
+      expect((await api('POST', '/autodj/studio', { on: false, ...pc })).json().studio.active).toBe(false);
+      expect(await state(loaded)).toBe('queued');
+      heard.length = 0;
+      await ctrl.command(JSON.stringify({ stationId, command: 'studio' }));
+      expect(heard).toContain('flush');
+      expect(heard).not.toContain('live false');
+      expect((await ask()).match(/hrs_item="([^"]+)"/)![1]).toBe(loaded);
+      (ctrl as unknown as { resumeAt: Map<string, number> }).resumeAt.set(stationId, Date.now() - 1);
+      heard.length = 0;
+      await ctrl.sync(snap, []);
+      expect(heard.filter((h) => h !== 'flush')).toEqual(['studio_end', 'live false']);
+
+      // A PC that stops renewing hands back by itself.
+      await api('POST', '/autodj/studio', { on: true, ...pc });
+      await t.db.update(schema.autodjState).set({ studioUntil: new Date(Date.now() - 1000) }).where(eq(schema.autodjState.stationId, stationId));
+      expect((await api('GET', '/autodj')).json().studio).toEqual({ active: false, pc: null, user: null, until: null });
+      expect((await api('POST', '/autodj/studio/next', pc)).json().error.code).toBe('studio_off');
+    } finally {
+      player.close();
+      hook.close();
+      rmSync(path, { force: true });
+    }
+  });
+
   it('uploads files into the music folder', async () => {
     const file = join(t.ctx.config.DATA_DIR, 'upload.mp3');
     tone(file, { artist: 'Uploaded', title: 'Track' });

@@ -7,25 +7,17 @@ import { toast } from 'sonner';
 import { StereoMeter } from '../components/Meter';
 import { RecordingCard } from '../components/RecordingCard';
 import { Badge, Button, Card, CardHeader, EmptyState, Fact, Field, Input, Select } from '../components/ui';
-import { api, type StationDetail } from '../lib/api';
+import { encoderMount, liveChoice, liveTarget, sendTitle, startLive, stopLive } from '../lib/golive';
+import { studio, useStudio } from '../lib/studio';
 import { useEngine } from '../lib/engine';
 import { bytes, duration } from '../lib/format';
-import { chooseNow, linksOf, useLink, viaLabel } from '../lib/link';
-import { call, type Target } from '../lib/native';
+import { useLink, viaLabel } from '../lib/link';
+import { call } from '../lib/native';
 import { useAccounts, useStationDetail, useStatus } from '../lib/queries';
 import { useSession } from '../lib/session';
-import { getSettings, updateSettings, useSettings } from '../lib/settings';
+import { updateSettings, useSettings } from '../lib/settings';
 import type { Page } from '../components/Shell';
 
-const BITRATES = [64, 96, 128, 160, 192, 256, 320];
-
-/** The encoder mount of a station mount. */
-const encoderMount = (detail: StationDetail, mountId: string) => detail.connection.mounts.find((m) => m.id === mountId)?.encoderMount ?? null;
-
-// The target of the running broadcast, for title updates; it lives as long as the app.
-let activeTarget: Target | null = null;
-/** Where this PC broadcasts to now, for the status bar. */
-export const liveTarget = () => activeTarget;
 
 export function LivePage({ onPage }: { onPage: (p: Page) => void }) {
   const { t } = useTranslation();
@@ -43,14 +35,8 @@ export function LivePage({ onPage }: { onPage: (p: Page) => void }) {
     return () => clearInterval(id);
   }, []);
 
-  const sources = useMemo(() => (detail.data?.mounts ?? []).filter((m) => m.kind === 'source'), [detail.data]);
-  const mount = sources.find((m) => m.id === settings.live.mountId) ?? sources.find((m) => m.isDefault) ?? sources[0] ?? null;
-  const usable = (accounts.data ?? []).filter((a) => a.enabled && a.canBroadcast && (!a.mountIds.length || (mount && a.mountIds.includes(mount.id))));
-  const own = usable.filter((a) => me && a.userId === me.user.id);
-  const account = usable.find((a) => a.id === settings.live.accountId) ?? own[0] ?? usable[0] ?? null;
-  const maxBitrate = mount?.bitrateKbps ?? 320;
-  const bitrates = BITRATES.filter((b) => b <= maxBitrate);
-  const bitrate = bitrates.includes(settings.live.bitrate) ? settings.live.bitrate : (bitrates.at(-1) ?? 128);
+  const choice = useMemo(() => liveChoice(detail.data, accounts.data, me, settings.live), [detail.data, accounts.data, me, settings.live]);
+  const { sources, mount, usable, own, account, bitrates, bitrate } = choice;
   const plainHosts = settings.live.plainHosts ?? [];
   const link = useLink(detail.data);
   const ingest = detail.data && mount && encoderMount(detail.data, mount.id) ? (link.picked?.to ?? null) : null;
@@ -66,32 +52,23 @@ export function LivePage({ onPage }: { onPage: (p: Page) => void }) {
     /certificate|certificaat|tls/i.test(broadcast.error);
   const onAir = broadcast.state !== 'off';
   const otherLive = (status.data?.live ?? []).filter((l) => !(onAir && account && l.accountName === account.username));
+  const inStudio = useStudio((s) => s.phase !== 'off');
 
   const goLive = useMutation({
     mutationFn: async (opts: { plain?: boolean } = {}) => {
-      const em = detail.data && mount ? encoderMount(detail.data, mount.id) : null;
-      if (!station || !detail.data || !mount || !account || !em) throw new Error(t('live.notReady'));
-      // Choose the address again now: the studio network may have come back or gone since the page opened.
-      const live = getSettings().live;
-      const chosen = await chooseNow(linksOf(detail.data, opts.plain ? [...(live.plainHosts ?? []), host] : live.plainHosts), live.link ?? 'auto', live.manual);
-      if (!chosen) throw new Error(t('live.notReady'));
-      const to = { ...chosen.to, mount: em };
-      const token = await api<{ username: string; password: string }>(`/studio/stations/${station.id}/live-token`, { method: 'POST', body: { accountId: account.id } });
-      const target: Target = { ...to, username: token.username, password: token.password, bitrate, sampleRate: info?.sampleRate ?? 48000, name: station.name };
-      await call('start_broadcast', { target });
-      activeTarget = target;
+      if (!station || !detail.data) throw new Error(t('live.notReady'));
+      // Outside studio mode the sound card input always goes live (studio mode may have left it off).
+      await call('set_mic', { open: true });
+      await startLive(station, detail.data, choice, { sampleRate: info?.sampleRate ?? 48000, plain: opts.plain ? host : undefined, notReady: t('live.notReady') });
     },
     onError: (err) => toast.error((err as Error).message ?? String(err)),
   });
-  const stop = () => {
-    void call('stop_broadcast');
-    activeTarget = null;
-  };
+  // In studio mode, stopping here hands the station back to the AutoDJ.
+  const stop = () => (inStudio ? void studio.stop() : stopLive());
   const setPlain = (on: boolean) => updateSettings((s) => ({ live: { ...s.live, plainHosts: on ? [...new Set([...(s.live.plainHosts ?? []), host])] : (s.live.plainHosts ?? []).filter((h) => h !== host) } }));
   const goPlain = async () => {
     setPlain(true);
     await call('stop_broadcast');
-    activeTarget = null;
     goLive.mutate({ plain: true });
   };
 
@@ -102,12 +79,13 @@ export function LivePage({ onPage }: { onPage: (p: Page) => void }) {
       sentTitle.current = null;
       return;
     }
-    if (activeTarget && title.trim() && sentTitle.current !== title.trim()) {
+    // In studio mode the title of every track goes out instead.
+    if (!inStudio && liveTarget() && title.trim() && sentTitle.current !== title.trim()) {
       const v = title.trim();
       sentTitle.current = v;
-      void call('send_metadata', { target: activeTarget, title: v }).catch((e) => toast.error(String(e)));
+      void sendTitle(v).catch((e) => toast.error(String(e)));
     }
-  }, [broadcast.state, title]);
+  }, [broadcast.state, title, inStudio]);
 
   if (!station) return <EmptyState icon={<Radio className="size-6" />} title={t('station.none')} description={t('station.noneText')} />;
 
@@ -225,7 +203,7 @@ export function LivePage({ onPage }: { onPage: (p: Page) => void }) {
                   disabled={broadcast.state !== 'live' || !title.trim()}
                   onClick={() => {
                     updateSettings((s) => ({ live: { ...s.live, title } }));
-                    if (activeTarget) void call('send_metadata', { target: activeTarget, title: title.trim() }).then(() => toast.success(t('live.titleSent')), (e) => toast.error(String(e)));
+                    if (liveTarget()) void sendTitle(title).then(() => toast.success(t('live.titleSent')), (e) => toast.error(String(e)));
                   }}
                 >
                   <Send className="size-4" />

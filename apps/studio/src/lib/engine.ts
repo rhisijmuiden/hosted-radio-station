@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react';
-import { call, onEngine, type BroadcastStatus, type CartState, type EngineInfo, type Meters } from './native';
+import { call, onEngine, type BroadcastStatus, type CartState, type DeckEvent, type DeckState, type EngineInfo, type Meters } from './native';
 
 interface EngineState {
   meters: Meters;
@@ -7,6 +7,8 @@ interface EngineState {
   broadcast: BroadcastStatus;
   info: EngineInfo | null;
   cartErrors: Record<number, string>;
+  /** Studio mode: players A and B. */
+  decks: DeckState[];
 }
 
 let state: EngineState = {
@@ -15,9 +17,12 @@ let state: EngineState = {
   broadcast: { state: 'off' },
   info: null,
   cartErrors: {},
+  decks: [],
 };
 const listeners = new Set<() => void>();
 const meterListeners = new Set<(m: Meters) => void>();
+const deckListeners = new Set<(e: DeckEvent) => void>();
+const deckStateListeners = new Set<(d: DeckState[]) => void>();
 let started = false;
 
 function set(patch: Partial<EngineState>) {
@@ -46,6 +51,13 @@ export function startEngineEvents() {
         break;
       case 'cartError':
         set({ cartErrors: { ...state.cartErrors, [e.data.slot]: e.data.error } });
+        break;
+      case 'decks':
+        set({ decks: e.data });
+        deckStateListeners.forEach((l) => l(e.data));
+        break;
+      case 'deck':
+        deckListeners.forEach((l) => l(e.data));
         break;
     }
   });
@@ -76,4 +88,18 @@ export function useMeters(cb: (m: Meters) => void) {
       meterListeners.delete(cb);
     };
   }, [cb]);
+}
+
+/** The engine state now, outside React (studio mode). */
+export const engineState = () => state;
+
+/** Studio mode: what happens on the players (started, next point, ended), and their state. */
+export function onDeck(cb: (e: DeckEvent) => void, states?: (d: DeckState[]) => void) {
+  startEngineEvents();
+  deckListeners.add(cb);
+  if (states) deckStateListeners.add(states);
+  return () => {
+    deckListeners.delete(cb);
+    if (states) deckStateListeners.delete(states);
+  };
 }
