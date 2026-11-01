@@ -22,7 +22,7 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 - RHIS Studio 0.26: from the AutoDJ view a station manager goes straight to the editor in the Manage view: **Edit
   clock** on the hour clock of this hour (or a click on a clock name in the coming hours) opens that clock, **Edit in
   Manage** in the details of a block opens that block, **Edit schedule** opens the weekly schedule. Ctrl+4 or Back to
-  the player returns to the AutoDJ view. DJs keep the view without these buttons.
+  the player returns to the AutoDJ view, on the tab it was on. DJs keep the view without these buttons.
 
 ## 1.6.0 (31 October 2026)
 
