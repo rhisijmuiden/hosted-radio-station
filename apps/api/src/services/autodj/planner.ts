@@ -572,6 +572,17 @@ export async function playerStarted(ctx: AppContext, stationId: string) {
   });
 }
 
+/**
+ * Studio mode starts (RHIS Studio plays the queue itself): the tracks the AutoDJ loaded ahead go back to waiting, so the
+ * studio PC gets them from the top of the queue. The track on air stays on air until the PC reports its first track.
+ */
+export async function releaseLoaded(ctx: AppContext, stationId: string) {
+  await ctx.db.transaction(async (tx) => {
+    await lock(tx, stationId);
+    await tx.update(schema.queueItems).set({ state: 'queued', cuedAt: null }).where(and(eq(schema.queueItems.stationId, stationId), inArray(schema.queueItems.state, ['cued', 'loaded'])));
+  });
+}
+
 /** Puts a library track in a queue, at the top (before the waiting tracks; requests after earlier requests) or at the bottom. */
 export async function enqueue(
   ctx: AppContext,
@@ -661,14 +672,17 @@ export interface QueueRow {
   media: { id: string; title: string; artist: string; album: string; durationSeconds: number | null; location: string; path: string } & Cues;
 }
 
-/** Everything in the queues, first to last, with the track on air: on air, cued, loaded behind it, then waiting. */
-export async function queueRows(ctx: AppContext, stationId: string): Promise<QueueRow[]> {
+/**
+ * Everything in the queues, first to last, with the track on air: on air, cued, loaded behind it, then waiting. With
+ * `itemId` only that row, also when it is a planned pick of the log.
+ */
+export async function queueRows(ctx: AppContext, stationId: string, itemId?: string): Promise<QueueRow[]> {
   const rows = await ctx.db
     .select({ item: schema.queueItems, media: schema.mediaFiles, playlistName: schema.playlists.name })
     .from(schema.queueItems)
     .innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.queueItems.mediaId))
     .leftJoin(schema.playlists, eq(schema.playlists.id, schema.queueItems.playlistId))
-    .where(and(eq(schema.queueItems.stationId, stationId), isNull(schema.queueItems.slot)))
+    .where(and(eq(schema.queueItems.stationId, stationId), itemId ? eq(schema.queueItems.id, itemId) : isNull(schema.queueItems.slot)))
     .orderBy(
       desc(sql`${schema.queueItems.state} = 'playing'`),
       desc(sql`${schema.queueItems.state} = 'cued'`),

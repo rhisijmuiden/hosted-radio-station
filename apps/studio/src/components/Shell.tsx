@@ -9,10 +9,12 @@ import { useNow } from '../lib/now';
 import { useAutoDj, useRundown, useStatus } from '../lib/queries';
 import { useSession } from '../lib/session';
 import { useSettings } from '../lib/settings';
+import { useStudio } from '../lib/studio';
 import { blocksOf } from '../lib/timeline';
-import { liveTarget } from '../pages/Live';
+import { liveTarget } from '../lib/golive';
 import { InfoButton } from './InfoDialog';
 import { LayoutMenu } from './LayoutMenu';
+import { StudioBanner, StudioHotkeys, StudioModeSwitch } from './Studio';
 import { StereoMeter } from './Meter';
 import { LanguageToggle, ThemeToggle } from './Toggles';
 import { Avatar } from './ui';
@@ -172,6 +174,7 @@ function TopBar({ page }: { page: Page }) {
   const { me } = useSession();
   const live = status.data?.live[0];
   const meLive = broadcast.state === 'live';
+  const inStudio = useStudio((s) => s.phase === 'on');
   return (
     <header className="flex items-center gap-5 border-b border-line bg-raised px-5 py-3">
       <div className="w-60 shrink-0">
@@ -186,11 +189,12 @@ function TopBar({ page }: { page: Page }) {
         title={meLive ? t('live.tipYou') : live ? t('live.tipOther', { name: live.accountName }) : t('live.tipAutodj')}
       >
         <i className={clsx('size-2.5 rounded-full', meLive ? 'bg-white' : live ? 'bg-offline' : 'bg-muted/50')} />
-        {meLive ? (me ? `${t('live.onAir')} · ${me.user.name.split(' ')[0]}` : t('live.onAir')) : live ? t('live.liveBy', { name: live.accountName }) : t('live.autodj')}
+        {meLive ? (inStudio ? `${t('live.onAir')} · ${t('studio.mode')}` : me ? `${t('live.onAir')} · ${me.user.name.split(' ')[0]}` : t('live.onAir')) : live ? t('live.liveBy', { name: live.accountName }) : t('live.autodj')}
         {!meLive && !live && autodj.data?.playout && (
           <span className="font-semibold tracking-normal normal-case">· {autodj.data.playout.manual ? t('playout.manual') : t('playout.auto')}</span>
         )}
       </div>
+      <StudioModeSwitch />
       <NextBlock />
       <div className="flex-1" />
       {page === 'assist' && station?.edition === 'station' && <LayoutMenu />}
@@ -283,12 +287,14 @@ export function Shell({ page, onPage, children }: { page: Page; onPage: (p: Page
         <NavRail page={page} onPage={onPage} />
         <div className="flex min-w-0 flex-1 flex-col">
           <TopBar page={page} />
+          <StudioBanner />
           <main className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</main>
         </div>
         <MeterColumn />
       </div>
       <StatusBar />
       <PlayoutKeepAlive />
+      <StudioHotkeys />
     </div>
   );
 }

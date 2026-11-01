@@ -57,7 +57,41 @@ export interface Meters {
   input: [number, number];
   output: [number, number];
   carts: number;
+  /** The players of studio mode (RHIS Studio 0.27). */
+  decks?: number;
   limiterDb: number;
+}
+/** Studio mode: a track for player A (0) or B (1), cue points in seconds from the start of the file. */
+export interface DeckLoad {
+  path: string;
+  id: string;
+  title: string;
+  start: number;
+  end: number | null;
+  nextAt: number | null;
+  fadeOutAt: number | null;
+  fadeIn: number;
+  gainDb: number;
+}
+export interface DeckState {
+  deck: number;
+  id: string | null;
+  title: string;
+  loaded: boolean;
+  ready: boolean;
+  playing: boolean;
+  fading: boolean;
+  /** Seconds in the file. */
+  position: number;
+  start: number;
+  end: number;
+  nextAt: number;
+  error: string | null;
+}
+export interface DeckEvent {
+  kind: 'started' | 'next' | 'ended';
+  deck: number;
+  id: string;
 }
 export interface CartState {
   slot: number;
@@ -119,7 +153,9 @@ export type EngineEvent =
   | { kind: 'carts'; data: CartState[] }
   | { kind: 'broadcast'; data: BroadcastStatus }
   | { kind: 'engine'; data: EngineInfo }
-  | { kind: 'cartError'; data: { slot: number; error: string } };
+  | { kind: 'cartError'; data: { slot: number; error: string } }
+  | { kind: 'decks'; data: DeckState[] }
+  | { kind: 'deck'; data: DeckEvent };
 
 // Simulation for the browser
 
@@ -156,6 +192,49 @@ const sim = {
   previewOutput: null as string | null,
   preview: { loaded: false, playing: false, ended: false, name: '', position: 0, duration: 0, device: null, at: 0 } as PreviewState & { at: number },
   timer: 0 as unknown as ReturnType<typeof setInterval>,
+  decks: [null, null] as ({ load: DeckLoad; playing: boolean; at: number; from: number; nextSent: boolean } | null)[],
+  deckAuto: true,
+  mic: true,
+  deckState(i: number): DeckState {
+    const d = sim.decks[i];
+    if (!d) return { deck: i, id: null, title: '', loaded: false, ready: false, playing: false, fading: false, position: 0, start: 0, end: 0, nextAt: 0, error: null };
+    const end = d.load.end ?? d.load.start + 200;
+    const position = d.playing ? d.from + (Date.now() - d.at) / 1000 : d.from;
+    return { deck: i, id: d.load.id, title: d.load.title, loaded: true, ready: true, playing: d.playing, fading: false, position, start: d.load.start, end, nextAt: Math.min(end, d.load.nextAt ?? end), error: null };
+  },
+  playDeck(i: number) {
+    const d = sim.decks[i];
+    if (!d || d.playing) return;
+    Object.assign(d, { playing: true, at: Date.now() });
+    sim.emit({ kind: 'deck', data: { kind: 'started', deck: i, id: d.load.id } });
+    const o = sim.decks[1 - i];
+    if (o?.playing) {
+      o.nextSent = true;
+      setTimeout(() => {
+        if (sim.decks[1 - i] === o) {
+          sim.decks[1 - i] = null;
+          sim.emit({ kind: 'deck', data: { kind: 'ended', deck: 1 - i, id: o.load.id } });
+        }
+      }, 1500);
+    }
+  },
+  tickDecks() {
+    for (let i = 0; i < 2; i++) {
+      const d = sim.decks[i];
+      if (!d?.playing) continue;
+      const s = sim.deckState(i);
+      if (!d.nextSent && s.position >= s.nextAt) {
+        d.nextSent = true;
+        sim.emit({ kind: 'deck', data: { kind: 'next', deck: i, id: d.load.id } });
+        if (sim.deckAuto) sim.playDeck(1 - i);
+      }
+      if (s.position >= s.end) {
+        sim.decks[i] = null;
+        sim.emit({ kind: 'deck', data: { kind: 'ended', deck: i, id: d.load.id } });
+      }
+    }
+    sim.emit({ kind: 'decks', data: [sim.deckState(0), sim.deckState(1)] });
+  },
   emit(e: EngineEvent) {
     sim.listeners.forEach((l) => l(e));
   },
@@ -178,8 +257,12 @@ const sim = {
       const carts = playing.length ? 0.3 + Math.random() * 0.1 : 0;
       const l = wobble(0);
       const r = wobble(1);
-      sim.emit({ kind: 'meters', data: { input: [l, r], output: [Math.min(0.94, l + carts * 0.6), Math.min(0.94, r + carts * 0.6)], carts, limiterDb: l > 0.85 ? -1.5 : 0 } });
+      const decks = sim.decks.some((d) => d?.playing) ? 0.55 + Math.random() * 0.15 : 0;
+      const mic = sim.mic ? 1 : 0;
+      const out = (x: number) => Math.min(0.94, x * mic + carts * 0.6 + decks * (sim.mic && x > 0.2 ? 0.3 : 0.85));
+      sim.emit({ kind: 'meters', data: { input: [l, r], output: [out(l), out(r)], carts, decks, limiterDb: l > 0.85 ? -1.5 : 0 } });
       if (playing.length || t % 10 === 0) sim.emit({ kind: 'carts', data: sim.carts.map(({ started: _s, ...c }) => c) });
+      if (t % 3 === 0 && (sim.decks[0] || sim.decks[1])) sim.tickDecks();
       if (sim.broadcast.state === 'live') {
         sim.broadcast = { ...sim.broadcast, bytes: sim.broadcast.bytes + 640 };
         if (t % 25 === 0) sim.emit({ kind: 'broadcast', data: sim.broadcast });
@@ -254,6 +337,29 @@ async function simInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Pr
       return undefined as T;
     case 'cache_file':
       return `C:\\Cache\\${args.name as string}` as T;
+    case 'deck_load': {
+      const load = args.load as DeckLoad;
+      sim.decks[args.deck as number] = { load, playing: false, at: 0, from: load.start, nextSent: false };
+      sim.tickDecks();
+      return undefined as T;
+    }
+    case 'deck_play':
+      sim.playDeck(args.deck as number);
+      return undefined as T;
+    case 'deck_stop':
+    case 'deck_clear': {
+      const d = sim.decks[args.deck as number];
+      sim.decks[args.deck as number] = null;
+      if (d?.playing) sim.emit({ kind: 'deck', data: { kind: 'ended', deck: args.deck as number, id: d.load.id } });
+      sim.tickDecks();
+      return undefined as T;
+    }
+    case 'deck_mode':
+      sim.deckAuto = args.auto as boolean;
+      return undefined as T;
+    case 'set_mic':
+      sim.mic = args.open as boolean;
+      return undefined as T;
     case 'stop_all_carts':
       sim.carts.forEach((c) => Object.assign(c, { playing: false, position: 0 }));
       return undefined as T;

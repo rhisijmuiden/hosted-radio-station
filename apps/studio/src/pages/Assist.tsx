@@ -21,6 +21,7 @@ import { ManageView } from './Manage';
 import { useAutoDj, useHistory, useRundown } from '../lib/queries';
 import { clock, DRAG, queueOf, useLineText, useQueueActions } from '../lib/queue';
 import { useSession } from '../lib/session';
+import { useStudio } from '../lib/studio';
 import { backtime, blocksOf, timeline, type Line } from '../lib/timeline';
 
 function NowPlaying({ data, stationId, lines, now }: { data: AutoDj; stationId: string; lines: Line[]; now: number }) {
@@ -228,6 +229,7 @@ export function AssistPage() {
   const [layout] = useLayout();
   const view = useAssistView();
   const omni = view === 'omni';
+  const studioHere = useStudio((s) => s.phase !== 'off' && s.phase !== 'lost' && s.stationId === station?.id);
   const history = useHistory(station?.id, autodj.data?.nowPlaying?.id, omni && layout.panels.history && station?.edition === 'station' && supports('history'));
   if (view === 'manage' && station) return <ManageView station={station} />;
   if (view === 'autodj' && station) return <AutoDjView station={station} />;
@@ -299,7 +301,7 @@ export function AssistPage() {
   return (
     <div className="grid h-full min-h-[600px] grid-cols-[minmax(0,1fr)_minmax(300px,360px)] gap-4">
       <div className="flex min-h-0 flex-col gap-4">
-        <NowPlaying data={data} stationId={station.id} lines={lines} now={now} />
+        {studioHere ? <Decks data={data} stationId={station.id} lines={lines} now={now} /> : <NowPlaying data={data} stationId={station.id} lines={lines} now={now} />}
         {supports('jingles') && <JingleBar stationId={station.id} />}
         <PlaylistCard data={data} stationId={station.id} lines={lines} until={until} />
       </div>

@@ -1,6 +1,7 @@
 //! RHIS Studio: the Windows client of Hosted Radio Station.
 
 mod carts;
+mod decks;
 mod engine;
 mod files;
 mod preview;
@@ -78,6 +79,43 @@ fn stop_cart(engine: State<'_, Arc<Engine>>, slot: usize) {
 #[tauri::command]
 fn stop_all_carts(engine: State<'_, Arc<Engine>>) {
     engine.stop_all_carts();
+}
+
+/// Studio mode: a track on player A (0) or B (1), from a file on this PC (see `cache_file`).
+#[tauri::command]
+fn deck_load(engine: State<'_, Arc<Engine>>, deck: usize, load: decks::DeckLoad) -> Result<(), String> {
+    if !std::path::Path::new(&load.path).is_file() {
+        return Err(format!("{} is not a file", load.path));
+    }
+    engine.deck_load(deck, load);
+    Ok(())
+}
+
+#[tauri::command]
+fn deck_play(engine: State<'_, Arc<Engine>>, deck: usize, fade: Option<f32>) {
+    engine.deck_play(deck, fade);
+}
+
+#[tauri::command]
+fn deck_stop(engine: State<'_, Arc<Engine>>, deck: usize, fade: f32) {
+    engine.deck_stop(deck, fade);
+}
+
+#[tauri::command]
+fn deck_clear(engine: State<'_, Arc<Engine>>, deck: usize) {
+    engine.deck_clear(deck);
+}
+
+/// Auto: the next deck starts by itself at the next point of the track on air. Crossfade: how long the one before fades.
+#[tauri::command]
+fn deck_mode(engine: State<'_, Arc<Engine>>, auto: bool, crossfade: f32) {
+    engine.deck_mode(auto, crossfade);
+}
+
+/// Studio mode: the microphone (sound card input) into the mix or not. Outside studio mode it is always on.
+#[tauri::command]
+fn set_mic(engine: State<'_, Arc<Engine>>, open: bool) {
+    engine.set_mic(open);
 }
 
 #[tauri::command]
@@ -264,6 +302,12 @@ pub fn run() {
             play_cart,
             stop_cart,
             stop_all_carts,
+            deck_load,
+            deck_play,
+            deck_stop,
+            deck_clear,
+            deck_mode,
+            set_mic,
             start_broadcast,
             stop_broadcast,
             broadcast_status,
