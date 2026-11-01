@@ -3,21 +3,27 @@ import { ChevronDown, LayoutPanelLeft } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Switch } from './ui';
-import { DECK_WIDTH, useAssistView, useCanManage, useLayout, type OmniPanel } from '../lib/layout';
+import { DECK_WIDTH, VIEW_KEYS, useAssistView, useCanAutoDj, useCanManage, useLayout, type AssistView, type OmniPanel } from '../lib/layout';
 
 const PANELS: OmniPanel[] = ['history', 'single', 'news', 'jingles', 'stationCarts', 'dashboard', 'library'];
 
-type View = 'classic' | 'omni' | 'manage';
 
-/** Ctrl+1, Ctrl+2 and Ctrl+3 switch the view, from every screen. */
+/** The views this user may open, in the order of the menu. */
+function useViews(): AssistView[] {
+  const canManage = useCanManage();
+  const canAutoDj = useCanAutoDj();
+  return ['classic', 'omni', ...(canAutoDj ? (['autodj'] as const) : []), ...(canManage ? (['manage'] as const) : [])];
+}
+
+/** Ctrl+1 to Ctrl+4 switch the view, from every screen. */
 export function useViewShortcuts(onAssist: () => void) {
   const [, setLayout] = useLayout();
-  const canManage = useCanManage();
+  const views = useViews();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
-      const view = ({ '1': 'classic', '2': 'omni', '3': 'manage' } as const)[e.key];
-      if (!view || (view === 'manage' && !canManage)) return;
+      const view = views.find((v) => String(VIEW_KEYS[v]) === e.key);
+      if (!view) return;
       e.preventDefault();
       setLayout(view === 'manage' ? { manage: true } : { assist: view, manage: false });
       onAssist();
@@ -32,7 +38,7 @@ export function LayoutMenu() {
   const { t } = useTranslation();
   const [layout, setLayout] = useLayout();
   const view = useAssistView();
-  const canManage = useCanManage();
+  const views = useViews();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -47,7 +53,6 @@ export function LayoutMenu() {
   }, []);
   // Switching view another way (Ctrl+1/2/3, Back to player) closes the menu too.
   useEffect(() => setOpen(false), [view]);
-  const views: View[] = canManage ? ['classic', 'omni', 'manage'] : ['classic', 'omni'];
   return (
     <div ref={ref} className="relative shrink-0">
       <button
@@ -62,10 +67,10 @@ export function LayoutMenu() {
         <ChevronDown className="size-3.5 text-muted" />
       </button>
       {open && (
-        <div className="absolute top-full right-0 z-30 mt-1 w-80 rounded-md border border-line bg-raised p-3 shadow-lg">
+        <div className="absolute top-full right-0 z-30 mt-1 w-[380px] rounded-md border border-line bg-raised p-3 shadow-lg">
           <div className="text-[10px] font-bold tracking-[0.08em] text-muted uppercase">{t('layout.title')}</div>
           <div role="radiogroup" className="mt-2 flex rounded-md border border-line bg-surface p-0.5">
-            {views.map((v, i) => (
+            {views.map((v) => (
               <button
                 key={v}
                 type="button"
@@ -76,14 +81,15 @@ export function LayoutMenu() {
                   // OmniPlayer keeps the menu open for its panels; the other views close it.
                   if (v !== 'omni') setOpen(false);
                 }}
-                title={`Ctrl+${i + 1}`}
-                className={clsx('h-8 flex-1 rounded-[7px] text-[13px] font-bold transition-colors', view === v ? 'bg-koraal text-nacht' : 'text-muted hover:text-ink')}
+                title={`Ctrl+${VIEW_KEYS[v]}`}
+                className={clsx('h-8 flex-1 rounded-[7px] px-1 text-[12.5px] font-bold transition-colors', view === v ? 'bg-koraal text-nacht' : 'text-muted hover:text-ink')}
               >
                 {t(`layout.${v}`)}
               </button>
             ))}
           </div>
           {view === 'manage' && <p className="mt-3 text-[12px] text-muted">{t('layout.manageHint')}</p>}
+          {view === 'autodj' && <p className="mt-3 text-[12px] text-muted">{t('layout.autodjHint')}</p>}
           {view === 'omni' && (
             <>
               <div className="mt-4 text-[10px] font-bold tracking-[0.08em] text-muted uppercase">{t('layout.panels')}</div>
@@ -103,7 +109,7 @@ export function LayoutMenu() {
             </>
           )}
           <p className="mt-3 border-t border-line pt-2 text-[11px] text-muted">{t('layout.profileHint')}</p>
-          <p className="mt-1 text-[11px] text-muted">{t('layout.shortcuts', { keys: views.map((v, i) => `Ctrl+${i + 1} ${t(`layout.${v}`)}`).join(' · ') })}</p>
+          <p className="mt-1 text-[11px] text-muted">{t('layout.shortcuts', { keys: [...views].sort((a, b) => VIEW_KEYS[a] - VIEW_KEYS[b]).map((v) => `Ctrl+${VIEW_KEYS[v]} ${t(`layout.${v}`)}`).join(' · ') })}</p>
         </div>
       )}
     </div>

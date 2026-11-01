@@ -14,7 +14,7 @@ import { Button, Card, Spinner, Table } from '../components/ui';
 import type { NetworkNode, RundownRow, StationListItem } from '../lib/api';
 import { trackLength } from '../lib/cues';
 import { duration } from '../lib/format';
-import { useLayout } from '../lib/layout';
+import { VIEW_KEYS, useLayout } from '../lib/layout';
 import { useNow } from '../lib/now';
 import { useAutoDj, useNetwork, useRouting, useRundown, useStatus } from '../lib/queries';
 
@@ -234,7 +234,7 @@ function PlayerBar({ station }: { station: StationListItem }) {
   const total = np ? trackLength(np.media) : null;
   const elapsed = np?.startedAt ? (now - new Date(np.startedAt).getTime()) / 1000 : 0;
   const live = status.data?.live[0];
-  const key = layout.assist === 'omni' ? 2 : 1;
+  const key = VIEW_KEYS[layout.assist];
   return (
     <div className="flex shrink-0 items-center gap-4 border-t border-line bg-raised px-5 py-2.5">
       <span className={clsx('rounded-md px-2.5 py-1 text-[11px] font-extrabold tracking-[0.1em] uppercase', np || live ? 'bg-online/15 text-online' : 'bg-chip text-muted')}>
