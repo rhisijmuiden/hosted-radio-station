@@ -16,6 +16,10 @@ import { useNow } from '../lib/now';
 import { useAutoDj, useRundown, useStatus } from '../lib/queries';
 import { blocksOf } from '../lib/timeline';
 
+type Tab = 'now' | 'schedule';
+/** The tab last open: back from the Manage view (Ctrl+4) the view opens where it was. */
+let lastTab: Tab = 'now';
+
 /** How many hours the view looks ahead, the current one included. */
 const HOURS = 6;
 
@@ -78,7 +82,11 @@ export function AutoDjView({ station }: { station: StationListItem }) {
   const canManage = useCanManage();
   const openInManage = useOpenInManage();
   const now = useNow(1000);
-  const [tab, setTab] = useState<'now' | 'schedule'>('now');
+  const [tab, setTabState] = useState<Tab>(() => lastTab);
+  const setTab = (v: Tab) => {
+    lastTab = v;
+    setTabState(v);
+  };
 
   if (rundown.isPending || autodj.isPending) {
     return (

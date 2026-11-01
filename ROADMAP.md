@@ -681,6 +681,21 @@ Reinder chose option A of the sketch (31 October 2026): a top menu with large dr
 3. **My nodes** (in test): a "Your limits" block with own nodes, stations, Radio stations and storage used against the package, and the roles the customer may give its own nodes (others shown with a lock). The API refuses roles outside the package when a customer adds a node or changes its roles; roles a node already has may stay. New customers start with a station node only; customers from before keep every role until the administrator sets them.
 4. **Permissions** tab on a customer in the admin panel (in test): stations in total and of which Radio stations, own nodes on/off and maximum, storage, listeners and bitrate (each with what is in use), the roles own nodes may have (station node on by default), and what the customer may do itself: change routing and placement, create stations, switch the edition. The API enforces each; administrators can always.
 
+### AutoDJ view in RHIS Studio (in test, Studio 0.24–0.26)
+
+A fourth view **AutoDJ** in the layout menu of RHIS Studio (Ctrl+4) for every DJ of a Radio station, next to Classic,
+OmniPlayer and Manage. Built in three steps, each tested on the Windows test PC:
+
+1. **Now & coming hours** (0.24): what is on air, the hour clock and block now, the next fixed item and the next change
+   in the schedule; the hour clock on air as a dial with a hand at the minute now (the played part dimmed, the item now
+   marked), and the next five hours with their clock, show and fixed items.
+2. **Schedule** (0.25): today as a 24-hour bar and list, the week as seven columns with week navigation; a click on a
+   block shows its days, time, hour clock, live or not, DJs and whether it is public.
+3. **Edit for managers** (0.26): Edit clock, Edit schedule and Edit in Manage open the right clock or block in the Manage
+   view; Ctrl+4 brings you back. DJs only look.
+
+No server change: it uses the rundown and scheduler a DJ could already read.
+
 ### Small fixes (own thread, done in between)
 
 Small fixes are collected here and handled one at a time in a separate thread, next to the main item in the order of work.
