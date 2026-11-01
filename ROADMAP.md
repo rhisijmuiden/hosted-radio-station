@@ -733,6 +733,8 @@ A WordPress plugin for customer websites, built on the station node API above.
 
 ### Studio mode in RHIS Studio: microphone over the queue
 
+Sketch approved by Reinder on 1 November 2026: https://claude.ai/artifact/2mGWnZo4P7G4MNxugKares (take-over dialog, studio mode with mic on, auto mic off before a locked news block, fallback to the server AutoDJ after 10 s).
+
 Today Go Live stops the server's music and sends only what RHIS Studio plays itself (sound card input, jingles, single player). Studio mode lets a DJ present a show from the queue with their own microphone:
 
 - RHIS Studio becomes the playout: it plays the queue (players A and B, with the cue points and crossfades from the server) itself, together with the jingles and the microphone, and sends that one mix live. The DJ hears everything without stream delay, so talking over intros works.
