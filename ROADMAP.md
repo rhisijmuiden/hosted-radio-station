@@ -697,6 +697,7 @@ Small fixes are collected here and handled one at a time in a separate thread, n
 - **Update all nodes at once** (fixed, 1.6.0): an option for test setups to update every node at the same time instead of one by one.
 - **Upload folder under the chosen folder** (fixed, 1.6.0): the folder typed in the upload dialog landed at the root of the library instead of under the folder that is open (music by default); the dialog now shows that folder as a fixed start and the field is only the subfolder.
 - **Now playing lost after a node update** (open bug, 1 November 2026): after Harder.FM's station node was updated (test 624d141, 10:14) the stream played a long mix, but the AutoDJ showed nothing as now playing and only one cued track without a start time. Likely cause: the player restarted before the streams service answered, so it could not get its next track from the queue and took one from its emergency playlist, which has no queue item. To check: let the player wait for the streams service after a restart, and hand the queue back once it answers.
+- **Listen link briefly refuses new listeners** (open bug, 1 November 2026): while monitoring from a PC on the LAN, `http://10.10.4.240/listen/radioschermer/live` twice refused or timed out new connections for about 20 and 45 seconds (11:41 and 11:59 local), while the now-playing API kept answering. To check: the listen route and its relay choice (compare the earlier "no relay" 503 while pub-relay-01 was updating), and the LAN between that PC and the server.
 
 ### FM/MPX release: Stereo Tool processing (parked)
 
