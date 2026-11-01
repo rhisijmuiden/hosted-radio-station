@@ -1,10 +1,11 @@
 import clsx from 'clsx';
 import { Clock3, ListMusic, Lock, Mic, Music2, Newspaper, Radio } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { AutoDjSchedule } from '../components/AutoDjSchedule';
 import { ClockDonut } from '../components/ClockDonut';
 import { Label } from '../components/manage/common';
-import { Badge, Card, EmptyState, Spinner } from '../components/ui';
+import { Badge, Card, EmptyState, Spinner, Tabs } from '../components/ui';
 import type { Clock, RundownRow, StationListItem } from '../lib/api';
 import { clockLayout, paint, usePlaylists, useItemInfo, useScheduler } from '../lib/clocks';
 import { trackLength } from '../lib/cues';
@@ -72,6 +73,7 @@ export function AutoDjView({ station }: { station: StationListItem }) {
   const playlists = usePlaylists(station.id);
   const info = useItemInfo(playlists.data, scheduler.data?.tracks ?? [], {});
   const now = useNow(1000);
+  const [tab, setTab] = useState<'now' | 'schedule'>('now');
 
   if (rundown.isPending || autodj.isPending) {
     return (
@@ -83,7 +85,12 @@ export function AutoDjView({ station }: { station: StationListItem }) {
   if (!rundown.data) return <EmptyState icon={<Clock3 className="size-6" />} title={t('autodjView.loadFailed')} description={(rundown.error as Error)?.message} />;
 
   const tz = rundown.data.timezone;
-  const time = (ms: number | string) => new Date(ms).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', timeZone: tz });
+  const time = (ms: number | string) =>
+    new Date(ms).toLocaleTimeString('nl-NL', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: tz,
+    });
   const hours = hoursOf(rundown.data.rows);
   const current = hours[0];
   const clocks = new Map<string, Clock>((scheduler.data?.clocks ?? []).map((c) => [c.id, c]));
@@ -101,9 +108,15 @@ export function AutoDjView({ station }: { station: StationListItem }) {
   const elapsed = np?.startedAt ? (now - new Date(np.startedAt).getTime()) / 1000 : 0;
   const stuck = data?.player.stuckSince ?? null;
   const state = live
-    ? { tone: 'onair' as const, text: t('autodjView.live', { name: live.accountName }) }
+    ? {
+        tone: 'onair' as const,
+        text: t('autodjView.live', { name: live.accountName }),
+      }
     : stuck
-      ? { tone: 'offline' as const, text: t('autodjView.stuck', { time: time(stuck) }) }
+      ? {
+          tone: 'offline' as const,
+          text: t('autodjView.stuck', { time: time(stuck) }),
+        }
       : data?.playout?.manual && data.playout.holding
         ? { tone: 'warning' as const, text: t('autodjView.holding') }
         : np
@@ -123,145 +136,201 @@ export function AutoDjView({ station }: { station: StationListItem }) {
         </Badge>
         {!rundown.data.enabled && <Badge tone="warning">{t('autodjView.schedulerOff')}</Badge>}
       </div>
-
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <Fact label={t('autodjView.onAir')} sub={next ? t('autodjView.next', { title: [next.media.artist, next.media.title].filter(Boolean).join(' – ') || next.label || '' }) : undefined}>
-          {np ? [np.media.artist, np.media.title].filter(Boolean).join(' – ') || np.label : <span className="text-muted">{t('autodjView.nothing')}</span>}
-          {np && total ? (
-            <div className="mt-2 flex items-center gap-2">
-              <div className="h-1 flex-1 overflow-hidden rounded-full bg-chip">
-                <div className="h-full bg-koraal transition-[width]" style={{ width: `${Math.min(100, (elapsed / total) * 100)}%` }} />
-              </div>
-              <span className="font-mono text-[11px] tabular text-muted">-{duration(Math.max(0, total - elapsed))}</span>
-            </div>
-          ) : null}
-        </Fact>
-        <Fact label={t('autodjView.clockNow')} sub={current?.show ? t(current.show.live ? 'autodjView.inLiveShow' : 'autodjView.inBlock', { name: current.show.name }) : t('autodjView.noBlock')}>
-          {current?.clock ? (
-            <span className="flex items-center gap-2">
-              <i className="size-2.5 shrink-0 rounded-full" style={{ background: paint(current.clock.color) }} />
-              <span className="truncate">{current.clock.name}</span>
-            </span>
-          ) : (
-            <span className="text-muted">{t('autodjView.noClock')}</span>
-          )}
-        </Fact>
-        <Fact label={t('autodjView.nextFixed')} sub={block ? `${time(block.at)} · ${block.hard ? t('autodjView.hard') : t('autodjView.soft')}` : undefined}>
-          {block ? (
-            <span className="flex items-center gap-1.5">
-              {block.locked && <Lock className="size-3.5 shrink-0 text-muted" />}
-              <span className="truncate">{block.items[0]?.label || t('autodjView.fixedItem')}</span>
-            </span>
-          ) : (
-            <span className="text-muted">{t('autodjView.noFixed')}</span>
-          )}
-        </Fact>
-        <Fact
-          label={t('autodjView.nextShow')}
-          sub={change ? `${time(change.at)} · ${change.show ? t(change.show.live ? 'autodjView.liveShow' : 'autodjView.block') : (change.clock?.name ?? t('autodjView.noClock'))}` : undefined}
-        >
-          {change ? (
-            <span className="flex items-center gap-1.5">
-              {change.show?.live && <Mic className="size-3.5 shrink-0 text-onair" />}
-              <span className="truncate">{change.show?.name ?? t('autodjView.noBlockShort')}</span>
-            </span>
-          ) : (
-            <span className="text-muted">{t('autodjView.noChange', { count: HOURS - 1 })}</span>
-          )}
-        </Fact>
+      <div className="-mb-1">
+        <Tabs<'now' | 'schedule'>
+          value={tab}
+          onChange={setTab}
+          tabs={[
+            { value: 'now', label: t('autodjView.tab.now') },
+            { value: 'schedule', label: t('autodjView.tab.schedule') },
+          ]}
+        />
       </div>
-
-      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,5fr)_minmax(0,4fr)]">
-        <Card className="flex min-h-0 flex-col p-4">
-          <div className="flex items-center justify-between gap-2">
-            <Label>{current ? t('autodjView.thisHour', { from: time(current.at), to: time(current.at + 3_600_000) }) : t('autodjView.thisHourEmpty')}</Label>
-            {live && (
-              <Badge tone="onair">
-                <Mic className="size-3" /> {t('autodjView.paused')}
-              </Badge>
-            )}
-          </div>
-          {current && clock && segments.length ? (
-            <div className="mt-3 flex min-h-0 flex-1 flex-wrap items-start gap-5">
-              <ClockDonut
-                segments={segments}
-                colorOf={(item) => info.color(item, clock.color)}
-                nameOf={(item) => item.label || info.playlist(item.playlistId)?.name || info.track(item.mediaId)?.title || t(`autodjView.kind.${item.kind}`)}
-                title={clock.name}
-                subtitle={minute != null ? `:${String(Math.floor(minute)).padStart(2, '0')}` : undefined}
-                highlight={step >= 0 ? step : null}
-                hand={minute}
-                size={300}
-              />
-              <ol className="min-w-[240px] flex-1 overflow-y-auto text-[13px]">
-                {current.rows.map((r, i) => (
-                  <li
-                    key={`${r.startsAt}-${i}`}
-                    className={clsx(
-                      'flex items-center gap-2.5 border-t border-line py-2 first:border-t-0',
-                      r.past && 'text-muted opacity-60',
-                      r.current && 'relative -mx-2 rounded-md border-transparent bg-koraal/10 px-2 font-semibold',
-                    )}
-                    aria-current={r.current ? 'step' : undefined}
-                  >
-                    <span className="w-11 shrink-0 font-mono text-[12px] tabular text-muted">{r.timed || i === 0 ? time(r.startsAt) : ''}</span>
-                    <i className="size-2 shrink-0 rounded-full" style={{ background: segments[i] ? info.color(segments[i]!.item, clock.color) : 'var(--line)' }} />
-                    <SourceIcon row={r} />
-                    <span className="min-w-0 flex-1 truncate">{label(r)}</span>
-                    {r.kind === 'music' && r.count > 0 && <span className="text-[11px] text-muted">{t('autodjView.tracks', { count: r.count })}</span>}
-                    {r.locked && <Lock className="size-3.5 shrink-0 text-muted" aria-label={t('autodjView.locked')} />}
-                    {r.hard && <span className="rounded bg-chip px-1.5 text-[10px] font-bold text-muted uppercase">{t('autodjView.hardShort')}</span>}
-                    {r.current && <Badge tone="online">{t('autodjView.now')}</Badge>}
-                  </li>
-                ))}
-              </ol>
-            </div>
-          ) : (
-            <p className="mt-3 text-[13px] text-muted">{rundown.data.enabled ? t('autodjView.noClockText') : t('autodjView.schedulerOffText')}</p>
-          )}
-        </Card>
-
-        <Card className="flex min-h-0 flex-col p-4">
-          <Label>{t('autodjView.coming')}</Label>
-          <ol className="mt-2 min-h-0 flex-1 overflow-y-auto">
-            {hours.slice(1).map((h) => {
-              const c = h.clock ? clocks.get(h.clock.id) : undefined;
-              const fixed = h.rows.filter((r) => r.kind === 'item');
-              return (
-                <li key={h.at} className="flex gap-3 border-t border-line py-3 first:border-t-0">
-                  {c ? (
-                    <ClockDonut size={40} segments={clockLayout(c.items, info.seconds)} colorOf={(item) => info.color(item, c.color)} nameOf={() => ''} />
-                  ) : (
-                    <span className="grid size-10 shrink-0 place-items-center rounded-full bg-chip">
-                      <Music2 className="size-4 text-muted" />
-                    </span>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2 text-[13px]">
-                      <span className="font-mono tabular text-muted">{time(h.at)}</span>
-                      <b className="truncate">{h.clock?.name ?? t('autodjView.noClock')}</b>
-                      {h.show && (
-                        <Badge tone={h.show.live ? 'onair' : 'neutral'}>
-                          {h.show.live && <Mic className="size-3" />} {h.show.name}
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="mt-1 text-[12px] text-muted">
-                      {fixed.length
-                        ? fixed
-                            .slice(0, 6)
-                            .map((r) => `${r.timed ? `${time(r.startsAt)} ` : ''}${label(r)}`)
-                            .join(' · ') + (fixed.length > 6 ? ' …' : '')
-                        : t('autodjView.onlyMusic')}
-                    </div>
+      {tab === 'schedule' ? (
+        scheduler.data ? (
+          <AutoDjSchedule view={scheduler.data} info={info} />
+        ) : scheduler.isPending ? (
+          <Spinner />
+        ) : (
+          <EmptyState icon={<Clock3 className="size-6" />} title={t('autodjView.loadFailed')} description={(scheduler.error as Error)?.message} />
+        )
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+            <Fact
+              label={t('autodjView.onAir')}
+              sub={
+                next
+                  ? t('autodjView.next', {
+                      title: [next.media.artist, next.media.title].filter(Boolean).join(' – ') || next.label || '',
+                    })
+                  : undefined
+              }
+            >
+              {np ? [np.media.artist, np.media.title].filter(Boolean).join(' – ') || np.label : <span className="text-muted">{t('autodjView.nothing')}</span>}
+              {np && total ? (
+                <div className="mt-2 flex items-center gap-2">
+                  <div className="h-1 flex-1 overflow-hidden rounded-full bg-chip">
+                    <div
+                      className="h-full bg-koraal transition-[width]"
+                      style={{
+                        width: `${Math.min(100, (elapsed / total) * 100)}%`,
+                      }}
+                    />
                   </div>
-                </li>
-              );
-            })}
-          </ol>
-          <p className="mt-2 border-t border-line pt-2 text-[11px] text-muted">{t('autodjView.readOnly')}</p>
-        </Card>
-      </div>
+                  <span className="font-mono text-[11px] tabular text-muted">-{duration(Math.max(0, total - elapsed))}</span>
+                </div>
+              ) : null}
+            </Fact>
+            <Fact
+              label={t('autodjView.clockNow')}
+              sub={
+                !rundown.data.enabled
+                  ? t('autodjView.schedulerOff')
+                  : current?.show
+                    ? t(current.show.live ? 'autodjView.inLiveShow' : 'autodjView.inBlock', { name: current.show.name })
+                    : t('autodjView.noBlock')
+              }
+            >
+              {current?.clock ? (
+                <span className="flex items-center gap-2">
+                  <i className="size-2.5 shrink-0 rounded-full" style={{ background: paint(current.clock.color) }} />
+                  <span className="truncate">{current.clock.name}</span>
+                </span>
+              ) : (
+                <span className="text-muted">{t('autodjView.noClock')}</span>
+              )}
+            </Fact>
+            <Fact label={t('autodjView.nextFixed')} sub={block ? `${time(block.at)} · ${block.hard ? t('autodjView.hard') : t('autodjView.soft')}` : undefined}>
+              {block ? (
+                <span className="flex items-center gap-1.5">
+                  {block.locked && <Lock className="size-3.5 shrink-0 text-muted" />}
+                  <span className="truncate">{block.items[0]?.label || t('autodjView.fixedItem')}</span>
+                </span>
+              ) : (
+                <span className="text-muted">{t('autodjView.noFixed')}</span>
+              )}
+            </Fact>
+            <Fact
+              label={t('autodjView.nextShow')}
+              sub={change ? `${time(change.at)} · ${change.show ? t(change.show.live ? 'autodjView.liveShow' : 'autodjView.block') : (change.clock?.name ?? t('autodjView.noClock'))}` : undefined}
+            >
+              {change ? (
+                <span className="flex items-center gap-1.5">
+                  {change.show?.live && <Mic className="size-3.5 shrink-0 text-onair" />}
+                  <span className="truncate">{change.show?.name ?? t('autodjView.noBlockShort')}</span>
+                </span>
+              ) : (
+                <span className="text-muted">{t('autodjView.noChange', { count: HOURS - 1 })}</span>
+              )}
+            </Fact>
+          </div>
+
+          <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,5fr)_minmax(0,4fr)]">
+            <Card className="flex min-h-0 flex-col p-4">
+              <div className="flex items-center justify-between gap-2">
+                <Label>
+                  {current
+                    ? t('autodjView.thisHour', {
+                        from: time(current.at),
+                        to: time(current.at + 3_600_000),
+                      })
+                    : t('autodjView.thisHourEmpty')}
+                </Label>
+                {live && (
+                  <Badge tone="onair">
+                    <Mic className="size-3" /> {t('autodjView.paused')}
+                  </Badge>
+                )}
+              </div>
+              {current && clock && segments.length ? (
+                <div className="mt-3 flex min-h-0 flex-1 flex-wrap items-start gap-5">
+                  <ClockDonut
+                    segments={segments}
+                    colorOf={(item) => info.color(item, clock.color)}
+                    nameOf={(item) => item.label || info.playlist(item.playlistId)?.name || info.track(item.mediaId)?.title || t(`autodjView.kind.${item.kind}`)}
+                    title={clock.name}
+                    subtitle={minute != null ? `:${String(Math.floor(minute)).padStart(2, '0')}` : undefined}
+                    highlight={step >= 0 ? step : null}
+                    hand={minute}
+                    size={300}
+                  />
+                  <ol className="min-w-[240px] flex-1 overflow-y-auto text-[13px]">
+                    {current.rows.map((r, i) => (
+                      <li
+                        key={`${r.startsAt}-${i}`}
+                        className={clsx(
+                          'flex items-center gap-2.5 border-t border-line py-2 first:border-t-0',
+                          r.past && 'text-muted opacity-60',
+                          r.current && 'relative -mx-2 rounded-md border-transparent bg-koraal/10 px-2 font-semibold',
+                        )}
+                        aria-current={r.current ? 'step' : undefined}
+                      >
+                        <span className="w-11 shrink-0 font-mono text-[12px] tabular text-muted">{r.timed || i === 0 ? time(r.startsAt) : ''}</span>
+                        <i
+                          className="size-2 shrink-0 rounded-full"
+                          style={{
+                            background: segments[i] ? info.color(segments[i]!.item, clock.color) : 'var(--line)',
+                          }}
+                        />
+                        <SourceIcon row={r} />
+                        <span className="min-w-0 flex-1 truncate">{label(r)}</span>
+                        {r.kind === 'music' && r.count > 0 && <span className="text-[11px] text-muted">{t('autodjView.tracks', { count: r.count })}</span>}
+                        {r.locked && <Lock className="size-3.5 shrink-0 text-muted" aria-label={t('autodjView.locked')} />}
+                        {r.hard && <span className="rounded bg-chip px-1.5 text-[10px] font-bold text-muted uppercase">{t('autodjView.hardShort')}</span>}
+                        {r.current && <Badge tone="online">{t('autodjView.now')}</Badge>}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              ) : (
+                <p className="mt-3 text-[13px] text-muted">{rundown.data.enabled ? t('autodjView.noClockText') : t('autodjView.schedulerOffText')}</p>
+              )}
+            </Card>
+
+            <Card className="flex min-h-0 flex-col p-4">
+              <Label>{t('autodjView.coming')}</Label>
+              <ol className="mt-2 min-h-0 flex-1 overflow-y-auto">
+                {hours.slice(1).map((h) => {
+                  const c = h.clock ? clocks.get(h.clock.id) : undefined;
+                  const fixed = h.rows.filter((r) => r.kind === 'item');
+                  return (
+                    <li key={h.at} className="flex gap-3 border-t border-line py-3 first:border-t-0">
+                      {c ? (
+                        <ClockDonut size={40} segments={clockLayout(c.items, info.seconds)} colorOf={(item) => info.color(item, c.color)} nameOf={() => ''} />
+                      ) : (
+                        <span className="grid size-10 shrink-0 place-items-center rounded-full bg-chip">
+                          <Music2 className="size-4 text-muted" />
+                        </span>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2 text-[13px]">
+                          <span className="font-mono tabular text-muted">{time(h.at)}</span>
+                          <b className="truncate">{h.clock?.name ?? t('autodjView.noClock')}</b>
+                          {h.show && (
+                            <Badge tone={h.show.live ? 'onair' : 'neutral'}>
+                              {h.show.live && <Mic className="size-3" />} {h.show.name}
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="mt-1 text-[12px] text-muted">
+                          {fixed.length
+                            ? fixed
+                                .slice(0, 6)
+                                .map((r) => `${r.timed ? `${time(r.startsAt)} ` : ''}${label(r)}`)
+                                .join(' · ') + (fixed.length > 6 ? ' …' : '')
+                            : t('autodjView.onlyMusic')}
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
+              <p className="mt-2 border-t border-line pt-2 text-[11px] text-muted">{t('autodjView.readOnly')}</p>
+            </Card>
+          </div>
+        </>
+      )}
     </div>
   );
 }
