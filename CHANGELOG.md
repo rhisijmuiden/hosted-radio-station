@@ -19,6 +19,11 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   days, time, hour clock (as a dial), live or not, its DJs and whether it is public. Only to look at. With the
   scheduler off, the card Hour clock now says so instead of "default clock".
 
+- RHIS Studio 0.26: from the AutoDJ view a station manager goes straight to the editor in the Manage view: **Edit
+  clock** on the hour clock of this hour (or a click on a clock name in the coming hours) opens that clock, **Edit in
+  Manage** in the details of a block opens that block, **Edit schedule** opens the weekly schedule. Ctrl+4 or Back to
+  the player returns to the AutoDJ view. DJs keep the view without these buttons.
+
 ## 1.6.0 (31 October 2026)
 
 Phase 21 (the recorder node: logging, live shows, uploads and on demand, recording in RHIS Studio, cutting, music

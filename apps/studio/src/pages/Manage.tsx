@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import { ChevronLeft, Lock } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ClocksSection } from '../components/manage/Clocks';
 import { Header, Label } from '../components/manage/common';
@@ -15,6 +15,7 @@ import type { NetworkNode, RundownRow, StationListItem } from '../lib/api';
 import { trackLength } from '../lib/cues';
 import { duration } from '../lib/format';
 import { VIEW_KEYS, useLayout } from '../lib/layout';
+import { clearManageTarget, peekManageTarget } from '../lib/manageTarget';
 import { useNow } from '../lib/now';
 import { useAutoDj, useNetwork, useRouting, useRundown, useStatus } from '../lib/queries';
 
@@ -268,7 +269,10 @@ function PlayerBar({ station }: { station: StationListItem }) {
  */
 export function ManageView({ station }: { station: StationListItem }) {
   const { t } = useTranslation();
-  const [section, setSection] = useState<Section>('overview');
+  // Opened from the AutoDJ view at a clock or block: start in that section, and hand the clock or block to it.
+  const [target] = useState(peekManageTarget);
+  useEffect(clearManageTarget, []);
+  const [section, setSection] = useState<Section>(target?.section ?? 'overview');
   const network = useNetwork(station.id);
   const badNodes = (network.data?.nodes ?? []).filter((n) => !healthy(n)).length;
   return (
@@ -299,8 +303,8 @@ export function ManageView({ station }: { station: StationListItem }) {
         <div className="min-w-0 flex-1 overflow-y-auto px-6 py-5">
           {section === 'overview' && <Overview station={station} onSection={setSection} />}
           {section === 'nodes' && <Nodes station={station} />}
-          {section === 'clocks' && <ClocksSection station={station} />}
-          {section === 'schedule' && <ScheduleSection station={station} />}
+          {section === 'clocks' && <ClocksSection station={station} initialClockId={target?.section === 'clocks' ? target.clockId : null} />}
+          {section === 'schedule' && <ScheduleSection station={station} initialEntryId={target?.section === 'schedule' ? target.entryId : null} />}
           {section === 'playlists' && <PlaylistsSection station={station} />}
           {section === 'rotation' && <RotationSection station={station} />}
           {section === 'folders' && <FoldersSection station={station} />}

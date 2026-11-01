@@ -355,11 +355,11 @@ function ClockEditor({ stationId, clock, view, onSaved }: { stationId: string; c
 }
 
 /** Hour clocks in the Manage view (phase 24): the same clocks and the same editor as the web panel. */
-export function ClocksSection({ station }: { station: StationListItem }) {
+export function ClocksSection({ station, initialClockId = null }: { station: StationListItem; initialClockId?: string | null }) {
   const { t } = useTranslation();
   const view = useScheduler(station.id);
   const playlists = usePlaylists(station.id);
-  const [selected, setSelected] = useState<string | 'new' | null>(null);
+  const [selected, setSelected] = useState<string | 'new' | null>(initialClockId);
   const info = useItemInfo(playlists.data, view.data?.tracks ?? [], {});
   if (view.isPending) return <Spinner />;
   if (!view.data) return <Card className="p-8 text-center text-muted">{(view.error as Error)?.message}</Card>;
