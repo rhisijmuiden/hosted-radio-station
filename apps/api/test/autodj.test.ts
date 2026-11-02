@@ -647,9 +647,19 @@ describe.runIf(hasFfmpeg)('library and AutoDJ', () => {
       await ctrl.sync(snap, []);
       expect(heard).not.toContain('live false');
 
+      // A track dragged onto the PC's waiting player becomes its next track; the one it had loaded waits again.
+      const before = (await api('POST', '/autodj/studio/next', pc)).json().track.id as string;
+      const queued = (await api('GET', '/autodj')).json().queues.q1.find((q: { state: string; id: string }) => q.state === 'queued' && q.id !== before);
+      res = await api('POST', '/autodj/studio/load', { ...pc, itemId: queued.id });
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json().track).toMatchObject({ id: queued.id, state: 'cued' });
+      expect(await state(before)).toBe('queued');
+      expect((await api('POST', '/autodj/studio/load', { pc: 'other-pc', itemId: before })).statusCode).toBe(409);
+      expect((await api('POST', '/autodj/studio/load', { ...pc, itemId: ahead })).statusCode).toBe(400);
+
       // The PC hands back: the track it had loaded is the AutoDJ's next one; the player asks for it first, then plays
       // again past the old track it held.
-      const loaded = (await api('POST', '/autodj/studio/next', pc)).json().track.id as string;
+      const loaded = queued.id as string;
       expect((await api('POST', '/autodj/studio', { on: false, ...pc })).json().studio.active).toBe(false);
       expect(await state(loaded)).toBe('queued');
       heard.length = 0;

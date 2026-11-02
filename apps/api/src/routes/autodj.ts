@@ -25,7 +25,7 @@ import {
   STORAGE,
   type MediaSource,
 } from '../services/autodj/library.js';
-import { clearQueue, dropDisabled, enqueue, fillQueues, inPlaylist, mediaPath, moveItem, nextTrack, playNow, queueRows, releaseLoaded, trackStarted } from '../services/autodj/planner.js';
+import { clearQueue, dropDisabled, enqueue, fillQueues, inPlaylist, mediaPath, moveItem, nextTrack, playNow, queueRows, releaseLoaded, studioLoad, trackStarted } from '../services/autodj/planner.js';
 import { STUDIO_GRACE_MS } from '../services/autodj/studio.js';
 import { NEWS, newsSettings, readNewsStatus } from '../services/autodj/news.js';
 import { autodjSchema, autodjSettings, queueRuleSchema } from '../services/autodj/settings.js';
@@ -626,6 +626,36 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
         crossfadeSeconds: s.crossfadeSeconds,
         normalize: s.normalize,
       };
+    },
+  );
+
+  app.post(
+    '/:id/autodj/studio/load',
+    {
+      config: { audit: 'autodj.studioLoad' },
+      schema: {
+        tags: ['AutoDJ'],
+        summary:
+          'Studio mode: a track dragged onto a player of the studio PC (a waiting track, or a library track that goes on top of Q1) becomes its next track; the track it had loaded ahead goes back to waiting. `now`: the PC plays it at once. A locked item of the hour clock (next, or on air with `now`) is only replaced by a station manager with `force`.',
+        params: stationParams,
+        body: z.union([
+          z.object({ pc: pcName, itemId: z.uuid(), now: z.boolean().optional(), force: z.boolean().optional() }),
+          z.object({ pc: pcName, mediaId: z.uuid(), now: z.boolean().optional(), force: z.boolean().optional() }),
+        ]),
+        response: { 200: z.object({ track: studioTrackOut }) },
+      },
+    },
+    async (req) => {
+      const { station, access } = await radio(req, req.params.id, 'dj');
+      await studioFor(station.id, req.body.pc);
+      // Played now: over the track on air, which may be a locked part of the format.
+      if (req.body.now) await guardLocked(station.id, access.role, req.body.force);
+      const what = 'itemId' in req.body ? { itemId: req.body.itemId } : { mediaId: req.body.mediaId };
+      const itemId = await studioLoad(ctx, station.id, what, access.user.name, !!req.body.force && access.role !== 'dj');
+      const [row] = await queueRows(ctx, station.id, itemId);
+      if (!row) throw new HttpError(404, 'not_found', 'Queue item not found');
+      const [media] = await ctx.db.select({ gainDb: schema.mediaFiles.gainDb }).from(schema.mediaFiles).where(eq(schema.mediaFiles.id, row.media.id));
+      return { track: { ...row, media: { ...row.media, gainDb: media?.gainDb ?? null } } };
     },
   );
 

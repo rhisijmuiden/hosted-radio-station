@@ -1,6 +1,6 @@
 export const en = {
   app: { tagline: 'for Hosted Radio' },
-  common: { cancel: 'Cancel', clear: 'Clear', close: 'Close', copied: 'Copied', copy: 'Copy', edit: 'Edit', save: 'Save' },
+  common: { yes: 'Yes', no: 'No', cancel: 'Cancel', clear: 'Clear', close: 'Close', copied: 'Copied', copy: 'Copy', edit: 'Edit', save: 'Save' },
   theme: { label: 'Theme', light: 'Light', dark: 'Dark' },
   language: { label: 'Language' },
   nav: { assist: 'Live assist', live: 'Go live', carts: 'Cart wall', recordings: 'Recordings', settings: 'Settings' },
@@ -464,6 +464,7 @@ export const en = {
     broadcastLost: 'the broadcast to the station dropped and did not come back',
     serverLost: 'the server could not be reached',
     encoderSaid: 'broadcast: {{error}}',
+    replaceLocked: 'Replace it anyway?',
     needsLive: 'Studio mode sends the mix live: choose a live account and mount on the Go live page first.',
     micOn: 'Mic on',
     micOff: 'Mic off',

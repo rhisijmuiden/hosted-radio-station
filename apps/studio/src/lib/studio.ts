@@ -83,6 +83,8 @@ let run: {
   lastLive: number;
   /** The broadcast was live at least once in this run. */
   everLive: boolean;
+  /** Counts tracks the DJ put on a player: a track the server sent for an earlier count is not loaded any more. */
+  loads: number;
   lastRenewed: number;
   requesting: boolean;
   retry: ReturnType<typeof setTimeout> | null;
@@ -144,6 +146,7 @@ async function ensureNext() {
   const free = view.tracks.findIndex((t) => !t);
   if (free < 0) return;
   r.requesting = true;
+  const loads = r.loads;
   set({ fetching: true });
   try {
     const res = await post<{ track: StudioTrack | null; cutAt: number | null; crossfadeSeconds: number; normalize: boolean }>('/next', { pc: await pc() });
@@ -156,7 +159,8 @@ async function ensureNext() {
     }
     const track = res.track;
     const path = await fetchFile(r.station.id, track.media);
-    if (run !== r) return;
+    // The DJ put a track on the player meanwhile: that one is next.
+    if (run !== r || r.loads !== loads) return;
     await call('deck_mode', { auto: !view.manual, crossfade: r.crossfade });
     await call('deck_load', { deck: free, load: deckLoad(track, path, r.crossfade, r.normalize) });
     const tracks = [...view.tracks];
@@ -284,7 +288,7 @@ export async function startStudio(station: StationListItem, me: Me | null | fals
   if (!info?.output) throw new Error(texts.noOutput.replace('{{error}}', info?.error ?? '–'));
   const crossfade = data.settings.crossfadeSeconds ?? 0;
   const manual = !!data.playout?.manual;
-  run = { station, crossfade, normalize: true, takenOver: null, renew: null, lastLive: Date.now(), everLive: false, lastRenewed: Date.now(), requesting: false, retry: null, cut: null, startFirst: true, cancelled: false };
+  run = { station, crossfade, normalize: true, takenOver: null, renew: null, lastLive: Date.now(), everLive: false, loads: 0, lastRenewed: Date.now(), requesting: false, retry: null, cut: null, startFirst: true, cancelled: false };
   const r = run;
   set({ phase: 'preparing', stationId: station.id, mic: false, tracks: [null, null], air: null, waitUntil: null, first: null, error: null, lostAt: null, manual });
   let on = false;
@@ -391,6 +395,43 @@ export function studioNext() {
   void call('deck_play', { deck: n, fade: null });
 }
 
+/**
+ * A track dragged onto a player: it becomes the next track (the one loaded there goes back to the queue), or with `now`
+ * it starts at once with the crossfade. Throws with the server's reason (a locked item of the hour clock is next).
+ */
+export async function studioLoad(what: { itemId: string } | { mediaId: string }, opts: { now?: boolean; force?: boolean } = {}) {
+  const r = run;
+  if (!r || view.phase !== 'on') return;
+  const loads = ++r.loads;
+  set({ fetching: true });
+  try {
+    const res = await post<{ track: StudioTrack }>('/load', { pc: await pc(), ...what, ...(opts.now ? { now: true } : {}), ...(opts.force ? { force: true } : {}) });
+    const path = await fetchFile(r.station.id, res.track.media);
+    if (run !== r || r.loads !== loads || view.phase !== 'on') return;
+    // The player that is not on air: the waiting one, else a free one.
+    const deck = nextDeck() ?? view.tracks.findIndex((t, i) => !t && i !== view.air);
+    if (deck < 0) return;
+    if (r.cut) clearTimeout(r.cut);
+    await call('deck_clear', { deck });
+    await call('deck_load', { deck, load: deckLoad(res.track, path, r.crossfade, r.normalize) });
+    const tracks = [...view.tracks];
+    tracks[deck] = res.track;
+    set({ tracks, error: null });
+    if (opts.now) {
+      r.startFirst = false;
+      // Started once the file is ready on the player.
+      const start = (n: number) => {
+        if (run !== r || view.tracks[deck]?.id !== res.track.id) return;
+        if (decks()[deck]?.ready) void call('deck_play', { deck, fade: null });
+        else if (n < 50) setTimeout(() => start(n + 1), 100);
+      };
+      start(0);
+    } else autoStart();
+  } finally {
+    if (run === r) set({ fetching: false });
+  }
+}
+
 /** Manual playout: the track on air stops; the next one waits for Play. */
 export function studioStop() {
   if (view.phase !== 'on' || view.air == null) return;
@@ -405,4 +446,4 @@ export function studioManual(manual: boolean) {
   autoStart();
 }
 
-export const studio = { start: startStudio, stop: stopStudio, cancel: cancelStudio, mic: toggleMic, next: studioNext, stopTrack: studioStop, manual: studioManual };
+export const studio = { start: startStudio, stop: stopStudio, cancel: cancelStudio, mic: toggleMic, next: studioNext, load: studioLoad, stopTrack: studioStop, manual: studioManual };
