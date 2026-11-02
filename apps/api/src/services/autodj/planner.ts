@@ -496,6 +496,31 @@ export async function playNow(ctx: AppContext, stationId: string, what: { itemId
 }
 
 /**
+ * Studio mode: the DJ dragged a track onto a player of the studio PC (a waiting track, or a library track that goes on
+ * top of Q1 first). It becomes the PC's next track: marked cued, and the track the PC had loaded ahead goes back to
+ * waiting. Refused when that one is a locked item of the hour clock, unless `force` (a station manager).
+ */
+export async function studioLoad(ctx: AppContext, stationId: string, what: { itemId: string } | { mediaId: string }, addedBy: string | null, force: boolean) {
+  const itemId = 'itemId' in what ? what.itemId : (await enqueue(ctx, stationId, what.mediaId, 'q1', { at: 'top', origin: 'manual', addedBy })).id;
+  await ctx.db.transaction(async (tx) => {
+    await lock(tx, stationId);
+    const [item] = await tx.select().from(schema.queueItems).where(and(eq(schema.queueItems.id, itemId), eq(schema.queueItems.stationId, stationId)));
+    if (!item) throw notFound('Queue item');
+    if (item.state === 'playing') throw badRequest('This track is on air already');
+    const ahead = await tx
+      .select({ id: schema.queueItems.id, locked: schema.queueItems.locked, label: schema.queueItems.label })
+      .from(schema.queueItems)
+      .where(and(eq(schema.queueItems.stationId, stationId), inArray(schema.queueItems.state, ['cued', 'loaded']), ne(schema.queueItems.id, itemId)));
+    const locked = ahead.find((a) => a.locked);
+    if (locked && !force) throw badRequest(locked.label ? `"${locked.label}" is a locked part of the format and goes on air next` : 'A locked part of the format goes on air next');
+    if (ahead.length) await tx.update(schema.queueItems).set({ state: 'queued', cuedAt: null }).where(inArray(schema.queueItems.id, ahead.map((a) => a.id)));
+    // At the top of Q1 too, so it stays next when studio mode ends before it plays.
+    await tx.update(schema.queueItems).set({ state: 'cued', cuedAt: new Date(), queue: 'q1', position: await top(tx, stationId, 'q1'), slot: null, slotHour: null }).where(eq(schema.queueItems.id, itemId));
+  });
+  return itemId;
+}
+
+/**
  * Loads a waiting track for play now: marked cued and handed to the player on its own, outside the queue rule and the
  * hour clock. 'loaded' when the player has it loaded ahead already; null when it is gone or its file is missing.
  */

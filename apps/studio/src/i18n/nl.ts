@@ -2,7 +2,7 @@ import type { Translation } from './en';
 
 export const nl: Translation = {
   app: { tagline: 'voor Hosted Radio' },
-  common: { cancel: 'Annuleren', clear: 'Wissen', close: 'Sluiten', copied: 'Gekopieerd', copy: 'Kopiëren', edit: 'Bewerken', save: 'Opslaan' },
+  common: { yes: 'Ja', no: 'Nee', cancel: 'Annuleren', clear: 'Wissen', close: 'Sluiten', copied: 'Gekopieerd', copy: 'Kopiëren', edit: 'Bewerken', save: 'Opslaan' },
   theme: { label: 'Thema', light: 'Licht', dark: 'Donker' },
   language: { label: 'Taal' },
   nav: { assist: 'Live assist', live: 'Live gaan', carts: 'Cartwall', recordings: 'Opnames', settings: 'Instellingen' },
@@ -466,6 +466,7 @@ export const nl: Translation = {
     broadcastLost: 'de uitzending naar het station viel weg en kwam niet terug',
     serverLost: 'de server was niet bereikbaar',
     encoderSaid: 'uitzending: {{error}}',
+    replaceLocked: 'Toch vervangen?',
     needsLive: 'Studiomodus stuurt de mix live uit: kies eerst een live-account en mount op de pagina Live gaan.',
     micOn: 'Mic aan',
     micOff: 'Mic uit',

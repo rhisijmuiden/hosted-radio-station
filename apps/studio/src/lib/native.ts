@@ -2,6 +2,7 @@
 // (`pnpm dev`, screenshots) a small simulation stands in, so the interface can be worked on without Windows.
 
 import { invoke } from '@tauri-apps/api/core';
+import i18n from 'i18next';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 export const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -494,7 +495,7 @@ export async function ask(message: string): Promise<boolean> {
   asking = true;
   try {
     const { ask: dialogAsk } = await import('@tauri-apps/plugin-dialog');
-    return await dialogAsk(message, { title: 'RHIS Studio', kind: 'warning' });
+    return await dialogAsk(message, { title: 'RHIS Studio', kind: 'warning', okLabel: i18n.t('common.yes'), cancelLabel: i18n.t('common.no') });
   } finally {
     asking = false;
   }

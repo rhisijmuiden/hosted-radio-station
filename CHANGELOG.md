@@ -55,6 +55,12 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 - RHIS Studio 0.27.2: plays on sound cards whose driver only offers 24-bit or 64-bit samples (for example Realtek
   ASIO), for the output and the preview. Before, the sound engine stopped with "sample format i24 is not supported".
 
+- RHIS Studio 0.28 (studio mode, step 2a): drag a track from the library or the playlist onto a player of studio
+  mode. On the player that waits it plays next (the track that was loaded there goes back to the queue); on the player
+  on air it plays now with the crossfade. The track also moves to the top of Q1, so it stays next when studio mode
+  ends. A locked item of the hour clock does not give way for a DJ; a station manager is asked first. New route
+  `POST /api/stations/:id/autodj/studio/load`. Yes/No questions in the app now have Dutch buttons in Dutch.
+
 ## 1.6.0 (31 October 2026)
 
 Phase 21 (the recorder node: logging, live shows, uploads and on demand, recording in RHIS Studio, cutting, music

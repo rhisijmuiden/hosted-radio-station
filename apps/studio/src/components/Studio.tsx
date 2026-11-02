@@ -1,20 +1,20 @@
 import clsx from 'clsx';
 import { AlertTriangle, Lock, Mic, MicOff, Play, Radio, SkipForward, Square } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type DragEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Badge, Button, Dialog } from './ui';
-import type { AutoDj } from '../lib/api';
+import { ApiError, type AutoDj } from '../lib/api';
 import { playLength } from '../lib/cues';
 import { useEngine } from '../lib/engine';
 import { duration } from '../lib/format';
 import { ask, call, type AppInfo } from '../lib/native';
 import { useNow } from '../lib/now';
 import { useAutoDj } from '../lib/queries';
-import { clock, queueOf } from '../lib/queue';
+import { clock, DRAG, queueOf } from '../lib/queue';
 import { useSession } from '../lib/session';
 import { studio, useStudio, type StudioTrack } from '../lib/studio';
-import { useCanUpload } from './Library';
+import { addLocalFile, DRAG_FILE, DRAG_MEDIA, useCanUpload } from './Library';
 
 let hostname: string | null = null;
 /** The name of this PC, as studio mode reports it to the server. */
@@ -273,6 +273,38 @@ export function StudioDecks({ data }: { data: AutoDj }) {
   const onAir = air != null ? s.tracks[air] : null;
   const nextIdx = s.tracks.findIndex((tr, i) => tr && i !== air && !decks[i]?.playing);
   const blocked = !!onAir?.locked && !canUpload;
+  const { station } = useSession();
+  const [over, setOver] = useState<number | null>(null);
+  const kinds = [DRAG, DRAG_MEDIA, ...(canUpload ? [DRAG_FILE] : [])];
+  // A drop on the player on air plays the track now; on the other one it is next. Managers are asked before a locked
+  // item of the hour clock gives way.
+  const load = async (what: { itemId: string } | { mediaId: string }, now: boolean) => {
+    try {
+      await studio.load(what, { now });
+    } catch (err) {
+      if (canUpload && err instanceof ApiError && (err.status === 409 || err.status === 400) && /locked/i.test(err.message) && (await ask(`${err.message} ${t('studio.replaceLocked')}`))) {
+        await studio.load(what, { now, force: true }).catch((e) => toast.error((e as Error).message));
+      } else toast.error((err as Error).message);
+    }
+  };
+  const drop = (i: number, isAir: boolean) => ({
+    onDragOver: (e: DragEvent) => {
+      if ((isAir && blocked) || !kinds.some((k) => e.dataTransfer.types.includes(k))) return;
+      e.preventDefault();
+      setOver(i);
+    },
+    onDragLeave: () => setOver(null),
+    onDrop: (e: DragEvent) => {
+      e.preventDefault();
+      setOver(null);
+      const itemId = e.dataTransfer.getData(DRAG);
+      const mediaId = e.dataTransfer.getData(DRAG_MEDIA);
+      const file = e.dataTransfer.getData(DRAG_FILE);
+      if (itemId) void load({ itemId }, isAir);
+      else if (mediaId) void load({ mediaId }, isAir);
+      else if (file && canUpload && station) void addLocalFile(station.id, file, 'q1', 'top', (v) => void load({ mediaId: v.mediaId }, isAir), t);
+    },
+  });
 
   const deck = (i: number) => {
     const track: StudioTrack | null = s.tracks[i] ?? null;
@@ -289,8 +321,19 @@ export function StudioDecks({ data }: { data: AutoDj }) {
     return (
       <div
         key={i}
-        className={clsx('relative flex min-w-0 flex-col gap-2 rounded-md border p-3', isAir ? 'border-studio/70 bg-studio/[0.08]' : 'border-line bg-surface', st?.fading && 'opacity-60')}
+        {...drop(i, isAir)}
+        className={clsx(
+          'relative flex min-w-0 flex-col gap-2 rounded-md border p-3',
+          isAir ? 'border-studio/70 bg-studio/[0.08]' : 'border-line bg-surface',
+          st?.fading && 'opacity-60',
+          over === i && 'ring-2 ring-studio',
+        )}
       >
+        {over === i && (
+          <div className="pointer-events-none absolute inset-0 z-10 grid place-items-center rounded-md bg-studio/15 text-center text-xs font-extrabold tracking-[0.08em] text-ink uppercase">
+            {isAir ? t('assist.dropToPlay') : t('decks.dropNext')}
+          </div>
+        )}
         <span className={clsx('absolute top-3 right-3 grid size-6 place-items-center rounded-[5px] text-[13px] font-extrabold text-nacht', i === 0 ? 'bg-lucht' : 'bg-online/70')}>{i === 0 ? 'A' : 'B'}</span>
         <div className="min-w-0 pr-8">
           <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold tracking-[0.08em] text-muted uppercase">
