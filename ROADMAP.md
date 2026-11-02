@@ -796,6 +796,17 @@ A format builder next to the hour clock, to make the non-stop rotation easier to
 - The **hour clock stays** for fixed times: news blocks, ads and locked items run at their set minutes, and the format fills the time in between.
 - A format can be set as the station's default, per hour clock, or per show in the weekly schedule.
 
+### Dante node: digital mixing consoles over the network (idea, 2 November 2026)
+
+Many studios use digital mixing consoles that speak Dante (audio over IP). A new node role **Dante** connects such a console to the station without sound cards or cables:
+
+- A separate role on a physical server in the studio LAN (Dante needs an accurate network clock, PTP, and a steady network; a VM only with its own network card passed through).
+- The node shows up in the studio's Dante Controller as a normal Dante device with channels. In the panel you map channels: which Dante channel is the mic or the console's programme output, which channels carry players A and B and the jingles back to the console.
+- Ways to speak Dante on Linux, to be researched in a spike: (1) official Audinate software for Linux (Dante Embedded Platform / Dante as software), which needs a licence agreement with Audinate, best for selling; (2) AES67, which most modern Dante devices can switch on in Dante Controller, open source on Linux (ptp4l with aes67-linux-daemon or PipeWire), no Dante licence but multicast and manual setup; (3) a Dante PCIe card or Dante USB adapter in the server, which shows up as a normal sound card. Not the unofficial reverse-engineered implementations.
+- Fader start: Dante carries audio only, no control. Fader start and on-air signals come over the console's own control protocol (for example Ember+ for Lawo and DHD, LWRP for Axia, or GPIO over IP). The Dante node can speak that protocol, so no USB GPIO box is needed.
+- Short-term alternative: RHIS Studio on Windows can use Dante Virtual Soundcard (paid, from Audinate) as its sound card without any node.
+- First question: which consoles the studios use (brand and model), because that decides AES67 support and the control protocol.
+
 ### Phone calls in RHIS Studio (SIP)
 
 A SIP client built into RHIS Studio, so a DJ can take listener calls and interviews on air without a separate phone hybrid.
