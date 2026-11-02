@@ -61,6 +61,12 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   ends. A locked item of the hour clock does not give way for a DJ; a station manager is asked first. New route
   `POST /api/stations/:id/autodj/studio/load`. Yes/No questions in the app now have Dutch buttons in Dutch.
 
+- RHIS Studio 0.29, studio mode (step 2b): in the last three minutes before a fixed block of the hour clock, a
+  countdown above the players shows the block, its items and whether it has a hard time (the track on air is cut off)
+  or is locked. When a news bulletin starts on a player, the microphone goes off by itself and the mic button says
+  **Off for the news**. Dropping a track from the media library that already waits in the queue moves that one up
+  instead of adding it twice.
+
 ## 1.6.0 (31 October 2026)
 
 Phase 21 (the recorder node: logging, live shows, uploads and on demand, recording in RHIS Studio, cutting, music

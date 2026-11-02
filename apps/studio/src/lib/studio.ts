@@ -37,6 +37,8 @@ export interface StudioView {
   lostAt: number | null;
   /** Manual playout: the next track waits for Play. */
   manual: boolean;
+  /** When the microphone went off by itself for the news (it stays off until the DJ switches it on). */
+  micAutoOff: number | null;
 }
 
 /** Studio mode stays on this long after a renewal on the server; renewed every few seconds. */
@@ -48,7 +50,7 @@ const LEAD_MS = 1200;
 /** Handing back: the AutoDJ gets the next track ready while the players fade out. */
 const HAND_BACK_MS = 1500;
 
-let view: StudioView = { phase: 'off', stationId: null, mic: false, tracks: [null, null], air: null, waitUntil: null, first: null, fetching: false, error: null, lostAt: null, manual: false };
+let view: StudioView = { phase: 'off', stationId: null, mic: false, tracks: [null, null], air: null, waitUntil: null, first: null, fetching: false, error: null, lostAt: null, manual: false, micAutoOff: null };
 const listeners = new Set<() => void>();
 function set(patch: Partial<StudioView>) {
   view = { ...view, ...patch };
@@ -205,6 +207,11 @@ onDeck(
       const track = view.tracks[e.deck];
       if (track && track.id === e.id) {
         void sendTitle(titleOf(track)).catch(() => undefined);
+        // The news bulletin starts: the microphone goes off, so the newsreader is not talked over.
+        if (track.media.location === 'news' && view.mic) {
+          void call('set_mic', { open: false });
+          set({ mic: false, micAutoOff: Date.now() });
+        }
         if (e.id !== r.takenOver) void pc().then((name) => post(`/playing/${e.id}`, { pc: name })).catch((err) => err instanceof ApiError && err.status === 409 && lost(err.message));
         r.takenOver = null;
       }
@@ -384,7 +391,7 @@ export function cancelStudio() {
 export function toggleMic(open = !view.mic) {
   if (view.phase !== 'on') return;
   void call('set_mic', { open });
-  set({ mic: open });
+  set({ mic: open, micAutoOff: null });
 }
 
 /** Next: the track loaded behind the one on air starts now (with the crossfade). */

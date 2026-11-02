@@ -314,7 +314,8 @@ async function simInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Pr
       return simDevices as T;
     case 'configure_audio':
       sim.config = args.config as AudioConfig;
-      sim.emit({ kind: 'engine', data: engineInfo() });
+      // Like the real engine, the event comes after any engine_info answer already under way.
+      setTimeout(() => sim.emit({ kind: 'engine', data: engineInfo() }), 0);
       return engineInfo() as T;
     case 'engine_info':
       return engineInfo() as T;

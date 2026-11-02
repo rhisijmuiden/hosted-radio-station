@@ -501,7 +501,19 @@ export async function playNow(ctx: AppContext, stationId: string, what: { itemId
  * waiting. Refused when that one is a locked item of the hour clock, unless `force` (a station manager).
  */
 export async function studioLoad(ctx: AppContext, stationId: string, what: { itemId: string } | { mediaId: string }, addedBy: string | null, force: boolean) {
-  const itemId = 'itemId' in what ? what.itemId : (await enqueue(ctx, stationId, what.mediaId, 'q1', { at: 'top', origin: 'manual', addedBy })).id;
+  // A library track that already waits in the queue moves up instead of being added a second time.
+  const waiting =
+    'mediaId' in what
+      ? (
+          await ctx.db
+            .select({ id: schema.queueItems.id })
+            .from(schema.queueItems)
+            .where(and(eq(schema.queueItems.stationId, stationId), eq(schema.queueItems.mediaId, what.mediaId), eq(schema.queueItems.state, 'queued'), isNull(schema.queueItems.slot)))
+            .orderBy(asc(schema.queueItems.position))
+            .limit(1)
+        )[0]?.id
+      : undefined;
+  const itemId = 'itemId' in what ? what.itemId : (waiting ?? (await enqueue(ctx, stationId, what.mediaId, 'q1', { at: 'top', origin: 'manual', addedBy })).id);
   await ctx.db.transaction(async (tx) => {
     await lock(tx, stationId);
     const [item] = await tx.select().from(schema.queueItems).where(and(eq(schema.queueItems.id, itemId), eq(schema.queueItems.stationId, stationId)));
