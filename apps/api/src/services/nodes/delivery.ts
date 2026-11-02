@@ -126,7 +126,7 @@ function siteAddress(from: Pick<Node, 'status'>, n: Pick<Node, 'config' | 'statu
 }
 
 /** Whether a node holds a valid certificate from an authority for this name, as it reports (1.3); also a wildcard. */
-function hasCertificate(n: Pick<Node, 'status'>, name: string): boolean {
+export function hasCertificate(n: Pick<Node, 'status'>, name: string): boolean {
   const certs = n.status.certs;
   // Agents before 1.3 do not report their certificates: as before, a name that can carry one on a node with Caddy.
   if (!certs) return !!n.status.caddy && certName(name);
