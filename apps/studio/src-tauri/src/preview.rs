@@ -195,6 +195,8 @@ impl Session {
             cpal::SampleFormat::I16 => build::<i16>(&device, &config, cons, shared.clone()),
             cpal::SampleFormat::I32 => build::<i32>(&device, &config, cons, shared.clone()),
             cpal::SampleFormat::U16 => build::<u16>(&device, &config, cons, shared.clone()),
+            cpal::SampleFormat::I24 => build::<cpal::I24>(&device, &config, cons, shared.clone()),
+            cpal::SampleFormat::F64 => build::<f64>(&device, &config, cons, shared.clone()),
             other => anyhow::bail!("sample format {other} is not supported"),
         }?;
         stream.play()?;

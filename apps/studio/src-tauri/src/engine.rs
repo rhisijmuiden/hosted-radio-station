@@ -397,6 +397,9 @@ fn open_output(sel: &OutputSel, engine_rate: u32) -> anyhow::Result<OutputSide> 
         cpal::SampleFormat::I16 => build_output::<i16>(&device, &config, cons, failed.clone()),
         cpal::SampleFormat::I32 => build_output::<i32>(&device, &config, cons, failed.clone()),
         cpal::SampleFormat::U16 => build_output::<u16>(&device, &config, cons, failed.clone()),
+        // 24-bit drivers (Realtek ASIO and others) and 64-bit float.
+        cpal::SampleFormat::I24 => build_output::<cpal::I24>(&device, &config, cons, failed.clone()),
+        cpal::SampleFormat::F64 => build_output::<f64>(&device, &config, cons, failed.clone()),
         other => anyhow::bail!("sample format {other} is not supported"),
     }?;
     stream.play()?;
