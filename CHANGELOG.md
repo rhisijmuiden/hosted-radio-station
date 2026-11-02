@@ -52,6 +52,9 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   name, so RHIS Studio and encoders refused TLS to the node over the internet, also with Certificates through
   Cloudflare DNS switched on. Picked up on the next apply of the node (within 6 hours, or at once on a node update).
 
+- RHIS Studio 0.27.2: plays on sound cards whose driver only offers 24-bit or 64-bit samples (for example Realtek
+  ASIO), for the output and the preview. Before, the sound engine stopped with "sample format i24 is not supported".
+
 ## 1.6.0 (31 October 2026)
 
 Phase 21 (the recorder node: logging, live shows, uploads and on demand, recording in RHIS Studio, cutting, music
