@@ -805,7 +805,7 @@ Many studios use digital mixing consoles that speak Dante (audio over IP). A new
 - Ways to speak Dante on Linux, to be researched in a spike: (1) official Audinate software for Linux (Dante Embedded Platform / Dante as software), which needs a licence agreement with Audinate, best for selling; (2) AES67, which most modern Dante devices can switch on in Dante Controller, open source on Linux (ptp4l with aes67-linux-daemon or PipeWire), no Dante licence but multicast and manual setup; (3) a Dante PCIe card or Dante USB adapter in the server, which shows up as a normal sound card. Not the unofficial reverse-engineered implementations.
 - Fader start: Dante carries audio only, no control. Fader start and on-air signals come over the console's own control protocol (for example Ember+ for Lawo and DHD, LWRP for Axia, or GPIO over IP). The Dante node can speak that protocol, so no USB GPIO box is needed.
 - Short-term alternative: RHIS Studio on Windows can use Dante Virtual Soundcard (paid, from Audinate) as its sound card without any node.
-- First question: which consoles the studios use (brand and model), because that decides AES67 support and the control protocol.
+- The studios Reinder spoke to use **DHD** consoles (2 November 2026). DHD speaks AES67 natively (so probably no Dante licence needed) and offers the DHD Control API (3rd generation cores), Ember+ and the older ECP for playout control: fader open/close, ON AIR, PFL, labels on the fader displays. Sketch: https://claude.ai/artifact/PHLdjZFypeNRjxngCgzTC7 (overview, panel page Audio channels, panel page Console & fader start).
 
 ### Phone calls in RHIS Studio (SIP)
 
