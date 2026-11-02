@@ -717,6 +717,8 @@ Small fixes are collected here and handled one at a time in a separate thread, n
 - **Update all nodes at once** (fixed, 1.6.0): an option for test setups to update every node at the same time instead of one by one.
 - **Upload folder under the chosen folder** (fixed, 1.6.0): the folder typed in the upload dialog landed at the root of the library instead of under the folder that is open (music by default); the dialog now shows that folder as a fixed start and the field is only the subfolder.
 
+- **Listeners on Radio > Stations** (fixed, on test): the station list did not count listeners on relay nodes, so it showed no listeners while the dashboard did.
+
 ### FM/MPX release: Stereo Tool processing (parked)
 
 Step 1 (Stereo Tool as the processor on an FM/MPX node, PR #196) is in 1.6.0 but not tested yet, and off by default: every FM node keeps the built-in processing until Stereo Tool is chosen on it. Testing is parked (31 October 2026) because the Stereo Tool download (stereotool.com) is unavailable. It resumes once the Stereo Tool binary is uploaded in the panel and RS-MPX has a station and mount linked; then steps 2 to 4 follow (presets, the Stereo Tool web interface through the node connection, the lossless feed).

@@ -370,13 +370,18 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
         : [[], []];
       const mc = new Map(mountCounts.map((r) => [r.id, r.n]));
       const live = new Set(onAir.map((r) => r.id));
-      const stats = await Promise.all(rows.map((r) => (r.station.enabled ? stationStats(ctx, r.station) : Promise.resolve(null))));
-      return rows.map((r, i) => ({
-        ...toStationOut(r.station, r.tenantName, (id) => app.stationTunnels.online(id)),
-        onAir: live.has(r.station.id) || !!stats[i]?.length,
-        listeners: stats[i] ? stats[i]!.reduce((n, m) => n + m.listeners, 0) : null,
-        mountCount: mc.get(r.station.id) ?? 0,
-      }));
+      const [stats, relays] = await Promise.all([Promise.all(rows.map((r) => (r.station.enabled ? stationStats(ctx, r.station) : Promise.resolve(null)))), cachedRelays(ctx)]);
+      return rows.map((r, i) => {
+        // Listeners on relay nodes count too, as on the station page and the dashboard: a station on a station node
+        // has (nearly) all its listeners there.
+        const via = r.station.enabled ? [...relayListeners(relays.get(r.station.id) ?? [], r.station.slug).values()].reduce((n, v) => n + v, 0) : 0;
+        return {
+          ...toStationOut(r.station, r.tenantName, (id) => app.stationTunnels.online(id)),
+          onAir: live.has(r.station.id) || !!stats[i]?.length,
+          listeners: stats[i] || via ? (stats[i] ?? []).reduce((n, m) => n + m.listeners, 0) + via : null,
+          mountCount: mc.get(r.station.id) ?? 0,
+        };
+      });
     },
   );
 
@@ -599,14 +604,7 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
       ]);
       const byPath = new Map((stats ?? []).map((s) => [s.mount, s]));
       // Listeners on relay nodes count with the mount they listen to.
-      const viaNodes = new Map<string, number>();
-      for (const n of (await cachedRelays(ctx)).get(station.id) ?? []) {
-        if (!n.status.online) continue;
-        for (const r of n.status.relays ?? []) {
-          const path = r.key.slice(station.slug.length);
-          if (r.key.startsWith(`${station.slug}/`) && r.listeners) viaNodes.set(path, (viaNodes.get(path) ?? 0) + r.listeners);
-        }
-      }
+      const viaNodes = relayListeners((await cachedRelays(ctx)).get(station.id) ?? [], station.slug);
       const listenersOf = (path: string) => (byPath.get(path)?.listeners ?? 0) + (viaNodes.get(path) ?? 0);
       // Mounts Icecast knows but that are not configured (e.g. an old relay) are listed too.
       const known = new Set(mounts.map((m) => m.path));
@@ -1045,3 +1043,16 @@ export const stationRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   );
 };
+
+/** Listeners per mount path of a station on its online relay nodes. */
+function relayListeners(nodes: { status: { online?: boolean; relays?: { key: string; listeners?: number }[] } }[], slug: string) {
+  const out = new Map<string, number>();
+  for (const n of nodes) {
+    if (!n.status.online) continue;
+    for (const r of n.status.relays ?? []) {
+      const path = r.key.slice(slug.length);
+      if (r.key.startsWith(`${slug}/`) && r.listeners) out.set(path, (out.get(path) ?? 0) + r.listeners);
+    }
+  }
+  return out;
+}
