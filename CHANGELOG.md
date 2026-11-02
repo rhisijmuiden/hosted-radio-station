@@ -39,6 +39,10 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   where to choose one), and the banner after studio mode ended by itself now says why: the broadcast did not connect,
   it dropped, the server was not reachable, or the encoder's own error.
 
+- A station node offers TLS for encoders and RHIS Studio over the internet only when it holds a valid certificate for
+  its name (as the node reports it). Before, a node without a certificate through Cloudflare DNS still offered its
+  TLS port with a self-signed certificate, and RHIS Studio refused it ("root certificate which is not trusted").
+
 ## 1.6.0 (31 October 2026)
 
 Phase 21 (the recorder node: logging, live shows, uploads and on demand, recording in RHIS Studio, cutting, music
