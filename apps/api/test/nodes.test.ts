@@ -205,6 +205,9 @@ describe('nodes', () => {
     const status = (await t.app.inject({ method: 'GET', url: `/api/stations/${stationId}/status`, headers: admin })).json();
     expect(status.listeners).toBe(2);
     expect(status.mounts.find((m: { path: string }) => m.path === '/live')).toMatchObject({ listeners: 2 });
+    // And so does the station list (Radio > Stations), like the dashboard.
+    const list = (await t.app.inject({ method: 'GET', url: '/api/stations', headers: admin })).json();
+    expect(list.find((x: { id: string }) => x.id === stationId).listeners).toBe(2);
 
     // A listener that left is closed with the moment the node saw it leave.
     const [st] = await t.db.select({ tenantId: schema.stations.tenantId }).from(schema.stations).where(eq(schema.stations.id, stationId));

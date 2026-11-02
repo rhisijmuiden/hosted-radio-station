@@ -43,6 +43,10 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   its name (as the node reports it). Before, a node without a certificate through Cloudflare DNS still offered its
   TLS port with a self-signed certificate, and RHIS Studio refused it ("root certificate which is not trusted").
 
+- Radio > Stations shows the listeners of a station again: the list now counts the listeners on relay nodes too,
+  like the station page and the dashboard. A station on a station node has nearly all its listeners there, so the
+  column stayed empty or at 0.
+
 ## 1.6.0 (31 October 2026)
 
 Phase 21 (the recorder node: logging, live shows, uploads and on demand, recording in RHIS Studio, cutting, music
