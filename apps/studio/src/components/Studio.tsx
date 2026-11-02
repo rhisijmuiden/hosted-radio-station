@@ -10,8 +10,9 @@ import { useEngine } from '../lib/engine';
 import { duration } from '../lib/format';
 import { ask, call, type AppInfo } from '../lib/native';
 import { useNow } from '../lib/now';
-import { useAutoDj } from '../lib/queries';
+import { useAutoDj, useRundown } from '../lib/queries';
 import { clock, DRAG, queueOf } from '../lib/queue';
+import { blocksOf } from '../lib/timeline';
 import { useSession } from '../lib/session';
 import { studio, useStudio, type StudioTrack } from '../lib/studio';
 import { addLocalFile, DRAG_FILE, DRAG_MEDIA, useCanUpload } from './Library';
@@ -227,6 +228,7 @@ export function StudioHotkeys() {
 export function MicButton() {
   const { t } = useTranslation();
   const mic = useStudio((s) => s.mic);
+  const autoOff = useStudio((s) => s.micAutoOff);
   const level = useEngine((s) => s.info?.input);
   return (
     <button
@@ -242,10 +244,48 @@ export function MicButton() {
       {mic ? <Mic className="size-5" /> : <MicOff className="size-5" />}
       <span>{mic ? t('studio.micOn') : t('studio.micOff')}</span>
       <span className="text-[10.5px] font-semibold tracking-normal normal-case opacity-80">
-        {t('studio.micKey')}
+        {!mic && autoOff ? t('studio.micNews') : t('studio.micKey')}
         {level ? ` · ${level}` : ''}
       </span>
     </button>
+  );
+}
+
+/**
+ * The next fixed block of the hour clock while the DJ plays the queue: when it starts, whether it cuts the track on
+ * air (hard time) or is locked, and a countdown. With the news in it, the microphone goes off when the bulletin starts.
+ */
+const SOON_MS = 3 * 60_000;
+function NextFixed() {
+  const { t } = useTranslation();
+  const { station, supports } = useSession();
+  const now = useNow(500);
+  const rundown = useRundown(station?.id, !!station && supports('rundown'));
+  const block = rundown.data?.enabled ? blocksOf(rundown.data.rows, now).find((b) => b.at > now - 5_000) : undefined;
+  // The top bar always shows the next block; here it comes up in the last minutes, next to the players.
+  if (!block || block.at - now > SOON_MS) return null;
+  const left = Math.max(0, (block.at - now) / 1000);
+  const news = block.items.some((i) => i.source === 'news');
+  const label = block.items.map((i) => i.label).filter(Boolean).join(' · ') || t('studio.fixedBlock');
+  return (
+    <div className={clsx('flex items-center gap-3 rounded-md border px-3 py-2 text-[13px]', left < 30 ? 'border-studio bg-studio/10' : 'border-line bg-surface')} role="status">
+      <div className="min-w-0 flex-1">
+        <div className="text-[10px] font-bold tracking-[0.08em] text-muted uppercase">
+          {t('studio.nextFixed', { time: clock(block.at) })}
+          {block.hard && <span className="ml-1.5 text-accent-text">· {t('studio.hardTime')}</span>}
+          {block.locked && (
+            <span className="ml-1.5 inline-flex items-center gap-1 text-accent-text">
+              · <Lock className="size-2.5" /> {t('assist.locked')}
+            </span>
+          )}
+        </div>
+        <div className="truncate font-semibold">{label}</div>
+        {(block.hard || news) && (
+          <div className="text-[11.5px] text-muted">{[block.hard && t('studio.hardNote'), news && t('studio.newsMic')].filter(Boolean).join(' ')}</div>
+        )}
+      </div>
+      <div className={clsx('display text-[26px] leading-none tabular', left < 30 && 'text-accent-text')}>{duration(left)}</div>
+    </div>
   );
 }
 
@@ -393,6 +433,7 @@ export function StudioDecks({ data }: { data: AutoDj }) {
 
   return (
     <div className="grid gap-2.5">
+      <NextFixed />
       <div className="grid grid-cols-2 gap-2.5">{[deck(0), deck(1)]}</div>
       <MicButton />
       {s.error && s.phase === 'on' && <p className="text-[12px] text-warning">{s.error}</p>}

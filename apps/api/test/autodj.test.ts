@@ -654,12 +654,19 @@ describe.runIf(hasFfmpeg)('library and AutoDJ', () => {
       expect(res.statusCode, res.body).toBe(200);
       expect(res.json().track).toMatchObject({ id: queued.id, state: 'cued' });
       expect(await state(before)).toBe('queued');
-      expect((await api('POST', '/autodj/studio/load', { pc: 'other-pc', itemId: before })).statusCode).toBe(409);
+      // A library track that already waits is moved up, not added twice.
+      const count = async () => (await api('GET', '/autodj')).json().queues.q1.length as number;
+      const n = await count();
+      const beforeMedia = (await api('GET', '/autodj')).json().queues.q1.find((q: { id: string }) => q.id === before).media.id as string;
+      res = await api('POST', '/autodj/studio/load', { ...pc, mediaId: beforeMedia });
+      expect(res.json().track.id).toBe(before);
+      expect(await count()).toBe(n);
+      expect((await api('POST', '/autodj/studio/load', { pc: 'other-pc', itemId: queued.id })).statusCode).toBe(409);
       expect((await api('POST', '/autodj/studio/load', { ...pc, itemId: ahead })).statusCode).toBe(400);
 
       // The PC hands back: the track it had loaded is the AutoDJ's next one; the player asks for it first, then plays
       // again past the old track it held.
-      const loaded = queued.id as string;
+      const loaded = before;
       expect((await api('POST', '/autodj/studio', { on: false, ...pc })).json().studio.active).toBe(false);
       expect(await state(loaded)).toBe('queued');
       heard.length = 0;
