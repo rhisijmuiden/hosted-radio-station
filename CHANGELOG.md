@@ -47,6 +47,11 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   like the station page and the dashboard. A station on a station node has nearly all its listeners there, so the
   column stayed empty or at 0.
 
+- A station node hands its certificates (from the web server or through Cloudflare DNS) to the station runtime, which
+  serves the encoder ports 8400/8401. Before, that port only ever had a self-signed certificate for the machine's own
+  name, so RHIS Studio and encoders refused TLS to the node over the internet, also with Certificates through
+  Cloudflare DNS switched on. Picked up on the next apply of the node (within 6 hours, or at once on a node update).
+
 ## 1.6.0 (31 October 2026)
 
 Phase 21 (the recorder node: logging, live shows, uploads and on demand, recording in RHIS Studio, cutting, music

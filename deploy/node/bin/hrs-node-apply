@@ -241,6 +241,26 @@ main() {
     chmod 0600 "$CERTS/default.key"; chmod 0640 "$CERTS/default.crt"
   fi
 
+  # 3a. A station node's encoder port (8400/8401) is served by the station runtime (hosted-radio-streams), which reads
+  #     its own certificate folder. It gets the node's certificates too (also those through DNS), else it only ever has
+  #     a self-signed one for the machine's own name and RHIS Studio and encoders refuse TLS over the internet.
+  local RT_CERTS=/var/lib/hosted-radio/certs f base
+  if [[ "$(jq -r '.station // false' "$STATE")" == true && -d "$RT_CERTS" ]] && id hosted-radio >/dev/null 2>&1; then
+    for f in "$CERTS"/*.crt; do
+      [[ -f "$f" && -f "${f%.crt}.key" ]] || continue
+      base=$(basename "$f" .crt)
+      [[ "$base" == default || "$base" =~ $host_re ]] || continue
+      # Only a certificate from an authority replaces what the runtime has: never its own with a self-signed one.
+      openssl x509 -noout -in "$f" -checkend 0 >/dev/null 2>&1 || continue
+      [[ "$(openssl x509 -noout -subject -nameopt RFC2253 -in "$f")" == "$(openssl x509 -noout -issuer -nameopt RFC2253 -in "$f" | sed 's/^issuer/subject/')" ]] && continue
+      if ! cmp -s "$f" "$RT_CERTS/$base.crt"; then
+        install -m 0640 -o hosted-radio -g hosted-radio "$f" "$RT_CERTS/$base.crt"
+        install -m 0600 -o hosted-radio -g hosted-radio "${f%.crt}.key" "$RT_CERTS/$base.key"
+        log "Certificate $base handed to the station runtime"
+      fi
+    done
+  fi
+
   # 4. Station node (phase 12): the full Hosted Radio Station runtime runs the stations the main server places here.
   local station station_file=/etc/hosted-radio/station-node.json
   station=$(jq -r '.station // false' "$STATE")
