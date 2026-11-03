@@ -718,6 +718,7 @@ Small fixes are collected here and handled one at a time in a separate thread, n
 - **Upload folder under the chosen folder** (fixed, 1.6.0): the folder typed in the upload dialog landed at the root of the library instead of under the folder that is open (music by default); the dialog now shows that folder as a fixed start and the field is only the subfolder.
 
 - **Listeners on Radio > Stations** (fixed, on test): the station list did not count listeners on relay nodes, so it showed no listeners while the dashboard did.
+- **Listen to the air in RHIS Studio** (fixed, Studio 0.31): a **Listen** button in the top bar plays the station as listeners hear it while the DJ is not live, on its own output and volume (Settings), and goes off by itself on Go Live and in studio mode.
 
 ### FM/MPX release: Stereo Tool processing (parked)
 

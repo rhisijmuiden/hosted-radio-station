@@ -1,12 +1,13 @@
 import clsx from 'clsx';
-import { ChevronsUpDown, Clock3, Disc3, Grid3x3, Headphones, Lock, LogOut, Mic, Radio, Settings, type LucideIcon } from 'lucide-react';
+import { ChevronsUpDown, Clock3, Disc3, Grid3x3, Headphones, Loader2, Lock, LogOut, Mic, Radio, Settings, Volume2, VolumeX, type LucideIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEngine } from '../lib/engine';
 import { api } from '../lib/api';
 import { duration } from '../lib/format';
 import { useNow } from '../lib/now';
-import { useAutoDj, useRundown, useStatus } from '../lib/queries';
+import { airPlaying, airUrl, setAirVolume, startAir, stopAir, useAir } from '../lib/air';
+import { useAutoDj, useRundown, useStationDetail, useStatus } from '../lib/queries';
 import { useSession } from '../lib/session';
 import { useSettings } from '../lib/settings';
 import { useStudio } from '../lib/studio';
@@ -164,6 +165,63 @@ function NextBlock() {
   );
 }
 
+/** Whether this PC sends sound to the station now (live, connecting, or studio mode): then listening is off. */
+function useSending() {
+  const broadcast = useEngine((s) => s.broadcast.state);
+  const studio = useStudio((s) => s.phase);
+  return broadcast !== 'off' && broadcast !== 'failed' ? true : studio !== 'off' && studio !== 'lost';
+}
+
+/**
+ * Listen to the air (small fix i): plays the station as listeners hear it, while this PC is not live. Goes off by
+ * itself on Go Live and in studio mode, so the delayed stream never comes back over the DJ's microphone.
+ */
+function AirButton() {
+  const { t } = useTranslation();
+  const { station } = useSession();
+  const detail = useStationDetail(station?.id);
+  const settings = useSettings();
+  const air = useAir();
+  const sending = useSending();
+  const url = airUrl(detail.data, settings.server);
+  // Off on Go Live and in studio mode; the other station when the DJ switches stations.
+  useEffect(() => {
+    if (sending) stopAir();
+    else if (airPlaying() && url && airPlaying() !== url) void startAir(url);
+    else if (airPlaying() && !url) stopAir();
+  }, [sending, url]);
+  const title = sending ? t('air.offWhileLive') : !url ? t('air.noStream') : air.on ? `${t('air.stop')}${air.device ? ` · ${air.device}` : ''}` : t('air.listenHint');
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        onClick={() => (air.on ? stopAir() : url && void startAir(url))}
+        disabled={sending || (!url && !air.on)}
+        aria-pressed={air.on}
+        title={air.error && air.on && !air.playing ? `${title}\n${air.error}` : title}
+        className={clsx(
+          'flex h-10 items-center gap-2 rounded-md border px-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+          air.on ? 'border-koraal bg-koraal/15 text-ink' : 'border-line bg-surface text-muted hover:bg-hover hover:text-ink',
+        )}
+      >
+        {air.on && !air.playing ? <Loader2 className="size-4 animate-spin" /> : air.on ? <Volume2 className="size-4 text-koraal" /> : <VolumeX className="size-4" />}
+        {air.on && !air.playing ? t('air.connecting') : t('air.listen')}
+      </button>
+      {air.on && (
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={Math.round(settings.air.volume * 100)}
+          onChange={(e) => setAirVolume(Number(e.target.value) / 100)}
+          aria-label={t('air.volume')}
+          title={`${t('air.volume')}: ${Math.round(settings.air.volume * 100)}%`}
+          className="w-20 accent-koraal"
+        />
+      )}
+    </div>
+  );
+}
+
 /** The station, who is on air, the next fixed block, listeners and the clock: always in view. */
 function TopBar({ page }: { page: Page }) {
   const { t } = useTranslation();
@@ -198,6 +256,7 @@ function TopBar({ page }: { page: Page }) {
       <NextBlock />
       <div className="flex-1" />
       {page === 'assist' && station?.edition === 'station' && <LayoutMenu />}
+      <AirButton />
       <div className="text-right">
         <div className="display text-[22px] leading-none tabular">{status.data?.listeners ?? '–'}</div>
         <div className="text-[11px] text-muted">{t('assist.listeners')}</div>
