@@ -80,6 +80,9 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   level in the mix. A track started otherwise (Play, Next, a drop, a hard time) brings its fader up; a track that ends
   takes it down. Keys: F1 and F2 open or close the faders of A and B, the space bar the microphone. Kept on this PC;
   with fader start the next track waits for its fader, as in Manual. MIDI and GPIO faders come later.
+- RHIS Studio 0.31 also: a **Listen** button in the top bar plays the station as listeners hear it while you are not
+  live, on its own output and volume (Settings › Listen to the air). It goes off by itself on Go Live and in studio
+  mode.
 
 ## 1.6.0 (31 October 2026)
 
