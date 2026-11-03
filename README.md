@@ -230,6 +230,12 @@ Icecast · Liquidsoap · ffmpeg · SFTPGo · restic and rclone (backups) · GeoI
 | `deploy` | systemd units and the `hrs` helper scripts, for the server and the node |
 | `docs` | Documentation, diagrams and screenshots |
 
+## Licence
+
+Hosted Radio Station and RHIS Studio are free software under the **GNU Affero General Public License v3.0 or later**
+(AGPL-3.0-or-later): see [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md) (copyright, the ASIO exception for RHIS Studio,
+and the name and logo). Whoever runs a modified version for others over a network must offer them its source code.
+
 ## Roadmap
 
 The platform is built in phases. **Version 1.0.0** contains phases 1 to 13: everything from streaming, AutoDJ and the

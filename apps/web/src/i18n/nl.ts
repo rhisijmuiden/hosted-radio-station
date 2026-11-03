@@ -520,6 +520,8 @@ export const nl: Translation = {
   },
   info: {
     button: 'Info',
+    licence: 'Licentie',
+    source: 'Broncode',
     title: 'Over deze server',
     subtitle: 'Versie, updatekanaal en updaten met één klik.',
     version: 'Versie',

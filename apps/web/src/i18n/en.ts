@@ -518,6 +518,8 @@ export const en = {
   },
   info: {
     button: 'Info',
+    licence: 'Licence',
+    source: 'Source code',
     title: 'About this server',
     subtitle: 'Version, update channel and one-click updates.',
     version: 'Version',

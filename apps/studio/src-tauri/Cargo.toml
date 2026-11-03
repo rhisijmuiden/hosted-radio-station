@@ -3,6 +3,8 @@ name = "rhis-studio"
 version = "0.31.0"
 description = "RHIS Studio: the Windows client of Hosted Radio Station"
 authors = ["RHIS"]
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/rhisijmuiden/hosted-radio-station"
 edition = "2021"
 rust-version = "1.80"
 

@@ -378,6 +378,8 @@ export const en = {
     asio: 'ASIO',
     asioYes: 'Built in',
     asioNo: 'Not in this build',
+    licence: 'Licence',
+    source: 'Source code',
     channel: 'Update channel',
     noBuild: 'No build yet',
     noBuildText: 'Nothing has been published on this channel yet.',

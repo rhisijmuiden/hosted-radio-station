@@ -2,6 +2,7 @@
   "name": "@hrs/studio",
   "version": "0.31.0",
   "private": true,
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "description": "RHIS Studio: the Windows client of Hosted Radio Station",
   "scripts": {

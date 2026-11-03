@@ -380,6 +380,8 @@ export const nl: Translation = {
     asio: 'ASIO',
     asioYes: 'Ingebouwd',
     asioNo: 'Niet in deze build',
+    licence: 'Licentie',
+    source: 'Broncode',
     channel: 'Updatekanaal',
     noBuild: 'Nog geen build',
     noBuildText: 'Er is op dit kanaal nog niets gepubliceerd.',
