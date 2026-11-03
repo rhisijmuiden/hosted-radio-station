@@ -8,6 +8,7 @@ import { Button, Card, CardHeader, Fact, Field, Input, Select, Switch } from '..
 import { useEngine } from '../lib/engine';
 import { ask, call, type AudioConfig, type Devices, type OutputSel } from '../lib/native';
 import { useSession } from '../lib/session';
+import { applyAirOutput } from '../lib/air';
 import { updateSettings, useSettings } from '../lib/settings';
 
 /** Channel pairs of a sound card: 1–2, 3–4, … and each channel on its own (mono). */
@@ -208,6 +209,29 @@ export function SettingsPage() {
               onChange={(e) => {
                 const [host, ...rest] = e.target.value.split('|');
                 void applyPreviewOutput(e.target.value ? { host: host!, device: rest.join('|') } : null);
+              }}
+            >
+              <option value="">{t('settings.previewDefault')}</option>
+              {outputs.map((d) => (
+                <option key={`${d.host}|${d.name}`} value={`${d.host}|${d.name}`}>
+                  {d.host} · {d.name}
+                  {d.isDefault ? ` (${t('settings.default')})` : ''}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader title={t('settings.air')} description={t('settings.airText')} />
+        <div className="grid gap-4 px-5 py-4 md:grid-cols-2">
+          <Field label={t('settings.airDevice')} hint={a.output && settings.air.output?.device === a.output.device ? t('settings.airSame') : undefined}>
+            <Select
+              value={settings.air.output ? `${settings.air.output.host}|${settings.air.output.device}` : ''}
+              onChange={(e) => {
+                const [host, ...rest] = e.target.value.split('|');
+                void applyAirOutput(e.target.value ? { host: host!, device: rest.join('|') } : null);
               }}
             >
               <option value="">{t('settings.previewDefault')}</option>

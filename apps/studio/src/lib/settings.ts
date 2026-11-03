@@ -25,6 +25,8 @@ export interface Settings {
   cartPage: number;
   /** Pre-listen, off air: its own sound card output (null = the Windows default). */
   preview: { output: OutputSel | null };
+  /** Listening to the air while not live: its own sound card output (null = the Windows default) and volume 0–1. */
+  air: { output: OutputSel | null; volume: number };
   /** Network shares in the library panel, e.g. \\\\nas\\muziek. */
   shares: string[];
   /** The layout of Assist; the DJ profile on the server has the say when it has one (see lib/layout.ts). */
@@ -33,6 +35,8 @@ export interface Settings {
   single: { items: SingleItem[]; auto: boolean };
   /** The news player of the OmniPlayer layout starts the bulletin at the news time while live. */
   news: { auto: boolean };
+  /** Studio mode: fader start (opening a player's fader starts it, closing it stops it and cues the next track). */
+  studio: { faderStart: boolean };
 }
 
 /** A track in the single player: a file of this PC (or a share), or a track of the station library. */
@@ -55,16 +59,18 @@ const defaults: Settings = {
   carts: Array.from({ length: 48 }, () => null),
   cartPage: 0,
   preview: { output: null },
+  air: { output: null, volume: 0.8 },
   shares: [],
   layout: null,
   single: { items: [], auto: false },
   news: { auto: true },
+  studio: { faderStart: false },
 };
 
 function load(): Settings {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Settings>;
-    return { ...defaults, ...raw, audio: { ...defaults.audio, ...raw.audio }, live: { ...defaults.live, ...raw.live }, preview: { ...defaults.preview, ...raw.preview }, shares: Array.isArray(raw.shares) ? raw.shares : [], layout: raw.layout && typeof raw.layout === 'object' ? raw.layout : null, single: { items: Array.isArray(raw.single?.items) ? raw.single.items : [], auto: !!raw.single?.auto }, news: { auto: raw.news?.auto !== false }, carts: raw.carts?.length === 48 ? raw.carts : defaults.carts };
+    return { ...defaults, ...raw, audio: { ...defaults.audio, ...raw.audio }, live: { ...defaults.live, ...raw.live }, preview: { ...defaults.preview, ...raw.preview }, air: { output: raw.air?.output ?? null, volume: typeof raw.air?.volume === 'number' ? Math.min(1, Math.max(0, raw.air.volume)) : defaults.air.volume }, shares: Array.isArray(raw.shares) ? raw.shares : [], layout: raw.layout && typeof raw.layout === 'object' ? raw.layout : null, single: { items: Array.isArray(raw.single?.items) ? raw.single.items : [], auto: !!raw.single?.auto }, news: { auto: raw.news?.auto !== false }, studio: { faderStart: !!raw.studio?.faderStart }, carts: raw.carts?.length === 48 ? raw.carts : defaults.carts };
   } catch {
     return defaults;
   }

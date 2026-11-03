@@ -179,15 +179,17 @@ impl Deck {
         self.stop_step = self.stop_level / frames;
     }
 
-    /// Adds the deck into `out` at `duck`; returns true when the track ended in this block.
-    fn render(&mut self, out: &mut [f32], duck: f32) -> bool {
+    /// Adds the deck into `out` at `duck` and its fader (from `fader.0` to `fader.1` over the first 10 ms); returns
+    /// true when the track ended in this block.
+    fn render(&mut self, out: &mut [f32], duck: f32, fader: (f32, f32)) -> bool {
         if !self.playing {
             return false;
         }
+        let ramp = (self.rate as usize / 100).max(1);
         let fade_in = (self.load.fade_in * self.rate as f64) as u64;
         let fade_out_at = self.load.fade_out_at.filter(|f| *f < self.end);
         let mut frame = [0f32; 2];
-        for o in out.chunks_exact_mut(2) {
+        for (j, o) in out.chunks_exact_mut(2).enumerate() {
             let pos = self.position();
             if pos >= self.end || self.stop_level <= 0.0 {
                 return true;
@@ -199,7 +201,8 @@ impl Deck {
                 // The decoder is behind (a very busy PC): silence rather than a stall; the clock keeps running.
                 frame = [0.0, 0.0];
             }
-            let mut g = self.gain * duck * self.stop_level;
+            let level = if j >= ramp { fader.1 } else { fader.0 + (fader.1 - fader.0) * (j as f32 / ramp as f32) };
+            let mut g = self.gain * duck * self.stop_level * level;
             // The fade in starts where playing started (cue in): not again after a take over further on.
             let since_start = ((pos - self.load.start) * self.rate as f64).max(0.0) as u64;
             if fade_in > 0 && since_start < fade_in {
@@ -231,11 +234,14 @@ pub struct DeckPlayer {
     /// Crossfade: how long the track before fades out when the next one starts.
     pub crossfade: f32,
     pub events: Vec<DeckEvent>,
+    /// Studio mode fader start: the level of each player's fader (0..1), and the level it had in the last block.
+    pub fader: [f32; DECKS],
+    fader_was: [f32; DECKS],
 }
 
 impl DeckPlayer {
     pub fn new(rate: u32) -> Self {
-        Self { decks: [None, None], errors: [None, None], rate, auto: true, crossfade: 0.0, events: Vec::new() }
+        Self { decks: [None, None], errors: [None, None], rate, auto: true, crossfade: 0.0, events: Vec::new(), fader: [1.0; DECKS], fader_was: [1.0; DECKS] }
     }
 
     pub fn load(&mut self, deck: usize, load: DeckLoad) {
@@ -332,8 +338,10 @@ impl DeckPlayer {
     pub fn render(&mut self, out: &mut [f32], duck: f32) {
         let mut start: Option<usize> = None;
         for i in 0..DECKS {
+            let fader = (self.fader_was[i], self.fader[i]);
+            self.fader_was[i] = self.fader[i];
             let Some(d) = self.decks[i].as_mut() else { continue };
-            let ended = d.render(out, duck);
+            let ended = d.render(out, duck, fader);
             if d.playing && !d.next_sent && d.position() >= d.next_at() {
                 d.next_sent = true;
                 self.events.push(DeckEvent::Next { deck: i, id: d.load.id.clone() });
@@ -576,6 +584,25 @@ mod tests {
         assert!(!p.any_playing());
         let _ = std::fs::remove_file(a);
         let _ = std::fs::remove_file(b);
+    }
+
+    #[test]
+    fn follows_the_fader_of_each_player() {
+        let path = std::env::temp_dir().join("rhis-deck-fader.wav");
+        wav(&path, 48_000, 2.0, 16_000);
+        let mut p = DeckPlayer::new(48_000);
+        p.load(0, load(&path, "one"));
+        wait_ready(&p, 0);
+        p.play(0, None);
+        let full = run(&mut p, 0.2, 1.0);
+        assert!(full[5] > 0.45, "full: {}", full[5]);
+        p.fader[0] = 0.5;
+        let half = run(&mut p, 0.2, 1.0);
+        assert!((half[5] - full[5] / 2.0).abs() < 0.02, "half: {}", half[5]);
+        p.fader[0] = 0.0;
+        let closed = run(&mut p, 0.1, 1.0);
+        assert!(closed[3] < 1e-6, "closed: {}", closed[3]);
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

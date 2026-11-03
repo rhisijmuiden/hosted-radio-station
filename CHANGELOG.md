@@ -74,6 +74,16 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   encoder ports of the station runtime: `GET /studio-media/<station>/<media>`, only with a live password of a DJ
   account that may broadcast.
 
+- RHIS Studio 0.31, studio mode (step 4): **Fader start** next to Auto/Manual. Players A and B and the microphone
+  each get a fader, like on a mixing desk: opening the fader of a player starts its track, closing it stops the track
+  and the next one is loaded onto that player; the microphone fader switches the microphone. The faders also set the
+  level in the mix. A track started otherwise (Play, Next, a drop, a hard time) brings its fader up; a track that ends
+  takes it down. Keys: F1 and F2 open or close the faders of A and B, the space bar the microphone. Kept on this PC;
+  with fader start the next track waits for its fader, as in Manual. MIDI and GPIO faders come later.
+- RHIS Studio 0.31 also: a **Listen** button in the top bar plays the station as listeners hear it while you are not
+  live, on its own output and volume (Settings › Listen to the air). It goes off by itself on Go Live and in studio
+  mode.
+
 ## 1.6.0 (31 October 2026)
 
 Phase 21 (the recorder node: logging, live shows, uploads and on demand, recording in RHIS Studio, cutting, music

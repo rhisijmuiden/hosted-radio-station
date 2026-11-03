@@ -11,7 +11,7 @@ import { duration } from '../lib/format';
 import { clock, DRAG, queueOf, useQueueActions } from '../lib/queue';
 import { useSession } from '../lib/session';
 import { useStudio } from '../lib/studio';
-import { StudioDecks } from './Studio';
+import { FaderStartSwitch, StudioDecks } from './Studio';
 import type { Line } from '../lib/timeline';
 
 /** Auto: the player plays on from track to track. Manual: it stops after each track until Play. */
@@ -147,13 +147,15 @@ export function Decks(props: { data: AutoDj; stationId: string; lines: Line[]; n
   const { t } = useTranslation();
   // Studio mode: the players play here, on this PC.
   const studioHere = useStudio((s) => (s.phase === 'on' || s.phase === 'stopping') && s.stationId === props.stationId);
+  const faderStart = useStudio((s) => s.faderStart);
   if (studioHere) {
     return (
       <Card className="shrink-0 p-3">
         <StudioDecks data={props.data} />
         <div className="mt-2.5 flex items-center gap-3">
           <ModeSwitch data={props.data} stationId={props.stationId} />
-          <span className="min-w-0 flex-1 truncate text-right text-[12px] text-muted">{props.data.playout?.manual ? t('playout.manualText') : t('playout.autoText')}</span>
+          <FaderStartSwitch />
+          <span className="min-w-0 flex-1 truncate text-right text-[12px] text-muted">{faderStart ? t('studio.faderStartText') : props.data.playout?.manual ? t('playout.manualText') : t('playout.autoText')}</span>
         </div>
       </Card>
     );

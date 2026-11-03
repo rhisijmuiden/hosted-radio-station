@@ -191,6 +191,7 @@ const sim = {
   broadcast: { state: 'off' } as BroadcastStatus,
   config: null as AudioConfig | null,
   previewOutput: null as string | null,
+  air: { on: false, playing: false, device: null as string | null, error: null as string | null },
   preview: { loaded: false, playing: false, ended: false, name: '', position: 0, duration: 0, device: null, at: 0 } as PreviewState & { at: number },
   timer: 0 as unknown as ReturnType<typeof setInterval>,
   decks: [null, null] as ({ load: DeckLoad; playing: boolean; at: number; from: number; nextSent: boolean } | null)[],
@@ -337,6 +338,8 @@ async function simInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Pr
     case 'stop_cart':
       Object.assign(sim.carts[args.slot as number]!, { playing: false, position: 0 });
       return undefined as T;
+    case 'set_fader':
+      return undefined as T;
     case 'prune_studio_cache':
       return 0 as T;
     case 'cache_file':
@@ -400,6 +403,18 @@ async function simInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Pr
       } catch {
         /* private mode */
       }
+      return undefined as T;
+    // Listening to the air: the browser simulation only keeps the state.
+    case 'air_start':
+    case 'air_output':
+      sim.air = { on: true, playing: true, device: (args.output as OutputSel | null)?.device ?? 'Speakers (Realtek Audio)', error: null };
+      return { ...sim.air } as T;
+    case 'air_state':
+      return { ...sim.air } as T;
+    case 'air_stop':
+      sim.air = { on: false, playing: false, device: null, error: null };
+      return undefined as T;
+    case 'air_volume':
       return undefined as T;
     case 'preview_output':
       sim.previewOutput = (args.output as OutputSel | null)?.device ?? null;

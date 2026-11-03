@@ -1,5 +1,6 @@
 //! RHIS Studio: the Windows client of Hosted Radio Station.
 
+mod air;
 mod carts;
 mod decks;
 mod engine;
@@ -13,6 +14,7 @@ mod waveform;
 
 use std::{path::PathBuf, sync::Arc};
 
+use air::{Air, AirState};
 use engine::{AudioConfig, Devices, Engine, EngineInfo, Event, OutputSel};
 use preview::{Preview, PreviewState};
 use serde::Serialize;
@@ -116,6 +118,12 @@ fn deck_mode(engine: State<'_, Arc<Engine>>, auto: bool, crossfade: f32) {
 #[tauri::command]
 fn set_mic(engine: State<'_, Arc<Engine>>, open: bool) {
     engine.set_mic(open);
+}
+
+/// Studio mode fader start: the level of a fader (0 and 1 = players A and B, 2 = the microphone), 0..1.
+#[tauri::command]
+fn set_fader(engine: State<'_, Arc<Engine>>, channel: usize, level: f32) {
+    engine.set_fader(channel, level);
 }
 
 #[tauri::command]
@@ -250,6 +258,34 @@ fn preview_state(preview: State<'_, Arc<Preview>>) -> PreviewState {
     preview.state()
 }
 
+/// Listening to the air: the station's public stream on its own output and volume (not while live).
+#[tauri::command]
+async fn air_start(air: State<'_, Arc<Air>>, url: String, output: Option<OutputSel>, volume: f32) -> Result<AirState, String> {
+    let a = air.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || a.start(&url, output.as_ref(), volume)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn air_stop(air: State<'_, Arc<Air>>) {
+    air.stop()
+}
+
+#[tauri::command]
+fn air_volume(air: State<'_, Arc<Air>>, volume: f32) {
+    air.set_volume(volume)
+}
+
+#[tauri::command]
+async fn air_output(air: State<'_, Arc<Air>>, output: Option<OutputSel>) -> Result<AirState, String> {
+    let a = air.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || a.set_output(output.as_ref())).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn air_state(air: State<'_, Arc<Air>>) -> AirState {
+    air.state()
+}
+
 #[tauri::command]
 async fn list_folder(path: Option<String>) -> Result<files::Folder, String> {
     tauri::async_runtime::spawn_blocking(move || files::list(path.as_deref()).map_err(|e| format!("{e:#}")))
@@ -296,6 +332,7 @@ pub fn run() {
             }));
             app.manage(Arc::new(engine));
             app.manage(Arc::new(Preview::default()));
+            app.manage(Arc::new(Air::default()));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -314,6 +351,7 @@ pub fn run() {
             deck_clear,
             deck_mode,
             set_mic,
+            set_fader,
             start_broadcast,
             stop_broadcast,
             broadcast_status,
@@ -331,6 +369,11 @@ pub fn run() {
             preview_stop,
             preview_state,
             cue_open,
+            air_start,
+            air_stop,
+            air_volume,
+            air_output,
+            air_state,
             list_folder,
             upload_file,
             cache_file,

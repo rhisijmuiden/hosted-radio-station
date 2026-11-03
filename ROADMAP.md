@@ -718,6 +718,7 @@ Small fixes are collected here and handled one at a time in a separate thread, n
 - **Upload folder under the chosen folder** (fixed, 1.6.0): the folder typed in the upload dialog landed at the root of the library instead of under the folder that is open (music by default); the dialog now shows that folder as a fixed start and the field is only the subfolder.
 
 - **Listeners on Radio > Stations** (fixed, on test): the station list did not count listeners on relay nodes, so it showed no listeners while the dashboard did.
+- **Listen to the air in RHIS Studio** (fixed, Studio 0.31): a **Listen** button in the top bar plays the station as listeners hear it while the DJ is not live, on its own output and volume (Settings), and goes off by itself on Go Live and in studio mode.
 
 ### FM/MPX release: Stereo Tool processing (parked)
 
@@ -764,6 +765,9 @@ Today Go Live stops the server's music and sends only what RHIS Studio plays its
 - Microphone on/off with ducking of the music, and a mic level on the meter.
 - Locked blocks (news, ads) and the hour clock keep running as planned; the log stays the server's.
 - If RHIS Studio stops or loses the connection, the server's AutoDJ takes over by itself at the right point in the queue.
+- Fader start on screen: a fader for each player and the microphone; opening one starts it, closing it stops it and cues the next track. MIDI and GPIO faders come later.
+
+*Built 2026-11-01 to 11-03 in test (RHIS Studio 0.27–0.31, PRs #214–#226), goes into release 1.7.0: step 1 take over and local playout; step 2 drag onto the players, countdown to fixed blocks, mic off for the news; step 3 tracks from the station node over the LAN, fetched ahead, cache cleanup; step 4 software fader start (keys F1, F2, space bar). A station manager without their own DJ account, and MIDI/GPIO faders, are follow-ups.*
 
 ### Reporter mode (remote contributions)
 

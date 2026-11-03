@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { AlertTriangle, Lock, Mic, MicOff, Play, Radio, SkipForward, Square } from 'lucide-react';
+import { AlertTriangle, Lock, Mic, MicOff, Play, Radio, SkipForward, SlidersVertical, Square } from 'lucide-react';
 import { useEffect, useState, type DragEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -14,7 +14,7 @@ import { useAutoDj, useRundown } from '../lib/queries';
 import { clock, DRAG, queueOf } from '../lib/queue';
 import { blocksOf } from '../lib/timeline';
 import { useSession } from '../lib/session';
-import { studio, useStudio, type StudioTrack } from '../lib/studio';
+import { studio, studioView, useStudio, type StudioTrack } from '../lib/studio';
 import { addLocalFile, DRAG_FILE, DRAG_MEDIA, useCanUpload } from './Library';
 
 let hostname: string | null = null;
@@ -206,22 +206,94 @@ export function StudioBanner() {
   );
 }
 
-/** The space bar switches the microphone in studio mode (not while typing). */
+/** The space bar switches the microphone in studio mode (not while typing); with fader start F1 and F2 the faders of players A and B. */
 export function StudioHotkeys() {
   const phase = useStudio((s) => s.phase);
   useEffect(() => {
     if (phase !== 'on') return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.code !== 'Space' || e.repeat || e.ctrlKey || e.altKey || e.metaKey) return;
+      const fader = e.code === 'F1' ? 0 : e.code === 'F2' ? 1 : null;
+      if ((e.code !== 'Space' && fader == null) || e.repeat || e.ctrlKey || e.altKey || e.metaKey) return;
+      if (fader != null && !studioView().faderStart) return;
       const el = e.target as HTMLElement | null;
-      if (el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName))) return;
+      // A fader has focus: the space bar still switches the microphone, F1/F2 their player.
+      if (el && (el.isContentEditable || ['TEXTAREA', 'SELECT'].includes(el.tagName) || (el.tagName === 'INPUT' && (el as HTMLInputElement).type !== 'range'))) return;
       e.preventDefault();
-      studio.mic();
+      if (fader != null) studio.toggleFader(fader);
+      else studio.mic();
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [phase]);
   return null;
+}
+
+/**
+ * Fader start: a fader for player A, player B and the microphone, like on a mixing desk. Opening the fader of a player
+ * starts its track, closing it stops the track and the next one is loaded onto that player; the microphone fader
+ * switches the microphone. The faders also set the level in the mix.
+ */
+export function StudioFaders() {
+  const { t } = useTranslation();
+  const faders = useStudio((s) => s.faders);
+  const tracks = useStudio((s) => s.tracks);
+  const mic = useStudio((s) => s.mic);
+  const decks = useEngine((e) => e.decks);
+  const channels = [
+    { label: 'A', key: 'F1', state: decks[0]?.playing ? 'onAir' : tracks[0] && decks[0]?.ready ? 'cue' : 'empty', tone: 'bg-lucht' },
+    { label: 'B', key: 'F2', state: decks[1]?.playing ? 'onAir' : tracks[1] && decks[1]?.ready ? 'cue' : 'empty', tone: 'bg-online/70' },
+    { label: t('studio.faderMic'), key: t('studio.spaceKey'), state: mic ? 'onAir' : 'off', tone: 'bg-onair' },
+  ] as const;
+  return (
+    <div className="grid grid-cols-3 gap-2.5 rounded-md border border-line bg-surface p-3" role="group" aria-label={t('studio.faderStart')}>
+      {channels.map((c, i) => {
+        const level = faders[i]!;
+        const live = c.state === 'onAir';
+        return (
+          <div key={i} className="flex flex-col items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <span className={clsx('grid h-6 min-w-6 place-items-center rounded-[5px] px-1.5 text-[12px] font-extrabold text-nacht', c.tone, i === 2 && 'text-white')}>{c.label}</span>
+              <span className={clsx('rounded-full px-1.5 py-px text-[10px] font-bold tracking-[0.06em] uppercase', live ? 'bg-onair text-white' : c.state === 'cue' ? 'bg-online/15 text-online' : 'text-muted')}>
+                {t(`studio.fader_${c.state}`)}
+              </span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={Math.round(level * 100)}
+              onChange={(e) => studio.fader(i as 0 | 1 | 2, Number(e.target.value) / 100)}
+              aria-label={`${t('studio.fader')} ${c.label}`}
+              aria-valuetext={`${Math.round(level * 100)}%`}
+              className={clsx('fader h-32 w-8 cursor-ns-resize', live && 'fader-live')}
+            />
+            <div className="text-[11px] text-muted tabular">
+              {Math.round(level * 100)}% · <kbd className="rounded border border-line px-1 font-sans text-[10px]">{c.key}</kbd>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Switches fader start on or off (kept on this PC). */
+export function FaderStartSwitch() {
+  const { t } = useTranslation();
+  const on = useStudio((s) => s.faderStart);
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      onClick={() => studio.faderStart(!on)}
+      title={t('studio.faderStartHint')}
+      className={clsx('h-9 rounded-md border px-3 text-[13px] font-bold transition-colors', on ? 'border-studio bg-studio/15 text-ink' : 'border-line bg-surface text-muted hover:text-ink')}
+    >
+      <SlidersVertical className="mr-1.5 inline size-4 align-[-3px]" />
+      {t('studio.faderStart')}
+    </button>
+  );
 }
 
 /** The big microphone button of studio mode. */
@@ -307,8 +379,10 @@ export function StudioDecks({ data }: { data: AutoDj }) {
   const s = useStudio((v) => v);
   const decks = useEngine((e) => e.decks);
   const canUpload = useCanUpload();
-  const manual = !!data.playout?.manual;
-  useEffect(() => studio.manual(manual), [manual]);
+  const faderStart = s.faderStart;
+  const manual = !!data.playout?.manual || faderStart;
+  const serverManual = !!data.playout?.manual;
+  useEffect(() => studio.manual(serverManual), [serverManual]);
   const air = s.air;
   const onAir = air != null ? s.tracks[air] : null;
   const nextIdx = s.tracks.findIndex((tr, i) => tr && i !== air && !decks[i]?.playing);
@@ -387,7 +461,7 @@ export function StudioDecks({ data }: { data: AutoDj }) {
           </div>
           <div className="display truncate text-[16px] leading-tight">{track ? track.media.title || track.media.path : s.fetching && !isAir ? t('studio.fetching') : t('assist.nothing')}</div>
           <div className="truncate text-[12px] text-muted">
-            {track ? [track.media.artist, startsIn != null && !manual ? t('studio.startsIn', { time: duration(startsIn) }) : isNext && manual ? t('playout.pressPlay') : null].filter(Boolean).join(' · ') : ' '}
+            {track ? [track.media.artist, startsIn != null && !manual ? t('studio.startsIn', { time: duration(startsIn) }) : isNext && manual ? t(faderStart ? 'studio.openFader' : 'playout.pressPlay') : null].filter(Boolean).join(' · ') : ' '}
           </div>
         </div>
         <div className="flex items-end justify-between gap-2">
@@ -435,7 +509,7 @@ export function StudioDecks({ data }: { data: AutoDj }) {
     <div className="grid gap-2.5">
       <NextFixed />
       <div className="grid grid-cols-2 gap-2.5">{[deck(0), deck(1)]}</div>
-      <MicButton />
+      {faderStart ? <StudioFaders /> : <MicButton />}
       {s.error && s.phase === 'on' && <p className="text-[12px] text-warning">{s.error}</p>}
     </div>
   );

@@ -131,3 +131,37 @@ textarea {
 .meter-fill-v {
   background: linear-gradient(to top, #1c8a57 0%, #4acb8c 62%, #f2b640 80%, #ff6b57 92%, #c23434 100%);
 }
+
+/* Studio mode fader start: a vertical fader like on a mixing desk (bottom = closed). */
+.fader {
+  -webkit-appearance: none;
+  appearance: none;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  background: transparent;
+}
+.fader::-webkit-slider-runnable-track {
+  width: 6px;
+  margin: 0 auto;
+  border-radius: 3px;
+  background: var(--meter-bg);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.fader::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 30px;
+  height: 16px;
+  margin-left: -12px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  background: linear-gradient(to bottom, var(--surface-raised) 0 42%, var(--ink-muted) 42% 58%, var(--surface-raised) 58%);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+}
+.fader-live::-webkit-slider-runnable-track {
+  background: linear-gradient(to top, var(--studio), color-mix(in srgb, var(--studio) 25%, var(--meter-bg)));
+}
+.fader:focus-visible {
+  outline: 2px solid var(--studio);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
