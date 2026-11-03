@@ -3,7 +3,7 @@ import { api, ApiError, getApiKey, type Account, type AutoDj, type Me, type Queu
 import { engineState, onDeck } from './engine';
 import { liveChoice, liveTarget, sendTitle, startLive, stopLive } from './golive';
 import { call, type AppInfo, type BroadcastStatus, type DeckLoad, type DeckState } from './native';
-import { getSettings } from './settings';
+import { getSettings, updateSettings } from './settings';
 import { playLength } from './cues';
 import { queueOf } from './queue';
 
@@ -39,6 +39,9 @@ export interface StudioView {
   manual: boolean;
   /** When the microphone went off by itself for the news (it stays off until the DJ switches it on). */
   micAutoOff: number | null;
+  /** Fader start: the faders of player A, player B and the microphone (0..1) start and stop them. */
+  faderStart: boolean;
+  faders: [number, number, number];
 }
 
 /** Studio mode stays on this long after a renewal on the server; renewed every few seconds. */
@@ -50,7 +53,7 @@ const LEAD_MS = 1200;
 /** Handing back: the AutoDJ gets the next track ready while the players fade out. */
 const HAND_BACK_MS = 1500;
 
-let view: StudioView = { phase: 'off', stationId: null, mic: false, tracks: [null, null], air: null, waitUntil: null, first: null, fetching: false, error: null, lostAt: null, manual: false, micAutoOff: null };
+let view: StudioView = { phase: 'off', stationId: null, mic: false, tracks: [null, null], air: null, waitUntil: null, first: null, fetching: false, error: null, lostAt: null, manual: false, micAutoOff: null, faderStart: getSettings().studio.faderStart, faders: [1, 1, 1] };
 const listeners = new Set<() => void>();
 function set(patch: Partial<StudioView>) {
   view = { ...view, ...patch };
@@ -163,6 +166,26 @@ function decks(): DeckState[] {
   return engineState().decks;
 }
 
+/** With fader start the next track waits for its fader (or Play), as in Manual playout. */
+const playsManual = () => view.manual || view.faderStart;
+
+/** Below this a fader counts as closed. */
+const FADER_CLOSED = 0.02;
+
+/** Moves a fader in the engine and on screen, without starting or stopping anything (a motorised fader). */
+function moveFader(channel: 0 | 1 | 2, level: number) {
+  const faders = [...view.faders] as StudioView['faders'];
+  faders[channel] = level;
+  set({ faders });
+  void call('set_fader', { channel, level });
+}
+
+/** Outside studio mode, or without fader start, every fader is open. */
+function openFaders() {
+  for (const c of [0, 1, 2] as const) void call('set_fader', { channel: c, level: 1 }).catch(() => undefined);
+  set({ faders: [1, 1, 1] });
+}
+
 /** The deck that holds the track that goes on air next. */
 function nextDeck(): number | null {
   const i = view.tracks.findIndex((t, i) => t && i !== view.air && !decks()[i]?.playing);
@@ -191,7 +214,7 @@ async function ensureNext() {
     const path = await fetchFile(r.station.id, track.media);
     // The DJ put a track on the player meanwhile: that one is next.
     if (run !== r || r.loads !== loads) return;
-    await call('deck_mode', { auto: !view.manual, crossfade: r.crossfade });
+    await call('deck_mode', { auto: !playsManual(), crossfade: r.crossfade });
     await call('deck_load', { deck: free, load: deckLoad(track, path, r.crossfade, r.normalize) });
     const tracks = [...view.tracks];
     tracks[free] = track;
@@ -220,7 +243,7 @@ async function ensureNext() {
 function autoStart() {
   const r = run;
   if (!r || view.phase !== 'on' || view.air != null) return;
-  if (view.manual && !r.startFirst) return;
+  if (playsManual() && !r.startFirst) return;
   const n = nextDeck();
   if (n == null || !decks()[n]?.ready) return;
   r.startFirst = false;
@@ -233,6 +256,8 @@ onDeck(
     if (!r) return;
     if (e.kind === 'started') {
       set({ air: e.deck });
+      // Started by Play, Next, a drop or a hard time: its fader comes up, so it is heard.
+      if (view.faderStart && view.faders[e.deck]! <= FADER_CLOSED) moveFader(e.deck as 0 | 1, 1);
       const track = view.tracks[e.deck];
       if (track && track.id === e.id) {
         void sendTitle(titleOf(track)).catch(() => undefined);
@@ -240,12 +265,15 @@ onDeck(
         if (track.media.location === 'news' && view.mic) {
           void call('set_mic', { open: false });
           set({ mic: false, micAutoOff: Date.now() });
+          if (view.faderStart) moveFader(2, 0);
         }
         if (e.id !== r.takenOver) void pc().then((name) => post(`/playing/${e.id}`, { pc: name })).catch((err) => err instanceof ApiError && err.status === 409 && lost(err.message));
         r.takenOver = null;
       }
       void ensureNext();
     } else if (e.kind === 'ended') {
+      // Done: its fader goes down, ready to start the next track it gets.
+      if (view.faderStart) moveFader(e.deck as 0 | 1, 0);
       const tracks = [...view.tracks];
       if (tracks[e.deck]?.id === e.id) tracks[e.deck] = null;
       set({ tracks, air: view.air === e.deck ? null : view.air });
@@ -306,6 +334,7 @@ function lost(reason: string | null) {
   run = null;
   void silenceDecks(1);
   void call('set_mic', { open: false });
+  openFaders();
   stopLive();
   void pc()
     .then((name) => api(`/stations/${r.station.id}/autodj/studio`, { method: 'POST', body: { on: false, pc: name } }))
@@ -335,7 +364,9 @@ export async function startStudio(station: StationListItem, me: Me | null | fals
     if (!choice.mount || !choice.account) throw new Error(texts.notReady);
     void call('prune_studio_cache').catch(() => undefined);
     await call('set_mic', { open: false });
-    await call('deck_mode', { auto: !manual, crossfade });
+    // Fader start: every fader down; the first track's comes up when it starts.
+    if (view.faderStart) for (const c of [0, 1, 2] as const) moveFader(c, 0);
+    await call('deck_mode', { auto: !(manual || view.faderStart), crossfade });
     for (const deck of [0, 1]) await call('deck_clear', { deck });
     const np = data.nowPlaying;
     const sampleRate = engineState().info?.sampleRate ?? 48000;
@@ -398,6 +429,7 @@ export async function stopStudio() {
     // Waiting to take over, or after a lost connection: nothing is on air from here.
     set({ phase: 'off', error: null, lostAt: null, waitUntil: null, first: null });
     void call('set_mic', { open: true });
+    openFaders();
     return;
   }
   clearTimers();
@@ -410,6 +442,7 @@ export async function stopStudio() {
   for (const deck of [0, 1]) await call('deck_clear', { deck }).catch(() => undefined);
   // Outside studio mode the sound card input always goes live, as before.
   await call('set_mic', { open: true });
+  openFaders();
   set({ phase: 'off', mic: false, tracks: [null, null], air: null, fetching: false, error: null });
 }
 
@@ -422,6 +455,57 @@ export function toggleMic(open = !view.mic) {
   if (view.phase !== 'on') return;
   void call('set_mic', { open });
   set({ mic: open, micAutoOff: null });
+  if (view.faderStart) moveFader(2, open ? 1 : 0);
+}
+
+/**
+ * A fader of studio mode moved (on screen or with a key). With fader start, opening the fader of a player starts its
+ * track and closing it stops the track (the next one is then fetched onto that player); the microphone fader switches
+ * the microphone. The level is the level in the mix.
+ */
+export function setFader(channel: 0 | 1 | 2, level: number) {
+  if (view.phase !== 'on') return;
+  const was = view.faders[channel]!;
+  level = Math.min(1, Math.max(0, level));
+  moveFader(channel, level);
+  if (!view.faderStart) return;
+  const opened = was <= FADER_CLOSED && level > FADER_CLOSED;
+  const closed = was > FADER_CLOSED && level <= FADER_CLOSED;
+  if (channel === 2) {
+    if (opened !== closed) {
+      void call('set_mic', { open: opened });
+      set({ mic: opened, micAutoOff: null });
+    }
+    return;
+  }
+  const st = decks()[channel];
+  if (opened && view.tracks[channel] && st?.ready && !st.playing) {
+    if (run) run.startFirst = false;
+    void call('deck_play', { deck: channel, fade: null });
+  } else if (closed && st?.playing) void call('deck_stop', { deck: channel, fade: 0.15 });
+}
+
+/** A key opens a closed fader all the way, or closes an open one. */
+export function toggleFader(channel: 0 | 1 | 2) {
+  setFader(channel, view.faders[channel]! > FADER_CLOSED ? 0 : 1);
+}
+
+/**
+ * Fader start on or off (kept on this PC). On: the next track waits for its fader, the fader of the player on air is
+ * up and the other one down. Off: every fader open, and playout as the server has it.
+ */
+export function studioFaderStart(on: boolean) {
+  updateSettings((s) => ({ studio: { ...s.studio, faderStart: on } }));
+  set({ faderStart: on });
+  if (!on) openFaders();
+  else if (view.phase === 'on') {
+    const air = view.air;
+    moveFader(0, air === 0 && decks()[0]?.playing ? 1 : 0);
+    moveFader(1, air === 1 && decks()[1]?.playing ? 1 : 0);
+    moveFader(2, view.mic ? 1 : 0);
+  }
+  if (run) void call('deck_mode', { auto: !playsManual(), crossfade: run.crossfade });
+  autoStart();
 }
 
 /** Next: the track loaded behind the one on air starts now (with the crossfade). */
@@ -483,4 +567,4 @@ export function studioManual(manual: boolean) {
   autoStart();
 }
 
-export const studio = { start: startStudio, stop: stopStudio, cancel: cancelStudio, mic: toggleMic, next: studioNext, load: studioLoad, stopTrack: studioStop, manual: studioManual };
+export const studio = { start: startStudio, stop: stopStudio, cancel: cancelStudio, mic: toggleMic, next: studioNext, load: studioLoad, stopTrack: studioStop, manual: studioManual, fader: setFader, toggleFader, faderStart: studioFaderStart };

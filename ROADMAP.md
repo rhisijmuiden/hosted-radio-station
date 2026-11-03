@@ -764,6 +764,9 @@ Today Go Live stops the server's music and sends only what RHIS Studio plays its
 - Microphone on/off with ducking of the music, and a mic level on the meter.
 - Locked blocks (news, ads) and the hour clock keep running as planned; the log stays the server's.
 - If RHIS Studio stops or loses the connection, the server's AutoDJ takes over by itself at the right point in the queue.
+- Fader start on screen: a fader for each player and the microphone; opening one starts it, closing it stops it and cues the next track. MIDI and GPIO faders come later.
+
+*Built 2026-11-01 to 11-03 in test (RHIS Studio 0.27–0.31, PRs #214–#226), goes into release 1.7.0: step 1 take over and local playout; step 2 drag onto the players, countdown to fixed blocks, mic off for the news; step 3 tracks from the station node over the LAN, fetched ahead, cache cleanup; step 4 software fader start (keys F1, F2, space bar). A station manager without their own DJ account, and MIDI/GPIO faders, are follow-ups.*
 
 ### Reporter mode (remote contributions)
 

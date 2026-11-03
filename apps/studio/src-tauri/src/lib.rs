@@ -118,6 +118,12 @@ fn set_mic(engine: State<'_, Arc<Engine>>, open: bool) {
     engine.set_mic(open);
 }
 
+/// Studio mode fader start: the level of a fader (0 and 1 = players A and B, 2 = the microphone), 0..1.
+#[tauri::command]
+fn set_fader(engine: State<'_, Arc<Engine>>, channel: usize, level: f32) {
+    engine.set_fader(channel, level);
+}
+
 #[tauri::command]
 fn start_broadcast(engine: State<'_, Arc<Engine>>, target: Target) -> Result<(), String> {
     engine.start_broadcast(target)
@@ -314,6 +320,7 @@ pub fn run() {
             deck_clear,
             deck_mode,
             set_mic,
+            set_fader,
             start_broadcast,
             stop_broadcast,
             broadcast_status,

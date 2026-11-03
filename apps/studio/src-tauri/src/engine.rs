@@ -168,6 +168,8 @@ enum Cmd {
     DeckClear(usize),
     DeckMode { auto: bool, crossfade: f32 },
     SetMic(bool),
+    /// Studio mode fader start: 0 and 1 = players A and B, 2 = the microphone; level 0..1.
+    SetFader(usize, f32),
 }
 
 pub struct Engine {
@@ -481,6 +483,8 @@ struct Mixer {
     /// level follows in a few milliseconds, so switching never clicks.
     mic_open: bool,
     mic_level: f32,
+    /// Studio mode fader start: the level of the microphone fader (0..1).
+    mic_fader: f32,
 }
 
 impl Mixer {
@@ -648,6 +652,14 @@ impl Mixer {
                 self.decks.crossfade = crossfade.clamp(0.0, 30.0);
             }
             Cmd::SetMic(open) => self.mic_open = open,
+            Cmd::SetFader(channel, level) => {
+                let level = if level.is_finite() { level.clamp(0.0, 1.0) } else { 1.0 };
+                match channel {
+                    0 | 1 => self.decks.fader[channel] = level,
+                    2 => self.mic_fader = level,
+                    _ => {}
+                }
+            }
         }
         self.flush_deck_events();
     }
@@ -692,8 +704,8 @@ impl Mixer {
         self.scratch_in.iter_mut().for_each(|s| *s *= in_gain);
         let input_peak = [peak(&self.scratch_in, 0), peak(&self.scratch_in, 1)];
         // The microphone gate: a short ramp per sample from the level of the last block to the new one.
-        let target = if self.mic_open { 1.0 } else { 0.0 };
-        if self.mic_level != target || target == 0.0 {
+        let target = if self.mic_open { self.mic_fader } else { 0.0 };
+        if self.mic_level != target || target != 1.0 {
             let from = self.mic_level;
             let ramp = (self.rate as usize / 100).max(1);
             for (i, f) in self.scratch_in.chunks_exact_mut(2).enumerate() {
@@ -845,6 +857,7 @@ impl Engine {
                     deck_states: Vec::new(),
                     mic_open: true,
                     mic_level: 1.0,
+                    mic_fader: 1.0,
                 };
                 loop {
                     loop {
@@ -922,6 +935,9 @@ impl Engine {
     }
     pub fn set_mic(&self, open: bool) {
         let _ = self.tx.send(Cmd::SetMic(open));
+    }
+    pub fn set_fader(&self, channel: usize, level: f32) {
+        let _ = self.tx.send(Cmd::SetFader(channel, level));
     }
 }
 
