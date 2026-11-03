@@ -266,10 +266,16 @@ async fn upload_file(url: String, token: String, path: String) -> Result<serde_j
 
 /// A file of the server kept on this PC (the jingle buttons); returns its local path.
 #[tauri::command]
-async fn cache_file(url: String, token: String, name: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || files::cached(&url, &token, &name).map(|p| p.to_string_lossy().to_string()).map_err(|e| format!("{e:#}")))
+async fn cache_file(url: String, token: String, name: String, near: Option<files::Near>) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || files::cached(&url, &token, &name, near.as_ref()).map(|p| p.to_string_lossy().to_string()).map_err(|e| format!("{e:#}")))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// Studio mode: keeps the track cache of this PC small (old and least used tracks go).
+#[tauri::command]
+async fn prune_studio_cache() -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(files::prune_studio).await.map_err(|e| e.to_string())
 }
 
 pub fn run() {
@@ -327,7 +333,8 @@ pub fn run() {
             cue_open,
             list_folder,
             upload_file,
-            cache_file
+            cache_file,
+            prune_studio_cache
         ])
         .run(tauri::generate_context!())
         .expect("error while running RHIS Studio");

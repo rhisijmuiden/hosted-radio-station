@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { api, ApiError, getApiKey, type Account, type AutoDj, type Me, type QueueRow, type StationDetail, type StationListItem } from './api';
 import { engineState, onDeck } from './engine';
-import { liveChoice, sendTitle, startLive, stopLive } from './golive';
+import { liveChoice, liveTarget, sendTitle, startLive, stopLive } from './golive';
 import { call, type AppInfo, type BroadcastStatus, type DeckLoad, type DeckState } from './native';
 import { getSettings } from './settings';
 import { playLength } from './cues';
@@ -89,6 +89,7 @@ let run: {
   loads: number;
   lastRenewed: number;
   requesting: boolean;
+  prefetching: boolean;
   retry: ReturnType<typeof setTimeout> | null;
   cut: ReturnType<typeof setTimeout> | null;
   /** The first track starts by itself, also in manual playout. */
@@ -99,9 +100,36 @@ let run: {
 const audioUrl = (stationId: string, mediaId: string) => `${getSettings().server}/api/stations/${stationId}/library/${mediaId}/audio`;
 const extOf = (path: string) => (/\.([a-z0-9]{1,5})$/i.exec(path)?.[1] ?? 'mp3').toLowerCase();
 
-/** The file of a library track on this PC (downloaded once). */
+/**
+ * The file of a library track on this PC (downloaded once). While live, it comes from where the mix goes first: on a
+ * station node that is the node itself, over the studio LAN when on site; the main server is the fallback.
+ */
 function fetchFile(stationId: string, media: { id: string; path: string }) {
-  return call<string>('cache_file', { url: audioUrl(stationId, media.id), token: getApiKey() ?? '', name: `studio-${media.id}.${extOf(media.path)}` });
+  const to = liveTarget();
+  const near = to ? { url: `${to.tls ? 'https' : 'http'}://${to.host}:${to.port}/studio-media/${stationId}/${media.id}`, user: to.username, pass: to.password } : null;
+  return call<string>('cache_file', { url: audioUrl(stationId, media.id), token: getApiKey() ?? '', name: `studio-${media.id}.${extOf(media.path)}`, near });
+}
+
+/** How many tracks of the queue this PC has on disk ahead of the one on the next player. */
+const AHEAD = 3;
+
+/** Fetches the next tracks of the queue ahead, so a network hiccup does not stop the music. */
+async function prefetch(r: NonNullable<typeof run>) {
+  if (r.prefetching) return;
+  r.prefetching = true;
+  try {
+    const data = await api<AutoDj>(`/stations/${r.station.id}/autodj`);
+    const playing = new Set(view.tracks.map((t) => t?.media.id));
+    const ahead = queueOf(data).filter((q) => q.state === 'queued' && !playing.has(q.media.id)).slice(0, AHEAD);
+    for (const q of ahead) {
+      if (run !== r) return;
+      await fetchFile(r.station.id, q.media).catch(() => undefined);
+    }
+  } catch {
+    // Only ahead: the track itself is fetched again when it is next.
+  } finally {
+    r.prefetching = false;
+  }
 }
 
 const titleOf = (t: StudioTrack) => [t.media.artist, t.media.title || t.media.path].filter(Boolean).join(' - ');
@@ -168,6 +196,7 @@ async function ensureNext() {
     const tracks = [...view.tracks];
     tracks[free] = track;
     set({ tracks, error: null });
+    void prefetch(r);
     // A hard timed item of the hour clock: the track on air is cut so it starts on its minute.
     if (res.cutAt) {
       if (r.cut) clearTimeout(r.cut);
@@ -295,7 +324,7 @@ export async function startStudio(station: StationListItem, me: Me | null | fals
   if (!info?.output) throw new Error(texts.noOutput.replace('{{error}}', info?.error ?? '–'));
   const crossfade = data.settings.crossfadeSeconds ?? 0;
   const manual = !!data.playout?.manual;
-  run = { station, crossfade, normalize: true, takenOver: null, renew: null, lastLive: Date.now(), everLive: false, loads: 0, lastRenewed: Date.now(), requesting: false, retry: null, cut: null, startFirst: true, cancelled: false };
+  run = { station, crossfade, normalize: true, takenOver: null, renew: null, lastLive: Date.now(), everLive: false, loads: 0, lastRenewed: Date.now(), requesting: false, prefetching: false, retry: null, cut: null, startFirst: true, cancelled: false };
   const r = run;
   set({ phase: 'preparing', stationId: station.id, mic: false, tracks: [null, null], air: null, waitUntil: null, first: null, error: null, lostAt: null, manual });
   let on = false;
@@ -304,6 +333,7 @@ export async function startStudio(station: StationListItem, me: Me | null | fals
     const [detail, accounts] = await Promise.all([api<StationDetail>(`/stations/${station.id}`), api<Account[]>(`/stations/${station.id}/accounts`)]);
     const choice = liveChoice(detail, accounts, me, getSettings().live);
     if (!choice.mount || !choice.account) throw new Error(texts.notReady);
+    void call('prune_studio_cache').catch(() => undefined);
     await call('set_mic', { open: false });
     await call('deck_mode', { auto: !manual, crossfade });
     for (const deck of [0, 1]) await call('deck_clear', { deck });

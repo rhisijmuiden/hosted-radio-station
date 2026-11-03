@@ -337,6 +337,8 @@ async function simInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Pr
     case 'stop_cart':
       Object.assign(sim.carts[args.slot as number]!, { playing: false, position: 0 });
       return undefined as T;
+    case 'prune_studio_cache':
+      return 0 as T;
     case 'cache_file':
       return `C:\\Cache\\${args.name as string}` as T;
     case 'deck_load': {
