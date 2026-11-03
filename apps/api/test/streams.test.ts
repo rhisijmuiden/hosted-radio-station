@@ -7,7 +7,7 @@ import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import tls from 'node:tls';
 import { eq } from 'drizzle-orm';
 import pino from 'pino';
@@ -15,6 +15,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { schema } from '../src/db/index.js';
 import { fetchStats } from '../src/services/streaming/icecast.js';
 import { putSetting, getSetting } from '../src/services/settings.js';
+import { mediaPath } from '../src/services/autodj/planner.js';
 import { StreamsWorker } from '../src/streams/worker.js';
 import { login, setup } from './helpers.js';
 
@@ -217,6 +218,23 @@ describe.skipIf(!enabled)('streams service', () => {
     const answer = await raw(PORTS.tls, `PUT /test-fm/live HTTP/1.1\r\nHost: localhost\r\nAuthorization: Basic ${auth}\r\nContent-Type: audio/mpeg\r\nExpect: 100-continue\r\n\r\n`, { tls: true, servername: 'localhost' });
     expect(answer).toMatch(/HTTP\/1\.0 200/);
   });
+
+  it('serves library files to RHIS Studio in studio mode, with a live password only', async () => {
+    const admin = await login(t.app, 'admin@example.com', 'admin-password');
+    const [account] = await t.db.select().from(schema.stationAccounts).where(eq(schema.stationAccounts.stationId, stationId));
+    const [media] = await t.db.insert(schema.mediaFiles).values({ stationId, location: 'storage', path: 'music/studio-fetch.mp3', title: 'Fetch me', durationSeconds: 3 }).returning();
+    const file = mediaPath(t.ctx, media!, new Map())!;
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, Buffer.from('ID3 some audio bytes'));
+    const token = (await t.app.inject({ method: 'POST', url: `/api/studio/stations/${stationId}/live-token`, headers: admin, payload: { accountId: account!.id } })).json();
+    const get = (id: string, user: string, pass: string) => raw(PORTS.plain, `GET /studio-media/${stationId}/${id} HTTP/1.0\r\nAuthorization: Basic ${Buffer.from(`${user}:${pass}`).toString('base64')}\r\n\r\n`);
+    const ok = await get(media!.id, token.username, token.password);
+    expect(ok).toMatch(/^HTTP\/1\.0 200[\s\S]*Content-Length: 20\r\n[\s\S]*\r\n\r\nID3 some audio bytes$/);
+    // The account's own password (stored in encoders) does not fetch files; nor does a file of another station.
+    expect(await get(media!.id, 'dj1', 'dj1-password')).toMatch(/^HTTP\/1\.0 401/);
+    expect(await get('00000000-0000-4000-8000-000000000000', token.username, token.password)).toMatch(/^HTTP\/1\.0 404/);
+    expect(await raw(PORTS.plain, `GET /studio-media/${stationId}/${media!.id} HTTP/1.0\r\n\r\n`)).toMatch(/^HTTP\/1\.0 401/);
+  }, 20_000);
 
   it('takes legacy Shoutcast v1 encoders on port + 1', async () => {
     await until(async () => !(await stats()).some((s) => s.mount === '/live'));

@@ -32,7 +32,9 @@ control traffic. The same role also works in a datacenter, for a customer that w
 4. Make sure at least one **relay node** carries the station: a station node has no listeners of its own. Open the
    relay's push port (default 8301/TCP, TLS) to the station node.
 5. Optionally fill in **Address on the studio network** so encoders and RHIS Studio in the studio see the node's own
-   address.
+   address. In studio mode RHIS Studio (0.30 and later) also fetches the tracks it plays from there
+   (`GET /studio-media/<station>/<media>` on the encoder ports, with the DJ account and its live password), so the
+   music comes over the studio LAN; when the node cannot be reached it falls back to the main server.
 6. When the node runs in the customer's own network, open the ports from its **Firewall** tab in the router or
    firewall and press **Check from outside** for a green tick per port. The station's **Connection** tab then shows the
    node's external and internal address with the ports for RHIS Studio, encoders and uploads (see

@@ -67,6 +67,13 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   **Off for the news**. Dropping a track from the media library that already waits in the queue moves that one up
   instead of adding it twice.
 
+- RHIS Studio 0.30, studio mode (step 3): while live, studio mode fetches its tracks from where the mix goes: on a
+  station node that is the node itself, over the studio LAN when on site, so the music does not go through the
+  internet and the main server; the main server stays the fallback. The next three tracks of the queue are fetched
+  ahead, and the track cache on the PC is kept small (tracks not used for two weeks go, at most 4 GB). New on the
+  encoder ports of the station runtime: `GET /studio-media/<station>/<media>`, only with a live password of a DJ
+  account that may broadcast.
+
 ## 1.6.0 (31 October 2026)
 
 Phase 21 (the recorder node: logging, live shows, uploads and on demand, recording in RHIS Studio, cutting, music
