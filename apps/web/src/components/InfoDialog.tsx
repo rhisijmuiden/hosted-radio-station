@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { api, ApiError, type Channel, type JobStatus, type SystemInfo, type UpdateCheck } from '../lib/api';
 import { isAdmin, useMe } from '../lib/auth';
 import { formatDate, shortCommit } from '../lib/format';
+import { LICENCE, LICENCE_URL, sourceAt } from '../lib/licence';
 import { Badge, Button, Dialog, Segmented } from './ui';
 
 export function useSystemInfo() {
@@ -114,6 +115,15 @@ export function UpdatePanel() {
         </Row>
         <Row label={t('info.released')}>{formatDate(d.commitDate)}</Row>
         <Row label="Node.js">{d.node}</Row>
+        <Row label={t('info.licence')}>
+          <a href={LICENCE_URL} target="_blank" rel="noreferrer" className="hover:underline">
+            {LICENCE}
+          </a>
+          {' · '}
+          <a href={sourceAt(d.commit)} target="_blank" rel="noreferrer" className="text-accent-text hover:underline">
+            {t('info.source')}
+          </a>
+        </Row>
       </div>
 
       {admin && (

@@ -719,6 +719,7 @@ Small fixes are collected here and handled one at a time in a separate thread, n
 
 - **Listeners on Radio > Stations** (fixed, on test): the station list did not count listeners on relay nodes, so it showed no listeners while the dashboard did.
 - **Listen to the air in RHIS Studio** (fixed, Studio 0.31): a **Listen** button in the top bar plays the station as listeners hear it while the DJ is not live, on its own output and volume (Settings), and goes off by itself on Go Live and in studio mode.
+- **AGPL licence** (on test): the whole repository under AGPL-3.0-or-later, with the licence and a source code link in the Info screens and on the public pages.
 
 ### FM/MPX release: Stereo Tool processing (parked)
 

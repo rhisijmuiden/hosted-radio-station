@@ -5,6 +5,11 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 
 ## Unreleased
 
+- Licence: Hosted Radio Station and RHIS Studio are now free software under the GNU AGPL v3.0 or later (LICENSE,
+  NOTICE.md, `license` in every package). The Info screen of the panel and of RHIS Studio shows the licence with a link
+  to the source code of the running version, and the public station pages link to it next to "Powered by RHIS".
+  NOTICE.md adds an exception for the Steinberg ASIO SDK in RHIS Studio and says the RHIS name and logo are not covered.
+
 - RHIS Studio 0.24: a fourth view **AutoDJ** in the layout menu (Ctrl+4; Ctrl+1–3 stay Classic, OmniPlayer and
   Manage), for every DJ of a Radio station. It shows what the AutoDJ plays now and in the coming hours: what is on
   air, the hour clock and block of the schedule now, the next fixed item and the next change in the schedule; the hour

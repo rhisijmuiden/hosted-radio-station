@@ -2,6 +2,7 @@ import clsx from 'clsx';
 import { Check, Globe, LoaderCircle, Moon, Music2, Pause, Play, Radio, Search, Send, Sun, Volume2, VolumeX } from 'lucide-react';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { clock, params, seconds, timeAgo, useLang, useT, type LivePlayer, type NowPlaying, type OnDemandItem, type Song } from './lib';
+import { LICENCE, SOURCE_URL } from '../lib/licence';
 
 /** Album art, else the station logo, else a soft gradient with a radio. */
 export function Artwork({ song, logo, className, rounded = 'rounded-lg' }: { song?: Song | null; logo?: string | null; className?: string; rounded?: string }) {
@@ -130,11 +131,17 @@ export function LiveBadge({ np }: { np: NowPlaying }) {
 export function PoweredBy({ className }: { className?: string }) {
   const t = useT();
   return (
-    <a href="https://rhis.nl" target="_blank" rel="noreferrer" className={clsx('inline-flex items-center gap-1.5 text-[11px] text-muted hover:text-ink', className)}>
-      {t('poweredBy')}
-      <img src="/brand/rhis-logo.svg" alt="RHIS" className="h-3 dark:hidden" />
-      <img src="/brand/rhis-logo-wit.svg" alt="RHIS" className="hidden h-3 dark:block" />
-    </a>
+    <span className={clsx('inline-flex items-center gap-2 text-[11px] text-muted', className)}>
+      <a href="https://rhis.nl" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 hover:text-ink">
+        {t('poweredBy')}
+        <img src="/brand/rhis-logo.svg" alt="RHIS" className="h-3 dark:hidden" />
+        <img src="/brand/rhis-logo-wit.svg" alt="RHIS" className="hidden h-3 dark:block" />
+      </a>
+      {/* AGPL-3.0: everyone who uses these pages can get the source code. */}
+      <a href={SOURCE_URL} target="_blank" rel="noreferrer" className="hover:text-ink" title={LICENCE}>
+        {t('sourceCode')}
+      </a>
+    </span>
   );
 }
 
