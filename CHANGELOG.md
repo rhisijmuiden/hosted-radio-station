@@ -13,6 +13,8 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   and tries the station node's other address (studio network or public) when it does not. When nothing answers it
   refuses with the address ("The station cannot be reached at host:port from this computer"). Before, studio mode
   switched on and ended 8 seconds later with "connection timed out", over and over (Harder.FM from Reinder-Surface).
+- RHIS Studio's stream connection tries every address of the station's name in turn (IPv4 and IPv6, several
+  records) instead of only the first one, like the reachability check before Go Live does.
 
 ## 1.7.0 (4 November 2026)
 

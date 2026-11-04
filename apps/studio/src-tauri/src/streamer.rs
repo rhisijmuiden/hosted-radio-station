@@ -51,8 +51,24 @@ pub enum Status {
 const USER_AGENT: &str = concat!("RHIS Studio/", env!("CARGO_PKG_VERSION"));
 
 pub fn connect(host: &str, port: u16, tls: bool) -> anyhow::Result<Box<dyn Conn>> {
-    let addr = (host, port).to_socket_addrs()?.next().ok_or_else(|| anyhow::anyhow!("cannot resolve {host}"))?;
-    let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(8))?;
+    // Every address of the name, in turn (IPv4 and IPv6, several A records): the first one alone may not answer from
+    // this network while another does, which the reachability check before Go Live would have found.
+    let addrs: Vec<_> = (host, port).to_socket_addrs()?.collect();
+    if addrs.is_empty() {
+        anyhow::bail!("cannot resolve {host}");
+    }
+    let mut last = None;
+    let mut tcp = None;
+    for addr in &addrs {
+        match TcpStream::connect_timeout(addr, Duration::from_secs(8)) {
+            Ok(t) => {
+                tcp = Some(t);
+                break;
+            }
+            Err(e) => last = Some(anyhow::anyhow!("{addr}: {e}")),
+        }
+    }
+    let Some(tcp) = tcp else { return Err(last.unwrap_or_else(|| anyhow::anyhow!("cannot connect to {host}:{port}"))) };
     tcp.set_nodelay(true)?;
     tcp.set_read_timeout(Some(Duration::from_secs(15)))?;
     tcp.set_write_timeout(Some(Duration::from_secs(15)))?;
