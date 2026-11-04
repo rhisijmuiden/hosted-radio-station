@@ -1,19 +1,23 @@
 import clsx from 'clsx';
 import { QrCode, Tablet, Trash2 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { engineState, useMeters } from '../lib/engine';
+import { engineState, useEngine, useMeters } from '../lib/engine';
 import { toDb } from '../lib/format';
 import { ask, call, type Meters, type Pairing } from '../lib/native';
-import { revokeTablet, setPanelEnabled, usePanel, usePanelPolling } from '../lib/panel';
+import { api, getApiKey } from '../lib/api';
+import { revokeTablet, setPanelCartSlots, setPanelEnabled, usePanel, usePanelPolling } from '../lib/panel';
 import { useAutoDj, useRundown } from '../lib/queries';
 import { queueOf } from '../lib/queue';
 import { useSession } from '../lib/session';
-import { useSettings } from '../lib/settings';
+import { getSettings, useSettings, type CartSlot } from '../lib/settings';
 import { studioView, type StudioTrack } from '../lib/studio';
 import { blocksOf, timeline } from '../lib/timeline';
-import type { PanelDeck, PanelLogRow, PanelMeters, PanelState } from '../panel/protocol';
+import type { PanelCart, PanelCarts, PanelDeck, PanelLogRow, PanelMeters, PanelState } from '../panel/protocol';
+import { cartsBase, STATION_CART_SLOT } from './Grids';
+import { base as jinglesBase, JINGLE_SLOT, type Jingle } from './Jingles';
 import { useStudioAvailable } from './Studio';
 import { Badge, Button, Card, CardHeader, Dialog, Field, Input, Switch } from './ui';
 
@@ -38,8 +42,21 @@ function Publisher() {
   const available = useStudioAvailable();
   const autodj = useAutoDj(available ? station?.id : undefined);
   const rundown = useRundown(station?.id, available);
-  const data = useRef({ autodj: autodj.data, rundown: rundown.data, station, me, app, available });
-  data.current = { autodj: autodj.data, rundown: rundown.data, station, me, app, available };
+  const { supports } = useSession();
+  // The jingle buttons: the same lists the PC shows, and loaded on the PC so a tablet can play them in any layout.
+  const own = useQuery({ queryKey: ['jingles', station?.id], queryFn: () => api<Jingle[]>(jinglesBase(station!.id)), enabled: !!station });
+  const stationCarts = useQuery({
+    queryKey: ['station-carts', station?.id],
+    queryFn: () => api<Jingle[]>(cartsBase(station!.id)),
+    enabled: !!station && supports('station-carts'),
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
+  });
+  useEnsureLoaded(station?.id, own.data, JINGLE_SLOT, jinglesBase);
+  useEnsureLoaded(station?.id, stationCarts.data, STATION_CART_SLOT, cartsBase);
+  const src: Source = { autodj: autodj.data, rundown: rundown.data, station, me, app, available, own: own.data ?? [], stationCarts: supports('station-carts') ? (stationCarts.data ?? []) : null };
+  const data = useRef(src);
+  data.current = src;
 
   useEffect(() => {
     let last = '';
@@ -85,7 +102,48 @@ type Source = {
   me: ReturnType<typeof useSession>['me'];
   app: ReturnType<typeof useSession>['app'];
   available: boolean;
+  own: Jingle[];
+  stationCarts: Jingle[] | null;
 };
+
+/**
+ * Loads jingles and station carts into their engine slots when nothing has yet (the PC layout may not show them);
+ * slots another screen loaded are left alone, and nothing is cleared when the panel goes off.
+ */
+function useEnsureLoaded(stationId: string | undefined, list: Jingle[] | undefined, slotBase: number, url: (id: string) => string) {
+  const carts = useEngine((e) => e.carts);
+  const asked = useRef(new Map<number, string>());
+  useEffect(() => {
+    if (!stationId || !list) return;
+    for (const j of list) {
+      const slot = slotBase + j.position;
+      const key = `${stationId}:${j.id}:${j.looped}`;
+      if (carts[slot]?.loaded || asked.current.get(slot) === key) continue;
+      asked.current.set(slot, key);
+      void call<string>('cache_file', { url: `${getSettings().server}/api${url(stationId)}/${j.id}/audio`, token: getApiKey() ?? '', name: `${j.id}.${j.ext}` })
+        .then((path) => call('load_cart', { slot, path, looped: j.looped }))
+        .catch(() => asked.current.delete(slot));
+    }
+  }, [stationId, list, carts, slotBase, url]);
+}
+
+/** The buttons as the tablets get them; a playing one carries its start, so it does not change every tick. */
+function cartsOf(src: Source, now: number): PanelCarts {
+  const states = engineState().carts;
+  const one = (slot: number, label: string, color: string, looped: boolean): PanelCart => {
+    const st = states[slot];
+    const playing = !!st?.playing;
+    return { slot, label, color, looped, loaded: !!st?.loaded, playing, startedAt: playing ? Math.round((now - st!.position * 1000) / 250) * 250 : null, duration: st?.duration ?? 0 };
+  };
+  const fromServer = (list: Jingle[], slotBase: number) => [...list].sort((a, b) => a.position - b.position).map((j) => one(slotBase + j.position, j.label, j.color, j.looped));
+  return {
+    own: fromServer(src.own, JINGLE_SLOT),
+    station: src.stationCarts ? fromServer(src.stationCarts, STATION_CART_SLOT) : null,
+    wall: getSettings()
+      .carts.map((c: CartSlot | null, slot) => (c ? one(slot, c.label, c.color, c.looped) : null))
+      .filter((c): c is PanelCart => !!c),
+  };
+}
 
 function deckOf(track: StudioTrack | null | undefined, i: number, role: PanelDeck['role']): PanelDeck {
   const st = engineState().decks[i];
@@ -164,6 +222,11 @@ export function snapshot(src: Source): PanelState {
     log,
     nextBlock: block ? { at: block.at, label: block.items.map((i) => i.label).filter(Boolean).join(' · '), locked: block.locked, hard: block.hard } : null,
     error: on ? v.error : null,
+    carts: (() => {
+      const carts = cartsOf(src, now);
+      setPanelCartSlots(new Set([...carts.own, ...(carts.station ?? []), ...carts.wall].map((c) => c.slot)));
+      return carts;
+    })(),
   };
 }
 

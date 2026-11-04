@@ -47,8 +47,25 @@ export async function revokeTablet(id: string) {
   setStatus(await call<PanelStatus>('panel_revoke', { id }));
 }
 
-/** A command from a tablet, checked against what the studio mode buttons allow right now. */
+/** The jingle and cart slots the tablets can see (and so may play); kept by the panel bridge. */
+let cartSlots = new Set<number>();
+export function setPanelCartSlots(slots: Set<number>) {
+  cartSlots = slots;
+}
+
+/**
+ * A command from a tablet, checked against what the buttons on this PC allow right now. Jingles and carts work as on
+ * the PC, also outside studio mode; the players and the microphone only in studio mode.
+ */
 export function runCommand(c: PanelCommand) {
+  if (c.cmd === 'cart') {
+    if (typeof c.slot === 'number' && cartSlots.has(c.slot)) void call('play_cart', { slot: c.slot });
+    return;
+  }
+  if (c.cmd === 'stopCarts') {
+    for (const st of engineState().carts) if (st.playing && cartSlots.has(st.slot)) void call('stop_cart', { slot: st.slot });
+    return;
+  }
   const v = studioView();
   if (v.phase !== 'on') return;
   const air = v.air != null ? v.tracks[v.air] : null;

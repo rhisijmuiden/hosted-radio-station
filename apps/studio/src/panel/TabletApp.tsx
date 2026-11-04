@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { Lock, LogOut, Mic, MicOff, Play, SkipForward, Square, WifiOff } from 'lucide-react';
+import { LayoutGrid, Lock, LogOut, Mic, MicOff, Play, Radio, Repeat, SkipForward, Square, WifiOff } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LanguageToggle, ThemeToggle } from '../components/Toggles';
@@ -7,7 +7,7 @@ import { duration } from '../lib/format';
 import { useTheme } from '../lib/theme';
 import { ThemeContext } from '../lib/theme-context';
 import { connect, demo, forget, onMeters, pair, panelStore, send, usePanelStore } from './connection';
-import type { PanelDeck, PanelLogRow, PanelState } from './protocol';
+import type { PanelCart, PanelDeck, PanelLogRow, PanelState } from './protocol';
 
 /** Ticks a few times a second, for the countdowns between two updates of the PC. */
 function useTick(ms = 250) {
@@ -103,6 +103,11 @@ function Studio() {
   const link = usePanelStore((v) => v.link);
   useTick();
   const on = s?.phase === 'on';
+  const [tab, setTab] = useState<Tab>(() => (localStorageGet(TAB_KEY) === 'jingles' ? 'jingles' : 'studio'));
+  const choose = (v: Tab) => {
+    setTab(v);
+    localStorageSet(TAB_KEY, v);
+  };
   return (
     <>
       <TopBar s={s} />
@@ -113,18 +118,175 @@ function Studio() {
         </div>
       )}
       <main className={clsx('flex-1 p-4 lg:p-5', link !== 'online' && 'pointer-events-none opacity-60')}>
-        {!s ? null : on ? (
+        {!s ? null : tab === 'jingles' ? (
+          <JinglesView s={s} />
+        ) : on ? (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-[1fr_1fr_260px]">
             <Player s={s} i={0} />
             <Player s={s} i={1} />
             <MicColumn s={s} />
+            {!!s.carts?.own.length && <JingleRow carts={s.carts.own.slice(0, 6)} />}
             <Log rows={s.log} />
           </div>
         ) : (
           <Off s={s} />
         )}
       </main>
+      <nav className="sticky bottom-0 z-10 flex border-t border-line bg-raised pb-[env(safe-area-inset-bottom)]" aria-label={t('tablet.title')}>
+        {(
+          [
+            ['studio', Radio, t('tablet.tabStudio')],
+            ['jingles', LayoutGrid, t('tablet.tabJingles')],
+          ] as const
+        ).map(([value, Icon, label]) => (
+          <button
+            key={value}
+            type="button"
+            aria-current={tab === value ? 'page' : undefined}
+            onClick={() => choose(value)}
+            className={clsx('grid h-16 flex-1 place-items-center content-center gap-1 text-[13px] font-bold', tab === value ? 'text-accent-text shadow-[inset_0_3px_0_var(--koraal)]' : 'text-muted')}
+          >
+            <Icon className="size-5" />
+            {label}
+          </button>
+        ))}
+      </nav>
     </>
+  );
+}
+
+type Tab = 'studio' | 'jingles';
+const TAB_KEY = 'rhis-panel-tab';
+const GROUP_KEY = 'rhis-panel-group';
+function localStorageGet(key: string) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function localStorageSet(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* private mode */
+  }
+}
+
+/** A jingle or cart button: tap plays it on the PC, tap again stops it. */
+function CartButton({ c, big }: { c: PanelCart; big?: boolean }) {
+  const now = pcNow();
+  const elapsed = c.playing && c.startedAt != null ? Math.min(c.duration, (now - c.startedAt) / 1000) : 0;
+  const pct = c.playing && c.duration ? (elapsed / c.duration) * 100 : 0;
+  return (
+    <button
+      type="button"
+      disabled={!c.loaded}
+      aria-pressed={c.playing}
+      onClick={() => send({ cmd: 'cart', slot: c.slot })}
+      className={clsx(
+        'relative flex flex-col justify-between overflow-hidden rounded-md border bg-raised p-3 pt-4 text-left transition-transform active:scale-[0.97] disabled:opacity-50',
+        big ? 'min-h-28' : 'min-h-20',
+        c.playing ? 'border-transparent' : 'border-line',
+      )}
+      style={c.playing ? { boxShadow: `0 0 0 3px ${c.color}` } : undefined}
+    >
+      <span className="absolute inset-x-0 top-0 h-1.5" style={{ background: c.color }} />
+      <span className="pointer-events-none absolute inset-y-0 left-0 opacity-25" style={{ width: `${pct}%`, background: c.color }} />
+      <span className={clsx('relative line-clamp-2 leading-tight font-extrabold', big ? 'text-[18px]' : 'text-[15px]')}>{c.label}</span>
+      <span className={clsx('relative flex items-center gap-1 text-[13px] tabular', c.playing ? 'font-bold text-accent-text' : 'text-muted')}>
+        {c.loaded ? (c.playing ? `-${duration(c.duration - elapsed)}` : duration(c.duration)) : '…'}
+        {c.looped && <Repeat className="size-3.5" />}
+      </span>
+    </button>
+  );
+}
+
+/** The first jingles of the DJ under the players, as in the sketch. */
+function JingleRow({ carts }: { carts: PanelCart[] }) {
+  return (
+    <div className="grid grid-cols-3 gap-2.5 md:col-span-2 md:grid-cols-6 lg:col-span-3">
+      {carts.map((c) => (
+        <CartButton key={c.slot} c={c} />
+      ))}
+    </div>
+  );
+}
+
+const PER_PAGE = 16;
+
+/** Jingles tab: the DJ's own jingles, the station's carts and the cart wall of the PC, sixteen on a page. */
+function JinglesView({ s }: { s: PanelState }) {
+  const { t } = useTranslation();
+  const carts = s.carts;
+  const groups = (
+    [
+      ['own', t('tablet.groupOwn'), carts?.own],
+      ['station', t('tablet.groupStation'), carts?.station],
+      ['wall', t('tablet.groupWall'), carts?.wall],
+    ] as const
+  ).filter(([, , list]) => list != null);
+  const saved = localStorageGet(GROUP_KEY);
+  const [group, setGroup] = useState<string>(groups.some(([k]) => k === saved) ? saved! : 'own');
+  const [page, setPage] = useState(0);
+  const list = groups.find(([k]) => k === group)?.[2] ?? [];
+  const pages = Math.max(1, Math.ceil(list.length / PER_PAGE));
+  const shown = list.slice(Math.min(page, pages - 1) * PER_PAGE, Math.min(page, pages - 1) * PER_PAGE + PER_PAGE);
+  const anyPlaying = !!carts && [...carts.own, ...(carts.station ?? []), ...carts.wall].some((c) => c.playing);
+  return (
+    <div className="grid gap-4">
+      <div className="flex flex-wrap items-center gap-2">
+        {groups.map(([k, label, l]) => (
+          <button
+            key={k}
+            type="button"
+            aria-pressed={group === k}
+            onClick={() => {
+              setGroup(k);
+              setPage(0);
+              localStorageSet(GROUP_KEY, k);
+            }}
+            className={clsx('h-12 rounded-full border px-5 text-[15px] font-bold', group === k ? 'border-koraal bg-koraal text-white' : 'border-line bg-raised text-muted')}
+          >
+            {label} <span className="opacity-70">· {l?.length ?? 0}</span>
+          </button>
+        ))}
+        <div className="flex-1" />
+        {pages > 1 &&
+          Array.from({ length: pages }, (_, p) => (
+            <button
+              key={p}
+              type="button"
+              aria-label={t('tablet.page', { n: p + 1 })}
+              aria-pressed={page === p}
+              onClick={() => setPage(p)}
+              className={clsx('size-12 rounded-md border text-[15px] font-bold', page === p ? 'border-nacht bg-nacht text-white dark:border-chip dark:bg-chip' : 'border-line bg-raised')}
+            >
+              {p + 1}
+            </button>
+          ))}
+        <button
+          type="button"
+          disabled={!anyPlaying}
+          onClick={() => send({ cmd: 'stopCarts' })}
+          className="flex h-12 items-center gap-2 rounded-md border border-offline/50 bg-offline/10 px-4 text-[15px] font-bold text-offline disabled:opacity-40"
+        >
+          <Square className="size-4 fill-current" /> {t('tablet.stopAll')}
+        </button>
+      </div>
+      {!carts ? (
+        <p className="text-[15px] text-muted">{t('tablet.jinglesUpdate')}</p>
+      ) : !shown.length ? (
+        <p className="rounded-lg border border-dashed border-line p-8 text-center text-[15px] text-muted">{t('tablet.noJingles')}</p>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+          {shown.map((c) => (
+            <CartButton key={c.slot} c={c} big />
+          ))}
+        </div>
+      )}
+      <p className="text-[13px] text-muted">{t('tablet.jinglesHint')}</p>
+    </div>
   );
 }
 

@@ -1,4 +1,4 @@
-import type { PanelCommand, PanelDeck, PanelLogRow, PanelMeters, PanelState } from './protocol';
+import type { PanelCart, PanelCommand, PanelDeck, PanelLogRow, PanelMeters, PanelState } from './protocol';
 
 // A pretend studio for the browser (`pnpm dev`, `?demo`): two players, the microphone and a log with the news, so the
 // tablet panel can be tried out and photographed without RHIS Studio. `?demo=off` shows studio mode switched off and
@@ -20,6 +20,23 @@ let index = 0;
 let mic = false;
 let faders: [number, number, number] = [1, 0, 0];
 let airDeck = 0;
+
+const C = ['#FF6B57', '#9CC3FF', '#4ACB8C', '#F2B640', '#B18CFF', '#FF8FC7', '#5ED3D1', '#A3AEC4'];
+const mk = (slot: number, label: string, duration: number, color: string, looped = false): PanelCart => ({ slot, label, color, looped, loaded: true, playing: false, startedAt: null, duration });
+const own = [['ID short', 4], ['Sweeper', 6], ['Bumper', 3], ['Weather', 5], ['Traffic', 4], ['Applause', 7], ['Horn', 2], ['Drum roll', 5], ['Festival ID', 8], ['Crowd', 10]].map(([l, d], i) => mk(48 + i, l as string, d as number, C[i % C.length]!));
+const station = [['Station ID', 6], ['News intro', 9], ['News outro', 5], ['Ad in', 3], ['Ad out', 3], ['Weekend promo', 22], ['Bed 1', 90], ['Bed 2', 120]].map(([l, d], i) => mk(96 + i, l as string, d as number, i < 3 ? '#9CC3FF' : C[(i + 3) % C.length]!, i >= 6));
+const wall = [['Laser', 1], ['Stinger', 2], ['Countdown', 10], ['Outro', 12]].map(([l, d], i) => mk(i, l as string, d as number, C[(i + 5) % C.length]!));
+const playing = new Map<number, number>([[49, Date.now() - 2000]]);
+function carts() {
+  const now = Date.now();
+  const live = (c: PanelCart): PanelCart => {
+    const at = playing.get(c.slot);
+    if (at != null && (now - at) / 1000 >= c.duration && !c.looped) playing.delete(c.slot);
+    const p = playing.get(c.slot);
+    return p != null ? { ...c, playing: true, startedAt: p } : c;
+  };
+  return { own: own.map(live), station: station.map(live), wall: wall.map(live) };
+}
 
 const track = (i: number) => tracks[i % tracks.length]!;
 
@@ -63,6 +80,7 @@ export function demoState(): PanelState {
     log: on ? log : [],
     nextBlock: { at: top.getTime(), label: 'News', locked: true, hard: true },
     error: null,
+    carts: carts(),
   };
 }
 
@@ -74,7 +92,11 @@ function next() {
 }
 
 export function runDemoCommand(c: PanelCommand, push: (s: PanelState) => void) {
-  if (c.cmd === 'mic') {
+  if (c.cmd === 'cart') {
+    if (playing.has(c.slot)) playing.delete(c.slot);
+    else playing.set(c.slot, Date.now());
+  } else if (c.cmd === 'stopCarts') playing.clear();
+  else if (c.cmd === 'mic') {
     mic = !mic;
     faders[2] = mic ? 1 : 0;
   } else if (c.cmd === 'next') next();

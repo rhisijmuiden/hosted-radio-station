@@ -19,7 +19,7 @@ const PER_PAGE = 7;
 export const STATION_CART_SLOT = 96;
 const STATION_CARTS = 49;
 const MY_PAGES = Math.ceil(48 / PER_PAGE);
-const cartsBase = (stationId: string) => `/studio/stations/${stationId}/carts`;
+export const cartsBase = (stationId: string) => `/studio/stations/${stationId}/carts`;
 
 interface GridProps {
   title: string;
