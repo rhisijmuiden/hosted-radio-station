@@ -1,6 +1,6 @@
 [package]
 name = "rhis-studio"
-version = "0.33.0"
+version = "0.34.0"
 description = "RHIS Studio: the Windows client of Hosted Radio Station"
 authors = ["RHIS"]
 license = "AGPL-3.0-or-later"
@@ -49,11 +49,16 @@ axum = { version = "0.8", default-features = false, features = ["http1", "tokio"
 tokio = { version = "1", features = ["net", "sync", "time", "macros", "rt"] }
 getrandom = "0.2"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+# https for the tablet panel: a Let's Encrypt certificate per studio PC (DNS-01 through the main server).
+instant-acme = { version = "0.8", default-features = false, features = ["hyper-rustls", "ring", "rcgen"] }
+axum-server = { version = "0.8", features = ["tls-rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tokio-tungstenite = "0.26"
 futures-util = "0.3"
+rcgen = "0.14"
 
 [profile.release]
 codegen-units = 1

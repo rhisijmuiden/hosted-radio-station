@@ -6,6 +6,7 @@ mod decks;
 mod engine;
 mod files;
 mod panel;
+mod panel_tls;
 mod preview;
 mod resample;
 mod secrets;
@@ -345,6 +346,26 @@ fn panel_revoke(panel: State<'_, Arc<Panel>>, id: String) -> PanelStatus {
     panel.status()
 }
 
+/// https for the tablet panel: a certificate for `host` (this PC's name under the platform domain), fetched with DNS-01
+/// through the main server at `server`; renewed by calling again.
+#[tauri::command]
+async fn panel_tls_issue(app: AppHandle, panel: State<'_, Arc<Panel>>, host: String, server: String, token: String) -> Result<PanelStatus, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let staging = std::env::var("RHIS_ACME_STAGING").is_ok();
+    let cert = panel_tls::issue(&host, &server, &token, &dir.join(if staging { "acme-staging.json" } else { "acme-account.json" }), staging)
+        .await
+        .map_err(|e| format!("{e:#}"))?;
+    panel.inner().set_cert(Some(cert)).await;
+    Ok(panel.status())
+}
+
+/// Stops https for the panel and forgets the certificate.
+#[tauri::command]
+async fn panel_tls_clear(panel: State<'_, Arc<Panel>>) -> Result<PanelStatus, String> {
+    panel.inner().set_cert(None).await;
+    Ok(panel.status())
+}
+
 /// What the tablets show: the state of studio mode (`keep`: also for tablets that connect later) or the meters.
 #[tauri::command]
 fn panel_publish(panel: State<'_, Arc<Panel>>, json: String, keep: bool) {
@@ -429,7 +450,9 @@ pub fn run() {
             panel_status,
             panel_pair,
             panel_revoke,
-            panel_publish
+            panel_publish,
+            panel_tls_issue,
+            panel_tls_clear
         ])
         .run(tauri::generate_context!())
         .expect("error while running RHIS Studio");

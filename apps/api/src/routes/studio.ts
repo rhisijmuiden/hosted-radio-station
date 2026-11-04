@@ -5,7 +5,8 @@ import { z } from 'zod';
 import { schema } from '../db/index.js';
 import { generateApiKey, requireUser } from '../lib/auth.js';
 import { randomToken, sha256 } from '../lib/crypto.js';
-import { badRequest, forbidden, HttpError, notFound } from '../lib/errors.js';
+import { badRequest, conflict, forbidden, HttpError, notFound, unauthorized } from '../lib/errors.js';
+import { CloudflareError } from '../services/dns/cloudflare.js';
 import { idParam, okOut } from '../lib/schemas.js';
 import { LIVE_TOKEN_PREFIX, outsideShow } from '../services/streaming/sources.js';
 import { studioReleases } from '../services/studio.js';
@@ -13,6 +14,13 @@ import { runningVersion } from '../services/system.js';
 import { stationAccess } from './stations.js';
 
 const LINK_MINUTES = 10;
+/** Only addresses of a studio network get a panel host name: a public address would put this PC on the internet. */
+export const isStudioAddress = (ip: string) => {
+  const m = ip.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!m || m.slice(1).some((p) => Number(p) > 255)) return false;
+  const [a, b] = [Number(m[1]), Number(m[2])];
+  return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+};
 const LIVE_TOKEN_HOURS = 12;
 /** The layout of a DJ profile stays small: a few switches and widths. */
 const PROFILE_BYTES = 16 * 1024;
@@ -20,7 +28,7 @@ const PROFILE_BYTES = 16 * 1024;
  * What this server offers RHIS Studio beyond version 0.9 of the client. The client switches a feature off, and says the
  * server needs an update, when its name is missing here.
  */
-export const STUDIO_FEATURES = ['playout', 'rundown', 'play-now', 'jingles', 'one-queue', 'cues', 'profile', 'history', 'station-carts', 'track-codes', 'news', 'log-editor', 'recordings', 'manage', 'studio-mode'] as const;
+export const STUDIO_FEATURES = ['playout', 'rundown', 'play-now', 'jingles', 'one-queue', 'cues', 'profile', 'history', 'station-carts', 'track-codes', 'news', 'log-editor', 'recordings', 'manage', 'studio-mode', 'panel-tls'] as const;
 /** No 0/O, 1/I/L: the code is read from one screen and typed or compared on another. */
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
@@ -59,6 +67,30 @@ const toLinkOut = (l: Link) => ({ code: showCode(l.userCode), deviceName: l.devi
  */
 export const studioRoutes: FastifyPluginAsyncZod = async (app) => {
   const { ctx } = app;
+  /** The API key a studio PC calls with; people signed in with a password have no studio PC to name. */
+  const studioKeyId = async (req: Parameters<typeof requireUser>[0]) => {
+    const auth = requireUser(req);
+    if (auth.via !== 'api_key') throw badRequest('Only a studio PC has a panel host name');
+    const [k] = await ctx.db.select({ id: schema.apiKeys.id }).from(schema.apiKeys).where(eq(schema.apiKeys.hash, sha256(req.headers.authorization!.slice(7).trim())));
+    if (!k) throw unauthorized();
+    return k.id;
+  };
+  const dns = () => {
+    if (!app.dns) throw badRequest('Cloudflare DNS runs on the main server');
+    return app.dns;
+  };
+  const cloudflare = async <T>(work: () => Promise<T>) => {
+    try {
+      return await work();
+    } catch (err) {
+      if (err instanceof CloudflareError) throw err.status === 409 ? conflict('Cloudflare DNS is not on: the tablet panel stays on http') : badRequest(err.message);
+      throw err;
+    }
+  };
+  /** A PC that is unlinked loses its name; best effort, a leftover record points at a private address only. */
+  const dropPanelHost = (apiKeyId: string) => {
+    if (app.dns) void app.dns.studioHost(apiKeyId, null).catch(() => undefined);
+  };
 
   // Linking: the client asks, the user approves in the panel, the client polls and gets an API key once.
 
@@ -220,6 +252,7 @@ export const studioRoutes: FastifyPluginAsyncZod = async (app) => {
       if (!link?.apiKeyId) throw notFound('Studio PC');
       await ctx.db.delete(schema.apiKeys).where(eq(schema.apiKeys.id, link.apiKeyId));
       await ctx.db.delete(schema.studioLinks).where(eq(schema.studioLinks.id, link.id));
+      dropPanelHost(link.apiKeyId);
       Object.assign(req.auditInfo, { targetType: 'studio_link', details: { device: link.deviceName } });
       return { ok: true as const };
     },
@@ -236,6 +269,7 @@ export const studioRoutes: FastifyPluginAsyncZod = async (app) => {
       if (auth.via !== 'api_key') throw badRequest('Only a studio PC can sign itself out');
       const [key] = await ctx.db.delete(schema.apiKeys).where(eq(schema.apiKeys.hash, sha256(req.headers.authorization!.slice(7).trim()))).returning();
       if (key) await ctx.db.delete(schema.studioLinks).where(eq(schema.studioLinks.apiKeyId, key.id));
+      if (key) dropPanelHost(key.id);
       return { ok: true as const };
     },
   );
@@ -262,6 +296,60 @@ export const studioRoutes: FastifyPluginAsyncZod = async (app) => {
       return hello;
     },
   );
+
+  // The tablet panel over https (tablet panel, step 4): a host name per studio PC that points at its address on the
+  // studio network, and DNS-01 for the Let's Encrypt certificate the PC fetches for it. Only for the PC itself.
+
+  app.post(
+    '/panel-host',
+    {
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+      schema: {
+        tags: ['Studio client'],
+        summary: "Point this studio PC's panel host name at its address on the studio network (Cloudflare DNS must be on)",
+        body: z.object({ address: z.string().trim().max(15) }),
+        response: { 200: z.object({ host: z.string() }) },
+      },
+    },
+    async (req) => {
+      const id = await studioKeyId(req);
+      if (!isStudioAddress(req.body.address)) throw badRequest('Only a private IPv4 address (10.x, 172.16-31.x, 192.168.x) gets a panel host name');
+      return { host: await cloudflare(() => dns().studioHost(id, req.body.address)) };
+    },
+  );
+
+  app.delete(
+    '/panel-host',
+    { schema: { tags: ['Studio client'], summary: "Remove this studio PC's panel host name", response: { 200: okOut } } },
+    async (req) => {
+      const id = await studioKeyId(req);
+      await cloudflare(() => dns().studioHost(id, null));
+      return { ok: true as const };
+    },
+  );
+
+  for (const action of ['present', 'cleanup'] as const) {
+    app.post(
+      `/panel-acme/${action}`,
+      {
+        config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+        schema: {
+          hide: true,
+          body: z.object({ fqdn: z.string().trim().toLowerCase().max(253), value: z.string().trim().min(1).max(200).regex(/^[A-Za-z0-9_-]+$/) }),
+          response: { 200: okOut },
+        },
+      },
+      async (req) => {
+        const id = await studioKeyId(req);
+        const host = await dns().studioHostName(id);
+        if (!host) throw conflict('Cloudflare DNS is not on: the tablet panel stays on http');
+        const name = req.body.fqdn.replace(/\.$/, '');
+        if (name !== `_acme-challenge.${host}`) throw forbidden('A studio PC may only fetch a certificate for its own panel host name');
+        await cloudflare(() => dns().acmeChallenge(action, `studio-${id}`, name, req.body.value));
+        return { ok: true as const };
+      },
+    );
+  }
 
   // The DJ profile: the layout of Assist, the same on every studio PC of this user.
 

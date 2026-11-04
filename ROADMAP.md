@@ -845,7 +845,9 @@ From a meeting with the radio makers: a web-based studio control panel, so the s
   - Step 1 (Studio 0.32): built-in server (Settings → Tablet panel, port 8470), pairing, Studio tab (players A/B with Next/Play/Stop, mic or fader start, meters, log with fixed blocks, next block countdown). EN + NL.
   - Step 1 tested OK by Reinder on 4 November 2026 (laptop, Harder.FM).
   - Step 2 (Studio 0.33): Jingles tab (my jingles, station carts, cart wall; tap to play/stop on the PC, Stop all) and the first six jingles under the players on the Studio tab. Jingles also work outside studio mode, like the buttons on the PC.
-  - Step 3: Reporters tab, once reporter mode exists. Step 4: https on the LAN with a valid certificate (a hostname per studio, DNS-01), so the panel can be installed as an app. Later: remote use via the orchestrator.
+  - Step 2 tested OK by Reinder on 4 November 2026.
+  - Step 4 (Studio 0.34, built before step 3): https on the studio LAN with a valid certificate. The main server gives each linked studio PC a host name `pc-<hash>.studio.<platform domain>` pointing at its private LAN address (Cloudflare DNS, record comment `hrs-studio:<install>:<key>`, so the record plan and purge leave it alone; removed when the PC is unlinked or signs out). RHIS Studio fetches a Let's Encrypt certificate for that name itself with DNS-01 (the server sets the TXT record, only for the PC's own name; the private key never leaves the PC), renews it after 60 days and serves https on the next port (8471). Tablets that open the http address move over to https by themselves when they can reach it, so the panel can be installed as an app; behind a router that blocks private addresses in public DNS they simply stay on http. Without Cloudflare DNS on the server the panel stays on http.
+  - Step 3: Reporters tab, once reporter mode exists. Later: remote use via the orchestrator.
 
 ### RØDECaster Pro II support in RHIS Studio (idea, 4 November 2026)
 

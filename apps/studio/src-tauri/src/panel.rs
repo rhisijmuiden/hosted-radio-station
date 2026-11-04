@@ -28,6 +28,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::{broadcast, oneshot, watch};
 
+use crate::panel_tls::PanelCert;
+
 /// The port the panel listens on unless the DJ picks another one.
 pub const DEFAULT_PORT: u16 = 8470;
 /// A pairing code is valid this long.
@@ -83,6 +85,11 @@ pub struct PanelStatus {
     pub url: Option<String>,
     pub error: Option<String>,
     pub tablets: Vec<TabletInfo>,
+    /// https with this PC's own certificate (on the next port), when it has one.
+    pub https_url: Option<String>,
+    pub tls_host: Option<String>,
+    pub tls_issued_at: Option<u64>,
+    pub https_error: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -108,6 +115,9 @@ struct Running {
 
 struct Inner {
     running: Option<Running>,
+    cert: Option<PanelCert>,
+    https: Option<axum_server::Handle<SocketAddr>>,
+    https_error: Option<String>,
     error: Option<String>,
     pair: Option<PairCode>,
     tablets: Vec<StoredTablet>,
@@ -124,6 +134,7 @@ pub struct Panel {
     /// Bumped when tablets are removed or the server stops: open connections check whether they may stay.
     changed: watch::Sender<u64>,
     file: Option<PathBuf>,
+    tls_file: Option<PathBuf>,
     assets: Arc<AssetFn>,
     events: Arc<EventFn>,
 }
@@ -170,14 +181,17 @@ impl Panel {
     /// `file`: where the paired tablets are kept (None: only in memory, for tests).
     pub fn new(file: Option<PathBuf>, assets: Arc<AssetFn>, events: Arc<EventFn>) -> Arc<Self> {
         let tablets = file.as_ref().and_then(|f| std::fs::read(f).ok()).and_then(|b| serde_json::from_slice::<Vec<StoredTablet>>(&b).ok()).unwrap_or_default();
+        let tls_file = file.as_ref().and_then(|f| f.parent()).map(|d| d.join("panel-tls.json"));
+        let cert = tls_file.as_ref().and_then(|f| std::fs::read(f).ok()).and_then(|b| serde_json::from_slice::<PanelCert>(&b).ok());
         let (tx, _) = broadcast::channel(32);
         let (changed, _) = watch::channel(0);
         Arc::new(Self {
-            inner: Mutex::new(Inner { running: None, error: None, pair: None, tablets, connected: HashMap::new() }),
+            inner: Mutex::new(Inner { running: None, cert, https: None, https_error: None, error: None, pair: None, tablets, connected: HashMap::new() }),
             state: Mutex::new(None),
             tx,
             changed,
             file,
+            tls_file,
             assets,
             events,
         })
@@ -207,6 +221,13 @@ impl Panel {
             },
             address,
             error: inner.error.clone(),
+            https_url: match (&inner.cert, port, &inner.https) {
+                (Some(c), Some(p), Some(_)) => Some(format!("https://{}:{}/", c.host, p.wrapping_add(1))),
+                _ => None,
+            },
+            tls_host: inner.cert.as_ref().map(|c| c.host.clone()),
+            tls_issued_at: inner.cert.as_ref().map(|c| c.issued_at),
+            https_error: inner.https_error.clone(),
             tablets: inner
                 .tablets
                 .iter()
@@ -236,6 +257,7 @@ impl Panel {
             inner.error = None;
         }
         let app = self.router();
+        self.start_https(port).await;
         let me = self.clone();
         tokio::spawn(async move {
             let res = axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
@@ -254,7 +276,88 @@ impl Panel {
         Ok(self.status())
     }
 
+    /// https on the port after the http one, with this PC's certificate (when it has one).
+    async fn start_https(self: &Arc<Self>, port: u16) {
+        if let Some(h) = self.inner.lock().https.take() {
+            h.shutdown();
+        }
+        let Some(cert) = self.inner.lock().cert.clone() else { return };
+        crate::panel_tls::crypto();
+        let tls_port = port.wrapping_add(1);
+        let config = match axum_server::tls_rustls::RustlsConfig::from_pem(cert.cert_pem.into_bytes(), cert.key_pem.into_bytes()).await {
+            Ok(c) => c,
+            Err(e) => {
+                self.inner.lock().https_error = Some(format!("certificate: {e}"));
+                return;
+            }
+        };
+        // Bind first, so a port in use is reported instead of failing quietly in the background.
+        let listener = match std::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, tls_port))) {
+            Ok(l) => l,
+            Err(e) => {
+                self.inner.lock().https_error = Some(format!("port {tls_port}: {e}"));
+                return;
+            }
+        };
+        let _ = listener.set_nonblocking(true);
+        let handle = axum_server::Handle::new();
+        {
+            let mut inner = self.inner.lock();
+            inner.https = Some(handle.clone());
+            inner.https_error = None;
+        }
+        let app = self.router();
+        let me = self.clone();
+        tokio::spawn(async move {
+            let server = match axum_server::from_tcp_rustls(listener, config) {
+                Ok(s) => s,
+                Err(e) => {
+                    me.inner.lock().https_error = Some(e.to_string());
+                    return;
+                }
+            };
+            if let Err(e) = server.handle(handle).serve(app.into_make_service()).await {
+                me.inner.lock().https_error = Some(e.to_string());
+            }
+        });
+    }
+
+    /// A new certificate (or none): kept on this PC and used at once when the panel runs.
+    pub async fn set_cert(self: &Arc<Self>, cert: Option<PanelCert>) {
+        if let Some(f) = &self.tls_file {
+            match &cert {
+                Some(c) => {
+                    if let Some(dir) = f.parent() {
+                        let _ = std::fs::create_dir_all(dir);
+                    }
+                    if let Ok(json) = serde_json::to_vec(c) {
+                        let _ = std::fs::write(f, json);
+                    }
+                }
+                None => {
+                    let _ = std::fs::remove_file(f);
+                }
+            }
+        }
+        let port = {
+            let mut inner = self.inner.lock();
+            inner.cert = cert;
+            inner.running.as_ref().map(|r| r.port)
+        };
+        match port {
+            Some(p) => self.start_https(p).await,
+            None => {
+                if let Some(h) = self.inner.lock().https.take() {
+                    h.shutdown();
+                }
+            }
+        }
+    }
+
     pub fn stop(&self) {
+        if let Some(h) = self.inner.lock().https.take() {
+            h.shutdown();
+        }
         let running = self.inner.lock().running.take();
         if let Some(mut r) = running {
             if let Some(s) = r.stop.take() {
@@ -396,7 +499,9 @@ async fn tablet_session(panel: Arc<Panel>, id: String, name: String, mut socket:
     let mut rx = panel.tx.subscribe();
     let mut changed = panel.changed.subscribe();
     panel.seen(&id, 1);
-    let hello = serde_json::json!({ "t": "hello", "tablet": { "id": id, "name": name } }).to_string();
+    // Over plain http the page hears the https address, and moves there when the tablet can reach it.
+    let https = panel.status().https_url;
+    let hello = serde_json::json!({ "t": "hello", "tablet": { "id": id, "name": name }, "https": https }).to_string();
     let mut ok = socket.send(Message::Text(hello.into())).await.is_ok();
     let last = panel.state.lock().clone();
     if let (true, Some(state)) = (ok, last) {
@@ -562,6 +667,41 @@ mod tests {
         }
         assert!(closed);
         assert_eq!(client.get(format!("{base}/api/hello?token={token}")).send().await.unwrap().status(), 401);
+        p.stop();
+    }
+
+    #[tokio::test]
+    async fn serves_https_with_its_certificate_on_the_next_port() {
+        let (p, _) = panel();
+        let key = rcgen::KeyPair::generate().unwrap();
+        let cert = rcgen::CertificateParams::new(vec!["localhost".to_string()]).unwrap().self_signed(&key).unwrap();
+        p.set_cert(Some(PanelCert { host: "localhost".into(), cert_pem: cert.pem(), key_pem: key.serialize_pem(), issued_at: 1 })).await;
+        // Not running yet: no https address.
+        assert!(p.status().https_url.is_none());
+        let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        p.start(port).await.unwrap();
+        let status = p.status();
+        assert_eq!(status.https_url.as_deref(), Some(format!("https://localhost:{}/", port + 1).as_str()));
+        assert_eq!(status.tls_host.as_deref(), Some("localhost"));
+        assert!(status.https_error.is_none());
+        let client = reqwest::Client::builder().add_root_certificate(reqwest::Certificate::from_pem(cert.pem().as_bytes()).unwrap()).build().unwrap();
+        let url = format!("https://localhost:{}/api/hello?token=nope", port + 1);
+        let mut res = None;
+        for _ in 0..20 {
+            match client.get(&url).send().await {
+                Ok(r) => {
+                    res = Some(r.status());
+                    break;
+                }
+                Err(_) => tokio::time::sleep(Duration::from_millis(50)).await,
+            }
+        }
+        assert_eq!(res, Some(StatusCode::UNAUTHORIZED));
+        // Forgotten: https stops, http goes on.
+        p.set_cert(None).await;
+        assert!(p.status().https_url.is_none());
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(client.get(&url).send().await.is_err());
         p.stop();
     }
 }

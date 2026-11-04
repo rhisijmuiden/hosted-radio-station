@@ -1,4 +1,5 @@
 import net from 'node:net';
+import { createHash } from 'node:crypto';
 import { asc, eq, isNotNull } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import { schema } from '../../db/index.js';
@@ -147,6 +148,42 @@ export class DnsManager {
       for (const r of existing.filter(same)) await cf.deleteRecord(zone.id, r.id);
     }
     this.log.info({ nodeId, name, action }, 'DNS-01 challenge record');
+  }
+
+  /**
+   * The host name of a studio PC's tablet panel (https on the studio network): pc-<hash>.studio.<platform domain>, the
+   * same for as long as the PC stays linked. Null when Cloudflare DNS is off.
+   */
+  async studioHostName(apiKeyId: string) {
+    const { base, active } = await dnsConfig(this.ctx);
+    if (!active) return null;
+    const label = createHash('sha256').update(`hrs-studio:${installId(this.ctx)}:${apiKeyId}`).digest('hex').slice(0, 10);
+    return `pc-${label}.studio.${base}`;
+  }
+
+  /**
+   * Points the panel host name of a studio PC at its address on the studio network (or removes it, address null). The
+   * record carries hrs-studio:<install>:<key>, so the record plan never takes it for its own and a purge leaves it.
+   */
+  async studioHost(apiKeyId: string, address: string | null) {
+    const { s, base, active } = await dnsConfig(this.ctx);
+    if (!active) throw new CloudflareError('Cloudflare DNS is not on', 409);
+    const host = (await this.studioHostName(apiKeyId))!;
+    const cf = new Cloudflare(s.apiToken, this.ctx.config.CLOUDFLARE_API_URL);
+    const zone = await this.zoneOf(cf, s, base);
+    const comment = `hrs-studio:${installId(this.ctx)}:${apiKeyId}`;
+    const existing = (await cf.findRecords(zone.id, host, 'A')).filter((r) => r.comment === comment);
+    if (address == null) {
+      for (const r of existing) await cf.deleteRecord(zone.id, r.id);
+      return host;
+    }
+    const [first, ...rest] = existing;
+    for (const r of rest) await cf.deleteRecord(zone.id, r.id);
+    const record = { name: host, type: 'A', content: address, proxied: false, ttl: 300, comment };
+    if (!first) await cf.createRecord(zone.id, record);
+    else if (first.content !== address) await cf.updateRecord(zone.id, first.id, record);
+    this.log.info({ apiKeyId, host, address }, 'Studio panel host');
+    return host;
   }
 
   /** Gives customer domains without one a target label: the customer's slug, then slug-2, slug-3 … */

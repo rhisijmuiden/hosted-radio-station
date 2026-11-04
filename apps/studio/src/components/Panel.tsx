@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { QrCode, Tablet, Trash2 } from 'lucide-react';
+import { Lock, QrCode, RefreshCw, Tablet, Trash2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -8,7 +8,7 @@ import { engineState, useEngine, useMeters } from '../lib/engine';
 import { toDb } from '../lib/format';
 import { ask, call, type Meters, type Pairing } from '../lib/native';
 import { api, getApiKey } from '../lib/api';
-import { revokeTablet, setPanelCartSlots, setPanelEnabled, usePanel, usePanelPolling } from '../lib/panel';
+import { ensurePanelTls, revokeTablet, setPanelCartSlots, setPanelEnabled, usePanel, usePanelPolling, usePanelTls, usePanelTlsKeeper } from '../lib/panel';
 import { useAutoDj, useRundown } from '../lib/queries';
 import { queueOf } from '../lib/queue';
 import { useSession } from '../lib/session';
@@ -34,6 +34,9 @@ const titleOf = (m: { title: string; path: string }) => m.title || m.path.split(
  */
 export function PanelBridge() {
   const panel = usePanel();
+  const { server, me } = useSession();
+  const settings = useSettings();
+  usePanelTlsKeeper(me ? settings.server : null, !!server?.features.includes('panel-tls'));
   return panel?.running ? <Publisher /> : null;
 }
 
@@ -317,6 +320,7 @@ export function PanelSettingsCard() {
           <div className="text-[11px] tracking-[0.06em] text-muted uppercase">{t('panel.address')}</div>
           <div className="mt-0.5 font-mono text-[15px] font-semibold select-all">{panel.url ?? t('panel.noAddress')}</div>
           <p className="mt-1 text-[12px] text-muted">{t('panel.addressHint')}</p>
+          <SecureAddress />
         </div>
       )}
       <div className="border-t border-line px-5 py-4">
@@ -343,6 +347,60 @@ export function PanelSettingsCard() {
       </div>
       {pairing && <PairDialog pairing={pairing} onClose={() => setPairing(null)} />}
     </Card>
+  );
+}
+
+/** Let's Encrypt certificates are valid for 90 days. */
+const CERT_DAYS = 90;
+
+/**
+ * https for the tablets: the secure address with this PC's own certificate, or why there is none. Tablets that open the
+ * http address move over to it by themselves; with https a tablet can install the panel as an app.
+ */
+function SecureAddress() {
+  const { t, i18n } = useTranslation();
+  const panel = usePanel();
+  const tls = usePanelTls();
+  const { server } = useSession();
+  const settings = useSettings();
+  if (!panel) return null;
+  const supported = !server || server.features.includes('panel-tls');
+  const validUntil = panel.tlsIssuedAt ? new Date(panel.tlsIssuedAt + CERT_DAYS * 86_400_000).toLocaleDateString(i18n.language, { day: 'numeric', month: 'long', year: 'numeric' }) : null;
+  const retry = () => void ensurePanelTls(settings.server, true);
+  let note: React.ReactNode = null;
+  if (tls.busy) note = <p className="text-[12px] text-muted">{t('panel.tlsBusy')}</p>;
+  else if (panel.httpsError) note = <p className="text-[12px] text-warning">{t('panel.tlsServeFailed', { error: panel.httpsError })}</p>;
+  else if (tls.error)
+    note = (
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-[12px] text-warning">{t('panel.tlsFailed', { error: tls.error })}</p>
+        <Button size="sm" variant="ghost" onClick={retry}>
+          <RefreshCw className="size-3.5" /> {t('panel.tlsRetry')}
+        </Button>
+      </div>
+    );
+  else if (!supported) note = <p className="text-[12px] text-muted">{t('panel.tlsServerOld')}</p>;
+  else if (tls.unavailable && !panel.httpsUrl) note = <p className="text-[12px] text-muted">{t('panel.tlsUnavailable')}</p>;
+  if (!panel.httpsUrl && !note) return null;
+  return (
+    <div className="mt-4 rounded-md border border-line bg-surface/60 px-3 py-3">
+      <div className="flex items-center gap-2">
+        <Lock className="size-3.5 text-muted" />
+        <span className="text-[11px] tracking-[0.06em] text-muted uppercase">{t('panel.secureAddress')}</span>
+        {panel.httpsUrl && (
+          <Badge tone="online" dot>
+            {t('panel.tlsValid')}
+          </Badge>
+        )}
+      </div>
+      {panel.httpsUrl && (
+        <>
+          <div className="mt-1 font-mono text-[14px] font-semibold break-all select-all">{panel.httpsUrl}</div>
+          <p className="mt-1 text-[12px] text-muted">{t('panel.secureHint', { date: validUntil })}</p>
+        </>
+      )}
+      {note && <div className="mt-1.5">{note}</div>}
+    </div>
   );
 }
 
