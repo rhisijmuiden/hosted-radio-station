@@ -37,6 +37,8 @@ export interface Settings {
   news: { auto: boolean };
   /** Studio mode: fader start (opening a player's fader starts it, closing it stops it and cues the next track). */
   studio: { faderStart: boolean };
+  /** The tablet panel: RHIS Studio serves a page on the studio network for tablets (off until the DJ switches it on). */
+  panel: { enabled: boolean; port: number };
 }
 
 /** A track in the single player: a file of this PC (or a share), or a track of the station library. */
@@ -65,12 +67,13 @@ const defaults: Settings = {
   single: { items: [], auto: false },
   news: { auto: true },
   studio: { faderStart: false },
+  panel: { enabled: false, port: 8470 },
 };
 
 function load(): Settings {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Settings>;
-    return { ...defaults, ...raw, audio: { ...defaults.audio, ...raw.audio }, live: { ...defaults.live, ...raw.live }, preview: { ...defaults.preview, ...raw.preview }, air: { output: raw.air?.output ?? null, volume: typeof raw.air?.volume === 'number' ? Math.min(1, Math.max(0, raw.air.volume)) : defaults.air.volume }, shares: Array.isArray(raw.shares) ? raw.shares : [], layout: raw.layout && typeof raw.layout === 'object' ? raw.layout : null, single: { items: Array.isArray(raw.single?.items) ? raw.single.items : [], auto: !!raw.single?.auto }, news: { auto: raw.news?.auto !== false }, studio: { faderStart: !!raw.studio?.faderStart }, carts: raw.carts?.length === 48 ? raw.carts : defaults.carts };
+    return { ...defaults, ...raw, audio: { ...defaults.audio, ...raw.audio }, live: { ...defaults.live, ...raw.live }, preview: { ...defaults.preview, ...raw.preview }, air: { output: raw.air?.output ?? null, volume: typeof raw.air?.volume === 'number' ? Math.min(1, Math.max(0, raw.air.volume)) : defaults.air.volume }, shares: Array.isArray(raw.shares) ? raw.shares : [], layout: raw.layout && typeof raw.layout === 'object' ? raw.layout : null, single: { items: Array.isArray(raw.single?.items) ? raw.single.items : [], auto: !!raw.single?.auto }, news: { auto: raw.news?.auto !== false }, studio: { faderStart: !!raw.studio?.faderStart }, panel: { enabled: !!raw.panel?.enabled, port: Number.isInteger(raw.panel?.port) && raw.panel!.port >= 1024 && raw.panel!.port <= 65535 ? raw.panel!.port : defaults.panel.port }, carts: raw.carts?.length === 48 ? raw.carts : defaults.carts };
   } catch {
     return defaults;
   }

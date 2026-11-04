@@ -5,6 +5,8 @@ import { useViewShortcuts } from './components/LayoutMenu';
 import { Shell, type Page } from './components/Shell';
 import { Spinner } from './components/ui';
 import { startEngineEvents } from './lib/engine';
+import { startPanel } from './lib/panel';
+import { PanelBridge } from './components/Panel';
 import { call } from './lib/native';
 import { SessionProvider, useSession } from './lib/session';
 import { getSettings } from './lib/settings';
@@ -24,6 +26,8 @@ startEngineEvents();
 void call('configure_audio', { config: getSettings().audio }).catch(() => undefined);
 void call('preview_output', { output: getSettings().preview.output }).catch(() => undefined);
 loadAllCarts(getSettings().carts);
+// The tablet panel comes back on when it was on.
+startPanel();
 
 function Main() {
   const { me } = useSession();
@@ -54,6 +58,7 @@ function Main() {
   if (me === false) return <SignInPage />;
   return (
     <Shell page={page} onPage={setPage}>
+      <PanelBridge />
       {page === 'assist' && <AssistPage />}
       {page === 'live' && <LivePage onPage={setPage} />}
       {page === 'carts' && <CartsPage />}

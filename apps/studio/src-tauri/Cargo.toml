@@ -1,6 +1,6 @@
 [package]
 name = "rhis-studio"
-version = "0.31.0"
+version = "0.32.0"
 description = "RHIS Studio: the Windows client of Hosted Radio Station"
 authors = ["RHIS"]
 license = "AGPL-3.0-or-later"
@@ -44,6 +44,16 @@ gethostname = "1"
 log = "0.4"
 ringbuf = "0.4"
 rubato = "0.16"
+# The tablet panel: a small web server on the studio network (see src/panel.rs).
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "ws", "json", "query"] }
+tokio = { version = "1", features = ["net", "sync", "time", "macros", "rt"] }
+getrandom = "0.2"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio-tungstenite = "0.26"
+futures-util = "0.3"
 
 [profile.release]
 codegen-units = 1

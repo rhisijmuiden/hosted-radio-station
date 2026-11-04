@@ -9,5 +9,6 @@ export default defineConfig({
   // In the browser, use this page's own address as the server: /api goes to a local API.
   server: { port: 5174, strictPort: true, proxy: { '/api': { target: process.env.HRS_API ?? 'http://127.0.0.1:8000' } } },
   envPrefix: ['VITE_', 'TAURI_ENV_'],
-  build: { outDir: 'dist', target: 'es2022', sourcemap: false },
+  // Two pages: the studio window (index.html) and the tablet panel that RHIS Studio serves on the studio network.
+  build: { outDir: 'dist', target: 'es2022', sourcemap: false, rollupOptions: { input: { main: 'index.html', panel: 'panel.html' } } },
 });
