@@ -271,9 +271,17 @@ describe('limits and public status', () => {
 describe('icecast stats parsing', () => {
   it('reads mounts, titles and bitrates', () => {
     const stats = parseStats(
-      '<icestats><source mount="/live"><audio_info>bitrate=128</audio_info><listeners>3</listeners><title>Artist - T&#xC3;&#xAD;tle</title><server_type>audio/mpeg</server_type></source><source mount="/low"><listeners>1</listeners></source></icestats>',
+      '<icestats><source mount="/live"><audio_info>bitrate=128</audio_info><listeners>3</listeners><title>Artist - T&#xC3;&#xAD;tle</title><server_type>audio/mpeg</server_type></source><source mount="/low"><listeners>1</listeners><server_type>audio/aac</server_type></source></icestats>',
     );
     expect(stats[0]).toMatchObject({ mount: '/live', listeners: 3, title: 'Artist - Títle', bitrateKbps: 128 });
     expect(stats[1]).toMatchObject({ mount: '/low', listeners: 1, title: null, bitrateKbps: null });
+  });
+
+  it('leaves out a mount whose source left (Icecast keeps listing it without a stream)', () => {
+    // As Icecast 2.4.4 reports /live after the DJ stopped, its listeners moved to the /autodj fallback.
+    const stats = parseStats(
+      '<icestats><source mount="/autodj"><listeners>1</listeners><server_type>audio/mpeg</server_type><source_ip>127.0.0.1</source_ip><stream_start_iso8601>2026-11-04T11:25:42+0000</stream_start_iso8601><title>AutoTrack</title></source><source mount="/live"><listeners>0</listeners><listenurl>http://localhost:18500/live</listenurl><max_listeners>unlimited</max_listeners></source></icestats>',
+    );
+    expect(stats.map((s) => s.mount)).toEqual(['/autodj']);
   });
 });

@@ -91,6 +91,19 @@ export function heardMounts(mounts: Mount[], mount: Mount | null): string[] {
   return out;
 }
 
+/**
+ * What the listeners of a mount hear right now: the stats of the mount itself while it has a source, else of the first
+ * mount down its fallback chain that has one (/live without a DJ plays /autodj). Null when nothing down the chain is
+ * on air.
+ */
+export function heardStats<T extends { mount: string }>(mounts: Mount[], byPath: Map<string, T>, mount: Mount | null | undefined): T | null {
+  for (const path of heardMounts(mounts, mount ?? null)) {
+    const s = byPath.get(path);
+    if (s) return s;
+  }
+  return null;
+}
+
 /** Recently played titles of a station (newest first), without the one playing now, over the given mounts. */
 export async function recentlyPlayed(ctx: AppContext, artwork: ArtworkFinder | null, station: PublicStation, base: string, limit: number, mountPath: string | string[] | null) {
   const paths = (Array.isArray(mountPath) ? mountPath : [mountPath]).filter((p): p is string => !!p);
@@ -127,8 +140,9 @@ export async function buildNowPlaying(ctx: AppContext, station: PublicStation, a
   const def = visible.find((m) => m.isDefault) ?? visible[0];
   const source = titleMount(mounts);
 
-  // The title comes from the source of the default mount; otherwise from any source mount that has one.
-  const sourceStats = (source && byPath.get(source.path)) || mounts.filter((m) => m.kind === 'source').map((m) => byPath.get(m.path)).find((x) => x?.title);
+  // The title comes from what the source of the default mount plays (down its fallback chain: the AutoDJ behind /live);
+  // otherwise from any source mount that has one.
+  const sourceStats = heardStats(mounts, byPath, source) || mounts.filter((m) => m.kind === 'source').map((m) => byPath.get(m.path)).find((x) => x?.title);
   const text = sourceStats?.title?.trim() || null;
   const playMount = sourceStats?.mount ?? source?.path ?? null;
 
@@ -150,7 +164,9 @@ export async function buildNowPlaying(ctx: AppContext, station: PublicStation, a
       .then((rows) => rows.find((r) => r.mountPath === playMount) ?? rows[0]),
   ]);
 
-  const onAir = visible.some((m) => byPath.has(m.path));
+  // A public mount is on air when its listeners hear something: its own source or the mount it falls back to.
+  const heard = (m: Mount) => !!heardStats(mounts, byPath, m) || (m.kind === 'transcode' && !!heardStats(mounts, byPath, mounts.find((x) => x.id === m.sourceMountId)));
+  const onAir = visible.some(heard);
   // Relay nodes: their listeners count too, and players go through the redirect that picks the nearest relay.
   const [relays, nodeSettings] = await Promise.all([cachedRelays(ctx).then((r) => r.get(station.id) ?? []), getSetting(ctx, 'nodes')]);
   const relayListeners = relays.reduce((n, r) => n + (r.status.online ? (r.status.relays ?? []).filter((x) => x.key.startsWith(`${station.slug}/`)).reduce((a, x) => a + (x.listeners ?? 0), 0) : 0), 0);
@@ -187,7 +203,7 @@ export async function buildNowPlaying(ctx: AppContext, station: PublicStation, a
       contentType: CONTENT_TYPES[m.format],
       bitrateKbps: m.bitrateKbps,
       isDefault: m === def,
-      live: byPath.has(m.path),
+      live: heard(m),
       listenUrl: routed ? `${base}/api/public/stations/${station.slug}/listen${m.path}` : (conn.mounts.find((c) => c.id === m.id)?.listenUrl ?? null),
     })),
     history: s.showHistory ? await recentlyPlayed(ctx, artwork, station, base, Math.min(s.historyCount, 10), [...new Set([playMount, ...heardMounts(mounts, source)].filter((p): p is string => !!p))]) : [],

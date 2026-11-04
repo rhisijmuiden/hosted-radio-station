@@ -169,6 +169,9 @@ export function parseStats(body: string): MountStats[] {
   for (const m of body.matchAll(/<source mount="([^"]*)">([\s\S]*?)<\/source>/g)) {
     const fields: Record<string, string> = {};
     for (const f of m[2]!.matchAll(/<([a-z_0-9]+)>([^<]*)<\/\1>/g)) fields[f[1]!] = decodeEntities(f[2]!);
+    // After its source left, Icecast keeps listing a mount that had listeners (e.g. /live once the DJ stopped, with
+    // its listeners moved to /autodj): only listeners and listenurl, no stream. That mount is off air.
+    if (fields.server_type === undefined && fields.stream_start === undefined && fields.source_ip === undefined) continue;
     // Sources report their bitrate in different fields: "bitrate" (kbps), "audio_bitrate" (bps) or ice-audio-info.
     let bitrate = fields.bitrate ? Number(fields.bitrate) : fields.audio_bitrate ? Number(fields.audio_bitrate) / 1000 : NaN;
     if (Number.isNaN(bitrate) && fields.audio_info) {

@@ -11,6 +11,7 @@ import WebSocket from 'ws';
 import { schema } from '../src/db/index.js';
 import { renderPublicShell } from '../src/routes/public.js';
 import { artworkKey, splitTitle } from '../src/services/public/artwork.js';
+import { buildNowPlaying, findPublicStation } from '../src/services/public/nowplaying.js';
 import { scanOnDemand } from '../src/services/public/ondemand.js';
 import { mediaDir } from '../src/services/streaming/icecast.js';
 import { Recorder, recordingFile, recordingTitle } from '../src/streams/recorder.js';
@@ -292,5 +293,37 @@ describe('on demand', () => {
     expect(item).toMatchObject({ recording: false, publishedAt: null, sizeBytes: expect.any(Number) });
     expect(item.sizeBytes).toBeGreaterThan(4096);
     expect((await readFile(join(mediaDir(t.ctx, stationId), item.file))).length).toBe(item.sizeBytes);
+  });
+});
+
+describe('now playing behind a fallback', () => {
+  it('follows /live to the AutoDJ mount when no DJ is on (also when Icecast still lists an empty /live)', async () => {
+    // Harder.FM and Radio Schermer after a studio hand-back: only the private /autodj mount has a source.
+    const [autodj] = await t.db
+      .insert(schema.stationMounts)
+      .values({ stationId, path: '/autodj', name: 'AutoDJ', kind: 'source', format: 'mp3', bitrateKbps: 128, isPublic: false, sortOrder: 99 })
+      .returning();
+    const [live] = await t.db.select().from(schema.stationMounts).where(eq(schema.stationMounts.path, '/live'));
+    await t.db.update(schema.stationMounts).set({ fallbackMountId: autodj!.id }).where(eq(schema.stationMounts.id, live!.id));
+    const saved = new Map(onAir);
+    try {
+      onAir.clear();
+      onAir.set('/autodj', 'Da Tweekaz - Wodka');
+      onAir.set('/opus', null);
+      const station = (await findPublicStation(t.ctx, 'schermer-fm'))!;
+      const np = await buildNowPlaying(t.ctx, station, null);
+      expect(np.onAir).toBe(true);
+      expect(np.song).toMatchObject({ text: 'Da Tweekaz - Wodka' });
+      expect(np.mounts.find((m) => m.path === '/live')).toMatchObject({ live: true });
+      // Without the transcoder running, the public mounts are still heard through the fallback.
+      onAir.delete('/opus');
+      const quiet = await buildNowPlaying(t.ctx, station, null);
+      expect(quiet).toMatchObject({ onAir: true, song: { text: 'Da Tweekaz - Wodka' } });
+    } finally {
+      onAir.clear();
+      for (const [k, v] of saved) onAir.set(k, v);
+      await t.db.update(schema.stationMounts).set({ fallbackMountId: null }).where(eq(schema.stationMounts.id, live!.id));
+      await t.db.delete(schema.stationMounts).where(eq(schema.stationMounts.id, autodj!.id));
+    }
   });
 });
