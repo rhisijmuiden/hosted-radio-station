@@ -811,6 +811,16 @@ From a meeting with the radio makers: a web-based studio control panel, so the s
 - Fits with the earlier ideas "Second screen / Stream Deck / viewer screen" and "Several Studio clients".
 - Sketch (asked by Reinder, 4 November 2026): https://claude.ai/artifact/RhHMMAaAd8yVQht672eTf7 (tabs Studio, Jingles, Reporters, Library; big touch buttons; the PC stays master).
 
+### RØDECaster Pro II support in RHIS Studio (idea, 4 November 2026)
+
+Use the RØDECaster Pro II as a small radio console for RHIS Studio over one USB cable. Sketch: https://claude.ai/artifact/RPyzZ52MAFppx2LrxLCxte
+
+- Audio: the RØDECaster shows up in Windows as sound cards (Main, multitrack, and Chat with mix-minus). Players A and B go out on Main, jingles on Chat; the stereo mix comes back as the Go Live input; the multitrack mic channels can feed the recorder.
+- Fader start: the faders send no MIDI, but the channel on/off buttons (CC 20) and mute buttons (CC 27) do, per channel. Button on starts the player, off stops it and cues the next track; mic channel on means ON AIR (with ducking). Mapped under Settings → Mixer with Learn, on top of the parked MIDI fader start item.
+- SMART pads send MIDI (note or CC): they play the DJ's own jingles from RHIS Studio; RHIS Studio sets the pad bank (CC 0) and pad colours (CC 37) to match the jingle pages.
+- To check with a real unit before building: whether pressing a button on the device itself sends the MIDI message to the PC, and how multitrack mode maps players to separate faders.
+- Sources: RØDE MIDI triggers https://help.rode.com/hc/en-us/articles/8565481010063 and the RØDECaster Pro II datasheet.
+
 ### Dante node: digital mixing consoles over the network (idea, 2 November 2026)
 
 Many studios use digital mixing consoles that speak Dante (audio over IP). A new node role **Dante** connects such a console to the station without sound cards or cables:
