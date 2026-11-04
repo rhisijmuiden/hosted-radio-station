@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore } from 'react';
-import { call, onPanel, type PanelEvent, type PanelStatus } from './native';
+import { api, ApiError, getApiKey } from './api';
+import { call, inTauri, onPanel, type PanelEvent, type PanelStatus } from './native';
 import { getSettings, updateSettings } from './settings';
 import { studio, studioView } from './studio';
 import { engineState } from './engine';
@@ -110,4 +111,78 @@ export function usePanelPolling() {
     const id = setInterval(() => void refreshPanel().catch(() => undefined), 5000);
     return () => clearInterval(id);
   }, []);
+}
+
+// https for the tablets (step 4): a host name for this PC under the platform domain that points at its address on the
+// studio network, and a Let's Encrypt certificate for it. Studio fetches the certificate itself (src-tauri/src/
+// panel_tls.rs); the server sets the DNS records. Without Cloudflare DNS on the server the panel simply stays on http.
+
+/** Let's Encrypt certificates last 90 days; renewed after 60. */
+const RENEW_AFTER = 60 * 86_400_000;
+/** After a failure: Let's Encrypt allows only a few failed tries per hour for one name. */
+const RETRY_AFTER = 60 * 60_000;
+/** The address record is checked again this often (and whenever the address of this PC changes). */
+const RECHECK = 6 * 60 * 60_000;
+
+export interface PanelTls {
+  busy: boolean;
+  /** Why the last try failed. */
+  error: string | null;
+  /** The server cannot give this PC a name: no Cloudflare DNS there (or an older server). */
+  unavailable: boolean;
+}
+let tls: PanelTls = { busy: false, error: null, unavailable: false };
+const tlsListeners = new Set<() => void>();
+function setTls(next: Partial<PanelTls>) {
+  tls = { ...tls, ...next };
+  tlsListeners.forEach((l) => l());
+}
+export function usePanelTls(): PanelTls {
+  return useSyncExternalStore(
+    (l) => {
+      tlsListeners.add(l);
+      return () => tlsListeners.delete(l);
+    },
+    () => tls,
+  );
+}
+
+let lastTry = { at: 0, address: '', failed: false };
+
+/**
+ * Makes sure the panel host name points at this PC and the certificate is there and fresh. `force`: now, also right
+ * after a failure (the button in the settings).
+ */
+export async function ensurePanelTls(server: string, force = false) {
+  const token = getApiKey();
+  if (!inTauri || tls.busy || !token || !server || !status?.running || !status.address) return;
+  const now = Date.now();
+  const address = status.address;
+  const due = status.tlsIssuedAt == null || now - status.tlsIssuedAt > RENEW_AFTER;
+  if (!force && address === lastTry.address && now - lastTry.at < (lastTry.failed ? RETRY_AFTER : RECHECK) && !(due && !lastTry.failed)) return;
+  lastTry = { at: now, address, failed: false };
+  setTls({ busy: true });
+  try {
+    const { host } = await api<{ host: string }>('/studio/panel-host', { method: 'POST', body: { address } });
+    if (due || status.tlsHost !== host) setStatus(await call<PanelStatus>('panel_tls_issue', { host, server, token }));
+    setTls({ busy: false, error: null, unavailable: false });
+  } catch (err) {
+    lastTry.failed = true;
+    // 409: no Cloudflare DNS on the server; 404: a server from before this feature.
+    if (err instanceof ApiError && (err.status === 409 || err.status === 404)) setTls({ busy: false, error: null, unavailable: true });
+    else setTls({ busy: false, error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+/** Keeps https of the panel going while it runs: at start, when the address changes and every few hours. */
+export function usePanelTlsKeeper(server: string | null, supported: boolean) {
+  const s = usePanel();
+  const running = !!s?.running;
+  const address = s?.address ?? null;
+  useEffect(() => {
+    if (!server || !supported || !running || !address) return;
+    void ensurePanelTls(server);
+    const id = setInterval(() => void ensurePanelTls(server), 15 * 60_000);
+    return () => clearInterval(id);
+  }, [server, supported, running, address]);
 }

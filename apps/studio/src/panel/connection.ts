@@ -13,6 +13,20 @@ const TOKEN_KEY = 'rhis-panel-token';
 const query = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
 export const demo = query.has('demo') || (typeof location !== 'undefined' && location.port === '5174' && !query.has('nodemo'));
 
+/**
+ * Coming over from the http address (see upgrade below): the token travels in the hash, is kept for this https address
+ * and taken out of the address bar at once.
+ */
+if (typeof location !== 'undefined' && location.hash.startsWith('#token=')) {
+  const handed = decodeURIComponent(location.hash.slice('#token='.length));
+  try {
+    if (handed) localStorage.setItem(TOKEN_KEY, handed);
+  } catch {
+    /* private mode */
+  }
+  history.replaceState(null, '', location.pathname + location.search);
+}
+
 export type Link = 'unpaired' | 'connecting' | 'online' | 'offline' | 'revoked';
 
 interface Store {
@@ -99,6 +113,7 @@ function handle(msg: PanelMessage) {
   switch (msg.t) {
     case 'hello':
       set({ tablet: msg.tablet, link: 'online' });
+      if (msg.https) void upgrade(msg.https);
       break;
     case 'state':
       set({ state: msg, receivedAt: Date.now(), offset: msg.now - Date.now(), link: 'online' });
@@ -106,6 +121,29 @@ function handle(msg: PanelMessage) {
     case 'meters':
       meterListeners.forEach((l) => l(msg));
       break;
+  }
+}
+
+let upgrading = false;
+/**
+ * On the plain http address while the PC also serves https with a valid certificate: move there when this tablet can
+ * reach it (a router that refuses private addresses in public DNS keeps the tablet on http, which works just the same).
+ * The token goes along in the hash, which never leaves the tablet.
+ */
+async function upgrade(https: string) {
+  if (upgrading || location.protocol !== 'http:') return;
+  upgrading = true;
+  try {
+    const target = new URL(https);
+    await fetch(new URL('panel.webmanifest', target), { mode: 'no-cors', cache: 'no-store', signal: AbortSignal.timeout(4000) });
+    const tk = token();
+    if (!tk) return;
+    target.pathname = location.pathname;
+    target.search = new URLSearchParams([...new URLSearchParams(location.search)].filter(([k]) => k !== 'pair')).toString();
+    target.hash = `token=${encodeURIComponent(tk)}`;
+    location.replace(target.toString());
+  } catch {
+    /* not reachable from here: stay on http */
   }
 }
 

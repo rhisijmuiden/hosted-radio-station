@@ -1,7 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { schema } from '../src/db/index.js';
 import { clientIp } from '../src/lib/cloudflare-ips.js';
 import { cloudflareSchema } from '../src/services/settings.js';
@@ -294,6 +294,36 @@ describe('Cloudflare DNS', () => {
     expect(txt()).toHaveLength(1);
     expect((await acme('cleanup', '_acme-challenge.relay1.radio.example.com.')).statusCode).toBe(200);
     expect(txt()).toHaveLength(0);
+  });
+
+  it("gives a studio PC a panel host name on its studio network and DNS-01 for that name only", async () => {
+    const start = (await t.app.inject({ method: 'POST', url: '/api/studio/link', payload: { deviceName: 'STUDIO-1' } })).json();
+    await t.app.inject({ method: 'POST', url: `/api/studio/link/${start.code}/approve`, headers: admin });
+    const key = (await t.app.inject({ method: 'POST', url: '/api/studio/link/poll', payload: { deviceSecret: start.deviceSecret } })).json().apiKey as string;
+    const pc = { authorization: `Bearer ${key}` };
+    expect((await t.app.inject({ method: 'POST', url: '/api/studio/hello', headers: pc, payload: { clientVersion: '0.34.0' } })).json().features).toContain('panel-tls');
+    // Never a public address, and never for someone signed in with a password.
+    expect((await t.app.inject({ method: 'POST', url: '/api/studio/panel-host', headers: pc, payload: { address: '8.8.8.8' } })).statusCode).toBe(400);
+    expect((await t.app.inject({ method: 'POST', url: '/api/studio/panel-host', headers: admin, payload: { address: '10.10.4.50' } })).statusCode).toBe(400);
+    const res = await t.app.inject({ method: 'POST', url: '/api/studio/panel-host', headers: pc, payload: { address: '10.10.4.50' } });
+    expect(res.statusCode).toBe(200);
+    const host = res.json().host as string;
+    expect(host).toMatch(/^pc-[0-9a-f]{10}\.studio\.radio\.example\.com$/);
+    const a = () => cf.records.filter((r) => r.name === host);
+    expect(a()).toEqual([expect.objectContaining({ type: 'A', content: '10.10.4.50', proxied: false, comment: expect.stringMatching(/^hrs-studio:[0-9a-f]{8}:/) })]);
+    // A new address updates the same record; the record plan leaves it alone.
+    expect((await t.app.inject({ method: 'POST', url: '/api/studio/panel-host', headers: pc, payload: { address: '192.168.1.20' } })).json().host).toBe(host);
+    await t.app.inject({ method: 'POST', url: '/api/dns/sync', headers: admin });
+    expect(a()).toEqual([expect.objectContaining({ content: '192.168.1.20' })]);
+    const acme = (action: string, fqdn: string) => t.app.inject({ method: 'POST', url: `/api/studio/panel-acme/${action}`, headers: pc, payload: { fqdn, value: 'xyz_123' } });
+    expect((await acme('present', '_acme-challenge.relay1.radio.example.com')).statusCode).toBe(403);
+    expect((await acme('present', `_acme-challenge.${host}.`)).statusCode).toBe(200);
+    expect(cf.records.filter((r) => r.name === `_acme-challenge.${host}`)).toEqual([expect.objectContaining({ type: 'TXT', content: '"xyz_123"' })]);
+    expect((await acme('cleanup', `_acme-challenge.${host}`)).statusCode).toBe(200);
+    expect(cf.records.filter((r) => r.type === 'TXT')).toHaveLength(0);
+    // Signing the PC out takes its name away.
+    expect((await t.app.inject({ method: 'DELETE', url: '/api/studio/session', headers: pc })).statusCode).toBe(200);
+    await vi.waitFor(() => expect(a()).toHaveLength(0));
   });
 
   it('removes only its own records', async () => {

@@ -466,6 +466,7 @@ async function simInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Pr
     // The tablet panel: in the browser a pretend server with one paired tablet, for screenshots.
     case 'panel_start':
       simPanel.running = true;
+      simPanel.tls ??= { host: 'pc-1a2b3c4d5e.studio.onlineradio.rhis.nl', issuedAt: Date.now() - 86_400_000 * 12 };
       simPanel.port = args.port as number;
       return simPanelStatus() as T;
     case 'panel_stop':
@@ -481,6 +482,13 @@ async function simInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Pr
       return simPanelStatus() as T;
     case 'panel_publish':
       return undefined as T;
+    case 'panel_tls_issue':
+      await new Promise((r) => setTimeout(r, 1500));
+      simPanel.tls = { host: args.host as string, issuedAt: Date.now() };
+      return simPanelStatus() as T;
+    case 'panel_tls_clear':
+      simPanel.tls = null;
+      return simPanelStatus() as T;
     default:
       throw new Error(`unknown command ${cmd}`);
   }
@@ -501,6 +509,12 @@ export interface PanelStatus {
   url: string | null;
   error: string | null;
   tablets: TabletInfo[];
+  /** https with this PC's own certificate (on the next port), when it has one and it runs. */
+  httpsUrl: string | null;
+  /** The host name of the certificate, and when it was issued (ms). */
+  tlsHost: string | null;
+  tlsIssuedAt: number | null;
+  httpsError: string | null;
 }
 export interface Pairing {
   code: string;
@@ -515,6 +529,7 @@ const simPanel = {
   running: false,
   port: 8470,
   tablets: [{ id: 'a1b2c3d4', name: 'iPad studio 1', pairedAt: Date.now() - 86_400_000 * 3, lastSeen: Date.now(), connected: true }] as TabletInfo[],
+  tls: null as { host: string; issuedAt: number } | null,
 };
 const simPanelStatus = (): PanelStatus => ({
   running: simPanel.running,
@@ -523,6 +538,10 @@ const simPanelStatus = (): PanelStatus => ({
   url: simPanel.running ? `http://192.168.1.20:${simPanel.port}/` : null,
   error: null,
   tablets: simPanel.tablets.map((x) => ({ ...x, connected: simPanel.running && x.connected })),
+  httpsUrl: simPanel.running && simPanel.tls ? `https://${simPanel.tls.host}:${simPanel.port + 1}/` : null,
+  tlsHost: simPanel.tls?.host ?? null,
+  tlsIssuedAt: simPanel.tls?.issuedAt ?? null,
+  httpsError: null,
 });
 // A stand-in picture for the QR code in the browser (the app draws the real one).
 const SIM_QR =

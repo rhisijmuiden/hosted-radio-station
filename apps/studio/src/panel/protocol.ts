@@ -97,4 +97,4 @@ export type PanelCommand =
   /** Stops every jingle and cart that plays. */
   | { cmd: 'stopCarts' };
 
-export type PanelMessage = PanelState | PanelMeters | { t: 'hello'; tablet: { id: string; name: string } } | { t: 'ping' };
+export type PanelMessage = PanelState | PanelMeters | { t: 'hello'; tablet: { id: string; name: string }; /** The https address of the panel, when the PC has a certificate. */ https?: string | null } | { t: 'ping' };
