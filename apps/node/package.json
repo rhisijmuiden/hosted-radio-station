@@ -1,6 +1,6 @@
 {
   "name": "@hrs/node",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "description": "Node agent of Hosted Radio Station: relay, source and probe roles on a remote Debian 13 LXC",
