@@ -33,6 +33,27 @@ export interface PanelLogRow {
   role: 'air' | 'next' | 'queued';
 }
 
+/** A jingle or cart button; it plays on the PC (into the broadcast like the cart wall there). */
+export interface PanelCart {
+  /** The engine slot: what the tablet sends back to play or stop it. */
+  slot: number;
+  label: string;
+  color: string;
+  looped: boolean;
+  loaded: boolean;
+  playing: boolean;
+  /** While it plays: when it started (PC clock, epoch ms), so the tablet counts down by itself. */
+  startedAt: number | null;
+  duration: number;
+}
+
+/** The button groups of the Jingles tab: the DJ's own jingles, the station's carts, the cart wall of the PC. */
+export interface PanelCarts {
+  own: PanelCart[];
+  station: PanelCart[] | null;
+  wall: PanelCart[];
+}
+
 export interface PanelState {
   t: 'state';
   /** The PC's clock when it sent this (epoch ms), so the tablet counts with the PC's time. */
@@ -54,6 +75,8 @@ export interface PanelState {
   log: PanelLogRow[];
   nextBlock: { at: number; label: string; locked: boolean; hard: boolean } | null;
   error: string | null;
+  /** RHIS Studio 0.33 and later. */
+  carts?: PanelCarts;
 }
 
 /** Levels 0..1 on the meter scale, about ten times a second. */
@@ -64,6 +87,14 @@ export interface PanelMeters {
   air: number;
 }
 
-export type PanelCommand = { cmd: 'mic' } | { cmd: 'next' } | { cmd: 'stop' } | { cmd: 'fader'; channel: 0 | 1 | 2 };
+export type PanelCommand =
+  | { cmd: 'mic' }
+  | { cmd: 'next' }
+  | { cmd: 'stop' }
+  | { cmd: 'fader'; channel: 0 | 1 | 2 }
+  /** Plays a jingle or cart, or stops it while it plays. */
+  | { cmd: 'cart'; slot: number }
+  /** Stops every jingle and cart that plays. */
+  | { cmd: 'stopCarts' };
 
 export type PanelMessage = PanelState | PanelMeters | { t: 'hello'; tablet: { id: string; name: string } } | { t: 'ping' };
