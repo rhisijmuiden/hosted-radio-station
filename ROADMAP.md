@@ -809,6 +809,7 @@ From a meeting with the radio makers: a web-based studio control panel, so the s
 - It controls what is already running: RHIS Studio on the studio PC, the station node (AutoDJ, studio mode), and later the Dante node. It plays no audio itself, so it works on any tablet over the studio Wi-Fi.
 - Rights per role (DJ, station manager), the same sign-in as the panel; several tablets at once, with the PC as master.
 - Fits with the earlier ideas "Second screen / Stream Deck / viewer screen" and "Several Studio clients".
+- Sketch (asked by Reinder, 4 November 2026): https://claude.ai/artifact/RhHMMAaAd8yVQht672eTf7 (tabs Studio, Jingles, Reporters, Library; big touch buttons; the PC stays master).
 
 ### Dante node: digital mixing consoles over the network (idea, 2 November 2026)
 
