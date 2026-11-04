@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { api, ApiError, getApiKey, type Account, type AutoDj, type Me, type QueueRow, type StationDetail, type StationListItem } from './api';
 import { engineState, onDeck } from './engine';
-import { liveChoice, liveTarget, sendTitle, startLive, stopLive } from './golive';
+import { checkShow, liveChoice, liveTarget, sendTitle, startLive, stopLive } from './golive';
 import { call, type AppInfo, type BroadcastStatus, type DeckLoad, type DeckState } from './native';
 import { getSettings, updateSettings } from './settings';
 import { playLength } from './cues';
@@ -362,6 +362,8 @@ export async function startStudio(station: StationListItem, me: Me | null | fals
     const [detail, accounts] = await Promise.all([api<StationDetail>(`/stations/${station.id}`), api<Account[]>(`/stations/${station.id}/accounts`)]);
     const choice = liveChoice(detail, accounts, me, getSettings().live);
     if (!choice.mount || !choice.account) throw new Error(texts.notReady);
+    // Outside the DJ's show the server would end studio mode a few seconds later: refuse before anything switches on.
+    await checkShow(station.id, choice.account.id);
     void call('prune_studio_cache').catch(() => undefined);
     await call('set_mic', { open: false });
     // Fader start: every fader down; the first track's comes up when it starts.

@@ -1,4 +1,5 @@
-import { api, type Account, type Me, type StationDetail, type StationListItem } from './api';
+import i18n from 'i18next';
+import { api, ApiError, type Account, type Me, type StationDetail, type StationListItem } from './api';
 import { chooseNow, linksOf } from './link';
 import { call, type Target } from './native';
 import { getSettings, type Settings } from './settings';
@@ -27,6 +28,29 @@ let activeTarget: Target | null = null;
 export const liveTarget = () => activeTarget;
 
 /**
+ * Whether the account may go live now (small fix k): with "live only during shows" on, the server refuses a DJ outside
+ * their show. Asked before anything switches on, so Go Live and studio mode say so at once instead of flapping. Throws
+ * with the time the show opens; a server from before this check lets it through.
+ */
+export async function checkShow(stationId: string, accountId: string) {
+  let r: { allowed: boolean; outside: { opensAt: string | null } | null };
+  try {
+    r = await api(`/studio/stations/${stationId}/live-check`, { method: 'POST', body: { accountId } });
+  } catch (err) {
+    // An older server has no such route ("Not found", not "Account not found"): its encoder check still applies.
+    if (err instanceof ApiError && err.status === 404 && err.message === 'Not found') return;
+    throw err;
+  }
+  if (r.allowed) return;
+  const at = r.outside?.opensAt ? new Date(r.outside.opensAt) : null;
+  if (!at) throw new Error(i18n.t('live.outsideShowNone'));
+  const today = at.toDateString() === new Date().toDateString();
+  const time = at.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+  const when = today ? time : `${at.toLocaleDateString(i18n.language, { weekday: 'long' })} ${time}`;
+  throw new Error(i18n.t('live.outsideShow', { when }));
+}
+
+/**
  * Goes live: chooses the address again now (the studio network may have come back or gone), gets a live password for
  * the account and starts the stream. Throws `notReady` when the station has no mount, account or ingest address.
  */
@@ -34,6 +58,7 @@ export async function startLive(station: StationListItem, detail: StationDetail,
   const { mount, account, bitrate } = choice;
   const em = mount ? encoderMount(detail, mount.id) : null;
   if (!mount || !account || !em) throw new Error(opts.notReady);
+  await checkShow(station.id, account.id);
   const live = getSettings().live;
   const chosen = await chooseNow(linksOf(detail, opts.plain ? [...(live.plainHosts ?? []), opts.plain] : live.plainHosts), live.link ?? 'auto', live.manual);
   if (!chosen) throw new Error(opts.notReady);

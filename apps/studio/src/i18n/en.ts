@@ -171,6 +171,8 @@ export const en = {
     failed: 'The server refused',
     retry: '{{error}} · retrying in {{seconds}} s',
     ready: 'Ready for {{mount}} as {{account}}',
+    outsideShow: 'You can only go live during your show, from {{when}}',
+    outsideShowNone: 'You can only go live during your show, and none of your shows is planned in the coming week',
     notReady: 'Choose a DJ account and a mount first',
     setup: 'Broadcast',
     setupText: 'The client gets a temporary encoder password for your DJ account; you do not need to type it.',

@@ -173,6 +173,8 @@ export const nl: Translation = {
     failed: 'De server weigerde',
     retry: '{{error}} · opnieuw over {{seconds}} s',
     ready: 'Klaar voor {{mount}} als {{account}}',
+    outsideShow: 'Je kunt alleen live gaan tijdens je show, vanaf {{when}}',
+    outsideShowNone: 'Je kunt alleen live gaan tijdens je show, en er staat de komende week geen show van je gepland',
     notReady: 'Kies eerst een DJ-account en een mount',
     setup: 'Uitzending',
     setupText: 'De client krijgt een tijdelijk encoderwachtwoord voor je DJ-account; je hoeft het niet in te typen.',

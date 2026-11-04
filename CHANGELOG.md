@@ -3,6 +3,13 @@
 All notable changes to Hosted Radio Station. Versions follow [semantic versioning](https://semver.org). The
 [roadmap](ROADMAP.md) has the full description of each phase, with screenshots.
 
+## Unreleased
+
+- RHIS Studio refuses Go Live and studio mode at once outside the DJ's show (with "live only during shows" on),
+  with the time the show opens ("You can only go live during your show, from 20:00"). Before, studio mode switched on
+  and the server ended it a few seconds later, so it flapped on and off. New `POST /api/studio/stations/:id/live-check`;
+  the live-token route refuses with `outside_show` too.
+
 ## 1.7.0 (4 November 2026)
 
 The new navigation for customers (a top bar with a station switcher, a Routing page, limits and allowed roles under My
