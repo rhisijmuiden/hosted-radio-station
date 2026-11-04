@@ -310,6 +310,31 @@ describe('scheduler API and AutoDJ', () => {
     await api('PUT', '/scheduler', { ...view.settings, liveOnlyInShows: false });
   });
 
+  it('refuses RHIS Studio at once outside the show, with the time it opens', async () => {
+    const [account] = await t.db.insert(schema.stationAccounts).values({ stationId, username: 'dj-k', passwordHash: 'x' }).returning();
+    const view = (await api('GET', '/scheduler')).json();
+    await api('PUT', '/scheduler', { ...view.settings, liveOnlyInShows: true, liveEarlyMinutes: 10 });
+    const check = () => t.app.inject({ method: 'POST', url: `/api/studio/stations/${stationId}/live-check`, headers: admin, payload: { accountId: account!.id } });
+    const token = () => t.app.inject({ method: 'POST', url: `/api/studio/stations/${stationId}/live-token`, headers: admin, payload: { accountId: account!.id } });
+    // A show three days from now: not on air today.
+    const day = ((wallTime(Date.now(), TZ).weekday + 2) % 7) + 1;
+    const show = await api('POST', '/schedule', { name: 'Later show', live: true, accountIds: [account!.id], days: [day], startMinute: 20 * 60, durationMinutes: 60 });
+    expect(show.statusCode).toBe(201);
+    const refused = await check();
+    expect(refused.statusCode).toBe(200);
+    expect(refused.json()).toMatchObject({ allowed: false, outside: { timezone: TZ } });
+    expect(refused.json().message).toMatch(/^You can only go live during your show, from \w+ 19:50$/);
+    expect(new Date(refused.json().outside.opensAt).getTime()).toBeGreaterThan(Date.now());
+    const noToken = await token();
+    expect(noToken.statusCode).toBe(403);
+    expect(noToken.json().error).toMatchObject({ code: 'outside_show', message: refused.json().message });
+    // Without a show the account is not limited.
+    await api('DELETE', `/schedule/${show.json().id}`);
+    expect((await check()).json()).toEqual({ allowed: true, outside: null, message: null });
+    expect((await token()).statusCode).toBe(200);
+    await api('PUT', '/scheduler', { ...view.settings, liveOnlyInShows: false });
+  });
+
   describe.runIf(hasFfmpeg)('with tracks', () => {
     const tone = (path: string, tags: Record<string, string>) => {
       mkdirSync(join(path, '..'), { recursive: true });

@@ -7,7 +7,7 @@ import { generateApiKey, requireUser } from '../lib/auth.js';
 import { randomToken, sha256 } from '../lib/crypto.js';
 import { badRequest, forbidden, HttpError, notFound } from '../lib/errors.js';
 import { idParam, okOut } from '../lib/schemas.js';
-import { LIVE_TOKEN_PREFIX } from '../services/streaming/sources.js';
+import { LIVE_TOKEN_PREFIX, outsideShow } from '../services/streaming/sources.js';
 import { studioReleases } from '../services/studio.js';
 import { runningVersion } from '../services/system.js';
 import { stationAccess } from './stations.js';
@@ -302,6 +302,44 @@ export const studioRoutes: FastifyPluginAsyncZod = async (app) => {
 
   // Live broadcasts
 
+  /** The DJ account RHIS Studio wants to go live with, checked like the live-token route checks it. */
+  async function liveAccount(req: Parameters<typeof stationAccess>[1], stationId: string, accountId: string) {
+    const { station, access } = await stationAccess(ctx, req, stationId, 'dj');
+    const [account] = await ctx.db
+      .select()
+      .from(schema.stationAccounts)
+      .where(and(eq(schema.stationAccounts.id, accountId), eq(schema.stationAccounts.stationId, station.id)));
+    if (!account) throw notFound('Account');
+    if (access.role === 'dj' && account.userId !== access.user.id) throw forbidden('You can only broadcast with your own DJ account');
+    if (!account.enabled || !account.canBroadcast) throw badRequest('This account may not broadcast');
+    return { station, access, account };
+  }
+
+  const outsideOut = z.object({ opensAt: z.date().nullable(), timezone: z.string() });
+  const outsideMessage = (o: { opensAt: number | null; timezone: string }) =>
+    o.opensAt
+      ? `You can only go live during your show, from ${new Date(o.opensAt).toLocaleString('en-GB', { timeZone: o.timezone, weekday: 'long', hour: '2-digit', minute: '2-digit' })}`
+      : 'You can only go live during your show, and none of your shows is planned in the coming week';
+
+  app.post(
+    '/stations/:id/live-check',
+    {
+      schema: {
+        tags: ['Studio client'],
+        summary:
+          'Whether a DJ account may go live now (small fix k). With "live only during shows" on, a DJ of a live show may only broadcast from a few minutes before the show until it ends; RHIS Studio asks first, so Go Live and studio mode are refused at once with the time the show opens, instead of switching on and being thrown off by the encoder check.',
+        params: idParam,
+        body: z.object({ accountId: z.uuid() }),
+        response: { 200: z.object({ allowed: z.boolean(), outside: outsideOut.nullable(), message: z.string().nullable() }) },
+      },
+    },
+    async (req) => {
+      const { station, account } = await liveAccount(req, req.params.id, req.body.accountId);
+      const o = await outsideShow(ctx, station.id, account.id);
+      return o ? { allowed: false, outside: { opensAt: o.opensAt ? new Date(o.opensAt) : null, timezone: o.timezone }, message: outsideMessage(o) } : { allowed: true, outside: null, message: null };
+    },
+  );
+
   app.post(
     '/stations/:id/live-token',
     {
@@ -315,14 +353,10 @@ export const studioRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (req) => {
-      const { station, access } = await stationAccess(ctx, req, req.params.id, 'dj');
-      const [account] = await ctx.db
-        .select()
-        .from(schema.stationAccounts)
-        .where(and(eq(schema.stationAccounts.id, req.body.accountId), eq(schema.stationAccounts.stationId, station.id)));
-      if (!account) throw notFound('Account');
-      if (access.role === 'dj' && account.userId !== access.user.id) throw forbidden('You can only broadcast with your own DJ account');
-      if (!account.enabled || !account.canBroadcast) throw badRequest('This account may not broadcast');
+      const { station, access, account } = await liveAccount(req, req.params.id, req.body.accountId);
+      // Outside the DJ's show the encoder would be refused anyway: say why now (small fix k).
+      const o = await outsideShow(ctx, station.id, account.id);
+      if (o) throw new HttpError(403, 'outside_show', outsideMessage(o));
       await ctx.db.delete(schema.studioLiveTokens).where(lt(schema.studioLiveTokens.expiresAt, new Date()));
       const password = `${LIVE_TOKEN_PREFIX}${randomToken(24)}`;
       const expiresAt = new Date(Date.now() + LIVE_TOKEN_HOURS * 3600_000);
