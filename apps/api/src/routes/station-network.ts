@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { schema } from '../db/index.js';
 import type { NodeStatus } from '../db/schema.js';
 import { isDedicated, serves } from '../services/nodes/dedication.js';
-import { studioDelivery } from '../services/nodes/delivery.js';
+import { plannedIngests, studioDelivery } from '../services/nodes/delivery.js';
 import { serverNames } from '../services/nodes/names.js';
 import { relaysOf } from '../services/nodes/plan.js';
 import { ingestsOf, stationRouting } from '../services/nodes/routing-rules.js';
@@ -142,14 +142,17 @@ export const stationNetworkRoutes: FastifyPluginAsyncZod = async (app) => {
 
       const studio = station.nodeId ? nodes.find((n) => n.id === station.nodeId) : null;
       if (studio) add(studio, 'station');
-      // The ingests: on a station node the ones its streams go through now, else the chosen ones.
-      const refs = station.nodeId ? studioDelivery(station, rows).ingests.map((i) => ({ ref: i.node.id, priority: i.priority })) : ingestsOf(r);
+      // The ingests: on a station node the planned ones, also while the node feeds the relays itself for a moment
+      // (they then stand by, so the list does not lose a row); else the chosen ones.
+      const delivery = station.nodeId ? studioDelivery(station, rows) : null;
+      const refs = station.nodeId ? (plannedIngests(station, rows) ?? []).map((i) => ({ ref: i.node.id, priority: i.priority })) : ingestsOf(r);
+      const sending = new Set(delivery?.ingests.map((i) => i.node.id) ?? []);
       const onAir = (ref: string) => (ref === 'local' ? !!worker?.onAir[station.id]?.length : !!nodes.find((n) => n.id === ref)?.status.ingest?.some((m) => m.stationId === station.id));
       const anyOnAir = refs.some((i) => onAir(i.ref));
       for (const i of refs) {
         const role = i.priority === 0 ? 'ingest' : 'backupIngest';
         // A backup that is fine but does not carry the station now stands by.
-        const standby = i.priority > 0 && anyOnAir && !onAir(i.ref);
+        const standby = (i.priority > 0 && anyOnAir && !onAir(i.ref)) || (!!delivery && !sending.has(i.ref));
         if (i.ref === 'local') addMain(role, standby);
         else {
           const n = nodes.find((x) => x.id === i.ref);

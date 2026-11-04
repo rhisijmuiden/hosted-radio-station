@@ -197,7 +197,7 @@ export class NodeHub {
   /** Takes a new agent connection: waits for its hello and checks the secret. */
   attach(socket: WebSocket, ip: string | null) {
     let conn: Conn | null = null;
-    const helloTimer = setTimeout(() => socket.close(CLOSE.unauthorized, 'hello expected'), HELLO_TIMEOUT_MS);
+    const helloTimer = setTimeout(() => socket.close(CLOSE.helloTimeout, 'hello expected'), HELLO_TIMEOUT_MS);
     socket.on('message', (data: Buffer) => {
       let msg: AgentMessage;
       try {

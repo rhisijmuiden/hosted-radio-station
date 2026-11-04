@@ -14,7 +14,7 @@ import { libraryRequests, queueRequest, requestBlocker } from '../services/autod
 import { autodjSettings } from '../services/autodj/settings.js';
 import { artworkDir } from '../services/public/artwork.js';
 import { publicShows } from '../services/scheduler/public.js';
-import { findPublicStation, heardMounts, recentlyPlayed, titleMount, type NowPlaying, type PublicStation } from '../services/public/nowplaying.js';
+import { findPublicStation, heardMounts, heardStats, recentlyPlayed, titleMount, type NowPlaying, type PublicStation } from '../services/public/nowplaying.js';
 import { itemPath } from '../services/public/ondemand.js';
 import { connectionInfo } from '../services/streaming/info.js';
 import { stationStats } from '../services/streaming/state.js';
@@ -189,14 +189,16 @@ export const publicRoutes: FastifyPluginAsyncZod = async (app) => {
       const def = visible.find((m) => m.isDefault) ?? visible[0];
       // Converted mounts carry no title of their own: now playing comes from their source.
       const src = titleMount(mounts);
-      const playing = (src && byPath.get(src.path)) ?? (def && byPath.get(def.path)) ?? visible.map((m) => byPath.get(m.path)).find(Boolean);
+      // What the source plays, down its fallback chain (the AutoDJ behind /live when no DJ is on).
+      const playing = heardStats(mounts, byPath, src) ?? heardStats(mounts, byPath, def) ?? visible.map((m) => heardStats(mounts, byPath, m)).find(Boolean);
+      const heard = (m: (typeof mounts)[number]) => !!heardStats(mounts, byPath, m) || (m.kind === 'transcode' && !!heardStats(mounts, byPath, mounts.find((x) => x.id === m.sourceMountId)));
       const value = {
         name: station.name,
         slug: station.slug,
         description: station.description,
         genre: station.genre,
         website: station.website,
-        live: visible.some((m) => byPath.has(m.path)),
+        live: visible.some(heard),
         listeners: (stats ?? []).reduce((n, s) => n + s.listeners, 0) + outputs.reduce((n, o) => n + (o.type !== 'local' && o.status?.listeners ? o.status.listeners : 0), 0),
         nowPlaying: { title: playing?.title ?? null, mount: playing?.mount ?? null },
         mounts: visible.map((m) => ({
@@ -205,7 +207,7 @@ export const publicRoutes: FastifyPluginAsyncZod = async (app) => {
           format: m.format,
           bitrateKbps: m.bitrateKbps,
           isDefault: m === def,
-          live: byPath.has(m.path),
+          live: heard(m),
           listeners: byPath.get(m.path)?.listeners ?? 0,
           listenUrl: conn.mounts.find((c) => c.id === m.id)?.listenUrl ?? null,
         })),

@@ -171,7 +171,9 @@ export class Agent {
       if (ev.code === 1001 || ev.code === 1005) this.retries = 0;
       const n = this.retries++;
       let delay = (n < 30 ? Math.min(5000, 1000 * (n + 1)) : 30_000) + Math.floor(Math.random() * 500);
-      if (ev.code === CLOSE.unauthorized) {
+      // Older servers closed with "unauthorized" when the hello did not arrive in time (seen while it restarts);
+      // that says nothing about the pairing, so it is retried like a lost connection.
+      if (ev.code === CLOSE.unauthorized && ev.reason !== 'hello expected') {
         // Unpaired or removed in the panel: stop serving, and look again now and then in case it was a mistake.
         log.error('the main server does not accept this node; pair it again with "hrs-node pair"', { reason: ev.reason });
         this.relay?.stopAll();

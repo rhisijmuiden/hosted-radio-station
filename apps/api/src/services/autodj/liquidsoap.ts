@@ -37,6 +37,9 @@ export interface ScriptInput {
   sourcePassword: string;
 }
 
+/** Seconds the queue gets to load a track (after a start, a flush or a hold) before the emergency playlist may play. */
+export const EMERGENCY_GRACE_SECONDS = 15;
+
 /**
  * The Liquidsoap script of a station's AutoDJ. Liquidsoap only plays: it asks the streams service for every next track
  * (the Q1/Q2 rules and playlists live there), crossfades, evens out loudness and feeds the station's private AutoDJ
@@ -128,6 +131,12 @@ export function renderScript(ctx: AppContext, input: ScriptInput): string {
     `hold = switch(id="hrs_hold", track_sensitive=false, [({manual()}, wait)])`,
     ``,
     `emergency = playlist(id="hrs_emergency", mode="randomize", reload_mode="watch", ${str(join(mediaDir(ctx, station.id), MUSIC_FOLDER))})`,
+    `# The emergency playlist only steps in once the queue has had nothing for a while. Right after a start, a flush or`,
+    `# the end of a hold (live broadcast, studio mode) the next track can take a few seconds to load; a random track`,
+    `# from the music folder would then play out in full (the fallback is track sensitive), with no now playing.`,
+    `emergency_after = ref(time() + ${num(EMERGENCY_GRACE_SECONDS)})`,
+    `def hrs_wait_for_queue() = emergency_after := time() + ${num(EMERGENCY_GRACE_SECONDS)} end`,
+    `emergency = switch(id="hrs_emergency_gate", track_sensitive=true, [({time() >= emergency_after()}, emergency)])`,
     `# Play now (RHIS Studio): a track of its own, ahead of the gate, so the queue and the track it holds stay as they are.`,
     `hrs_now = request.queue(id="hrs_now")`,
     `now = source.on_track(hrs_now, fun (m) -> begin`,
@@ -151,7 +160,7 @@ export function renderScript(ctx: AppContext, input: ScriptInput): string {
     `server.register("live", usage="live true|false", fun (v) -> begin`,
     `  on = string.trim(v) == "true"`,
     `  if on != live() then`,
-    `    if on then paused_at := time() elsif time() - paused_at() > 20. then playout.skip() end`,
+    `    if on then paused_at := time() elsif time() - paused_at() > 20. then begin hrs_wait_for_queue(); playout.skip() end end`,
     `    live := on`,
     `  end`,
     `  "OK"`,
@@ -204,6 +213,7 @@ export function renderScript(ctx: AppContext, input: ScriptInput): string {
     `end)`,
     `# The clock changed (issue #27): the track loaded ahead is dropped and the next one asked again.`,
     `server.register("flush", fun (_) -> begin`,
+    `  hrs_wait_for_queue()`,
     `  list.iter(request.destroy, hrs_requests.queue())`,
     `  hrs_requests.set_queue([])`,
     `  thread.run(fun () -> ignore(hrs_requests.fetch()))`,
