@@ -9,6 +9,10 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
   with the time the show opens ("You can only go live during your show, from 20:00"). Before, studio mode switched on
   and the server ended it a few seconds later, so it flapped on and off. New `POST /api/studio/stations/:id/live-check`;
   the live-token route refuses with `outside_show` too.
+- RHIS Studio checks that the station's stream address answers before Go Live and before studio mode switches on,
+  and tries the station node's other address (studio network or public) when it does not. When nothing answers it
+  refuses with the address ("The station cannot be reached at host:port from this computer"). Before, studio mode
+  switched on and ended 8 seconds later with "connection timed out", over and over (Harder.FM from Reinder-Surface).
 
 ## 1.7.0 (4 November 2026)
 
