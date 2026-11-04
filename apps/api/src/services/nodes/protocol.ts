@@ -18,6 +18,8 @@ export const CLOSE = {
   unauthorized: 4401,
   /** Another connection of the same node took over. */
   replaced: 4409,
+  /** The agent's hello did not arrive in time (a slow start of the server, a proxy in between): it tries again soon. */
+  helloTimeout: 4408,
   /** The agent speaks a protocol this server does not know; it should update. */
   protocol: 4426,
 } as const;
