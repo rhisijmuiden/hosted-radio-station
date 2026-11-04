@@ -219,6 +219,8 @@ One thing at a time; each item starts when the previous one is finished and test
    7. New folders and music upload from Studio in Library folders (PR #194, asked by Reinder 30 October 2026). *Tested.*
    **Release 1.6.0** (31 October 2026): items 8 and 9, the fix for the AutoDJ hanging after a live broadcast (PR #190), the small fixes (PRs #197–#203) and step 1 of the Stereo Tool release (PR #196, off by default) go to `main` as one release.
 
+10. **Studio mode in RHIS Studio: microphone over the queue** (queued 1 November 2026, the next main item once the current one is finished and tested): see the item under Future ideas and the approved sketch https://claude.ai/artifact/2mGWnZo4P7G4MNxugKares. Fader start (MIDI/GPIO) belongs with it and follows when the hardware is there.
+
 Later: phase 14 (orchestrator redundancy) just before sales start; phases 22 and 23 when the first customers come.
 
 ## Phases
@@ -716,6 +718,11 @@ Small fixes are collected here and handled one at a time in a separate thread, n
 - **Restart a node from its page** (fixed, 1.6.0): a **Restart** button on the node page restarts the node agent or only its Icecast, for a node that hangs or to test what happens when a node is briefly away.
 - **Update all nodes at once** (fixed, 1.6.0): an option for test setups to update every node at the same time instead of one by one.
 - **Upload folder under the chosen folder** (fixed, 1.6.0): the folder typed in the upload dialog landed at the root of the library instead of under the folder that is open (music by default); the dialog now shows that folder as a fixed start and the field is only the subfolder.
+- **Now playing lost after a node update** (open bug, 1 November 2026): after Harder.FM's station node was updated (test 624d141, 10:14) the stream played a long mix, but the AutoDJ showed nothing as now playing and only one cued track without a start time. Likely cause: the player restarted before the streams service answered, so it could not get its next track from the queue and took one from its emergency playlist, which has no queue item. To check: let the player wait for the streams service after a restart, and hand the queue back once it answers. Seen again on 2 November on Radio Schermer after a system update with "Update all at once" (12:26–12:30 UTC): the AutoDJ on the node played and logged its tracks correctly, but the public now playing showed "on air" without a title and the stream's ICY title stayed empty from 12:28, while the node fed the relay directly (its push to the ingest failed). The public title comes from the Icecast on the station node, so there the title did not reach that Icecast; it stayed so until all nodes were updated again at about 20:45 (test with #219), after which the title came back. Reproduced the same evening: when a live source on the station node ends and the AutoDJ plays again, the public now playing has no song and the stream's ICY title stays on the last live title; this hits every DJ who stops, not only studio mode. Likely cause, still to verify on the node: the live mount keeps showing in the node's Icecast stats without a title, and both the public now playing (it takes the default mount's source when it is listed at all, `nowplaying.ts`) and the title forwarding to the ingest and relays (`heardFrom` in `streams/worker.ts`) stop at any listed mount instead of following the fallback to `/autodj` when that mount has no source.
+- **Public now playing says "not on air" while the stream runs** (open bug, 2 November 2026): seen on Radio Schermer right after the 20:45 node update: /nowplaying returns onAir false while the song is filled and the ingest and relay are connected. Same on Harder.FM at 22:00: its station node's AutoDJ played into the local `/autodj` and the pushes to the ingest and relay were connected, but `/live` had no source, and "on air" and the title (public now playing, station list, title forwarding) only look at the public mounts instead of following the fallback from `/live` to `/autodj`. The station showed off air without a title until a source came on `/live`. Fix direction: use the fallback chain (as `heardMounts` does) for on air and the title. Seen again on 3 November (studio mode test on Radio Schermer, ~01:06): after the hand-back to the AutoDJ the stream's ICY title follows within about 18 seconds, but the public now playing keeps onAir true with no song. Seen again on 4 November (studio mode test): after the hand-back the public now playing again returns onAir true with song null, and the StreamTitle lags or is wrong (it showed "Yodel Yodel", which matched neither the server AutoDJ track nor the last track played on the PC).
+- **Ingest missing from a station's node list** (open, 3 November 2026): pub-ingest-01 no longer shows in Radio Schermer's Nodes list, though it did before. Display only: the node is carrying the station (Studio's "Path now" shows it as main ingest on air). Seen in RHIS Studio 0.29 Manage > Nodes; the server list (`routes/station-network.ts`) shows an ingest of a station node only while `studioDelivery()` says the node sends through it, so a short direct fallback (failing hold, stale status or certificate check) hides it. At 00:35 both server views agreed (route through pub-ingest-01, no direct fallback, the ingest in the list), and the Studio table shows the server list unfiltered every 10 seconds. Proposed fix: list the planned ingests always, marked "standby" or with the reason the node sends directly, instead of dropping the row.
+- **Station node slow to come back after the orchestrator restarts** (open bug, 2 November 2026): after the API on radiostation restarted (20:14), the Radio Schermer node (behind NAT) stayed offline until 20:44, while the other nodes were back within seconds; to check the agent's reconnect and backoff.
+- **Listen link briefly refuses new listeners** (open bug, 1 November 2026): while monitoring from a PC on the LAN, `http://10.10.4.240/listen/radioschermer/live` twice refused or timed out new connections for about 20 and 45 seconds (11:41 and 11:59 local), while the now-playing API kept answering. To check: the listen route and its relay choice (compare the earlier "no relay" 503 while pub-relay-01 was updating), and the LAN between that PC and the server.
 
 - **Listeners on Radio > Stations** (fixed, on test): the station list did not count listeners on relay nodes, so it showed no listeners while the dashboard did.
 - **Listen to the air in RHIS Studio** (fixed, Studio 0.31): a **Listen** button in the top bar plays the station as listeners hear it while the DJ is not live, on its own output and volume (Settings), and goes off by itself on Go Live and in studio mode.
@@ -759,11 +766,14 @@ A WordPress plugin for customer websites, built on the station node API above.
 
 ### Studio mode in RHIS Studio: microphone over the queue
 
+Sketch approved by Reinder on 1 November 2026: https://claude.ai/artifact/2mGWnZo4P7G4MNxugKares (take-over dialog, studio mode with mic on, auto mic off before a locked news block, fallback to the server AutoDJ after 10 s).
+
 Today Go Live stops the server's music and sends only what RHIS Studio plays itself (sound card input, jingles, single player). Studio mode lets a DJ present a show from the queue with their own microphone:
 
 - RHIS Studio becomes the playout: it plays the queue (players A and B, with the cue points and crossfades from the server) itself, together with the jingles and the microphone, and sends that one mix live. The DJ hears everything without stream delay, so talking over intros works.
 - Tracks are fetched ahead from the station node (over the LAN when on site) and cached, so a network hiccup does not stop the music.
 - Microphone on/off with ducking of the music, and a mic level on the meter.
+- Fader start (MIDI/GPIO, see the parked fader start item) works in studio mode too: a fader up starts the track on that player (or the jingle/mic), a fader down stops it and cues the next item from the queue.
 - Locked blocks (news, ads) and the hour clock keep running as planned; the log stays the server's.
 - If RHIS Studio stops or loses the connection, the server's AutoDJ takes over by itself at the right point in the queue.
 - Fader start on screen: a fader for each player and the microphone; opening one starts it, closing it stops it and cues the next track. MIDI and GPIO faders come later.
@@ -775,6 +785,8 @@ Today Go Live stops the server's music and sends only what RHIS Studio plays its
 - A reporter on location joins the broadcast from a phone: a simple web page on the station node (later a small Android app; iOS is harder) that uses the phone's microphone, like a phone call but in better quality (WebRTC/Opus), with a talk-back channel from the studio.
 - The DJ invites the reporter with a one-time link or code. In RHIS Studio a small reporter panel (that can be minimised or hidden) shows who is waiting, lets the DJ talk to them off air first, and puts them on air, like the SIP caller flow.
 - Later: a whole outside-broadcast set signs in the same way and can take over the broadcast (see "Several RHIS Studio clients at once").
+- **Festival version (Reinder, 4 November 2026, from the meeting with the radio makers):** an Android app for people on location at festivals, with a direct audio link to the studio. Several phones are signed in at the same time and can talk with the DJ on air together (a small conference, with a mix-minus talk-back to each phone). The best place to run it is a **second screen of RHIS Studio**: a tile per signed-in phone with name, connection quality and level, and buttons for talk off air, on air and hang up. Fits with "Second screen / Stream Deck / viewer screen" and the SIP caller flow.
+  - Details (Reinder, 4 November 2026): per reporter a big tile with its own VU meter; the DJ can mute a reporter remotely, talk off air first, and put one or several reporters live at once (select several tiles, one click). Sketch: https://claude.ai/artifact/24d1DsCnWaKz325sDzXpM3 (DJ second screen and the Android app: join with code/QR, talking to DJ, on air).
 
 ### Several RHIS Studio clients at once (remote broadcasts)
 
@@ -817,6 +829,37 @@ A format builder next to the hour clock, to make the non-stop rotation easier to
 - Separation rules (artist, title) and how often each category may repeat, per format.
 - The **hour clock stays** for fixed times: news blocks, ads and locked items run at their set minutes, and the format fills the time in between.
 - A format can be set as the station's default, per hour clock, or per show in the weekly schedule.
+
+### Web studio control panel for tablets (idea, 4 November 2026)
+
+From a meeting with the radio makers: a web-based studio control panel, so the studio can be operated from a tablet (or phone) next to or instead of the RHIS Studio PC.
+
+- A touch-friendly page in the panel (works in any browser, installable as a web app): players A and B (start, stop, next), jingle buttons, the log with the next locked block countdown, mic on/off and on-air status, a listen button.
+- It controls what is already running: RHIS Studio on the studio PC, the station node (AutoDJ, studio mode), and later the Dante node. It plays no audio itself, so it works on any tablet over the studio Wi-Fi.
+- Rights per role (DJ, station manager), the same sign-in as the panel; several tablets at once, with the PC as master.
+- Fits with the earlier ideas "Second screen / Stream Deck / viewer screen" and "Several Studio clients".
+- Sketch (asked by Reinder, 4 November 2026): https://claude.ai/artifact/RhHMMAaAd8yVQht672eTf7 (tabs Studio, Jingles, Reporters, Library; big touch buttons; the PC stays master).
+
+### RØDECaster Pro II support in RHIS Studio (idea, 4 November 2026)
+
+Use the RØDECaster Pro II as a small radio console for RHIS Studio over one USB cable. Sketch: https://claude.ai/artifact/RPyzZ52MAFppx2LrxLCxte
+
+- Audio: the RØDECaster shows up in Windows as sound cards (Main, multitrack, and Chat with mix-minus). Players A and B go out on Main, jingles on Chat; the stereo mix comes back as the Go Live input; the multitrack mic channels can feed the recorder.
+- Fader start: the faders send no MIDI, but the channel on/off buttons (CC 20) and mute buttons (CC 27) do, per channel. Button on starts the player, off stops it and cues the next track; mic channel on means ON AIR (with ducking). Mapped under Settings → Mixer with Learn, on top of the parked MIDI fader start item.
+- SMART pads send MIDI (note or CC): they play the DJ's own jingles from RHIS Studio; RHIS Studio sets the pad bank (CC 0) and pad colours (CC 37) to match the jingle pages.
+- To check with a real unit before building: whether pressing a button on the device itself sends the MIDI message to the PC, and how multitrack mode maps players to separate faders.
+- Sources: RØDE MIDI triggers https://help.rode.com/hc/en-us/articles/8565481010063 and the RØDECaster Pro II datasheet.
+
+### Dante node: digital mixing consoles over the network (idea, 2 November 2026)
+
+Many studios use digital mixing consoles that speak Dante (audio over IP). A new node role **Dante** connects such a console to the station without sound cards or cables:
+
+- A separate role on a physical server in the studio LAN (Dante needs an accurate network clock, PTP, and a steady network; a VM only with its own network card passed through).
+- The node shows up in the studio's Dante Controller as a normal Dante device with channels. In the panel you map channels: which Dante channel is the mic or the console's programme output, which channels carry players A and B and the jingles back to the console.
+- Ways to speak Dante on Linux, to be researched in a spike: (1) official Audinate software for Linux (Dante Embedded Platform / Dante as software), which needs a licence agreement with Audinate, best for selling; (2) AES67, which most modern Dante devices can switch on in Dante Controller, open source on Linux (ptp4l with aes67-linux-daemon or PipeWire), no Dante licence but multicast and manual setup; (3) a Dante PCIe card or Dante USB adapter in the server, which shows up as a normal sound card. Not the unofficial reverse-engineered implementations.
+- Fader start: Dante carries audio only, no control. Fader start and on-air signals come over the console's own control protocol (for example Ember+ for Lawo and DHD, LWRP for Axia, or GPIO over IP). The Dante node can speak that protocol, so no USB GPIO box is needed.
+- Short-term alternative: RHIS Studio on Windows can use Dante Virtual Soundcard (paid, from Audinate) as its sound card without any node.
+- The studios Reinder spoke to use **DHD** consoles (2 November 2026). DHD speaks AES67 natively (so probably no Dante licence needed) and offers the DHD Control API (3rd generation cores), Ember+ and the older ECP for playout control: fader open/close, ON AIR, PFL, labels on the fader displays. Sketch: https://claude.ai/artifact/PHLdjZFypeNRjxngCgzTC7 (overview, panel page Audio channels, panel page Console & fader start).
 
 ### Phone calls in RHIS Studio (SIP)
 
