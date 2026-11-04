@@ -173,6 +173,7 @@ export const en = {
     ready: 'Ready for {{mount}} as {{account}}',
     outsideShow: 'You can only go live during your show, from {{when}}',
     outsideShowNone: 'You can only go live during your show, and none of your shows is planned in the coming week',
+    unreachable: 'The station cannot be reached at {{address}} from this computer: the station node is off, or its port is not open from this network. Nothing went on air.',
     notReady: 'Choose a DJ account and a mount first',
     setup: 'Broadcast',
     setupText: 'The client gets a temporary encoder password for your DJ account; you do not need to type it.',

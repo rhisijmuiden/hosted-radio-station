@@ -97,15 +97,24 @@ export function useLink(detail: StationDetail | undefined) {
 }
 
 /**
- * The same choice at the moment of Go Live, with a fresh check of the studio network. A server that still keeps its
- * old port (port plan, 1.3) is reached on that one when a firewall does not let the new port in yet.
+ * The same choice at the moment of Go Live, with a fresh check that the address answers. A server that still keeps its
+ * old port (port plan, 1.3) is reached on that one when a firewall does not let the new port in yet. In automatic mode
+ * the other address of the station node is tried when the chosen one does not answer. `reachable: false` = nothing
+ * answers: Go Live and studio mode then refuse at once with the address, instead of timing out on the stream.
  */
-export async function chooseNow(links: Links, mode: LinkMode, manual: ManualLink) {
-  const reachable = mode === 'auto' && links.internal && links.external ? await probe(links.internal) : undefined;
-  const picked = choose(links, mode, manual, reachable);
-  if (!picked?.to.oldPort || (await probe(picked.to))) return picked;
-  const old = { ...picked.to, port: picked.to.oldPort };
-  return (await probe(old)) ? { ...picked, to: old } : picked;
+export async function chooseNow(links: Links, mode: LinkMode, manual: ManualLink): Promise<{ to: Ingest; via: Via; reachable: boolean } | null> {
+  const internalUp = mode === 'auto' && links.internal && links.external ? await probe(links.internal) : undefined;
+  const picked = choose(links, mode, manual, internalUp);
+  if (!picked) return null;
+  const answering = async (to: Ingest): Promise<Ingest | null> => ((await probe(to)) ? to : to.oldPort && (await probe({ ...to, port: to.oldPort })) ? { ...to, port: to.oldPort } : null);
+  const first = picked.via === 'internal' && internalUp ? picked.to : await answering(picked.to);
+  if (first) return { ...picked, to: first, reachable: true };
+  if (mode === 'auto') {
+    const other = picked.via === 'internal' ? links.external && { to: links.external, via: 'external' as const } : picked.via === 'external' && internalUp === undefined && links.internal ? { to: links.internal, via: 'internal' as const } : null;
+    const to = other ? await answering(other.to) : null;
+    if (other && to) return { ...other, to, reachable: true };
+  }
+  return { ...picked, reachable: false };
 }
 
 /** "Studio network (automatic)" and the like, for the address Go Live uses. */

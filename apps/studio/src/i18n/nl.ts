@@ -175,6 +175,7 @@ export const nl: Translation = {
     ready: 'Klaar voor {{mount}} als {{account}}',
     outsideShow: 'Je kunt alleen live gaan tijdens je show, vanaf {{when}}',
     outsideShowNone: 'Je kunt alleen live gaan tijdens je show, en er staat de komende week geen show van je gepland',
+    unreachable: 'De zender is vanaf deze computer niet bereikbaar op {{address}}: de stationnode staat uit, of de poort is vanaf dit netwerk niet open. Er is niets uitgezonden.',
     notReady: 'Kies eerst een DJ-account en een mount',
     setup: 'Uitzending',
     setupText: 'De client krijgt een tijdelijk encoderwachtwoord voor je DJ-account; je hoeft het niet in te typen.',

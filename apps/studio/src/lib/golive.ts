@@ -28,6 +28,17 @@ let activeTarget: Target | null = null;
 export const liveTarget = () => activeTarget;
 
 /**
+ * The address Go Live sends to, checked now: throws with the address when nothing answers there (the station node is
+ * off, or its port is not open from this network), so studio mode never switches on only to time out (small fix k).
+ */
+export async function liveLink(detail: StationDetail, plain?: string) {
+  const live = getSettings().live;
+  const chosen = await chooseNow(linksOf(detail, plain ? [...(live.plainHosts ?? []), plain] : live.plainHosts), live.link ?? 'auto', live.manual);
+  if (chosen && !chosen.reachable) throw new Error(i18n.t('live.unreachable', { address: `${chosen.to.host}:${chosen.to.port}` }));
+  return chosen;
+}
+
+/**
  * Whether the account may go live now (small fix k): with "live only during shows" on, the server refuses a DJ outside
  * their show. Asked before anything switches on, so Go Live and studio mode say so at once instead of flapping. Throws
  * with the time the show opens; a server from before this check lets it through.
@@ -59,8 +70,7 @@ export async function startLive(station: StationListItem, detail: StationDetail,
   const em = mount ? encoderMount(detail, mount.id) : null;
   if (!mount || !account || !em) throw new Error(opts.notReady);
   await checkShow(station.id, account.id);
-  const live = getSettings().live;
-  const chosen = await chooseNow(linksOf(detail, opts.plain ? [...(live.plainHosts ?? []), opts.plain] : live.plainHosts), live.link ?? 'auto', live.manual);
+  const chosen = await liveLink(detail, opts.plain);
   if (!chosen) throw new Error(opts.notReady);
   const to = { ...chosen.to, mount: em };
   const token = await api<{ username: string; password: string }>(`/studio/stations/${station.id}/live-token`, { method: 'POST', body: { accountId: account.id } });
