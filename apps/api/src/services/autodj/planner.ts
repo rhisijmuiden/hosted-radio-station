@@ -496,6 +496,43 @@ export async function playNow(ctx: AppContext, stationId: string, what: { itemId
 }
 
 /**
+ * Studio mode: the DJ dragged a track onto a player of the studio PC (a waiting track, or a library track that goes on
+ * top of Q1 first). It becomes the PC's next track: marked cued, and the track the PC had loaded ahead goes back to
+ * waiting. Refused when that one is a locked item of the hour clock, unless `force` (a station manager).
+ */
+export async function studioLoad(ctx: AppContext, stationId: string, what: { itemId: string } | { mediaId: string }, addedBy: string | null, force: boolean) {
+  // A library track that already waits in the queue moves up instead of being added a second time.
+  const waiting =
+    'mediaId' in what
+      ? (
+          await ctx.db
+            .select({ id: schema.queueItems.id })
+            .from(schema.queueItems)
+            .where(and(eq(schema.queueItems.stationId, stationId), eq(schema.queueItems.mediaId, what.mediaId), eq(schema.queueItems.state, 'queued'), isNull(schema.queueItems.slot)))
+            .orderBy(asc(schema.queueItems.position))
+            .limit(1)
+        )[0]?.id
+      : undefined;
+  const itemId = 'itemId' in what ? what.itemId : (waiting ?? (await enqueue(ctx, stationId, what.mediaId, 'q1', { at: 'top', origin: 'manual', addedBy })).id);
+  await ctx.db.transaction(async (tx) => {
+    await lock(tx, stationId);
+    const [item] = await tx.select().from(schema.queueItems).where(and(eq(schema.queueItems.id, itemId), eq(schema.queueItems.stationId, stationId)));
+    if (!item) throw notFound('Queue item');
+    if (item.state === 'playing') throw badRequest('This track is on air already');
+    const ahead = await tx
+      .select({ id: schema.queueItems.id, locked: schema.queueItems.locked, label: schema.queueItems.label })
+      .from(schema.queueItems)
+      .where(and(eq(schema.queueItems.stationId, stationId), inArray(schema.queueItems.state, ['cued', 'loaded']), ne(schema.queueItems.id, itemId)));
+    const locked = ahead.find((a) => a.locked);
+    if (locked && !force) throw badRequest(locked.label ? `"${locked.label}" is a locked part of the format and goes on air next` : 'A locked part of the format goes on air next');
+    if (ahead.length) await tx.update(schema.queueItems).set({ state: 'queued', cuedAt: null }).where(inArray(schema.queueItems.id, ahead.map((a) => a.id)));
+    // At the top of Q1 too, so it stays next when studio mode ends before it plays.
+    await tx.update(schema.queueItems).set({ state: 'cued', cuedAt: new Date(), queue: 'q1', position: await top(tx, stationId, 'q1'), slot: null, slotHour: null }).where(eq(schema.queueItems.id, itemId));
+  });
+  return itemId;
+}
+
+/**
  * Loads a waiting track for play now: marked cued and handed to the player on its own, outside the queue rule and the
  * hour clock. 'loaded' when the player has it loaded ahead already; null when it is gone or its file is missing.
  */
@@ -569,6 +606,17 @@ export async function playerStarted(ctx: AppContext, stationId: string) {
     await tx.update(schema.queueItems).set({ state: 'queued', cuedAt: null }).where(and(eq(schema.queueItems.stationId, stationId), inArray(schema.queueItems.state, ['cued', 'loaded'])));
     await tx.delete(schema.queueItems).where(and(eq(schema.queueItems.stationId, stationId), eq(schema.queueItems.state, 'playing')));
     await tx.insert(schema.autodjState).values({ stationId, seenAt: new Date() }).onConflictDoUpdate({ target: schema.autodjState.stationId, set: { seenAt: new Date() } });
+  });
+}
+
+/**
+ * Studio mode starts (RHIS Studio plays the queue itself): the tracks the AutoDJ loaded ahead go back to waiting, so the
+ * studio PC gets them from the top of the queue. The track on air stays on air until the PC reports its first track.
+ */
+export async function releaseLoaded(ctx: AppContext, stationId: string) {
+  await ctx.db.transaction(async (tx) => {
+    await lock(tx, stationId);
+    await tx.update(schema.queueItems).set({ state: 'queued', cuedAt: null }).where(and(eq(schema.queueItems.stationId, stationId), inArray(schema.queueItems.state, ['cued', 'loaded'])));
   });
 }
 
@@ -661,14 +709,17 @@ export interface QueueRow {
   media: { id: string; title: string; artist: string; album: string; durationSeconds: number | null; location: string; path: string } & Cues;
 }
 
-/** Everything in the queues, first to last, with the track on air: on air, cued, loaded behind it, then waiting. */
-export async function queueRows(ctx: AppContext, stationId: string): Promise<QueueRow[]> {
+/**
+ * Everything in the queues, first to last, with the track on air: on air, cued, loaded behind it, then waiting. With
+ * `itemId` only that row, also when it is a planned pick of the log.
+ */
+export async function queueRows(ctx: AppContext, stationId: string, itemId?: string): Promise<QueueRow[]> {
   const rows = await ctx.db
     .select({ item: schema.queueItems, media: schema.mediaFiles, playlistName: schema.playlists.name })
     .from(schema.queueItems)
     .innerJoin(schema.mediaFiles, eq(schema.mediaFiles.id, schema.queueItems.mediaId))
     .leftJoin(schema.playlists, eq(schema.playlists.id, schema.queueItems.playlistId))
-    .where(and(eq(schema.queueItems.stationId, stationId), isNull(schema.queueItems.slot)))
+    .where(and(eq(schema.queueItems.stationId, stationId), itemId ? eq(schema.queueItems.id, itemId) : isNull(schema.queueItems.slot)))
     .orderBy(
       desc(sql`${schema.queueItems.state} = 'playing'`),
       desc(sql`${schema.queueItems.state} = 'cued'`),

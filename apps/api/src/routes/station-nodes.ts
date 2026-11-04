@@ -8,7 +8,7 @@ import { schema } from '../db/index.js';
 import type { StationNodeMove } from '../db/schema.js';
 import { requireTenantRole } from '../lib/auth.js';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
-import { okOut } from '../lib/schemas.js';
+import { assertPermitted, okOut } from '../lib/schemas.js';
 import { authenticateNode } from '../services/nodes/report.js';
 import { mediaDir } from '../services/streaming/icecast.js';
 import { applyStreams } from '../services/streaming/state.js';
@@ -264,6 +264,8 @@ export const stationPlacementRoutes: FastifyPluginAsyncZod = async (app) => {
       const [s] = await ctx.db.select().from(schema.stations).where(eq(schema.stations.id, req.params.id));
       if (!s) throw notFound('Station');
       const access = await requireTenantRole(ctx, req, s.tenantId, 'owner');
+      const [owner] = await ctx.db.select({ limits: schema.tenants.limits }).from(schema.tenants).where(eq(schema.tenants.id, s.tenantId));
+      if (owner) assertPermitted(owner.limits, 'mayRoute', access.role);
       Object.assign(req.auditInfo, { tenantId: s.tenantId, targetId: s.id, details: { from: s.nodeId, to: req.body.nodeId, force: req.body.force } });
       const target = req.body.nodeId;
       if (s.nodeMove?.state === 'copying' && !req.body.force) throw conflict('This station is already moving; wait until it is done or cancel the move');

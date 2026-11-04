@@ -91,23 +91,87 @@ pub fn upload(url: &str, token: &str, path: &str) -> anyhow::Result<serde_json::
     Ok(body)
 }
 
+/// Where else a file can come from first: in studio mode the station node (over the studio LAN when on site), with the
+/// DJ account and the live password of this go-live.
+#[derive(serde::Deserialize, Clone, Debug)]
+pub struct Near {
+    pub url: String,
+    pub user: String,
+    pub pass: String,
+}
+
 /// Downloads a file of the server once into the cache of this PC (jingles: a new file on the server gets a new name).
-pub fn cached(url: &str, token: &str, name: &str) -> anyhow::Result<std::path::PathBuf> {
+/// With `near`, that address is tried first and the server is the fallback.
+pub fn cached(url: &str, token: &str, name: &str, near: Option<&Near>) -> anyhow::Result<std::path::PathBuf> {
     if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.') || name.starts_with('.') {
         anyhow::bail!("invalid file name");
     }
-    let dir = std::env::temp_dir().join("rhis-studio-jingles");
+    let dir = cache_dir();
     let path = dir.join(name);
     if path.is_file() {
+        // Used again: pruning keeps the files used last.
+        let _ = std::fs::File::options().append(true).open(&path).and_then(|f| f.set_modified(std::time::SystemTime::now()));
         return Ok(path);
     }
     std::fs::create_dir_all(&dir)?;
-    let client = reqwest::blocking::Client::builder().user_agent(concat!("RHIS Studio/", env!("CARGO_PKG_VERSION"))).build()?;
-    let data = client.get(url).bearer_auth(token).send()?.error_for_status()?.bytes()?;
+    let agent = concat!("RHIS Studio/", env!("CARGO_PKG_VERSION"));
+    let data = near
+        .and_then(|n| {
+            let client = reqwest::blocking::Client::builder()
+                .user_agent(agent)
+                .connect_timeout(std::time::Duration::from_secs(3))
+                .timeout(std::time::Duration::from_secs(120))
+                .build()
+                .ok()?;
+            let res = client.get(&n.url).basic_auth(&n.user, Some(&n.pass)).send().ok()?.error_for_status().ok()?;
+            // A node without this yet answers every GET with a text page: only a file counts.
+            let file = res.headers().get(reqwest::header::CONTENT_TYPE).is_some_and(|v| v.as_bytes().starts_with(b"application/octet-stream"));
+            file.then(|| res.bytes().ok()).flatten()
+        })
+        .map(Ok)
+        .unwrap_or_else(|| {
+            let client = reqwest::blocking::Client::builder().user_agent(agent).build()?;
+            anyhow::Ok(client.get(url).bearer_auth(token).send()?.error_for_status()?.bytes()?)
+        })?;
     let tmp = dir.join(format!("{name}.part"));
     std::fs::write(&tmp, &data).with_context(|| format!("cannot write {}", tmp.display()))?;
     std::fs::rename(&tmp, &path)?;
     Ok(path)
+}
+
+fn cache_dir() -> std::path::PathBuf {
+    std::env::temp_dir().join("rhis-studio-jingles")
+}
+
+/// Keeps the studio mode track cache (files starting with `prefix`) small: removes files not used for `max_days`, then
+/// the ones used longest ago until the rest fits in `max_bytes`. Returns how many files went.
+pub fn prune(dir: &Path, prefix: &str, max_days: u64, max_bytes: u64) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else { return 0 };
+    let now = std::time::SystemTime::now();
+    let mut files: Vec<(std::path::PathBuf, std::time::SystemTime, u64)> = entries
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with(prefix))
+        .filter_map(|e| {
+            let m = e.metadata().ok()?;
+            m.is_file().then(|| (e.path(), m.modified().unwrap_or(now), m.len()))
+        })
+        .collect();
+    files.sort_by_key(|f| f.1);
+    let mut total: u64 = files.iter().map(|f| f.2).sum();
+    let mut gone = 0;
+    for (path, used, size) in files {
+        let old = now.duration_since(used).map(|d| d.as_secs() > max_days * 86_400).unwrap_or(false);
+        if (old || total > max_bytes) && std::fs::remove_file(&path).is_ok() {
+            total -= size;
+            gone += 1;
+        }
+    }
+    gone
+}
+
+/// The studio mode track cache: two weeks, at most 4 GB.
+pub fn prune_studio() -> usize {
+    prune(&cache_dir(), "studio-", 14, 4 * 1024 * 1024 * 1024)
 }
 
 #[cfg(test)]
@@ -128,6 +192,26 @@ mod tests {
         assert_eq!(names, ["Jingles", "a.flac", "b.MP3"]);
         assert!(folder.parent.is_some());
         assert!(list(None).unwrap().path.is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn prunes_old_and_oversized_studio_files() {
+        let dir = std::env::temp_dir().join("rhis-prune-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let day = std::time::Duration::from_secs(86_400);
+        let now = std::time::SystemTime::now();
+        for (name, age, size) in [("studio-old.mp3", 30, 10), ("studio-a.mp3", 3, 10), ("studio-b.mp3", 2, 10), ("studio-c.mp3", 1, 10), ("jingle-x.mp3", 90, 10)] {
+            let p = dir.join(name);
+            std::fs::write(&p, vec![0u8; size]).unwrap();
+            std::fs::File::options().append(true).open(&p).unwrap().set_modified(now - day * age).unwrap();
+        }
+        // The old one goes for its age, then the one used longest ago until 20 bytes are left; jingles stay.
+        assert_eq!(prune(&dir, "studio-", 14, 20), 2);
+        let mut left: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect();
+        left.sort();
+        assert_eq!(left, ["jingle-x.mp3", "studio-b.mp3", "studio-c.mp3"]);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

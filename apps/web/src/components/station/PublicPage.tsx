@@ -294,7 +294,9 @@ export function PublicPageTab({ station, canEdit }: { station: StationDetail; ca
         </Card>
         <div className="flex flex-col gap-4">
           <LogoCard station={station} info={info} canEdit={canEdit} />
-          <ApiCard info={info} />
+          <div id="focus-api" className="scroll-mt-4">
+            <ApiCard info={info} />
+          </div>
         </div>
       </div>
       {info.settings.enabled && <EmbedCard station={station} info={info} />}

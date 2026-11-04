@@ -39,6 +39,12 @@ export interface TenantLimits {
   storageQuotaMb: number;
   /** Own nodes the customer may register (phase 8). */
   maxNodes: number;
+  /** Roles the customer may give its own nodes; left out = every role (see allowedNodeRoles). */
+  nodeRoles?: NodeRole[];
+  /** What the customer may do itself; left out = allowed (customer permissions). */
+  mayRoute?: boolean;
+  mayCreateStations?: boolean;
+  maySwitchEdition?: boolean;
 }
 
 export const tenants = pgTable('tenants', {
@@ -927,6 +933,14 @@ export const autodjState = pgTable('autodj_state', {
    * client renews it every few seconds, so a client that drops away puts the station back on Auto by itself.
    */
   manualUntil: timestamp('manual_until', { withTimezone: true }),
+  /**
+   * Studio mode (RHIS Studio 0.27): a studio PC plays the queue itself and sends the mix live; the AutoDJ holds. On while
+   * this lies in the future: the client renews it every few seconds, so a PC that drops away hands back to the AutoDJ.
+   */
+  studioUntil: timestamp('studio_until', { withTimezone: true }),
+  /** The PC (its name) and the person in studio mode. */
+  studioPc: text('studio_pc'),
+  studioUser: text('studio_user'),
 });
 
 // Phase 7: scheduler

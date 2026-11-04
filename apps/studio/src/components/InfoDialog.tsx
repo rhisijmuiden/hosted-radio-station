@@ -5,10 +5,15 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, type StudioRelease, type StudioReleases } from '../lib/api';
 import { compareVersions } from '../lib/format';
-import { call, onUpdateProgress } from '../lib/native';
+import { call, onUpdateProgress, openExternal } from '../lib/native';
 import { useSession } from '../lib/session';
 import { updateSettings, useSettings } from '../lib/settings';
 import { Badge, Button, Dialog, Fact } from './ui';
+
+/** AGPL-3.0: the licence, and the source code of this version (its release tag) for whoever uses it. */
+const LICENCE = 'AGPL-3.0-or-later';
+const SOURCE_URL = 'https://github.com/rhisijmuiden/hosted-radio-station';
+const sourceOf = (version: string) => (version ? `${SOURCE_URL}/tree/studio-v${version}` : SOURCE_URL);
 
 /** What the chosen channel offers compared to this version: an update, a switch to another build, or nothing. */
 function offer(current: string, channel: 'production' | 'test', releases: StudioReleases | undefined): StudioRelease | null {
@@ -69,6 +74,15 @@ export function InfoDialog({ open, onClose }: { open: boolean; onClose: () => vo
         <Fact label={t('info.server')}>{settings.server.replace(/^https?:\/\//, '') || '–'}</Fact>
         <Fact label={t('info.signedInAs')}>{me ? me.user.name : '–'}</Fact>
         <Fact label={t('info.asio')}>{app?.asio ? t('info.asioYes') : t('info.asioNo')}</Fact>
+        <Fact label={t('info.licence')}>
+          <button onClick={() => void openExternal(`${SOURCE_URL}/blob/main/LICENSE`)} className="hover:underline">
+            {LICENCE}
+          </button>
+          {' · '}
+          <button onClick={() => void openExternal(sourceOf(current))} className="text-accent-text hover:underline">
+            {t('info.source')}
+          </button>
+        </Fact>
       </div>
 
       <div className="mb-2 text-[13px] font-semibold">{t('info.channel')}</div>

@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     carts::{self, Cart, CartPlayer, CartState},
+    decks::{DeckEvent, DeckLoad, DeckPlayer, DeckState},
     resample::StereoResampler,
     streamer::{self, Status, Target},
 };
@@ -119,6 +120,8 @@ pub struct Meters {
     pub input: [f32; 2],
     pub output: [f32; 2],
     pub carts: f32,
+    /// The players of studio mode.
+    pub decks: f32,
     /// Gain reduction of the limiter in dB (0 = not limiting).
     pub limiter_db: f32,
 }
@@ -142,6 +145,9 @@ pub enum Event {
     Broadcast(Status),
     Engine(EngineInfo),
     CartError { slot: usize, error: String },
+    /// Studio mode: the players A and B, and what happened on them.
+    Decks(Vec<DeckState>),
+    Deck(DeckEvent),
 }
 
 pub type Emit = Arc<dyn Fn(Event) + Send + Sync>;
@@ -156,6 +162,14 @@ enum Cmd {
     StopAllCarts,
     StartBroadcast(Target, Sender<Result<(), String>>),
     StopBroadcast,
+    DeckLoad(usize, DeckLoad),
+    DeckPlay(usize, Option<f32>),
+    DeckStop(usize, f32),
+    DeckClear(usize),
+    DeckMode { auto: bool, crossfade: f32 },
+    SetMic(bool),
+    /// Studio mode fader start: 0 and 1 = players A and B, 2 = the microphone; level 0..1.
+    SetFader(usize, f32),
 }
 
 pub struct Engine {
@@ -385,6 +399,9 @@ fn open_output(sel: &OutputSel, engine_rate: u32) -> anyhow::Result<OutputSide> 
         cpal::SampleFormat::I16 => build_output::<i16>(&device, &config, cons, failed.clone()),
         cpal::SampleFormat::I32 => build_output::<i32>(&device, &config, cons, failed.clone()),
         cpal::SampleFormat::U16 => build_output::<u16>(&device, &config, cons, failed.clone()),
+        // 24-bit drivers (Realtek ASIO and others) and 64-bit float.
+        cpal::SampleFormat::I24 => build_output::<cpal::I24>(&device, &config, cons, failed.clone()),
+        cpal::SampleFormat::F64 => build_output::<f64>(&device, &config, cons, failed.clone()),
         other => anyhow::bail!("sample format {other} is not supported"),
     }?;
     stream.play()?;
@@ -459,6 +476,15 @@ struct Mixer {
     duck: f32,
     duck_hold: Instant,
     cmd_tx: Sender<Cmd>,
+    decks: DeckPlayer,
+    last_decks: Instant,
+    deck_states: Vec<DeckState>,
+    /// The microphone (the sound card input) goes into the mix: always, except in studio mode while it is off. The
+    /// level follows in a few milliseconds, so switching never clicks.
+    mic_open: bool,
+    mic_level: f32,
+    /// Studio mode fader start: the level of the microphone fader (0..1).
+    mic_fader: f32,
 }
 
 impl Mixer {
@@ -481,6 +507,7 @@ impl Mixer {
             self.rate = rate;
             self.limiter = Limiter::new(rate);
             self.reload_carts();
+            self.decks.set_rate(rate);
             if self.broadcast.is_some() {
                 // The encoder runs at the engine rate; stop rather than send garbage.
                 self.stop_broadcast();
@@ -604,7 +631,37 @@ impl Mixer {
                 let _ = reply.send(self.start_broadcast(t));
             }
             Cmd::StopBroadcast => self.stop_broadcast(),
+            Cmd::DeckLoad(deck, load) => {
+                self.decks.load(deck, load);
+                self.emit_decks(true);
+            }
+            Cmd::DeckPlay(deck, fade) => {
+                self.decks.play(deck, fade);
+                self.emit_decks(true);
+            }
+            Cmd::DeckStop(deck, fade) => {
+                self.decks.stop(deck, fade);
+                self.emit_decks(true);
+            }
+            Cmd::DeckClear(deck) => {
+                self.decks.clear(deck);
+                self.emit_decks(true);
+            }
+            Cmd::DeckMode { auto, crossfade } => {
+                self.decks.auto = auto;
+                self.decks.crossfade = crossfade.clamp(0.0, 30.0);
+            }
+            Cmd::SetMic(open) => self.mic_open = open,
+            Cmd::SetFader(channel, level) => {
+                let level = if level.is_finite() { level.clamp(0.0, 1.0) } else { 1.0 };
+                match channel {
+                    0 | 1 => self.decks.fader[channel] = level,
+                    2 => self.mic_fader = level,
+                    _ => {}
+                }
+            }
         }
+        self.flush_deck_events();
     }
 
     /// Frames of input ready for the next block, or the clock when there is no (working) input.
@@ -645,9 +702,27 @@ impl Mixer {
         }
         let in_gain = db_to_gain(self.config.input_gain_db);
         self.scratch_in.iter_mut().for_each(|s| *s *= in_gain);
-        self.duck = next_duck(self.duck, &mut self.duck_hold, self.config.duck_single && peak(&self.scratch_in, 0).max(peak(&self.scratch_in, 1)) > DUCK_THRESHOLD);
+        let input_peak = [peak(&self.scratch_in, 0), peak(&self.scratch_in, 1)];
+        // The microphone gate: a short ramp per sample from the level of the last block to the new one.
+        let target = if self.mic_open { self.mic_fader } else { 0.0 };
+        if self.mic_level != target || target != 1.0 {
+            let from = self.mic_level;
+            let ramp = (self.rate as usize / 100).max(1);
+            for (i, f) in self.scratch_in.chunks_exact_mut(2).enumerate() {
+                let g = if i >= ramp { target } else { from + (target - from) * (i as f32 / ramp as f32) };
+                f[0] *= g;
+                f[1] *= g;
+            }
+            self.mic_level = target;
+        }
+        let speaking = self.mic_open && input_peak[0].max(input_peak[1]) > DUCK_THRESHOLD;
+        self.duck = next_duck(self.duck, &mut self.duck_hold, speaking);
         let mut cart_block = vec![0f32; n];
-        self.carts.render(&mut cart_block, self.duck);
+        self.carts.render(&mut cart_block, if self.config.duck_single { self.duck } else { 1.0 });
+        let mut deck_block = vec![0f32; n];
+        self.decks.render(&mut deck_block, self.duck);
+        let deck_peak = deck_block.iter().fold(0f32, |a, v| a.max(v.abs()));
+        cart_block.iter_mut().zip(&deck_block).for_each(|(c, d)| *c += d);
         let cart_gain = db_to_gain(self.config.cart_gain_db);
         cart_block.iter_mut().for_each(|s| *s *= cart_gain);
 
@@ -684,13 +759,42 @@ impl Mixer {
         }
 
         let m = &mut self.meters;
-        m.input = [m.input[0].max(peak(&self.scratch_in, 0)), m.input[1].max(peak(&self.scratch_in, 1))];
+        m.input = [m.input[0].max(input_peak[0]), m.input[1].max(input_peak[1])];
+        m.decks = m.decks.max(deck_peak);
         m.output = [m.output[0].max(peak(&mix, 0)), m.output[1].max(peak(&mix, 1))];
         m.carts = m.carts.max(cart_block.iter().fold(0f32, |a, v| a.max(v.abs())));
         m.limiter_db = m.limiter_db.min(reduction);
     }
 
+    /// The deck states: at once after a command, else about ten times a second while a deck plays.
+    fn emit_decks(&mut self, now: bool) {
+        if !now {
+            if self.last_decks.elapsed() < Duration::from_millis(100) {
+                return;
+            }
+            // Not playing: only when something changed by itself (decoded far enough, a load failed).
+            if !self.decks.any_playing() {
+                let states = self.decks.states();
+                if states.len() == self.deck_states.len() && states.iter().zip(&self.deck_states).all(|(a, b)| a.loaded == b.loaded && a.ready == b.ready && a.playing == b.playing && a.error == b.error) {
+                    self.last_decks = Instant::now();
+                    return;
+                }
+            }
+        }
+        self.last_decks = Instant::now();
+        self.deck_states = self.decks.states();
+        (self.emit)(Event::Decks(self.deck_states.clone()));
+    }
+
+    fn flush_deck_events(&mut self) {
+        for e in std::mem::take(&mut self.decks.events) {
+            (self.emit)(Event::Deck(e));
+        }
+    }
+
     fn tick_events(&mut self) {
+        self.flush_deck_events();
+        self.emit_decks(false);
         if self.last_meter.elapsed() >= Duration::from_millis(40) {
             self.last_meter = Instant::now();
             (self.emit)(Event::Meters(std::mem::take(&mut self.meters)));
@@ -748,6 +852,12 @@ impl Engine {
                     duck: 1.0,
                     duck_hold: Instant::now(),
                     cmd_tx,
+                    decks: DeckPlayer::new(48_000),
+                    last_decks: Instant::now(),
+                    deck_states: Vec::new(),
+                    mic_open: true,
+                    mic_level: 1.0,
+                    mic_fader: 1.0,
                 };
                 loop {
                     loop {
@@ -806,6 +916,28 @@ impl Engine {
 
     pub fn stop_broadcast(&self) {
         let _ = self.tx.send(Cmd::StopBroadcast);
+    }
+
+    pub fn deck_load(&self, deck: usize, load: DeckLoad) {
+        let _ = self.tx.send(Cmd::DeckLoad(deck, load));
+    }
+    pub fn deck_play(&self, deck: usize, fade: Option<f32>) {
+        let _ = self.tx.send(Cmd::DeckPlay(deck, fade));
+    }
+    pub fn deck_stop(&self, deck: usize, fade: f32) {
+        let _ = self.tx.send(Cmd::DeckStop(deck, fade));
+    }
+    pub fn deck_clear(&self, deck: usize) {
+        let _ = self.tx.send(Cmd::DeckClear(deck));
+    }
+    pub fn deck_mode(&self, auto: bool, crossfade: f32) {
+        let _ = self.tx.send(Cmd::DeckMode { auto, crossfade });
+    }
+    pub fn set_mic(&self, open: bool) {
+        let _ = self.tx.send(Cmd::SetMic(open));
+    }
+    pub fn set_fader(&self, channel: usize, level: f32) {
+        let _ = self.tx.send(Cmd::SetFader(channel, level));
     }
 }
 

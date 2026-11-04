@@ -6,11 +6,18 @@ import { and, eq, gt } from 'drizzle-orm';
 import { schema } from '../db/index.js';
 import type { AppContext } from '../lib/context.js';
 import { autodjSocketPath, autodjToken } from '../services/autodj/liquidsoap.js';
-import { cueNow, flushForClock, nextTrack, playerStarted, trackStarted } from '../services/autodj/planner.js';
+import { cueNow, flushForClock, nextTrack, playerStarted, releaseLoaded, trackStarted } from '../services/autodj/planner.js';
 import { autodjSettings } from '../services/autodj/settings.js';
 import { stuckSince } from '../services/autodj/stuck.js';
+import { studioState, studioStations } from '../services/autodj/studio.js';
 import type { LiveBroadcast } from './recorder.js';
 import type { Snapshot, StationView } from './snapshot.js';
+
+/**
+ * After studio mode the player first drops what it loaded ahead and asks the planner again; it stays held this long, so
+ * the next track of the queue is ready when it plays again (and not a track of its emergency playlist).
+ */
+const RESUME_DELAY_MS = 1500;
 
 /** Channel the API notifies with AutoDJ commands ({ stationId, command: 'skip' }). */
 export const AUTODJ_CHANNEL = 'hrs_autodj';
@@ -26,6 +33,8 @@ export interface AutodjStatus {
   manual?: boolean;
   /** Manual playout: the track ended and the player waits for Play. */
   holding?: boolean;
+  /** A studio PC plays the queue (RHIS Studio studio mode). */
+  studio?: boolean;
 }
 
 /** Sends one command to a station's Liquidsoap over its control socket and returns the answer. */
@@ -62,6 +71,15 @@ export class AutodjController {
   /** Stuck playout: when each player was last checked, and the track it was skipped past. */
   private stuckCheckedAt = new Map<string, number>();
   private stuckSkipped = new Map<string, string>();
+  /**
+   * Studio mode (RHIS Studio plays the queue): the stations in it at the last sync, those whose studio broadcast was seen
+   * live (from then on the player holds), those held for it, and when a player that hands back may play again.
+   */
+  private studioOn = new Set<string>();
+  private studioLive = new Set<string>();
+  private studioHeld = new Set<string>();
+  private resumeAt = new Map<string, number>();
+  private lastLive: LiveBroadcast[] = [];
 
   constructor(
     private readonly ctx: AppContext,
@@ -94,7 +112,7 @@ export class AutodjController {
             reply('OK');
           })
         : m[2] === 'next'
-          ? nextTrack(this.ctx, stationId).then((next) => {
+          ? this.nextForPlayer(stationId).then((next) => {
               seen();
               if (next?.cutAt) this.scheduleCut(stationId, next.itemId, next.cutAt);
               for (const item of next?.skipped ?? []) this.log.warn({ stationId, item }, 'Clock item skipped: its playlist has no track to play');
@@ -109,6 +127,12 @@ export class AutodjController {
       res.writeHead(500).end();
     });
     return true;
+  }
+
+  /** The player's next track; none while a studio PC plays the queue (the player asks again every few seconds). */
+  private async nextForPlayer(stationId: string) {
+    if ((await studioState(this.ctx, stationId)).active) return null;
+    return nextTrack(this.ctx, stationId);
   }
 
   /**
@@ -161,6 +185,11 @@ export class AutodjController {
   async sync(snap: Snapshot, broadcasts: Iterable<LiveBroadcast>) {
     const live = [...broadcasts];
     this.lastSnap = snap;
+    this.lastLive = live;
+    const studio = await studioStations(this.ctx).catch((err) => {
+      this.log.warn({ err }, 'reading studio mode failed');
+      return new Set([...this.studioOn]);
+    });
     await this.syncManual(snap).catch((err) => this.log.warn({ err }, 'manual playout sync failed'));
     for (const view of snap.stations.values()) {
       const mount = view.autodjMount;
@@ -170,15 +199,46 @@ export class AutodjController {
       }
       const settings = autodjSettings(view.station);
       const covering = new Set(AutodjController.fallsBackTo(view, mount.id).map((m) => m.path));
-      const paused = settings.pauseWhenLive && live.some((b) => b.stationId === view.station.id && covering.has(b.mountPath));
+      const id = view.station.id;
+      const path = autodjSocketPath(this.ctx, id);
+      const liveHere = live.some((b) => b.stationId === id && covering.has(b.mountPath));
+      const inStudio = studio.has(id);
+      if (inStudio !== this.studioOn.has(id)) {
+        // Starting: the player drops the track it loaded ahead (back in the queue for the studio PC). Ending: the track
+        // the PC had loaded goes back too, and the player asks the planner for the next track now; held for the studio,
+        // it waits until that one is ready.
+        if (!inStudio) await releaseLoaded(this.ctx, id).catch((err) => this.log.warn({ err, stationId: id }, 'releasing the studio PC\'s tracks failed'));
+        await playerCommand(path, 'flush').catch(() => undefined);
+        if (inStudio) {
+          this.studioOn.add(id);
+          this.resumeAt.delete(id);
+        } else {
+          this.studioOn.delete(id);
+          if (this.studioLive.delete(id)) {
+            this.resumeAt.set(id, Date.now() + RESUME_DELAY_MS);
+            setTimeout(() => void (this.lastSnap && this.sync(this.lastSnap, this.lastLive).catch(() => undefined)), RESUME_DELAY_MS + 100).unref();
+          }
+          this.log.info({ station: view.station.slug }, 'Studio mode ended: the AutoDJ plays the queue again');
+        }
+      }
+      // Held for the studio once its broadcast was live: also while it reconnects, until the PC stops renewing.
+      if (inStudio && liveHere) this.studioLive.add(id);
+      const resuming = (this.resumeAt.get(id) ?? 0) > Date.now();
+      if (!resuming) this.resumeAt.delete(id);
+      const forStudio = (inStudio && this.studioLive.has(id)) || resuming;
+      const paused = (settings.pauseWhenLive && liveHere) || forStudio;
       const prev = this.status.get(view.station.id);
       if (!paused) await this.watchStuck(view.station.id).catch((err) => this.log.warn({ err, stationId: view.station.id }, 'stuck playout check failed'));
       const due = Date.now() - (this.sentAt.get(view.station.id) ?? 0) > 30_000;
       if (prev?.paused === paused && !due) continue;
       try {
-        await playerCommand(autodjSocketPath(this.ctx, view.station.id), `live ${paused}`);
+        // The track it held through studio mode is old: skip it when it plays again.
+        if (!paused && this.studioHeld.has(id)) await playerCommand(path, 'studio_end');
+        await playerCommand(path, `live ${paused}`);
+        if (forStudio) this.studioHeld.add(id);
+        else if (!paused) this.studioHeld.delete(id);
         this.sentAt.set(view.station.id, Date.now());
-        this.touch(view.station.id, { paused, reachable: true });
+        this.touch(view.station.id, { paused, reachable: true, studio: inStudio });
         if (prev && prev.paused !== paused) this.log.info({ station: view.station.slug, paused }, paused ? 'AutoDJ held for a live broadcast' : 'AutoDJ continues');
       } catch {
         this.touch(view.station.id, { paused, reachable: false });
@@ -260,6 +320,7 @@ export class AutodjController {
         else this.log.warn({ stationId, itemId }, 'Play now: the track is not waiting in a queue any more');
       }
       if (command === 'mode' && this.lastSnap) await this.syncManual(this.lastSnap, stationId);
+      if (command === 'studio' && this.lastSnap) await this.sync(this.lastSnap, this.lastLive);
       // The clock or schedule changed: a hard timed item may need the track that is loaded ahead out of the way.
       if (command === 'replan' && (await flushForClock(this.ctx, stationId))) {
         await playerCommand(autodjSocketPath(this.ctx, stationId), 'flush');

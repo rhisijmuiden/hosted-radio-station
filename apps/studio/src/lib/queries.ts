@@ -10,8 +10,8 @@ export const useStatus = (id: string | undefined) =>
 export const useAutoDj = (id: string | undefined) =>
   useQuery({ queryKey: ['autodj', id], queryFn: () => api<AutoDj>(`/stations/${id}/autodj`), enabled: !!id, refetchInterval: 2000 });
 
-export const useRundown = (id: string | undefined, enabled = true) =>
-  useQuery({ queryKey: ['rundown', id], queryFn: () => api<Rundown>(`/stations/${id}/autodj/rundown?hours=3`), enabled: !!id && enabled, refetchInterval: 30_000 });
+export const useRundown = (id: string | undefined, enabled = true, hours = 3) =>
+  useQuery({ queryKey: ['rundown', id, hours], queryFn: () => api<Rundown>(`/stations/${id}/autodj/rundown?hours=${hours}`), enabled: !!id && enabled, refetchInterval: 30_000 });
 
 export const useAccounts = (id: string | undefined) =>
   useQuery({ queryKey: ['accounts', id], queryFn: () => api<Account[]>(`/stations/${id}/accounts`), enabled: !!id, staleTime: 60_000 });

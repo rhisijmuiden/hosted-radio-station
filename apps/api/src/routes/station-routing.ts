@@ -10,6 +10,7 @@ import { forgetRelays } from '../services/nodes/routing.js';
 import { applyStreams } from '../services/streaming/state.js';
 import { readStreamsStatus } from '../services/streaming/status.js';
 import { stationAccess } from './stations.js';
+import { assertPermitted } from '../lib/schemas.js';
 import { getSetting } from '../services/settings.js';
 import { serves } from '../services/nodes/dedication.js';
 import { studioDelivery } from '../services/nodes/delivery.js';
@@ -112,7 +113,7 @@ export const stationRoutingRoutes: FastifyPluginAsyncZod = async (app) => {
       const { tenant, access } = await stationAccess(ctx, req, req.params.id, 'manager');
       const auth = requireUser(req);
       const superadmin = auth.user.isSuperadmin && !auth.keyTenantId;
-      return view(req.params.id, superadmin || access.role === 'owner', tenant.id, superadmin);
+      return view(req.params.id, superadmin || (access.role === 'owner' && tenant.limits.mayRoute !== false), tenant.id, superadmin);
     },
   );
 
@@ -126,6 +127,7 @@ export const stationRoutingRoutes: FastifyPluginAsyncZod = async (app) => {
       const { station, tenant, access } = await stationAccess(ctx, req, req.params.id, 'owner');
       const auth = requireUser(req);
       const superadmin = auth.user.isSuperadmin && !auth.keyTenantId;
+      assertPermitted(tenant.limits, 'mayRoute', superadmin ? 'superadmin' : access.role);
       const current = stationRouting(station);
       // A station node takes its own encoders: its streams go through the chosen ingests ("local" = pick one) or
       // straight to the relays (1.3).
@@ -157,7 +159,7 @@ export const stationRoutingRoutes: FastifyPluginAsyncZod = async (app) => {
       forgetRelays();
       await applyStreams(ctx, { stationIds: [station.id], by: req.auth?.user.email }).catch((err) => req.log.error({ err }, 'applying stream configuration failed'));
       void hub.refreshAll();
-      return view(station.id, superadmin || access.role === 'owner', tenant.id, superadmin);
+      return view(station.id, superadmin || (access.role === 'owner' && tenant.limits.mayRoute !== false), tenant.id, superadmin);
     },
   );
 };

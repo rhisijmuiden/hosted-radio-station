@@ -50,7 +50,7 @@ beforeAll(async () => {
       name: 'Schermer',
       slug: 'schermer',
       plan: 'station',
-      limits: { maxStations: 5, maxListeners: 100, maxBitrateKbps: 192, storageQuotaMb: 10, maxNodes: 2 },
+      limits: { maxStations: 5, maxListeners: 100, maxBitrateKbps: 192, storageQuotaMb: 10, maxNodes: 2, nodeRoles: ['station', 'source', 'relay'] },
       owner: { email: 'owner@schermer.nl', name: 'Owner', password: 'owner-password' },
     },
   });

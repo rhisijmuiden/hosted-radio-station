@@ -9,7 +9,7 @@ import { requireSuperadmin, requireTenantRole, requireUser } from '../lib/auth.j
 import type { AppContext } from '../lib/context.js';
 import { randomToken, sha256 } from '../lib/crypto.js';
 import { badRequest, conflict, forbidden, HttpError, notFound } from '../lib/errors.js';
-import { okOut } from '../lib/schemas.js';
+import { allowedNodeRoles, okOut } from '../lib/schemas.js';
 import { clientIp } from '../lib/cloudflare-ips.js';
 import { nodeEvent } from '../services/nodes/hub.js';
 import { hashCode, installCommand, MAX_PENDING, nameFromHostname, newPairingCode, newRegistrationCode, PAIRING_HOURS } from '../services/nodes/pairing.js';
@@ -246,6 +246,18 @@ export async function nodeAccess(ctx: AppContext, req: FastifyRequest, id: strin
   if (node.tenantId) await requireTenantRole(ctx, req, node.tenantId, minRole);
   else requireSuperadmin(req);
   return node;
+}
+
+const isSuperadminCall = (req: FastifyRequest) => {
+  const auth = requireUser(req);
+  return auth.user.isSuperadmin && !auth.keyTenantId;
+};
+
+/** Refuses roles outside the customer's package (customer permissions); roles the node already had may stay. */
+function assertRolesAllowed(roles: readonly string[], had: readonly string[], limits: { nodeRoles?: NodeRole[] | null }) {
+  const allowed = allowedNodeRoles(limits);
+  const extra = roles.filter((r) => !had.includes(r) && !allowed.includes(r as NodeRole));
+  if (extra.length) throw forbidden(`Your package does not include the ${extra.join(', ')} role${extra.length > 1 ? 's' : ''} for own nodes; ask your provider`);
 }
 
 /** Tenants whose nodes the caller may see, or null for all (administrators). */
@@ -501,6 +513,7 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
           const [{ n } = { n: 0 }] = await ctx.db.select({ n: sql<number>`count(*)::int` }).from(schema.nodes).where(eq(schema.nodes.tenantId, tenantId));
           const allowed = tenant?.limits.maxNodes ?? 0;
           if (n >= allowed) throw conflict(allowed ? `Your plan allows ${allowed} own node(s)` : 'Your plan does not include own nodes; ask your provider');
+          if (tenant) assertRolesAllowed(req.body.roles, [], tenant.limits);
         }
       } else requireSuperadmin(req);
       if (req.body.roles.includes('station') && new Set(req.body.roles).size > 1) throw badRequest('A station node has no other roles; its streams go to relay nodes');
@@ -542,6 +555,11 @@ export const nodeRoutes: FastifyPluginAsyncZod = async (app) => {
       if (config.dedication !== 'customer') config.dedicatedTenantId = null;
       if (config.dedication !== 'station') config.dedicatedStationId = null;
       const roles = b.roles ? ([...new Set(b.roles)] as NodeRole[]) : node.roles;
+      // A customer only adds the roles in its package; roles a node already has may stay.
+      if (b.roles && node.tenantId && !isSuperadminCall(req)) {
+        const [tenant] = await ctx.db.select({ limits: schema.tenants.limits }).from(schema.tenants).where(eq(schema.tenants.id, node.tenantId));
+        if (tenant) assertRolesAllowed(roles, node.roles, tenant.limits);
+      }
       await checkDedication(node, roles, config, b.config ?? {});
       if (roles.includes('station') && roles.length > 1) throw badRequest('A station node has no other roles; its streams go to relay nodes');
       if (node.roles.includes('station') && !roles.includes('station')) {

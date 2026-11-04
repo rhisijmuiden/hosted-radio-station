@@ -1,6 +1,8 @@
 //! RHIS Studio: the Windows client of Hosted Radio Station.
 
+mod air;
 mod carts;
+mod decks;
 mod engine;
 mod files;
 mod preview;
@@ -12,6 +14,7 @@ mod waveform;
 
 use std::{path::PathBuf, sync::Arc};
 
+use air::{Air, AirState};
 use engine::{AudioConfig, Devices, Engine, EngineInfo, Event, OutputSel};
 use preview::{Preview, PreviewState};
 use serde::Serialize;
@@ -78,6 +81,49 @@ fn stop_cart(engine: State<'_, Arc<Engine>>, slot: usize) {
 #[tauri::command]
 fn stop_all_carts(engine: State<'_, Arc<Engine>>) {
     engine.stop_all_carts();
+}
+
+/// Studio mode: a track on player A (0) or B (1), from a file on this PC (see `cache_file`).
+#[tauri::command]
+fn deck_load(engine: State<'_, Arc<Engine>>, deck: usize, load: decks::DeckLoad) -> Result<(), String> {
+    if !std::path::Path::new(&load.path).is_file() {
+        return Err(format!("{} is not a file", load.path));
+    }
+    engine.deck_load(deck, load);
+    Ok(())
+}
+
+#[tauri::command]
+fn deck_play(engine: State<'_, Arc<Engine>>, deck: usize, fade: Option<f32>) {
+    engine.deck_play(deck, fade);
+}
+
+#[tauri::command]
+fn deck_stop(engine: State<'_, Arc<Engine>>, deck: usize, fade: f32) {
+    engine.deck_stop(deck, fade);
+}
+
+#[tauri::command]
+fn deck_clear(engine: State<'_, Arc<Engine>>, deck: usize) {
+    engine.deck_clear(deck);
+}
+
+/// Auto: the next deck starts by itself at the next point of the track on air. Crossfade: how long the one before fades.
+#[tauri::command]
+fn deck_mode(engine: State<'_, Arc<Engine>>, auto: bool, crossfade: f32) {
+    engine.deck_mode(auto, crossfade);
+}
+
+/// Studio mode: the microphone (sound card input) into the mix or not. Outside studio mode it is always on.
+#[tauri::command]
+fn set_mic(engine: State<'_, Arc<Engine>>, open: bool) {
+    engine.set_mic(open);
+}
+
+/// Studio mode fader start: the level of a fader (0 and 1 = players A and B, 2 = the microphone), 0..1.
+#[tauri::command]
+fn set_fader(engine: State<'_, Arc<Engine>>, channel: usize, level: f32) {
+    engine.set_fader(channel, level);
 }
 
 #[tauri::command]
@@ -212,6 +258,34 @@ fn preview_state(preview: State<'_, Arc<Preview>>) -> PreviewState {
     preview.state()
 }
 
+/// Listening to the air: the station's public stream on its own output and volume (not while live).
+#[tauri::command]
+async fn air_start(air: State<'_, Arc<Air>>, url: String, output: Option<OutputSel>, volume: f32) -> Result<AirState, String> {
+    let a = air.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || a.start(&url, output.as_ref(), volume)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn air_stop(air: State<'_, Arc<Air>>) {
+    air.stop()
+}
+
+#[tauri::command]
+fn air_volume(air: State<'_, Arc<Air>>, volume: f32) {
+    air.set_volume(volume)
+}
+
+#[tauri::command]
+async fn air_output(air: State<'_, Arc<Air>>, output: Option<OutputSel>) -> Result<AirState, String> {
+    let a = air.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || a.set_output(output.as_ref())).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn air_state(air: State<'_, Arc<Air>>) -> AirState {
+    air.state()
+}
+
 #[tauri::command]
 async fn list_folder(path: Option<String>) -> Result<files::Folder, String> {
     tauri::async_runtime::spawn_blocking(move || files::list(path.as_deref()).map_err(|e| format!("{e:#}")))
@@ -228,10 +302,16 @@ async fn upload_file(url: String, token: String, path: String) -> Result<serde_j
 
 /// A file of the server kept on this PC (the jingle buttons); returns its local path.
 #[tauri::command]
-async fn cache_file(url: String, token: String, name: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || files::cached(&url, &token, &name).map(|p| p.to_string_lossy().to_string()).map_err(|e| format!("{e:#}")))
+async fn cache_file(url: String, token: String, name: String, near: Option<files::Near>) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || files::cached(&url, &token, &name, near.as_ref()).map(|p| p.to_string_lossy().to_string()).map_err(|e| format!("{e:#}")))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// Studio mode: keeps the track cache of this PC small (old and least used tracks go).
+#[tauri::command]
+async fn prune_studio_cache() -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(files::prune_studio).await.map_err(|e| e.to_string())
 }
 
 pub fn run() {
@@ -252,6 +332,7 @@ pub fn run() {
             }));
             app.manage(Arc::new(engine));
             app.manage(Arc::new(Preview::default()));
+            app.manage(Arc::new(Air::default()));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -264,6 +345,13 @@ pub fn run() {
             play_cart,
             stop_cart,
             stop_all_carts,
+            deck_load,
+            deck_play,
+            deck_stop,
+            deck_clear,
+            deck_mode,
+            set_mic,
+            set_fader,
             start_broadcast,
             stop_broadcast,
             broadcast_status,
@@ -281,9 +369,15 @@ pub fn run() {
             preview_stop,
             preview_state,
             cue_open,
+            air_start,
+            air_stop,
+            air_volume,
+            air_output,
+            air_state,
             list_folder,
             upload_file,
-            cache_file
+            cache_file,
+            prune_studio_cache
         ])
         .run(tauri::generate_context!())
         .expect("error while running RHIS Studio");

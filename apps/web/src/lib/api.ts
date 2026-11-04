@@ -58,6 +58,12 @@ export interface TenantLimits {
   maxBitrateKbps: number;
   storageQuotaMb: number;
   maxNodes: number;
+  /** Roles the customer may give its own nodes; left out = every role (customers from before this setting). */
+  nodeRoles?: NodeRole[];
+  /** What the customer may do itself; left out = allowed. Administrators always can. */
+  mayRoute?: boolean;
+  mayCreateStations?: boolean;
+  maySwitchEdition?: boolean;
 }
 export interface Tenant {
   id: string;

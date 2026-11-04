@@ -13,8 +13,11 @@ export type OmniPanel = 'history' | 'single' | 'news' | 'jingles' | 'stationCart
  * has players A/B with the log under them on the left, and the panels next to them. Panels go on or off; the width
  * of the left column is dragged.
  */
+export type AssistLayout = 'classic' | 'omni' | 'autodj';
+
 export interface StudioLayout {
-  assist: 'classic' | 'omni';
+  /** autodj: what the AutoDJ plays now and in the coming hours (hour clocks, schedule). Older clients show Classic instead. */
+  assist: AssistLayout;
   /** The Manage view (phase 24) instead of the player: station managers only. Older clients ignore it and show the player. */
   manage: boolean;
   panels: Record<OmniPanel, boolean>;
@@ -43,7 +46,7 @@ function parse(raw: unknown): StudioLayout {
   for (const k of Object.keys(panels) as OmniPanel[]) if (typeof l.panels?.[k] === 'boolean') panels[k] = l.panels[k];
   const width = typeof l.deckWidth === 'number' ? Math.round(l.deckWidth) : DECK_WIDTH.default;
   return {
-    assist: l.assist === 'omni' ? 'omni' : 'classic',
+    assist: l.assist === 'omni' || l.assist === 'autodj' ? l.assist : 'classic',
     manage: l.manage === true,
     panels,
     deckWidth: Math.min(DECK_WIDTH.max, Math.max(DECK_WIDTH.min, width)),
@@ -90,9 +93,22 @@ export function useCanManage() {
   return manager && station?.edition === 'station' && supports('manage');
 }
 
+/** The AutoDJ view needs a Radio station and a server that tells the format of the coming hours. Every DJ may open it. */
+export function useCanAutoDj() {
+  const { station, supports } = useSession();
+  return station?.edition === 'station' && supports('rundown');
+}
+
+export type AssistView = AssistLayout | 'manage';
+
+/** The views of the layout menu with their shortcut: Ctrl+3 stays Manage, as it was before the AutoDJ view came. */
+export const VIEW_KEYS: Record<AssistView, number> = { classic: 1, omni: 2, manage: 3, autodj: 4 };
+
 /** What Live assist shows: the Manage view, or the player in its layout. */
-export function useAssistView(): 'classic' | 'omni' | 'manage' {
+export function useAssistView(): AssistView {
   const [layout] = useLayout();
   const can = useCanManage();
-  return layout.manage && can ? 'manage' : layout.assist;
+  const autodj = useCanAutoDj();
+  if (layout.manage && can) return 'manage';
+  return layout.assist === 'autodj' && !autodj ? 'classic' : layout.assist;
 }

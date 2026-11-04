@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { ArrowUpCircle, Network, Plus, Server, Settings2 } from 'lucide-react';
+import { ArrowUpCircle, Lock, Network, Plus, Server, Settings2 } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router';
@@ -10,7 +10,8 @@ import { ScopeBadge } from '../components/nodes/Dedication';
 import { NodeHierarchy } from '../components/nodes/Hierarchy';
 import { RolloutCard, UpdateBadge } from '../components/nodes/updates';
 import { Badge, Button, Card, Dialog, EmptyState, Field, Input, PageHeader, Select, Spinner, Switch, Table } from '../components/ui';
-import { api, ApiError, type NodeItem, type NodePairing, type NodeRole, type NodesSettings, type StationListItem, type Tenant } from '../lib/api';
+import { api, ApiError, type NodeItem, type NodePairing, type NodeRole, type NodesSettings, type StationListItem, type Tenant, type TenantLimits } from '../lib/api';
+import { MyLimitsCard } from '../components/nodes/MyLimits';
 import { isAdmin, useMe } from '../lib/auth';
 import { PortPlanCard } from '../components/nodes/PortPlan';
 import { OrchestratorOnlyCard, OrchestratorRoles, useOrchestratorView } from '../components/nodes/OrchestratorOnly';
@@ -19,23 +20,38 @@ import { PendingNodesCard } from '../components/nodes/PendingNodes';
 export const ROLES: NodeRole[] = ['relay', 'source', 'station', 'fm', 'monitor', 'recorder'];
 
 /** Role toggles with a line on what each role does. */
-export function RolePicker({ value, onChange }: { value: NodeRole[]; onChange: (v: NodeRole[]) => void }) {
+/** The roles a customer may give its own nodes: every role when never set (see the API's allowedNodeRoles). */
+export function allowedRoles(limits: TenantLimits | undefined): NodeRole[] {
+  return limits?.nodeRoles ?? ROLES;
+}
+
+/**
+ * Role toggles with a line on what each role does. With `allowed` (a customer's own node), roles outside the
+ * customer's package are shown but cannot be switched on; a role the node already has can still be switched off.
+ */
+export function RolePicker({ value, onChange, allowed }: { value: NodeRole[]; onChange: (v: NodeRole[]) => void; allowed?: NodeRole[] }) {
   const { t } = useTranslation();
   return (
     <div className="grid gap-2 sm:grid-cols-2">
       {ROLES.map((r) => {
         const on = value.includes(r);
+        const locked = !on && !!allowed && !allowed.includes(r);
         return (
           <button
             key={r}
             type="button"
             aria-pressed={on}
+            disabled={locked}
+            title={locked ? t('myNodes.notInPackage') : undefined}
             // A station node does nothing else: its streams go to relay nodes.
             onClick={() => onChange(on ? value.filter((x) => x !== r) : r === 'station' ? ['station'] : [...value.filter((x) => x !== 'station'), r])}
-            className={clsx('rounded-md border p-3 text-left transition-colors', on ? 'border-koraal bg-koraal/8 ring-1 ring-koraal' : 'border-line hover:bg-hover')}
+            className={clsx('rounded-md border p-3 text-left transition-colors', on ? 'border-koraal bg-koraal/8 ring-1 ring-koraal' : 'border-line hover:bg-hover', locked && 'cursor-not-allowed opacity-50 hover:bg-transparent')}
           >
-            <div className="text-sm font-semibold">{t(`nodes.roles.${r}`)}</div>
-            <div className="mt-0.5 text-xs text-muted">{t(`nodes.roleHints.${r}`)}</div>
+            <div className="flex items-center gap-1.5 text-sm font-semibold">
+              {locked && <Lock className="size-3.5 text-muted" />}
+              {t(`nodes.roles.${r}`)}
+            </div>
+            <div className="mt-0.5 text-xs text-muted">{locked ? t('myNodes.notInPackage') : t(`nodes.roleHints.${r}`)}</div>
           </button>
         );
       })}
@@ -50,7 +66,7 @@ function AddNodeDialog({ open, onClose }: { open: boolean; onClose: () => void }
   const me = useMe().data!;
   const admin = isAdmin(me);
   const ownerTenants = me.memberships.filter((m) => m.role === 'owner');
-  const tenants = useQuery({ queryKey: ['tenants'], queryFn: () => api<Tenant[]>('/tenants'), enabled: open && admin });
+  const tenants = useQuery({ queryKey: ['tenants'], queryFn: () => api<Tenant[]>('/tenants'), enabled: open });
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
   const [tenantId, setTenantId] = useState('');
@@ -63,7 +79,7 @@ function AddNodeDialog({ open, onClose }: { open: boolean; onClose: () => void }
     setName('');
     setLocation('');
     setTenantId(admin ? '' : (ownerTenants[0]?.tenantId ?? ''));
-    setRoles(['relay']);
+    setRoles(admin ? ['relay'] : ['station']);
     setError(null);
     setResult(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -144,7 +160,7 @@ function AddNodeDialog({ open, onClose }: { open: boolean; onClose: () => void }
           </Field>
         )}
         <Field label={t('nodes.fields.roles')} hint={t('nodes.fields.rolesHint')}>
-          <RolePicker value={roles} onChange={setRoles} />
+          <RolePicker value={roles} onChange={setRoles} allowed={tenantId ? allowedRoles(tenants.data?.find((x) => x.id === tenantId)?.limits) : undefined} />
         </Field>
         {error && <p className="rounded-md bg-offline/10 px-3 py-2 text-[13px] text-offline">{error}</p>}
       </form>
@@ -226,8 +242,12 @@ export function NodesPage() {
   const orchestrator = useOrchestratorView();
   const host = admin ? orchestrator.data?.host : undefined;
   const warnMs = settings.data?.latencyWarnMs ?? 150;
-  const canAdd = admin || me.memberships.some((m) => m.role === 'owner');
   const list = nodes.data ?? [];
+  // Customers add nodes as owner, within the number of own nodes of their package.
+  const tenants = useQuery({ queryKey: ['tenants'], queryFn: () => api<Tenant[]>('/tenants'), enabled: !admin });
+  const owned = (tenants.data ?? []).filter((x) => me.memberships.some((m) => m.tenantId === x.id && m.role === 'owner'));
+  const room = owned.some((x) => list.filter((n) => n.tenantId === x.id).length < x.limits.maxNodes);
+  const canAdd = admin || owned.length > 0;
   const online = list.filter((n) => n.status.online);
 
   return (
@@ -248,7 +268,7 @@ export function NodesPage() {
               </Button>
             )}
             {canAdd && (
-              <Button variant="primary" onClick={() => setAdding(true)}>
+              <Button variant="primary" disabled={!admin && !room} title={!admin && !room ? t('myNodes.full') : undefined} onClick={() => setAdding(true)}>
                 <Plus className="size-4" /> {t('nodes.add.button')}
               </Button>
             )}
@@ -256,6 +276,7 @@ export function NodesPage() {
         }
       />
 
+      {!admin && <MyLimitsCard nodes={list} />}
       {admin && <PendingNodesCard />}
       {admin && <OrchestratorOnlyCard />}
       {admin && <PortPlanCard />}
@@ -291,7 +312,7 @@ export function NodesPage() {
             description={admin ? t('nodes.emptyText') : t('nodes.myEmptyText')}
             action={
               canAdd && (
-                <Button variant="primary" onClick={() => setAdding(true)}>
+                <Button variant="primary" disabled={!admin && !room} title={!admin && !room ? t('myNodes.full') : undefined} onClick={() => setAdding(true)}>
                   <Plus className="size-4" /> {t('nodes.add.button')}
                 </Button>
               )

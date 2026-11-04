@@ -15,11 +15,11 @@ const DAY_PX = HOUR_PX * 24;
 /** Dragging a block moves it in steps of a quarter of an hour. */
 const SNAP = 15;
 
-const addDays = (date: string, days: number) => {
+export const addDays = (date: string, days: number) => {
   const [y, m, d] = date.split('-').map(Number) as [number, number, number];
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 };
-const weekdayOf = (date: string) => {
+export const weekdayOf = (date: string) => {
   const [y, m, d] = date.split('-').map(Number) as [number, number, number];
   return ((new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7) + 1;
 };
@@ -34,7 +34,7 @@ const parseTime = (v: string) => {
 };
 
 /** Dark text on a light block, white on a dark one. */
-function inkOn(hex: string) {
+export function inkOn(hex: string) {
   const m = /^#([0-9a-f]{6})$/i.exec(hex);
   if (!m) return '#14213D';
   const n = parseInt(m[1]!, 16);
@@ -309,7 +309,7 @@ function SettingsCard({ stationId, view }: { stationId: string; view: SchedulerV
   );
 }
 
-interface Piece {
+export interface Piece {
   entry: ScheduleEntry;
   start: number;
   end: number;
@@ -317,7 +317,7 @@ interface Piece {
 }
 
 /** The parts of the blocks that fall on a date (a block from the day before can run past midnight). */
-function piecesOn(entries: ScheduleEntry[], date: string): Piece[] {
+export function piecesOn(entries: ScheduleEntry[], date: string): Piece[] {
   const yesterday = addDays(date, -1);
   const raw: Omit<Piece, 'depth'>[] = [];
   for (const e of entries) {
@@ -516,10 +516,18 @@ function WeekGrid({ stationId, view, onNew, onEdit }: { stationId: string; view:
 }
 
 /** Weekly schedule in the Manage view (phase 24): which hour clock or show runs when, on the same data as the web panel. */
-export function ScheduleSection({ station }: { station: StationListItem }) {
+export function ScheduleSection({ station, initialEntryId = null }: { station: StationListItem; initialEntryId?: string | null }) {
   const { t } = useTranslation();
   const view = useScheduler(station.id);
   const [editing, setEditing] = useState<ScheduleEntry | Draft | null>(null);
+  // Opened at a block (from the AutoDJ view): its dialog opens once the schedule is loaded.
+  const [opened, setOpened] = useState(!initialEntryId);
+  useEffect(() => {
+    if (opened || !view.data) return;
+    setOpened(true);
+    const entry = view.data.entries.find((e) => e.id === initialEntryId);
+    if (entry) setEditing(entry);
+  }, [opened, view.data, initialEntryId]);
   if (view.isPending) return <Spinner />;
   if (!view.data) return <Card className="p-8 text-center text-muted">{(view.error as Error)?.message}</Card>;
   const v = view.data;

@@ -253,6 +253,13 @@
       "when": 1793372400000,
       "tag": "0036_media_rights",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1793376000000,
+      "tag": "0037_studio_mode",
+      "breakpoints": true
     }
   ]
 }

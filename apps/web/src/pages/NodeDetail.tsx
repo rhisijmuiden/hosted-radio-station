@@ -15,10 +15,10 @@ import { NodeUpdateCard, NodeUpdateSettings } from '../components/nodes/updates'
 import { AreaChart, ChartLegend } from '../components/stats/charts';
 import { Badge, Button, Card, CardHeader, Dialog, EmptyState, Fact, Field, Input, PageHeader, Spinner, Switch, Table, Tabs } from '../components/ui';
 import i18n from '../i18n';
-import { api, type NodeEvent, type NodeItem, type NodeMetric, type NodePairing, type NodeProbe, type NodeRole, type StationListItem } from '../lib/api';
+import { api, type NodeEvent, type NodeItem, type NodeMetric, type NodePairing, type NodeProbe, type NodeRole, type StationListItem, type Tenant } from '../lib/api';
 import { isAdmin, useMe } from '../lib/auth';
 import { formatDate, formatRelative, shortCommit } from '../lib/format';
-import { RolePicker } from './Nodes';
+import { allowedRoles, RolePicker } from './Nodes';
 import { FirewallTab } from '../components/connection/Connection';
 
 type Tab = 'overview' | 'probes' | 'events' | 'firewall' | 'settings';
@@ -363,6 +363,8 @@ function Events({ node }: { node: NodeItem }) {
 
 function SettingsForm({ node, admin }: { node: NodeItem; admin: boolean }) {
   const { t } = useTranslation();
+  // A customer's own node: only the roles in the customer's package can be switched on.
+  const tenants = useQuery({ queryKey: ['tenants'], queryFn: () => api<Tenant[]>('/tenants'), enabled: !admin && !!node.tenantId });
   const qc = useQueryClient();
   const stations = useQuery({ queryKey: ['stations', 'all'], queryFn: () => api<StationListItem[]>('/stations') });
   const [name, setName] = useState(node.name);
@@ -414,7 +416,7 @@ function SettingsForm({ node, admin }: { node: NodeItem; admin: boolean }) {
             </Field>
           </div>
           <Field label={t('nodes.fields.roles')} hint={t('nodes.fields.rolesHint')}>
-            <RolePicker value={roles} onChange={setRoles} />
+            <RolePicker value={roles} onChange={setRoles} allowed={!admin && node.tenantId ? allowedRoles(tenants.data?.find((x) => x.id === node.tenantId)?.limits) : undefined} />
           </Field>
           <Switch checked={c.probe} onChange={(probe) => set({ probe })} label={t('nodes.fields.probe')} description={t('nodes.fields.probeHint')} />
           {roles.some((r) => r === 'source' || r === 'relay' || r === 'station') && (

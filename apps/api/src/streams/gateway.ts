@@ -1,12 +1,14 @@
+import { createReadStream } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import net from 'node:net';
 import { join } from 'node:path';
 import tls from 'node:tls';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import { schema } from '../db/index.js';
 import type { AppContext } from '../lib/context.js';
-import { authenticateSource, type Account, type OutsideShow } from '../services/streaming/sources.js';
+import { authenticateSource, authenticateStudioFetch, type Account, type OutsideShow } from '../services/streaming/sources.js';
+import { mediaPath } from '../services/autodj/planner.js';
 import type { LiveBroadcast } from './recorder.js';
 import { PREAMBLE_PREFIX, verifyPreamble } from '../services/nodes/preamble.js';
 import { serves } from '../services/nodes/dedication.js';
@@ -16,6 +18,8 @@ import { resolveMount, type Snapshot, type StationView } from './snapshot.js';
 type SourceNode = Snapshot['sourceNodes'] extends Map<string, infer N> ? N : never;
 
 const HEADER_LIMIT = 16 * 1024;
+/** Library files for RHIS Studio in studio mode (see studioMedia). */
+const STUDIO_MEDIA = '/studio-media/';
 const HEADER_TIMEOUT = 15_000;
 
 type Via = 'tls' | 'plain' | 'shoutcast';
@@ -346,11 +350,39 @@ export class IngestGateway {
         nodeId: node?.id ?? null,
       });
     }
+    if (req.method === 'GET' && !fixed && req.path.startsWith(STUDIO_MEDIA)) return this.studioMedia(socket, req, ip);
     if (req.method === 'GET' && /^\/admin\/metadata(\.xsl)?(\?|$)/.test(req.path)) return this.metadata(socket, req, ip, host, fixed);
     if (req.method === 'GET' && fixed && req.path.startsWith('/admin.cgi')) return this.legacyMetadata(socket, req, ip, fixed);
     if (req.method === 'GET' && fixed) return this.legacyListener(socket, req, ip, fixed);
     if (req.method === 'GET') return reply(socket, '200 OK', 'Hosted Radio Station source ingest. Point your encoder here.\n');
     return reply(socket, '405 Method Not Allowed', 'Use SOURCE or PUT');
+  }
+
+  /**
+   * Studio mode: RHIS Studio fetches the library files it plays from here, so on a station node they come over the
+   * studio LAN instead of through the main server. GET /studio-media/<station id>/<media id>, with the DJ account and
+   * the live password of this go-live (Basic auth).
+   */
+  private async studioMedia(socket: net.Socket, req: Head, ip: string) {
+    const m = req.path.split('?')[0]!.slice(STUDIO_MEDIA.length).match(/^([0-9a-f-]{36})\/([0-9a-f-]{36})$/i);
+    const view = m ? this.snap!.stations.get(m[1]!) : undefined;
+    if (!m || !view?.active) return reply(socket, '404 Not Found', 'Unknown station');
+    const creds = basicAuth(req.headers.get('authorization'));
+    if (!creds) return reply(socket, '401 Unauthorized', 'Log-in required', ['WWW-Authenticate: Basic realm="RHIS Studio"']);
+    if (!(await authenticateStudioFetch(this.ctx, view.station.id, creds.user, creds.pass))) return this.refuse(socket, ip);
+    const [media] = await this.ctx.db
+      .select()
+      .from(schema.mediaFiles)
+      .where(and(eq(schema.mediaFiles.id, m[2]!), eq(schema.mediaFiles.stationId, view.station.id)));
+    const sources = new Map((await this.ctx.db.select().from(schema.mediaSources).where(eq(schema.mediaSources.stationId, view.station.id))).map((s) => [s.id, s] as const));
+    const path = media ? mediaPath(this.ctx, media, sources) : null;
+    const info = path ? await stat(path).catch(() => null) : null;
+    // Not here (a station on a node, asked at the main server): the studio falls back to the main server's API.
+    if (!path || !info?.isFile()) return reply(socket, '404 Not Found', 'Not on this node');
+    socket.write(`HTTP/1.0 200 OK\r\nServer: Hosted Radio Station\r\nContent-Type: application/octet-stream\r\nContent-Length: ${info.size}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n`);
+    const file = createReadStream(path);
+    file.on('error', () => socket.destroy());
+    file.pipe(socket);
   }
 
   private legacyTarget(view: StationView, path: string) {

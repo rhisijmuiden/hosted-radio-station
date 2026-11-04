@@ -170,6 +170,8 @@ export interface AutoDj {
   player: { expected: boolean; connected: boolean; paused: boolean; stuckSince?: string | null };
   /** Manual playout: every track waits for Play; holding = the track ended and the player waits. */
   playout: { manual: boolean; holding: boolean; until: string | null };
+  /** Studio mode (server 1.7): a studio PC plays the queue itself and sends the mix live. */
+  studio?: { active: boolean; pc: string | null; user: string | null; until: string | null };
   nowPlaying: QueueRow | null;
   /** One queue since server 1.3 (`q1`); an older server may still have tracks in `q2`. */
   queues: { q1: QueueRow[]; q2?: QueueRow[] };

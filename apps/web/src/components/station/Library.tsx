@@ -3,6 +3,7 @@ import clsx from 'clsx';
 import { CheckSquare, Folder, FolderOpen, HardDrive, Music2, Pause, Pencil, Play, Plus, RefreshCw, Search, Server, Share2, Square, Trash2, Upload } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import { api, SECRET_MASK, type LibraryFolders, type MediaFile, type MediaSource, type MediaSourceType, type Playlist, type ScanProgress, type StationDetail } from '../../lib/api';
 import { useMe, isAdmin } from '../../lib/auth';
@@ -550,6 +551,15 @@ export function LibraryTab({ station, canEdit }: { station: StationDetail; canEd
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<MediaFile | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [urlParams, setUrlParams] = useSearchParams();
+  // "Upload" in the top menu lands here with focus=upload: open the upload dialog straight away.
+  useEffect(() => {
+    if (urlParams.get('focus') !== 'upload') return;
+    if (canEdit) setUploading(true);
+    const next = new URLSearchParams(urlParams);
+    next.delete('focus');
+    setUrlParams(next, { replace: true });
+  }, [urlParams, setUrlParams, canEdit]);
   const [bulkPlaylist, setBulkPlaylist] = useState('');
   const [playing, setPlaying] = useState<string | null>(null);
   const audio = useRef<HTMLAudioElement | null>(null);
@@ -686,7 +696,9 @@ export function LibraryTab({ station, canEdit }: { station: StationDetail; canEd
             );
           })}
         </Card>
-        <SourcesCard station={station} canEdit={canEdit} />
+        <div id="focus-sources" className="scroll-mt-4">
+          <SourcesCard station={station} canEdit={canEdit} />
+        </div>
       </div>
 
       <Card>

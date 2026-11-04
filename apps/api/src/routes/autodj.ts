@@ -11,7 +11,7 @@ import { z } from 'zod';
 import { schema } from '../db/index.js';
 import type { MediaSourceConfig } from '../db/schema.js';
 import { badRequest, forbidden, HttpError, notFound } from '../lib/errors.js';
-import { okOut } from '../lib/schemas.js';
+import { assertPermitted, okOut } from '../lib/schemas.js';
 import { assertRadioStationAllowed, downgradeKeeping, makeRadioStation, radioStationNode, undoDowngrade } from '../services/autodj/edition.js';
 import {
   filePath,
@@ -25,7 +25,8 @@ import {
   STORAGE,
   type MediaSource,
 } from '../services/autodj/library.js';
-import { clearQueue, dropDisabled, enqueue, fillQueues, inPlaylist, mediaPath, moveItem, playNow, queueRows } from '../services/autodj/planner.js';
+import { clearQueue, dropDisabled, enqueue, fillQueues, inPlaylist, mediaPath, moveItem, nextTrack, playNow, queueRows, releaseLoaded, studioLoad, trackStarted } from '../services/autodj/planner.js';
+import { STUDIO_GRACE_MS } from '../services/autodj/studio.js';
 import { NEWS, newsSettings, readNewsStatus } from '../services/autodj/news.js';
 import { autodjSchema, autodjSettings, queueRuleSchema } from '../services/autodj/settings.js';
 import { anchorOf, isFill } from '../services/scheduler/clock.js';
@@ -210,6 +211,11 @@ const autodjOut = z.object({
   }),
   /** Manual playout (RHIS Studio): every track waits for Play. Falls back to Auto when the client stops renewing it. */
   playout: z.object({ manual: z.boolean(), holding: z.boolean(), until: z.date().nullable() }),
+  /**
+   * Studio mode (RHIS Studio 0.27): a studio PC plays the queue itself and sends the mix live while the AutoDJ holds.
+   * Falls back to the AutoDJ when the PC stops renewing it. Missing on servers before 1.7.
+   */
+  studio: z.object({ active: z.boolean(), pc: z.string().nullable(), user: z.string().nullable(), until: z.date().nullable() }),
   nowPlaying: queueRowOut.nullable(),
   queues: z.object({ q1: z.array(queueRowOut), q2: z.array(queueRowOut) }),
   library: z.object({ tracks: z.number().int(), enabled: z.number().int(), playlists: z.number().int() }),
@@ -219,6 +225,17 @@ const autodjOut = z.object({
     clock: z.object({ id: z.uuid(), name: z.string(), color: z.string() }).nullable(),
     entry: z.object({ id: z.uuid(), name: z.string(), live: z.boolean() }).nullable(),
   }),
+});
+
+/** Studio mode as the AutoDJ state row has it. */
+function studioOf(row: { studioUntil: Date | null; studioPc: string | null; studioUser: string | null } | undefined, now = Date.now()) {
+  const active = !!row?.studioUntil && row.studioUntil.getTime() > now;
+  return { active, pc: active ? (row?.studioPc ?? null) : null, user: active ? (row?.studioUser ?? null) : null, until: active ? row!.studioUntil : null };
+}
+
+/** The track a studio PC plays next: the queue row with what it needs to play it like the AutoDJ would. */
+const studioTrackOut = queueRowOut.extend({
+  media: queueRowOut.shape.media.extend({ gainDb: z.number().nullable() }),
 });
 
 /** Manual playout stays on this long after the client's last renewal; RHIS Studio renews it every 10 seconds. */
@@ -297,6 +314,7 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
     async (req) => {
       const { station, tenant, access } = await stationAccess(ctx, req, req.params.id, 'owner');
       if (station.edition === 'station') return describe(station);
+      assertPermitted(tenant.limits, 'maySwitchEdition', access.role);
       await assertRadioStationAllowed(ctx, tenant, station.id);
       // Within 24 hours of going back to Distribution only: it returns where it ran, with all its content.
       if (station.downgrade) {
@@ -337,8 +355,9 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (req) => {
-      const { station } = await stationAccess(ctx, req, req.params.id, 'owner');
+      const { station, tenant, access } = await stationAccess(ctx, req, req.params.id, 'owner');
       if (station.edition !== 'station') throw badRequest('This station has the Distribution edition');
+      assertPermitted(tenant.limits, 'maySwitchEdition', access.role);
       if (!req.body.confirm) throw badRequest('Confirm that the station goes back to Distribution only: its AutoDJ, hour clocks, library and DJ logins stop, and its content is deleted after 24 hours');
       const updated = await downgradeKeeping(ctx, station, req.auth?.user.email);
       req.auditInfo.details = { from: 'station', to: 'distribution', until: updated.downgrade!.until, nodeId: station.nodeId };
@@ -404,6 +423,7 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
         holding: !!(db?.manualUntil && db.manualUntil.getTime() > now && p?.holding),
         until: db?.manualUntil && db.manualUntil.getTime() > now ? db.manualUntil : null,
       },
+      studio: studioOf(db, now),
       nowPlaying: playing,
       queues: { q1: rows.filter((r) => r.queue === 'q1' && r.state !== 'playing'), q2: rows.filter((r) => r.queue === 'q2' && r.state !== 'playing') },
       library: { tracks: lib?.tracks ?? 0, enabled: lib?.enabled ?? 0, playlists: pl?.n ?? 0 },
@@ -532,6 +552,129 @@ export const autodjRoutes: FastifyPluginAsyncZod = async (app) => {
         await ctx.db.execute(sql`select pg_notify(${AUTODJ_CHANNEL}, ${JSON.stringify({ stationId: station.id, command: 'mode' })})`);
       }
       return describe(station);
+    },
+  );
+
+  /** Studio mode of this station, held by the PC `pc`; 409 when it is off or another PC has it. */
+  async function studioFor(stationId: string, pc: string) {
+    const [row] = await ctx.db.select().from(schema.autodjState).where(eq(schema.autodjState.stationId, stationId));
+    const st = studioOf(row);
+    if (!st.active) throw new HttpError(409, 'studio_off', 'Studio mode is off: the AutoDJ plays again');
+    if (st.pc !== pc) throw new HttpError(409, 'studio_taken', `Studio mode runs on ${st.pc ?? 'another PC'}${st.user ? ` (${st.user})` : ''}`);
+    return st;
+  }
+
+  const pcName = z.string().trim().min(1).max(100);
+
+  app.post(
+    '/:id/autodj/studio',
+    {
+      schema: {
+        tags: ['AutoDJ'],
+        summary:
+          'Studio mode (DJs too): this PC plays the queue itself and sends the mix live, while the AutoDJ holds. The PC sends `on: true` again every few seconds; without it the AutoDJ takes over again after 10 seconds, at the next track of the queue.',
+        params: stationParams,
+        body: z.object({ on: z.boolean(), pc: pcName }),
+        response: { 200: autodjOut },
+      },
+    },
+    async (req) => {
+      const { station, access } = await radio(req, req.params.id, 'dj');
+      const [before] = await ctx.db.select().from(schema.autodjState).where(eq(schema.autodjState.stationId, station.id));
+      const was = studioOf(before);
+      if (was.active && was.pc !== req.body.pc) {
+        if (!req.body.on) return describe(station);
+        throw new HttpError(409, 'studio_taken', `Studio mode runs on ${was.pc ?? 'another PC'}${was.user ? ` (${was.user})` : ''}`);
+      }
+      const set = req.body.on
+        ? { studioUntil: new Date(Date.now() + STUDIO_GRACE_MS), studioPc: req.body.pc, studioUser: access.user.name }
+        : { studioUntil: null, studioPc: null, studioUser: null };
+      await ctx.db.insert(schema.autodjState).values({ stationId: station.id, ...set }).onConflictDoUpdate({ target: schema.autodjState.stationId, set });
+      if (was.active !== req.body.on) {
+        // On: the PC starts with the track the AutoDJ had loaded ahead. Off: the AutoDJ goes on with the track the PC had.
+        await releaseLoaded(ctx, station.id);
+        req.log.info({ station: station.slug, studio: req.body.on, pc: req.body.pc, by: access.user.email }, req.body.on ? 'studio mode on' : 'studio mode off');
+        await ctx.db.execute(sql`select pg_notify(${AUTODJ_CHANNEL}, ${JSON.stringify({ stationId: station.id, command: 'studio' })})`);
+      }
+      return describe(station);
+    },
+  );
+
+  app.post(
+    '/:id/autodj/studio/next',
+    {
+      schema: {
+        tags: ['AutoDJ'],
+        summary:
+          'Studio mode: the next track for the studio PC, chosen by the queue and the hour clock like for the AutoDJ, and marked cued. `cutAt`: cut the track on air then, so this timed item starts on its minute. Null track: nothing to play.',
+        params: stationParams,
+        body: z.object({ pc: pcName }),
+        response: { 200: z.object({ track: studioTrackOut.nullable(), cutAt: z.number().nullable(), crossfadeSeconds: z.number(), normalize: z.boolean() }) },
+      },
+    },
+    async (req) => {
+      const { station } = await radio(req, req.params.id, 'dj');
+      await studioFor(station.id, req.body.pc);
+      const s = autodjSettings(station);
+      const next = await nextTrack(ctx, station.id);
+      for (const item of next?.skipped ?? []) req.log.warn({ stationId: station.id, item }, 'Clock item skipped: its playlist has no track to play');
+      const row = next ? (await queueRows(ctx, station.id, next.itemId))[0] : undefined;
+      const [media] = row ? await ctx.db.select({ gainDb: schema.mediaFiles.gainDb }).from(schema.mediaFiles).where(eq(schema.mediaFiles.id, row.media.id)) : [];
+      return {
+        track: row ? { ...row, media: { ...row.media, gainDb: media?.gainDb ?? null } } : null,
+        cutAt: next?.cutAt ?? null,
+        crossfadeSeconds: s.crossfadeSeconds,
+        normalize: s.normalize,
+      };
+    },
+  );
+
+  app.post(
+    '/:id/autodj/studio/load',
+    {
+      config: { audit: 'autodj.studioLoad' },
+      schema: {
+        tags: ['AutoDJ'],
+        summary:
+          'Studio mode: a track dragged onto a player of the studio PC (a waiting track, or a library track that goes on top of Q1) becomes its next track; the track it had loaded ahead goes back to waiting. `now`: the PC plays it at once. A locked item of the hour clock (next, or on air with `now`) is only replaced by a station manager with `force`.',
+        params: stationParams,
+        body: z.union([
+          z.object({ pc: pcName, itemId: z.uuid(), now: z.boolean().optional(), force: z.boolean().optional() }),
+          z.object({ pc: pcName, mediaId: z.uuid(), now: z.boolean().optional(), force: z.boolean().optional() }),
+        ]),
+        response: { 200: z.object({ track: studioTrackOut }) },
+      },
+    },
+    async (req) => {
+      const { station, access } = await radio(req, req.params.id, 'dj');
+      await studioFor(station.id, req.body.pc);
+      // Played now: over the track on air, which may be a locked part of the format.
+      if (req.body.now) await guardLocked(station.id, access.role, req.body.force);
+      const what = 'itemId' in req.body ? { itemId: req.body.itemId } : { mediaId: req.body.mediaId };
+      const itemId = await studioLoad(ctx, station.id, what, access.user.name, !!req.body.force && access.role !== 'dj');
+      const [row] = await queueRows(ctx, station.id, itemId);
+      if (!row) throw new HttpError(404, 'not_found', 'Queue item not found');
+      const [media] = await ctx.db.select({ gainDb: schema.mediaFiles.gainDb }).from(schema.mediaFiles).where(eq(schema.mediaFiles.id, row.media.id));
+      return { track: { ...row, media: { ...row.media, gainDb: media?.gainDb ?? null } } };
+    },
+  );
+
+  app.post(
+    '/:id/autodj/studio/playing/:itemId',
+    {
+      schema: {
+        tags: ['AutoDJ'],
+        summary: 'Studio mode: the studio PC started this track; it is on air now and in the log, the track before it is done',
+        params: stationParams.extend({ itemId: z.uuid() }),
+        body: z.object({ pc: pcName }),
+        response: { 200: okOut },
+      },
+    },
+    async (req) => {
+      const { station } = await radio(req, req.params.id, 'dj');
+      await studioFor(station.id, req.body.pc);
+      await trackStarted(ctx, station.id, req.params.itemId);
+      return { ok: true as const };
     },
   );
 

@@ -18,6 +18,9 @@
   --nav-active-bg: var(--nacht);
   --nav-active-ink: #ffffff;
   --overlay: rgb(20 33 61 / 0.45);
+  /* Customer top menu: a soft coral tint for the open or current item, and the shadow of its drop-downs. */
+  --top-active-bg: #ffe9e5;
+  --shadow-pop: 0 12px 32px rgb(20 33 61 / 0.14);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
@@ -25,6 +28,8 @@
     --chip: #1f2e52;
     --nav-active-bg: var(--chip);
     --overlay: rgb(0 0 0 / 0.6);
+    --top-active-bg: #2a2c42;
+    --shadow-pop: 0 12px 32px rgb(0 0 0 / 0.45);
   }
 }
 :root[data-theme='dark'] {
@@ -32,6 +37,8 @@
   --chip: #1f2e52;
   --nav-active-bg: var(--chip);
   --overlay: rgb(0 0 0 / 0.6);
+  --top-active-bg: #2a2c42;
+  --shadow-pop: 0 12px 32px rgb(0 0 0 / 0.45);
 }
 
 @theme inline {

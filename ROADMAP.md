@@ -219,7 +219,8 @@ One thing at a time; each item starts when the previous one is finished and test
    7. New folders and music upload from Studio in Library folders (PR #194, asked by Reinder 30 October 2026). *Tested.*
    **Release 1.6.0** (31 October 2026): items 8 and 9, the fix for the AutoDJ hanging after a live broadcast (PR #190), the small fixes (PRs #197–#203) and step 1 of the Stereo Tool release (PR #196, off by default) go to `main` as one release.
 
-10. **Studio mode in RHIS Studio: microphone over the queue** (queued 1 November 2026, the next main item once the current one is finished and tested): see the item under Future ideas and the approved sketch https://claude.ai/artifact/2mGWnZo4P7G4MNxugKares. Fader start (MIDI/GPIO) belongs with it and follows when the hardware is there.
+10. **Studio mode in RHIS Studio: microphone over the queue** (done, 1.7.0, RHIS Studio 0.27–0.31, PRs #214–#226): see the item under Future ideas and the approved sketch https://claude.ai/artifact/2mGWnZo4P7G4MNxugKares. Fader start (MIDI/GPIO) belongs with it and follows when the hardware is there.
+   **Release 1.7.0** (4 November 2026): the customer navigation (option A, PRs #206–#209), the AutoDJ view in RHIS Studio (PRs #210–#213), item 10, the station node TLS and listener count fixes (PRs #217–#219) and the AGPL licence (PR #227) go to `main` as one release. The open finding that "now playing" stays empty after studio mode hands back to the AutoDJ is not in it.
 
 Later: phase 14 (orchestrator redundancy) just before sales start; phases 22 and 23 when the first customers come.
 
@@ -663,7 +664,7 @@ Nodes with a direct public IP address get a firewall that is closed by default. 
 - **On by default** for nodes with a public address on their own interface (a server in a data centre), new and existing, decided at their next connection; nodes behind a router keep it off and can switch it on. Existing firewall rules on the server still hold it back until the administrator takes over.
 - **Outside check**: the port check from outside also tries SSH and well-known ports a node never needs (databases, mail, admin pages, 8080 and the like) and warns when one answers. For a node behind a router (NAT) it says the ports may belong to the router or another machine, and a monitoring node in the same network is named as such.
 
-### Clear navigation for customers and station managers (queued, not scheduled yet; own thread)
+### Clear navigation for customers and station managers (done, 1.7.0)
 
 The customer side has many buttons in one row. It gets a small, logical structure with drop-down menus from the top menu:
 
@@ -675,6 +676,28 @@ The customer side has many buttons in one row. It gets a small, logical structur
 - **Customer permissions in the admin panel**: per customer a clear overview of what they may do. Own nodes on or off; when on, a station node is allowed by default and other roles (FM/MPX, ingest, relay, recorder, monitoring) are switched on one by one; a total number of own nodes (for example 10), so a customer can run their own distribution network. The main limit for licensing is the number of radio stations; node limits come on top.
 - **Routing for customers**: a Routing menu where customers decide themselves which of their stations uses which of their own nodes (and the shared ones), and how (via ingest or direct, which relays).
 - A sketch first, for Reinder's choice, before building.
+
+Reinder chose option A of the sketch (31 October 2026): a top menu with large drop-downs for customers; the admin panel keeps its left menu. It is built in four steps:
+
+1. **Top bar** (done, 1.7.0): station switcher top left (all your stations with edition, where each runs and whether it is on air, and how many of your stations and Radio stations are used), then Overview, Radio station (a large drop-down in four columns: Programme, Media library, DJs & live, Public pages, each page with a one-line explanation), Broadcast, My network, Audience and Settings. A Distribution station shows the Radio station pages with a lock and an **Upgrade to Radio station** button. On smaller screens the menu folds into a side panel.
+2. **Routing** for customers (done, 1.7.0): one page under My network with every station: where it runs (own node or shared station node), how it sends (ingest or direct) and which relays carry it (shared and own), with the editor of one station below the list.
+3. **My nodes** (done, 1.7.0): a "Your limits" block with own nodes, stations, Radio stations and storage used against the package, and the roles the customer may give its own nodes (others shown with a lock). The API refuses roles outside the package when a customer adds a node or changes its roles; roles a node already has may stay. New customers start with a station node only; customers from before keep every role until the administrator sets them.
+4. **Permissions** tab on a customer in the admin panel (done, 1.7.0): stations in total and of which Radio stations, own nodes on/off and maximum, storage, listeners and bitrate (each with what is in use), the roles own nodes may have (station node on by default), and what the customer may do itself: change routing and placement, create stations, switch the edition. The API enforces each; administrators can always.
+
+### AutoDJ view in RHIS Studio (done, 1.7.0, Studio 0.24–0.26)
+
+A fourth view **AutoDJ** in the layout menu of RHIS Studio (Ctrl+4) for every DJ of a Radio station, next to Classic,
+OmniPlayer and Manage. Built in three steps, each tested on the Windows test PC:
+
+1. **Now & coming hours** (0.24): what is on air, the hour clock and block now, the next fixed item and the next change
+   in the schedule; the hour clock on air as a dial with a hand at the minute now (the played part dimmed, the item now
+   marked), and the next five hours with their clock, show and fixed items.
+2. **Schedule** (0.25): today as a 24-hour bar and list, the week as seven columns with week navigation; a click on a
+   block shows its days, time, hour clock, live or not, DJs and whether it is public.
+3. **Edit for managers** (0.26): Edit clock, Edit schedule and Edit in Manage open the right clock or block in the Manage
+   view; Ctrl+4 brings you back. DJs only look.
+
+No server change: it uses the rundown and scheduler a DJ could already read.
 
 ### Small fixes (own thread, done in between)
 
@@ -701,6 +724,10 @@ Small fixes are collected here and handled one at a time in a separate thread, n
 - **Ingest missing from a station's node list** (open, 3 November 2026): pub-ingest-01 no longer shows in Radio Schermer's Nodes list, though it did before. Display only: the node is carrying the station (Studio's "Path now" shows it as main ingest on air). Seen in RHIS Studio 0.29 Manage > Nodes; the server list (`routes/station-network.ts`) shows an ingest of a station node only while `studioDelivery()` says the node sends through it, so a short direct fallback (failing hold, stale status or certificate check) hides it. At 00:35 both server views agreed (route through pub-ingest-01, no direct fallback, the ingest in the list), and the Studio table shows the server list unfiltered every 10 seconds. Proposed fix: list the planned ingests always, marked "standby" or with the reason the node sends directly, instead of dropping the row.
 - **Station node slow to come back after the orchestrator restarts** (open bug, 2 November 2026): after the API on radiostation restarted (20:14), the Radio Schermer node (behind NAT) stayed offline until 20:44, while the other nodes were back within seconds; to check the agent's reconnect and backoff.
 - **Listen link briefly refuses new listeners** (open bug, 1 November 2026): while monitoring from a PC on the LAN, `http://10.10.4.240/listen/radioschermer/live` twice refused or timed out new connections for about 20 and 45 seconds (11:41 and 11:59 local), while the now-playing API kept answering. To check: the listen route and its relay choice (compare the earlier "no relay" 503 while pub-relay-01 was updating), and the LAN between that PC and the server.
+
+- **Listeners on Radio > Stations** (fixed, on test): the station list did not count listeners on relay nodes, so it showed no listeners while the dashboard did.
+- **Listen to the air in RHIS Studio** (fixed, Studio 0.31): a **Listen** button in the top bar plays the station as listeners hear it while the DJ is not live, on its own output and volume (Settings), and goes off by itself on Go Live and in studio mode.
+- **AGPL licence** (on test): the whole repository under AGPL-3.0-or-later, with the licence and a source code link in the Info screens and on the public pages.
 
 ### FM/MPX release: Stereo Tool processing (parked)
 
@@ -750,6 +777,9 @@ Today Go Live stops the server's music and sends only what RHIS Studio plays its
 - Fader start (MIDI/GPIO, see the parked fader start item) works in studio mode too: a fader up starts the track on that player (or the jingle/mic), a fader down stops it and cues the next item from the queue.
 - Locked blocks (news, ads) and the hour clock keep running as planned; the log stays the server's.
 - If RHIS Studio stops or loses the connection, the server's AutoDJ takes over by itself at the right point in the queue.
+- Fader start on screen: a fader for each player and the microphone; opening one starts it, closing it stops it and cues the next track. MIDI and GPIO faders come later.
+
+*Built 2026-11-01 to 11-03 (RHIS Studio 0.27–0.31, PRs #214–#226), released in 1.7.0: step 1 take over and local playout; step 2 drag onto the players, countdown to fixed blocks, mic off for the news; step 3 tracks from the station node over the LAN, fetched ahead, cache cleanup; step 4 software fader start (keys F1, F2, space bar). A station manager without their own DJ account, and MIDI/GPIO faders, are follow-ups.*
 
 ### Reporter mode (remote contributions)
 

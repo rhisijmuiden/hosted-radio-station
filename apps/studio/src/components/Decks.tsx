@@ -10,6 +10,8 @@ import { introLeft, trackLength } from '../lib/cues';
 import { duration } from '../lib/format';
 import { clock, DRAG, queueOf, useQueueActions } from '../lib/queue';
 import { useSession } from '../lib/session';
+import { useStudio } from '../lib/studio';
+import { FaderStartSwitch, StudioDecks } from './Studio';
 import type { Line } from '../lib/timeline';
 
 /** Auto: the player plays on from track to track. Manual: it stops after each track until Play. */
@@ -141,7 +143,27 @@ const introShare = (m: Track, total: number | null) => (total && m.cueIntro != n
  * other the cued track that goes on air next. At every new track the decks swap roles, like two players on a desk.
  * In Manual playout Play on the next deck starts it; in Auto it plays on by itself at the cue points.
  */
-export function Decks({ data, stationId, lines, now }: { data: AutoDj; stationId: string; lines: Line[]; now: number }) {
+export function Decks(props: { data: AutoDj; stationId: string; lines: Line[]; now: number }) {
+  const { t } = useTranslation();
+  // Studio mode: the players play here, on this PC.
+  const studioHere = useStudio((s) => (s.phase === 'on' || s.phase === 'stopping') && s.stationId === props.stationId);
+  const faderStart = useStudio((s) => s.faderStart);
+  if (studioHere) {
+    return (
+      <Card className="shrink-0 p-3">
+        <StudioDecks data={props.data} />
+        <div className="mt-2.5 flex items-center gap-3">
+          <ModeSwitch data={props.data} stationId={props.stationId} />
+          <FaderStartSwitch />
+          <span className="min-w-0 flex-1 truncate text-right text-[12px] text-muted">{faderStart ? t('studio.faderStartText') : props.data.playout?.manual ? t('playout.manualText') : t('playout.autoText')}</span>
+        </div>
+      </Card>
+    );
+  }
+  return <ServerDecks {...props} />;
+}
+
+function ServerDecks({ data, stationId, lines, now }: { data: AutoDj; stationId: string; lines: Line[]; now: number }) {
   const { t } = useTranslation();
   const a = useQueueActions(stationId);
   const canUpload = useCanUpload();

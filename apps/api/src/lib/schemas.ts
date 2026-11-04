@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import type { schema } from '../db/index.js';
+import { NODE_ROLES, type NodeRole } from '../db/schema.js';
+import { forbidden } from './errors.js';
 
 export const LOCALES = ['en', 'nl'] as const;
 
@@ -18,7 +20,31 @@ export const tenantLimitsSchema = z.object({
   maxBitrateKbps: z.number().int().min(32).max(512).default(192),
   storageQuotaMb: z.number().int().min(0).max(10_000_000).default(10_240),
   maxNodes: z.number().int().min(0).max(100).default(0),
+  /**
+   * Roles the customer may give its own nodes (customer navigation). Left out (customers from before this setting):
+   * every role, so nothing they run stops working. New customers start with a station node only.
+   */
+  nodeRoles: z.array(z.enum(NODE_ROLES)).optional(),
+  /** What the customer may do itself (customer permissions); left out = allowed. Administrators can always. */
+  mayRoute: z.boolean().optional(),
+  mayCreateStations: z.boolean().optional(),
+  maySwitchEdition: z.boolean().optional(),
 });
+
+/** Permission keys kept in the limits; a client that leaves them out keeps what is set. */
+export const PERMISSION_KEYS = ['nodeRoles', 'mayRoute', 'mayCreateStations', 'maySwitchEdition'] as const;
+
+/** Throws unless the customer may do this itself (left out = allowed); administrators always may. */
+export function assertPermitted(limits: { mayRoute?: boolean; mayCreateStations?: boolean; maySwitchEdition?: boolean }, key: 'mayRoute' | 'mayCreateStations' | 'maySwitchEdition', role: string) {
+  if (role === 'superadmin' || limits[key] !== false) return;
+  const what = { mayRoute: 'change the routing or placement of stations', mayCreateStations: 'create stations', maySwitchEdition: 'switch a station between Distribution and Radio station' }[key];
+  throw forbidden(`Your package does not let you ${what}; ask your provider`);
+}
+
+/** The roles a customer may give its own nodes; every role when the limit was never set. */
+export function allowedNodeRoles(limits: { nodeRoles?: NodeRole[] | null }): NodeRole[] {
+  return limits.nodeRoles ? [...limits.nodeRoles] : [...NODE_ROLES];
+}
 
 /** Limits as stored: the number of Radio stations filled in from the old edition when a client left it out. */
 export function withRadioLimit(limits: z.infer<typeof tenantLimitsSchema>, edition?: 'distribution' | 'station'): z.infer<typeof tenantLimitsSchema> & { maxRadioStations: number } {

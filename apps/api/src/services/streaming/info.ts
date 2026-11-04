@@ -1,6 +1,7 @@
 import { and, eq, isNotNull } from 'drizzle-orm';
 import { schema } from '../../db/index.js';
 import type { AppContext } from '../../lib/context.js';
+import { hasCertificate } from '../nodes/delivery.js';
 import { namesFrom } from '../nodes/names.js';
 import { nodeHost, nodeSettings } from '../nodes/plan.js';
 import { externalAddress, inboundPorts, internalAddress, STATION_NODE_STREAMING, type PortService } from '../nodes/ports.js';
@@ -99,7 +100,7 @@ async function baseConnection(ctx: AppContext, station: Station, mounts: Mount[]
       const d = STATION_NODE_STREAMING;
       // TLS only where encoders connect to the node's public name: its certificate is for that name, so a LAN address
       // (plain inside the studio) or an internal name would fail on the certificate.
-      const tlsOk = !c.lanAddress && !!name && publicName(name) && !!sn.status.caddy;
+      const tlsOk = !c.lanAddress && !!name && publicName(name) && !!sn.status.caddy && hasCertificate(sn, name);
       return {
         ingestHost: host,
         node: { id: sn.id, name: sn.name },
@@ -206,8 +207,14 @@ async function endpointsOf(ctx: AppContext, station: Station, conn: BaseConnecti
     const sn = await nodeRow(station.nodeId);
     if (sn) {
       const routed = domain?.ingestNodeId === sn.id ? domain.ingestHost : null;
-      const ports = (await inboundPorts(ctx, sn)).filter((p) => p.service !== 'legacy' || p.station === station.slug).map((p) => ({ service: p.service, port: p.port, ...(p.to ? { to: p.to } : {}), ...(p.service === 'encoderTls' ? { tls: true } : {}), ...(p.old ? { old: true } : {}) }));
-      endpoints.push({ role: 'stationNode', name: sn.name, node: { id: sn.id, name: sn.name }, online: !!sn.status.online, external: routed ?? externalAddress(sn), internal: internalAddress(sn), ports });
+      const external = routed ?? externalAddress(sn);
+      // TLS over the internet only when the node holds a valid certificate for that name: a self-signed one (no
+      // certificate through Cloudflare DNS yet) makes RHIS Studio and encoders refuse the connection.
+      const tlsHere = !!external && hasCertificate(sn, external);
+      const ports = (await inboundPorts(ctx, sn))
+        .filter((p) => p.service !== 'legacy' || p.station === station.slug)
+        .filter((p) => p.service !== 'encoderTls' || tlsHere).map((p) => ({ service: p.service, port: p.port, ...(p.to ? { to: p.to } : {}), ...(p.service === 'encoderTls' ? { tls: true } : {}), ...(p.old ? { old: true } : {}) }));
+      endpoints.push({ role: 'stationNode', name: sn.name, node: { id: sn.id, name: sn.name }, online: !!sn.status.online, external, internal: internalAddress(sn), ports });
       return { endpoints, panelUrl, upload: uploadPorts(STATION_NODE_STREAMING) };
     }
   }

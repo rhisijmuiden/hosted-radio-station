@@ -3,6 +3,109 @@
 All notable changes to Hosted Radio Station. Versions follow [semantic versioning](https://semver.org). The
 [roadmap](ROADMAP.md) has the full description of each phase, with screenshots.
 
+## 1.7.0 (4 November 2026)
+
+The new navigation for customers (a top bar with a station switcher, a Routing page, limits and allowed roles under My
+nodes, and a Permissions tab on a customer for administrators), the AutoDJ view in RHIS Studio 0.24–0.26, studio mode
+in RHIS Studio 0.27–0.31 (play the queue on the studio PC with the microphone, drag tracks onto the players, countdown
+to fixed blocks, tracks fetched from the station node over the LAN, software fader start, listen to the air), fixes
+for TLS on station nodes and the listener count of the station list, and the licence: Hosted Radio Station and RHIS
+Studio are now free software under the GNU AGPL v3.0 or later.
+
+Update the nodes after the orchestrator: station nodes need the node agent from this release to hand their
+certificates to the station runtime. Known and not in this release: after studio mode hands back to the AutoDJ, "now
+playing" can stay empty or show the wrong stream title (see the roadmap, being fixed).
+
+- Customer navigation, step 1: customers get a **top bar** instead of the left menu; the admin panel keeps its left
+  menu. Top left a **station switcher** with all your stations (edition, where each runs, on air or not, and how many
+  stations and Radio stations of your package are used), then Overview, Radio station (a large drop-down in four
+  columns: Programme, Media library, DJs & live, Public pages, each page with a one-line explanation), Broadcast, My
+  network, Audience and Settings. A Distribution station shows the Radio station pages with a lock and an **Upgrade to
+  Radio station** button. Below 1280 px the menu folds into a side panel.
+- Customer navigation, step 2: **My network → Routing**, one page with every station: where it runs (own node or
+  shared station node), how it sends (ingest, backup, direct or fallback) and which relays carry it (shared and own).
+  **Change** opens the editor of that station below the list: delivery path, placement (move) and route settings.
+- Customer navigation, step 3: **My nodes** shows a "Your limits" block (own nodes, stations, Radio stations and
+  storage used against the package) and the roles the customer may give its own nodes, others with a lock. The API
+  refuses roles outside the package when a customer adds a node or changes its roles; roles a node already has may
+  stay. New customers start with a station node only; customers from before keep every role until the administrator
+  sets them.
+- Customer navigation, step 4: a **Permissions** tab on a customer in the admin panel: stations in total and of which
+  Radio stations, own nodes on/off and maximum, storage, listeners and bitrate (each with what is in use), the roles
+  own nodes may have (station node by default), and what the customer may do itself: change routing and placement,
+  create stations, switch the edition. The API enforces each (station create, edition switch, routing, placement);
+  administrators always can. The customer side hides New station and the upgrade button when not allowed.
+- Licence: Hosted Radio Station and RHIS Studio are now free software under the GNU AGPL v3.0 or later (LICENSE,
+  NOTICE.md, `license` in every package). The Info screen of the panel and of RHIS Studio shows the licence with a link
+  to the source code of the running version, and the public station pages link to it next to "Powered by RHIS".
+  NOTICE.md adds an exception for the Steinberg ASIO SDK in RHIS Studio and says the RHIS name and logo are not covered.
+- RHIS Studio 0.24: a fourth view **AutoDJ** in the layout menu (Ctrl+4; Ctrl+1–3 stay Classic, OmniPlayer and
+  Manage), for every DJ of a Radio station. It shows what the AutoDJ plays now and in the coming hours: what is on
+  air, the hour clock and block of the schedule now, the next fixed item and the next change in the schedule; the hour
+  clock on air as a dial with a hand at the minute now, its items with the part already played dimmed and the item
+  now marked; and the next five hours with their clock, show (live shows in red) and fixed items. Only to look at:
+  hour clocks and the schedule are changed in the Manage view or the web panel. No server change; it uses the
+  rundown and scheduler the DJ could already read.
+- RHIS Studio 0.25: the AutoDJ view gets a tab **Schedule** next to **Now & coming hours**: today as a bar of 24
+  hours with a line at the time now and the blocks of today as a list (the block on air marked), and the week as seven
+  columns with week navigation, like the weekly schedule of the Manage view but smaller. A click on a block shows its
+  days, time, hour clock (as a dial), live or not, its DJs and whether it is public. Only to look at. With the
+  scheduler off, the card Hour clock now says so instead of "default clock".
+- RHIS Studio 0.26: from the AutoDJ view a station manager goes straight to the editor in the Manage view: **Edit
+  clock** on the hour clock of this hour (or a click on a clock name in the coming hours) opens that clock, **Edit in
+  Manage** in the details of a block opens that block, **Edit schedule** opens the weekly schedule. Ctrl+4 or Back to
+  the player returns to the AutoDJ view, on the tab it was on. DJs keep the view without these buttons.
+- RHIS Studio 0.27, studio mode (step 1): **Studio mode** next to AutoDJ in the top bar. This PC then plays the queue
+  itself on players A and B, with the cue points, crossfade and loudness of the server, mixes the microphone in and
+  sends that mix live; the DJ hears it without delay. Take over at the end of the track on air, or now with that same
+  track from the same point. A big microphone button (space bar) switches the mic; the players go down while the DJ
+  talks. The server still chooses every next track (queue, hour clock, locked items) and keeps the log: the PC reports
+  each track it starts. When the PC stops renewing studio mode (closed, crashed, broadcast down) the server's AutoDJ
+  takes over after 10 seconds at the next track of the queue; **Back to AutoDJ** hands back at once. Server: new
+  `POST /stations/:id/autodj/studio`, `/studio/next` and `/studio/playing/:item`, `studio` in the AutoDJ state,
+  migration 0037, feature `studio-mode`. The AutoDJ script gets a `studio_end` command, so every AutoDJ restarts once
+  on this update.
+- RHIS Studio 0.27.1: studio mode refuses to start on a PC whose sound engine has no output sound card (it says so and
+  where to choose one), and the banner after studio mode ended by itself now says why: the broadcast did not connect,
+  it dropped, the server was not reachable, or the encoder's own error.
+- A station node offers TLS for encoders and RHIS Studio over the internet only when it holds a valid certificate for
+  its name (as the node reports it). Before, a node without a certificate through Cloudflare DNS still offered its
+  TLS port with a self-signed certificate, and RHIS Studio refused it ("root certificate which is not trusted").
+- Radio > Stations shows the listeners of a station again: the list now counts the listeners on relay nodes too,
+  like the station page and the dashboard. A station on a station node has nearly all its listeners there, so the
+  column stayed empty or at 0.
+- A station node hands its certificates (from the web server or through Cloudflare DNS) to the station runtime, which
+  serves the encoder ports 8400/8401. Before, that port only ever had a self-signed certificate for the machine's own
+  name, so RHIS Studio and encoders refused TLS to the node over the internet, also with Certificates through
+  Cloudflare DNS switched on. Picked up on the next apply of the node (within 6 hours, or at once on a node update).
+- RHIS Studio 0.27.2: plays on sound cards whose driver only offers 24-bit or 64-bit samples (for example Realtek
+  ASIO), for the output and the preview. Before, the sound engine stopped with "sample format i24 is not supported".
+- RHIS Studio 0.28 (studio mode, step 2a): drag a track from the library or the playlist onto a player of studio
+  mode. On the player that waits it plays next (the track that was loaded there goes back to the queue); on the player
+  on air it plays now with the crossfade. The track also moves to the top of Q1, so it stays next when studio mode
+  ends. A locked item of the hour clock does not give way for a DJ; a station manager is asked first. New route
+  `POST /api/stations/:id/autodj/studio/load`. Yes/No questions in the app now have Dutch buttons in Dutch.
+- RHIS Studio 0.29, studio mode (step 2b): in the last three minutes before a fixed block of the hour clock, a
+  countdown above the players shows the block, its items and whether it has a hard time (the track on air is cut off)
+  or is locked. When a news bulletin starts on a player, the microphone goes off by itself and the mic button says
+  **Off for the news**. Dropping a track from the media library that already waits in the queue moves that one up
+  instead of adding it twice.
+- RHIS Studio 0.30, studio mode (step 3): while live, studio mode fetches its tracks from where the mix goes: on a
+  station node that is the node itself, over the studio LAN when on site, so the music does not go through the
+  internet and the main server; the main server stays the fallback. The next three tracks of the queue are fetched
+  ahead, and the track cache on the PC is kept small (tracks not used for two weeks go, at most 4 GB). New on the
+  encoder ports of the station runtime: `GET /studio-media/<station>/<media>`, only with a live password of a DJ
+  account that may broadcast.
+- RHIS Studio 0.31, studio mode (step 4): **Fader start** next to Auto/Manual. Players A and B and the microphone
+  each get a fader, like on a mixing desk: opening the fader of a player starts its track, closing it stops the track
+  and the next one is loaded onto that player; the microphone fader switches the microphone. The faders also set the
+  level in the mix. A track started otherwise (Play, Next, a drop, a hard time) brings its fader up; a track that ends
+  takes it down. Keys: F1 and F2 open or close the faders of A and B, the space bar the microphone. Kept on this PC;
+  with fader start the next track waits for its fader, as in Manual. MIDI and GPIO faders come later.
+- RHIS Studio 0.31 also: a **Listen** button in the top bar plays the station as listeners hear it while you are not
+  live, on its own output and volume (Settings › Listen to the air). It goes off by itself on Go Live and in studio
+  mode.
+
 ## 1.6.0 (31 October 2026)
 
 Phase 21 (the recorder node: logging, live shows, uploads and on demand, recording in RHIS Studio, cutting, music

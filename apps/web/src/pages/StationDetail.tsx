@@ -31,6 +31,8 @@ import { EditionBadge } from './Stations';
 import { ConnectionTab } from '../components/connection/Connection';
 import { DeliveryPathCard, DeliveryPathSummary } from '../components/station/DeliveryPath';
 import { stationMenu, stationTabHref, stationTabs, type StationTab } from '../components/station/menu';
+import { topMenu } from '../components/topbar/menu';
+import { isAdmin, useMe } from '../lib/auth';
 
 type Tab = StationTab;
 const rank = { dj: 1, manager: 2, owner: 3, superadmin: 4 } as const;
@@ -542,6 +544,21 @@ export function StationDetailPage() {
   });
   const status = useStationStatus(id!);
   const requests = usePendingRequests(id!);
+  const me = useMe().data!;
+  // A menu item can point at one part of a page (focus=sources, focus=api): scroll it into view once it is there.
+  const focus = params.get('focus');
+  useEffect(() => {
+    if (!focus) return;
+    let tries = 0;
+    const timer = setInterval(() => {
+      const el = document.getElementById(`focus-${focus}`);
+      if (el || ++tries > 20) {
+        clearInterval(timer);
+        el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 100);
+    return () => clearInterval(timer);
+  }, [focus, params]);
 
   if (station.isPending) {
     return (
@@ -561,6 +578,19 @@ export function StationDetailPage() {
   const group = groups.find((g) => g.items.some((i) => i.value === tab));
   const current = items.find((i) => i.value === tab)!;
   const onAir = !!status.data?.mounts.some((m) => m.live);
+  // Customers find the page in the top menu, so the heading names it the way that menu does (admins: the sidebar).
+  let crumb = group?.title ?? null;
+  let heading = current.label;
+  if (!isAdmin(me)) {
+    const href = stationTabHref(s.id, tab);
+    const found = topMenu({ station: s, notDj: true, billed: false, multiCustomer: false, stationCount: 0 }, t)
+      .flatMap((e) => e.groups.flatMap((g) => g.items.map((i) => ({ e, g, i }))))
+      .find((x) => !x.i.locked && x.i.to === href);
+    if (found) {
+      crumb = found.e.mega && found.g.title ? `${found.e.label} › ${found.g.title}` : found.e.label;
+      heading = found.i.label;
+    }
+  }
 
   return (
     <>
@@ -603,8 +633,8 @@ export function StationDetailPage() {
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
         <h2 className="display flex items-center gap-2 text-lg">
           <current.icon className="size-5 text-koraal" />
-          {group?.title && <span className="font-sans text-sm font-medium text-muted">{group.title} ›</span>}
-          {current.label}
+          {tab !== 'overview' && crumb && <span className="font-sans text-sm font-medium text-muted">{crumb} ›</span>}
+          {heading}
         </h2>
         <Select className="w-auto lg:hidden" aria-label={t('stations.menu.section')} value={tab} onChange={(e) => setParams(e.target.value === 'overview' ? {} : { tab: e.target.value }, { replace: true })}>
           {groups.map((g) => (

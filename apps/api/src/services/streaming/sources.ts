@@ -60,6 +60,21 @@ async function validLiveToken(ctx: AppContext, accountId: string, token: string,
   return false;
 }
 
+/**
+ * A studio PC in studio mode fetching library files from the station's node: only with the live password it got for
+ * this go-live (never the account's own password, which an encoder may store), for an account that may broadcast.
+ */
+export async function authenticateStudioFetch(ctx: AppContext, stationId: string, username: string, password: string): Promise<Account | null> {
+  const user = username.trim().toLowerCase();
+  if (!user || !password.startsWith(LIVE_TOKEN_PREFIX)) return null;
+  const [account] = await ctx.db
+    .select()
+    .from(schema.stationAccounts)
+    .where(and(eq(schema.stationAccounts.stationId, stationId), eq(schema.stationAccounts.username, user)));
+  if (!account || !account.enabled || !account.canBroadcast) return null;
+  return (await validLiveToken(ctx, account.id, password)) ? account : null;
+}
+
 export type Account = typeof schema.stationAccounts.$inferSelect;
 
 /**
