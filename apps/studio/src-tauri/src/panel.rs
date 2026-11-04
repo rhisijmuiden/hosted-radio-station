@@ -678,13 +678,12 @@ mod tests {
         p.set_cert(Some(PanelCert { host: "localhost".into(), cert_pem: cert.pem(), key_pem: key.serialize_pem(), issued_at: 1 })).await;
         // Not running yet: no https address.
         assert!(p.status().https_url.is_none());
-        // A free pair of ports (Windows reserves ranges of ports, so the one after a free port is not always free).
-        let port = (0..50)
-            .find_map(|_| {
-                let a = std::net::TcpListener::bind("0.0.0.0:0").ok()?;
-                let port = a.local_addr().ok()?.port();
-                std::net::TcpListener::bind(("0.0.0.0", port.checked_add(1)?)).ok().map(|_| port)
-            })
+        // A free pair of ports below the ephemeral ranges (Windows 49152+, Linux 32768+): an ephemeral port right after
+        // a free one is soon taken by an outgoing connection of another test.
+        let seed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as u16;
+        let port = (0..200u16)
+            .map(|i| 20000 + (seed.wrapping_add(i.wrapping_mul(37)) % 12000))
+            .find(|&p| std::net::TcpListener::bind(("0.0.0.0", p)).is_ok() && std::net::TcpListener::bind(("0.0.0.0", p + 1)).is_ok())
             .expect("two free ports in a row");
         p.start(port).await.unwrap();
         let status = p.status();
