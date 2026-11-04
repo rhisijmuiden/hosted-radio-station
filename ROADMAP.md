@@ -841,6 +841,9 @@ From a meeting with the radio makers: a web-based studio control panel, so the s
 - Rights per role (DJ, station manager), the same sign-in as the panel; several tablets at once, with the PC as master.
 - Fits with the earlier ideas "Second screen / Stream Deck / viewer screen" and "Several Studio clients".
 - Sketch (asked by Reinder, 4 November 2026): https://claude.ai/artifact/RhHMMAaAd8yVQht672eTf7 (tabs Studio, Jingles, Reporters, Library; big touch buttons; the PC stays master).
+- **Being built** (main item since 4 November 2026). Architecture chosen by Reinder: **RHIS Studio serves the panel itself on the studio LAN** (not via the station node or the orchestrator): lowest latency, keeps working without internet, works for every Radio station. Pairing per tablet with a 6-digit code / QR code; the PC keeps only a hash of each tablet's token and can remove a tablet at any time.
+  - Step 1 (Studio 0.32): built-in server (Settings → Tablet panel, port 8470), pairing, Studio tab (players A/B with Next/Play/Stop, mic or fader start, meters, log with fixed blocks, next block countdown). EN + NL.
+  - Step 2: Jingles tab. Step 3: Reporters tab, once reporter mode exists. Step 4: https on the LAN with a valid certificate (a hostname per studio, DNS-01), so the panel can be installed as an app. Later: remote use via the orchestrator.
 
 ### RØDECaster Pro II support in RHIS Studio (idea, 4 November 2026)
 

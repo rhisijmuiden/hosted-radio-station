@@ -463,9 +463,81 @@ async function simInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Pr
       return { saved: [`music/${(args.path as string).split('\\').pop()}`], skipped: [] } as T;
     case 'install_update':
       throw new Error('Updates can only be installed in the Windows app');
+    // The tablet panel: in the browser a pretend server with one paired tablet, for screenshots.
+    case 'panel_start':
+      simPanel.running = true;
+      simPanel.port = args.port as number;
+      return simPanelStatus() as T;
+    case 'panel_stop':
+      simPanel.running = false;
+      return simPanelStatus() as T;
+    case 'panel_status':
+      return simPanelStatus() as T;
+    case 'panel_pair':
+      if (!simPanel.running) throw new Error('the tablet panel is off');
+      return { code: '482197', url: `http://192.168.1.20:${simPanel.port}/?pair=482197`, qr: SIM_QR, expiresAt: Date.now() + 300_000 } as T;
+    case 'panel_revoke':
+      simPanel.tablets = simPanel.tablets.filter((x) => x.id !== args.id);
+      return simPanelStatus() as T;
+    case 'panel_publish':
+      return undefined as T;
     default:
       throw new Error(`unknown command ${cmd}`);
   }
+}
+
+export interface TabletInfo {
+  id: string;
+  name: string;
+  pairedAt: number;
+  lastSeen: number;
+  connected: boolean;
+}
+/** The tablet panel server of this PC. */
+export interface PanelStatus {
+  running: boolean;
+  port: number;
+  address: string | null;
+  url: string | null;
+  error: string | null;
+  tablets: TabletInfo[];
+}
+export interface Pairing {
+  code: string;
+  url: string;
+  /** The pairing link as a QR code (SVG). */
+  qr: string;
+  expiresAt: number;
+}
+export type PanelEvent = { kind: 'command'; tablet: string; name: string; cmd: Record<string, unknown> } | { kind: 'tablets' };
+
+const simPanel = {
+  running: false,
+  port: 8470,
+  tablets: [{ id: 'a1b2c3d4', name: 'iPad studio 1', pairedAt: Date.now() - 86_400_000 * 3, lastSeen: Date.now(), connected: true }] as TabletInfo[],
+};
+const simPanelStatus = (): PanelStatus => ({
+  running: simPanel.running,
+  port: simPanel.port,
+  address: '192.168.1.20',
+  url: simPanel.running ? `http://192.168.1.20:${simPanel.port}/` : null,
+  error: null,
+  tablets: simPanel.tablets.map((x) => ({ ...x, connected: simPanel.running && x.connected })),
+});
+// A stand-in picture for the QR code in the browser (the app draws the real one).
+const SIM_QR =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 29 29" width="240" height="240" shape-rendering="crispEdges"><rect width="29" height="29" fill="#fff"/><path fill="#14213d" d="M2 2h7v7H2zM20 2h7v7h-7zM2 20h7v7H2zM3 3v5h5V3zM21 3v5h5V3zM3 21v5h5v-5zM4 4h3v3H4zM22 4h3v3h-3zM4 22h3v3H4zM11 2h1v2h-1zM13 3h2v1h-2zM16 2h1v3h-1zM11 6h2v2h-2zM14 6h1v1h-1zM12 9h3v1h-3zM2 11h2v1H2zM5 11h1v2H5zM8 11h3v1H8zM13 11h2v2h-2zM17 10h2v1h-2zM20 11h3v1h-3zM25 11h2v2h-2zM3 14h3v1H3zM9 13h2v3H9zM12 14h1v1h-1zM15 14h3v1h-3zM20 13h1v2h-1zM23 14h2v1h-2zM2 17h2v1H2zM6 16h2v2H6zM11 17h4v1h-4zM17 16h1v3h-1zM19 17h3v1h-3zM24 16h3v1h-3zM11 20h2v1h-2zM14 19h1v3h-1zM16 21h3v1h-3zM20 20h2v2h-2zM23 19h1v1h-1zM25 21h2v2h-2zM11 23h1v3h-1zM13 24h3v1h-3zM18 23h2v1h-2zM21 24h1v3h-1zM23 25h2v1h-2zM17 26h2v1h-2z"/></svg>';
+
+/** The tablet panel: commands from tablets and changes in the list of tablets. */
+export function onPanel(cb: (e: PanelEvent) => void): () => void {
+  if (!inTauri) return () => {};
+  let un: UnlistenFn | null = null;
+  let gone = false;
+  void listen<PanelEvent>('panel', (e) => cb(e.payload)).then((u) => (gone ? u() : (un = u)));
+  return () => {
+    gone = true;
+    un?.();
+  };
 }
 
 export function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {

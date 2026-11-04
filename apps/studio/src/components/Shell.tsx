@@ -17,6 +17,7 @@ import { InfoButton } from './InfoDialog';
 import { LayoutMenu } from './LayoutMenu';
 import { StudioBanner, StudioHotkeys, StudioModeSwitch } from './Studio';
 import { StereoMeter } from './Meter';
+import { PanelIndicator } from './Panel';
 import { LanguageToggle, ThemeToggle } from './Toggles';
 import { Avatar } from './ui';
 import { ask } from '../lib/native';
@@ -298,6 +299,7 @@ function StatusBar() {
         {info?.input ? `${info.input}${info.inputRate ? `, ${Math.round(info.inputRate / 1000)} kHz` : ''}` : t('status.noInput')}
       </span>
       <div className="flex-1" />
+      <PanelIndicator />
       <LanguageToggle />
       <ThemeToggle />
       <InfoButton />

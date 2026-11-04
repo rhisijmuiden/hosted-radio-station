@@ -1,3 +1,4 @@
+import { PanelSettingsCard } from '../components/Panel';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, FolderOpen, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { useState } from 'react';
@@ -263,6 +264,8 @@ export function SettingsPage() {
       </Card>
 
       <ConnectionCard />
+
+      <PanelSettingsCard />
 
       <Card>
         <CardHeader title={t('settings.account')} />

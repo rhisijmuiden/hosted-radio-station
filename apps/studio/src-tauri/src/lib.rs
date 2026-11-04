@@ -5,6 +5,7 @@ mod carts;
 mod decks;
 mod engine;
 mod files;
+mod panel;
 mod preview;
 mod resample;
 mod secrets;
@@ -16,6 +17,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use air::{Air, AirState};
 use engine::{AudioConfig, Devices, Engine, EngineInfo, Event, OutputSel};
+use panel::{Pairing, Panel, PanelStatus};
 use preview::{Preview, PreviewState};
 use serde::Serialize;
 use streamer::{Status, Target};
@@ -314,6 +316,41 @@ async fn prune_studio_cache() -> Result<usize, String> {
     tauri::async_runtime::spawn_blocking(files::prune_studio).await.map_err(|e| e.to_string())
 }
 
+/// The tablet panel (see panel.rs): on or off on a port of this PC.
+#[tauri::command]
+async fn panel_start(panel: State<'_, Arc<Panel>>, port: u16) -> Result<PanelStatus, String> {
+    panel.inner().start(port).await
+}
+
+#[tauri::command]
+fn panel_stop(panel: State<'_, Arc<Panel>>) -> PanelStatus {
+    panel.stop();
+    panel.status()
+}
+
+#[tauri::command]
+fn panel_status(panel: State<'_, Arc<Panel>>) -> PanelStatus {
+    panel.status()
+}
+
+/// A pairing code for a new tablet (also as a QR code).
+#[tauri::command]
+fn panel_pair(panel: State<'_, Arc<Panel>>) -> Result<Pairing, String> {
+    panel.pair()
+}
+
+#[tauri::command]
+fn panel_revoke(panel: State<'_, Arc<Panel>>, id: String) -> PanelStatus {
+    panel.revoke(&id);
+    panel.status()
+}
+
+/// What the tablets show: the state of studio mode (`keep`: also for tablets that connect later) or the meters.
+#[tauri::command]
+fn panel_publish(panel: State<'_, Arc<Panel>>, json: String, keep: bool) {
+    panel.publish(json, keep);
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
@@ -333,6 +370,15 @@ pub fn run() {
             app.manage(Arc::new(engine));
             app.manage(Arc::new(Preview::default()));
             app.manage(Arc::new(Air::default()));
+            // The tablet panel serves panel.html and its files from the app itself (the same build as this window).
+            let resolver = app.asset_resolver();
+            let assets: Arc<panel::AssetFn> = Arc::new(move |path: &str| resolver.get(path.to_string()).map(|a| (a.bytes().to_vec(), a.mime_type().to_string())));
+            let events_handle = app.handle().clone();
+            let events: Arc<panel::EventFn> = Arc::new(move |e: panel::PanelEvent| {
+                let _ = events_handle.emit("panel", e);
+            });
+            let file = app.path().app_data_dir().ok().map(|d| d.join("tablets.json"));
+            app.manage(Panel::new(file, assets, events));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -377,7 +423,13 @@ pub fn run() {
             list_folder,
             upload_file,
             cache_file,
-            prune_studio_cache
+            prune_studio_cache,
+            panel_start,
+            panel_stop,
+            panel_status,
+            panel_pair,
+            panel_revoke,
+            panel_publish
         ])
         .run(tauri::generate_context!())
         .expect("error while running RHIS Studio");
