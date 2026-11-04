@@ -799,6 +799,15 @@ A format builder next to the hour clock, to make the non-stop rotation easier to
 - The **hour clock stays** for fixed times: news blocks, ads and locked items run at their set minutes, and the format fills the time in between.
 - A format can be set as the station's default, per hour clock, or per show in the weekly schedule.
 
+### Web studio control panel for tablets (idea, 4 November 2026)
+
+From a meeting with the radio makers: a web-based studio control panel, so the studio can be operated from a tablet (or phone) next to or instead of the RHIS Studio PC.
+
+- A touch-friendly page in the panel (works in any browser, installable as a web app): players A and B (start, stop, next), jingle buttons, the log with the next locked block countdown, mic on/off and on-air status, a listen button.
+- It controls what is already running: RHIS Studio on the studio PC, the station node (AutoDJ, studio mode), and later the Dante node. It plays no audio itself, so it works on any tablet over the studio Wi-Fi.
+- Rights per role (DJ, station manager), the same sign-in as the panel; several tablets at once, with the PC as master.
+- Fits with the earlier ideas "Second screen / Stream Deck / viewer screen" and "Several Studio clients".
+
 ### Dante node: digital mixing consoles over the network (idea, 2 November 2026)
 
 Many studios use digital mixing consoles that speak Dante (audio over IP). A new node role **Dante** connects such a console to the station without sound cards or cables:
