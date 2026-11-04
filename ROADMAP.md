@@ -756,6 +756,7 @@ Today Go Live stops the server's music and sends only what RHIS Studio plays its
 - A reporter on location joins the broadcast from a phone: a simple web page on the station node (later a small Android app; iOS is harder) that uses the phone's microphone, like a phone call but in better quality (WebRTC/Opus), with a talk-back channel from the studio.
 - The DJ invites the reporter with a one-time link or code. In RHIS Studio a small reporter panel (that can be minimised or hidden) shows who is waiting, lets the DJ talk to them off air first, and puts them on air, like the SIP caller flow.
 - Later: a whole outside-broadcast set signs in the same way and can take over the broadcast (see "Several RHIS Studio clients at once").
+- **Festival version (Reinder, 4 November 2026, from the meeting with the radio makers):** an Android app for people on location at festivals, with a direct audio link to the studio. Several phones are signed in at the same time and can talk with the DJ on air together (a small conference, with a mix-minus talk-back to each phone). The best place to run it is a **second screen of RHIS Studio**: a tile per signed-in phone with name, connection quality and level, and buttons for talk off air, on air and hang up. Fits with "Second screen / Stream Deck / viewer screen" and the SIP caller flow.
 
 ### Several RHIS Studio clients at once (remote broadcasts)
 
