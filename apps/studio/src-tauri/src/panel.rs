@@ -507,7 +507,8 @@ async fn tablet_session(panel: Arc<Panel>, id: String, name: String, mut socket:
     if let (true, Some(state)) = (ok, last) {
         ok = socket.send(Message::Text(state.to_string().into())).await.is_ok();
     }
-    let mut ping = tokio::time::interval(PING_EVERY);
+    // The first ping one interval from now: hello and state just went out.
+    let mut ping = tokio::time::interval_at(tokio::time::Instant::now() + PING_EVERY, PING_EVERY);
     while ok {
         tokio::select! {
             msg = socket.recv() => match msg {
