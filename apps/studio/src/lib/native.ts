@@ -489,6 +489,13 @@ async function simInvoke<T>(cmd: string, args: Record<string, unknown> = {}): Pr
     case 'panel_tls_clear':
       simPanel.tls = null;
       return simPanelStatus() as T;
+    // Reporter mode: in the browser the reporters play straight through the page (see lib/reporters.ts).
+    case 'reporter_route':
+    case 'reporter_remove':
+    case 'reporter_back_stop':
+      return undefined as T;
+    case 'qr_code':
+      return SIM_QR as T;
     default:
       throw new Error(`unknown command ${cmd}`);
   }

@@ -12,7 +12,7 @@ import { soundCards } from './fm/manager.js';
  * (phase 21): it records stations and sends recordings to the server on request. "library-uploads" (1.5.0): the station
  * software takes library uploads in parts. "restart": the agent or its Icecast restarts on request from the node page.
  */
-const FEATURES = ['studio-ingest', 'portcheck', 'parked-stations', 'firewall', 'recorder', 'stereotool', 'library-uploads', 'restart'];
+const FEATURES = ['studio-ingest', 'portcheck', 'parked-stations', 'firewall', 'recorder', 'stereotool', 'library-uploads', 'restart', 'reporters'];
 
 /** Facts the main server shows about the node. */
 export function facts(web: 'caddy' | 'direct') {

@@ -72,10 +72,12 @@ const orchestratorOut = z.object({
 });
 
 const portOut = z.object({
-  service: z.enum(['encoderTls', 'encoderPlain', 'legacy', 'sftp', 'ftp', 'ftpPassive', 'listeners', 'listenersTls', 'push']),
+  service: z.enum(['encoderTls', 'encoderPlain', 'legacy', 'sftp', 'ftp', 'ftpPassive', 'listeners', 'listenersTls', 'push', 'reporters']),
   port: z.number(),
   to: z.number().optional(),
-  for: z.array(z.enum(['studio', 'encoders', 'uploads', 'listeners', 'ingests'])),
+  for: z.array(z.enum(['studio', 'encoders', 'uploads', 'listeners', 'ingests', 'reporters'])),
+  /** Also UDP (reporter mode). */
+  udp: z.boolean().optional(),
   station: z.string().optional(),
   old: z.boolean().optional(),
 });

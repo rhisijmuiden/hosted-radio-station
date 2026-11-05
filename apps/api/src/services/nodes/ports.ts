@@ -8,7 +8,7 @@ import { OLD_PORTS } from './portplan.js';
 import { defaultListenPort, nodeHost, nodeSettings, type Node } from './plan.js';
 
 /** What a port is for, shown translated in the panel and in e-mails. */
-export type PortService = 'encoderTls' | 'encoderPlain' | 'legacy' | 'sftp' | 'ftp' | 'ftpPassive' | 'listeners' | 'listenersTls' | 'push';
+export type PortService = 'encoderTls' | 'encoderPlain' | 'legacy' | 'sftp' | 'ftp' | 'ftpPassive' | 'listeners' | 'listenersTls' | 'push' | 'reporters';
 
 export interface InboundPort {
   service: PortService;
@@ -16,7 +16,9 @@ export interface InboundPort {
   /** The end of a range (FTP passive ports). */
   to?: number;
   /** Who connects: RHIS Studio and encoders, uploads, listeners or the ingests that push to a relay. */
-  for: ('studio' | 'encoders' | 'uploads' | 'listeners' | 'ingests')[];
+  for: ('studio' | 'encoders' | 'uploads' | 'listeners' | 'ingests' | 'reporters')[];
+  /** Also open for UDP (reporter mode: WebRTC audio goes over UDP, with TCP for networks that block it). */
+  udp?: true;
   /** The station it belongs to (legacy Shoutcast ports). */
   station?: string;
   /** A port from before the port plan, open while the node keeps its old ports (1.3). */
@@ -66,6 +68,11 @@ export async function inboundPorts(ctx: AppContext, node: Node): Promise<Inbound
     if (c.sourcePlainPort) out.push({ service: 'encoderPlain', port: c.sourcePlainPort, for: ['studio', 'encoders'] });
     if (c.oldPorts && c.sourceTlsPort) old.push({ service: 'encoderTls', port: OLD_PORTS.tls, for: ['studio', 'encoders'], old: true });
     if (c.oldPorts && c.sourcePlainPort) old.push({ service: 'encoderPlain', port: OLD_PORTS.plain, for: ['studio', 'encoders'], old: true });
+    // Reporter mode: the audio of phones and RHIS Studio; the web socket goes through the web server (443).
+    if (c.reporters && nodeHost(node)) {
+      out.push({ service: 'reporters', port: c.reporterPort, for: ['reporters'], udp: true });
+      if (!node.roles.includes('relay') && node.status.caddy) out.push({ service: 'listenersTls', port: 443, for: ['reporters'] });
+    }
   }
   if (node.roles.includes('relay')) {
     const port = c.listenPort ?? defaultListenPort(node);

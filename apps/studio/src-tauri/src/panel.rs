@@ -169,7 +169,7 @@ pub fn lan_address() -> Option<Ipv4Addr> {
     }
 }
 
-fn qr_svg(text: &str) -> String {
+pub(crate) fn qr_svg(text: &str) -> String {
     use qrcode::{render::svg, EcLevel, QrCode};
     match QrCode::with_error_correction_level(text.as_bytes(), EcLevel::M) {
         Ok(code) => code.render::<svg::Color>().min_dimensions(240, 240).quiet_zone(true).dark_color(svg::Color("#14213d")).light_color(svg::Color("#ffffff")).build(),

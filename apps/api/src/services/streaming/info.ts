@@ -213,6 +213,8 @@ async function endpointsOf(ctx: AppContext, station: Station, conn: BaseConnecti
       const tlsHere = !!external && hasCertificate(sn, external);
       const ports = (await inboundPorts(ctx, sn))
         .filter((p) => p.service !== 'legacy' || p.station === station.slug)
+        // Reporter mode is not for encoders or the studio's own broadcast.
+        .filter((p) => !p.for.every((f) => f === 'reporters'))
         .filter((p) => p.service !== 'encoderTls' || tlsHere).map((p) => ({ service: p.service, port: p.port, ...(p.to ? { to: p.to } : {}), ...(p.service === 'encoderTls' ? { tls: true } : {}), ...(p.old ? { old: true } : {}) }));
       endpoints.push({ role: 'stationNode', name: sn.name, node: { id: sn.id, name: sn.name }, online: !!sn.status.online, external, internal: internalAddress(sn), ports });
       return { endpoints, panelUrl, upload: uploadPorts(STATION_NODE_STREAMING) };

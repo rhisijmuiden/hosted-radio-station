@@ -65,6 +65,9 @@ export function startEngineEvents() {
   void call<EngineInfo>('engine_info').then((info) => set({ info }));
 }
 
+/** The engine state outside React (the sample rate for reporter mode). */
+export const getEngineState = () => state;
+
 export function useEngine<T>(select: (s: EngineState) => T): T {
   return useSyncExternalStore(
     (l) => {

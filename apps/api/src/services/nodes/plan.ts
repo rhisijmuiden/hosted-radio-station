@@ -14,7 +14,7 @@ import { buildFmPlan, fmConfigSchema } from './fm.js';
 import { recordedStations, recorderPlan, type OpenSession } from '../recorder/plan.js';
 import { firewallPlan } from './firewall-plan.js';
 import { ingestTarget, plannedIngests, recorderToken } from './delivery.js';
-import { OLD_PORTS, PORTS } from './portplan.js';
+import { LOCAL_PORTS, OLD_PORTS, PORTS } from './portplan.js';
 import { ingestsOf, pushedRouting, stationRouting } from './routing-rules.js';
 import type { IngestStation, NodePlan, ProbeTarget, RelayMount } from './protocol.js';
 
@@ -127,6 +127,13 @@ export const nodeConfigSchema = z.object({
   dedicatedTenantId: z.uuid().nullable().default(null),
   /** Dedicated to this station (dedication "station"). */
   dedicatedStationId: z.uuid().nullable().default(null),
+  /**
+   * Reporter mode: an ingest node runs a LiveKit server that reporters on location join from a phone. Needs the node's
+   * web server and a host name (phones only connect over HTTPS).
+   */
+  reporters: z.boolean().default(false),
+  /** The UDP and TCP port phones send their audio to. */
+  reporterPort: z.number().int().min(1024).max(65535).default(PORTS.reporters.rtc),
   /** Recorder (phase 21): the stations it records, "all" = every station it serves. None until they are chosen. */
   recordStations: z.union([z.literal('all'), z.array(z.uuid()).max(500)]).default([]),
   /** Set by the DNS manager, not by hand: the node's platform name while its record exists. */
@@ -457,6 +464,10 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
     ? recorderPlan(c, stations, allMounts, base, await openSessions(ctx, recordedStations(c, stations).map((s) => s.id)), Date.now(), await ingestFallbacks(ctx, node, recordedStations(c, stations)))
     : null;
 
+  // Reporter mode: only on an ingest node with its own web server and a name, because phones connect over HTTPS.
+  const reporters: NodePlan['reporters'] =
+    roles.includes('source') && c.reporters && nodeHost(node) ? { signalPort: LOCAL_PORTS.livekit, rtcPort: c.reporterPort, publicIp: c.publicAddress || null } : null;
+
   const plan: Omit<NodePlan, 'revision'> = {
     nodeId: node.id,
     name: node.name,
@@ -470,6 +481,7 @@ export async function buildPlan(ctx: AppContext, node: Node): Promise<NodePlan> 
     fm,
     firewall,
     recorder,
+    reporters,
     // Never true: agents up to this version update themselves as soon as it is, all at the same time. The update
     // planner (updates.ts) sends each node an update message when its turn comes.
     update: { branch: v.branch, commit: v.commit, auto: false },

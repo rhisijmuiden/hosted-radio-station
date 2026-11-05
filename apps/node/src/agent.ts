@@ -7,6 +7,7 @@ import { FmManager } from './fm/manager.js';
 import { log } from './log.js';
 import { Prober } from './probe.js';
 import { RecorderManager } from './recorder.js';
+import { ReporterManager } from './reporters.js';
 import { checkPorts } from './portcheck.js';
 import { IngestManager } from './ingest.js';
 import { CLOSE, PROTOCOL_VERSION, type AgentLive, type AgentMessage, type AgentReport, type AuthResult, type NodePlan, type ServerMessage } from './protocol.js';
@@ -38,6 +39,7 @@ export class Agent {
   private prober = new Prober();
   private fm: FmManager;
   private recorder: RecorderManager;
+  private readonly reporters: ReporterManager;
   private sampler = new Sampler();
   private hooks: http.Server | null = null;
   private timers: NodeJS.Timeout[] = [];
@@ -59,6 +61,7 @@ export class Agent {
   constructor(private readonly file: NodeFile) {
     this.source = new SourceForwarder({ nodeId: file.nodeId, secret: file.secret });
     this.fm = new FmManager(file.nodeId, { url: file.server, secret: file.secret });
+    this.reporters = new ReporterManager(() => file.secret);
     this.recorder = new RecorderManager(
       file.nodeId,
       (kind, level, details) => this.event(kind, level, details),
@@ -309,6 +312,11 @@ export class Agent {
       await writeAtomic(icecastConfigPath(), body, 0o640);
       if (!restart) await reloadIcecast();
     }
+    // Reporter mode: LiveKit's configuration first, so the root helper finds it.
+    const reporters = await this.reporters.apply(plan.roles.includes('source') ? (plan.reporters ?? null) : null).catch((err) => {
+      log.warn('writing the LiveKit configuration failed', { err });
+      return null;
+    });
     // The root helper starts Icecast (again when its port changed) and sets up the web server and certificates.
     await applyWeb({
       web: this.file.web,
@@ -323,6 +331,7 @@ export class Agent {
       // recorder (phase 21).
       ffmpeg: !!plan.ingest?.stations.some((st) => st.mounts.some((m) => m.kind === 'transcode')) || plan.roles.includes('monitor') || plan.roles.includes('recorder'),
       roles: [...plan.roles].sort(),
+      reporters,
     });
     // Give Icecast a moment to read the new mounts before the streams come in.
     setTimeout(
@@ -385,7 +394,7 @@ export class Agent {
         encoders: this.source.encoders,
         icmp: this.icmp,
         applyLog: apply?.state === 'failed' && apply.log?.length ? apply.log.slice(-20) : undefined,
-        problems: [...(apply?.problems ?? []), ...this.source.problems, ...(this.relay?.push.problems ?? []), ...(this.ingest?.problems() ?? []), ...this.fm.problemList, ...this.recorder.problems].slice(0, 10),
+        problems: [...(apply?.problems ?? []), ...this.source.problems, ...(this.relay?.push.problems ?? []), ...(this.ingest?.problems() ?? []), ...this.fm.problemList, ...this.recorder.problems, ...this.reporters.problems].slice(0, 10),
         update: this.update ? { state: this.update.state, message: this.update.message, at: this.update.at } : null,
         revision: this.plan?.revision ?? null,
         publicIp: publicIp(),
@@ -393,6 +402,7 @@ export class Agent {
         ingest: this.ingest?.status() ?? [],
         fm: this.fm.status(),
         recorder: await this.recorder.status(),
+        reporters: await this.reporters.status(),
         firewall: firewall ? { state: firewall.state, message: firewall.message, foreign: firewall.foreign, ports: firewall.ports, ssh: firewall.ssh, at: firewall.at } : null,
       });
     })().catch((err) => log.debug('sending stats failed', { err }));

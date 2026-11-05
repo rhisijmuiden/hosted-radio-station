@@ -26,6 +26,11 @@ export interface WebState {
    * the web server once the node has a role that carries audio, and the FM/MPX tools for the FM role.
    */
   roles: string[];
+  /**
+   * Reporter mode: the root helper installs LiveKit and runs it with run/../livekit/livekit.yaml, restarting it when
+   * `config` (a hash of that file) changes; the web server passes /rtc and /twirp to signalPort. Null = no LiveKit.
+   */
+  reporters?: { signalPort: number; rtcPort: number; config: string } | null;
 }
 
 export interface JobStatus {

@@ -39,7 +39,10 @@ export async function allowedPorts(ctx: AppContext, node: Node) {
   const c = nodeSettings(node).firewall;
   const tcp = new Set<string>();
   const udp = new Set<string>();
-  for (const p of await inboundPorts(ctx, node)) tcp.add(range(p.port, p.to));
+  for (const p of await inboundPorts(ctx, node)) {
+    tcp.add(range(p.port, p.to));
+    if (p.udp) udp.add(range(p.port, p.to));
+  }
   // Let's Encrypt checks a name over port 80 (HTTP-01), and plain HTTP is sent on to HTTPS there.
   if (node.status.caddy && nodeHost(node)) tcp.add('80');
   for (const p of c.extraPorts) (p.proto === 'udp' ? udp : tcp).add(range(p.port, p.to));

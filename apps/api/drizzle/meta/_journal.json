@@ -260,6 +260,13 @@
       "when": 1793376000000,
       "tag": "0037_studio_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1793379600000,
+      "tag": "0038_reporter_invites",
+      "breakpoints": true
     }
   ]
 }

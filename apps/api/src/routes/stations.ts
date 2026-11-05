@@ -159,7 +159,7 @@ const accountOut = z.object({
   /** "<station>.<username>", the log-in for SFTP and FTP. */
   uploadLogin: z.string(),
 });
-const PORT_SERVICES = ['encoderTls', 'encoderPlain', 'legacy', 'sftp', 'ftp', 'ftpPassive', 'listeners', 'listenersTls', 'push'] as const;
+const PORT_SERVICES = ['encoderTls', 'encoderPlain', 'legacy', 'sftp', 'ftp', 'ftpPassive', 'listeners', 'listenersTls', 'push', 'reporters'] as const;
 /** Where the station's studio, encoders and uploads connect, from its routing (phase 18). */
 export const endpointOut = z.object({
   role: z.enum(['stationNode', 'ingest', 'backupIngest', 'uploads']),

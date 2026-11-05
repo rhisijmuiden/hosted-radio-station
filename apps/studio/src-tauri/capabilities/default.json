@@ -1,16 +1,30 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "What the studio window may do",
-  "windows": ["main"],
+  "description": "What the studio window and the reporters window (second screen) may do",
+  "windows": [
+    "main",
+    "reporters"
+  ],
   "permissions": [
     "core:default",
+    "core:webview:allow-create-webview-window",
+    "core:window:allow-set-focus",
+    "core:window:allow-unminimize",
+    "core:window:allow-close",
     "opener:default",
     "dialog:allow-open",
     "dialog:allow-ask",
     {
       "identifier": "http:default",
-      "allow": [{ "url": "https://*:*" }, { "url": "http://*:*" }]
+      "allow": [
+        {
+          "url": "https://*:*"
+        },
+        {
+          "url": "http://*:*"
+        }
+      ]
     }
   ]
 }

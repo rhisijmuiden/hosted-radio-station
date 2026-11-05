@@ -17,6 +17,8 @@
   --onair: #e11d2e;
   /* Studio mode: this PC plays the queue; a warm orange beside the coral accent. */
   --studio: #ff8a3d;
+  /* Reporter mode: talking with a reporter off air. */
+  --talk: #7c4ddb;
   --hover: #eef1f7;
   --chip: #e8f0ff;
   --nav-active-bg: var(--nacht);
@@ -26,6 +28,7 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
+    --talk: #c79bff;
     --hover: #1d2a47;
     --chip: #1f2e52;
     --nav-active-bg: var(--chip);
@@ -34,6 +37,7 @@
   }
 }
 :root[data-theme='dark'] {
+  --talk: #c79bff;
   --hover: #1d2a47;
   --chip: #1f2e52;
   --nav-active-bg: var(--chip);
@@ -57,6 +61,7 @@
   --color-offline: var(--status-offline);
   --color-onair: var(--onair);
   --color-studio: var(--studio);
+  --color-talk: var(--talk);
   --color-hover: var(--hover);
   --color-chip: var(--chip);
   --color-meter: var(--meter-bg);

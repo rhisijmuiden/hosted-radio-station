@@ -117,7 +117,7 @@ export function ConnectionTab({ station }: { station: StationDetail }) {
   );
 }
 
-const FOR_ORDER: FirewallPort['for'][number][] = ['studio', 'encoders', 'uploads', 'listeners', 'ingests'];
+const FOR_ORDER: FirewallPort['for'][number][] = ['studio', 'encoders', 'uploads', 'listeners', 'ingests', 'reporters'];
 
 /**
  * Firewall checklist of a node (phase 18): which ports to open or forward to it, and a check from outside per port.
@@ -178,7 +178,7 @@ export function FirewallTab({ node }: { node: NodeItem }) {
               return (
                 <tr key={portKey(p)}>
                   <td className="font-mono text-[13px] font-semibold whitespace-nowrap tabular-nums">
-                    {portText(p)} <span className="font-sans text-xs font-normal text-muted">TCP</span>
+                    {portText(p)} <span className="font-sans text-xs font-normal text-muted">{p.udp ? 'UDP + TCP' : 'TCP'}</span>
                   </td>
                   <td className="text-[13px]">
                     {t(`connection.ports.${p.service}`)}

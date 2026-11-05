@@ -8,6 +8,7 @@ mod files;
 mod panel;
 mod panel_tls;
 mod preview;
+mod reporters;
 mod resample;
 mod secrets;
 mod streamer;
@@ -20,9 +21,13 @@ use air::{Air, AirState};
 use engine::{AudioConfig, Devices, Engine, EngineInfo, Event, OutputSel};
 use panel::{Pairing, Panel, PanelStatus};
 use preview::{Preview, PreviewState};
+use reporters::{ReporterBus, Route};
 use serde::Serialize;
 use streamer::{Status, Target};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{
+    ipc::{Channel, InvokeBody, InvokeResponseBody, Request},
+    AppHandle, Emitter, Manager, State,
+};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -372,6 +377,64 @@ fn panel_publish(panel: State<'_, Arc<Panel>>, json: String, keep: bool) {
     panel.publish(json, keep);
 }
 
+// Reporter mode
+
+/// Samples of one reporter's phone from the WebRTC connection in the window: raw little-endian f32 (interleaved stereo
+/// at the engine rate) in the body, the reporter's id in the header x-reporter.
+#[tauri::command]
+fn reporter_audio(bus: State<'_, Arc<ReporterBus>>, request: Request<'_>) -> Result<(), String> {
+    let id = request.headers().get("x-reporter").and_then(|v| v.to_str().ok()).ok_or("x-reporter header missing")?;
+    match request.body() {
+        InvokeBody::Raw(bytes) => {
+            bus.push(id, &reporters::samples_from_bytes(bytes));
+            Ok(())
+        }
+        InvokeBody::Json(_) => Err("expected raw audio".into()),
+    }
+}
+
+/// Where a reporter is heard: off (waiting), talk (the DJ's headphones only) or live (on air).
+#[tauri::command]
+fn reporter_route(bus: State<'_, Arc<ReporterBus>>, id: String, route: String) -> Result<(), String> {
+    bus.set_route(&id, Route::parse(&route).ok_or("unknown route")?);
+    Ok(())
+}
+
+#[tauri::command]
+fn reporter_remove(bus: State<'_, Arc<ReporterBus>>, id: Option<String>) {
+    match id {
+        Some(id) => bus.remove(&id),
+        None => bus.clear(),
+    }
+}
+
+/// The talk-back for the phones: every mixer block, as raw little-endian f32 (interleaved stereo at the engine rate).
+/// A new call replaces the previous listener; reporter_back_stop ends it.
+#[tauri::command]
+fn reporter_back(bus: State<'_, Arc<ReporterBus>>, channel: Channel<InvokeResponseBody>) {
+    let (tx, rx) = crossbeam_channel::bounded::<Vec<f32>>(32);
+    bus.set_back(Some(tx));
+    // The audio thread never waits on the window: a thread of its own hands the blocks over.
+    std::thread::spawn(move || {
+        for block in rx {
+            if channel.send(InvokeResponseBody::Raw(reporters::bytes_from_samples(&block))).is_err() {
+                break;
+            }
+        }
+    });
+}
+
+/// A QR code (SVG) for a link, such as the reporters' join link.
+#[tauri::command]
+fn qr_code(text: String) -> String {
+    panel::qr_svg(&text)
+}
+
+#[tauri::command]
+fn reporter_back_stop(bus: State<'_, Arc<ReporterBus>>) {
+    bus.set_back(None);
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
@@ -385,10 +448,15 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let handle = app.handle().clone();
-            let engine = Engine::start(Arc::new(move |e: Event| {
-                let _ = handle.emit("engine", e);
-            }));
+            let reporters = Arc::new(ReporterBus::default());
+            let engine = Engine::start(
+                Arc::new(move |e: Event| {
+                    let _ = handle.emit("engine", e);
+                }),
+                reporters.clone(),
+            );
             app.manage(Arc::new(engine));
+            app.manage(reporters);
             app.manage(Arc::new(Preview::default()));
             app.manage(Arc::new(Air::default()));
             // The tablet panel serves panel.html and its files from the app itself (the same build as this window).
@@ -405,6 +473,12 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             app_info,
             list_devices,
+            reporter_audio,
+            reporter_route,
+            reporter_remove,
+            reporter_back,
+            reporter_back_stop,
+            qr_code,
             configure_audio,
             engine_info,
             load_cart,

@@ -9,6 +9,7 @@
 #   - installs ffmpeg when the node makes converted mounts as an ingest (phase 13)
 #   - rolls out what a role needs on a bare node (phase 16): Icecast and the web server for relay, ingest and station
 #     nodes, ffmpeg and the sound card tools for FM/MPX; a node without such a role runs only the agent
+#   - reporter mode: installs LiveKit on an ingest node, runs it as hrs-node-livekit and passes /rtc and /twirp on to it
 # Everything in the state file ends up in root-run configuration, so it is validated strictly. Safe to run repeatedly.
 set -Eeuo pipefail
 
@@ -77,6 +78,45 @@ main() {
       problems+=("Installing the web server failed (see $LOG)")
     fi
   fi
+  # Reporter mode: the LiveKit server (a single program from LiveKit's GitHub releases, checked against its checksums).
+  local LIVEKIT_VERSION=1.13.10 LIVEKIT_BIN=/usr/local/bin/livekit-server lk_signal="" lk_rtc="" lk_config=""
+  if [[ "$(jq -r '.reporters // empty | type' "$STATE")" == object ]]; then
+    lk_signal=$(jq -r '.reporters.signalPort' "$STATE"); lk_rtc=$(jq -r '.reporters.rtcPort' "$STATE"); lk_config=$(jq -r '.reporters.config' "$STATE" | tr -cd '0-9a-f' | cut -c1-32)
+    valid_port "$lk_signal" && valid_port "$lk_rtc" || { problems+=("Invalid reporter ports"); lk_signal=""; }
+  fi
+  if [[ -n "$lk_signal" ]] && { [[ ! -x "$LIVEKIT_BIN" ]] || [[ "$("$LIVEKIT_BIN" --version 2>/dev/null | awk '{print $NF}')" != "$LIVEKIT_VERSION" ]]; }; then
+    status running "Installing LiveKit for reporter mode"
+    log "Installing LiveKit $LIVEKIT_VERSION"
+    local arch tmpd url
+    case "$(uname -m)" in x86_64) arch=amd64 ;; aarch64|arm64) arch=arm64 ;; armv7l) arch=armv7 ;; *) arch="" ;; esac
+    tmpd=$(mktemp -d)
+    url="https://github.com/livekit/livekit/releases/download/v$LIVEKIT_VERSION"
+    if [[ -z "$arch" ]]; then
+      problems+=("Reporter mode: LiveKit has no build for $(uname -m)")
+    elif curl -fsSL --retry 3 -o "$tmpd/lk.tar.gz" "$url/livekit_${LIVEKIT_VERSION}_linux_${arch}.tar.gz" >> "$LOG" 2>&1 \
+      && curl -fsSL --retry 3 -o "$tmpd/sums.txt" "$url/checksums.txt" >> "$LOG" 2>&1 \
+      && (cd "$tmpd" && grep " livekit_${LIVEKIT_VERSION}_linux_${arch}.tar.gz\$" sums.txt | sed "s/livekit_${LIVEKIT_VERSION}_linux_${arch}.tar.gz/lk.tar.gz/" | sha256sum -c --status) \
+      && tar -xzf "$tmpd/lk.tar.gz" -C "$tmpd" livekit-server >> "$LOG" 2>&1; then
+      install -m 0755 "$tmpd/livekit-server" "$LIVEKIT_BIN"
+      log "LiveKit installed"
+    else
+      problems+=("Installing LiveKit failed (see $LOG)")
+    fi
+    rm -rf "$tmpd"
+  fi
+  if [[ -n "$lk_signal" && -x "$LIVEKIT_BIN" && -f "$DATA/livekit/livekit.yaml" ]]; then
+    # The agent writes the file (with the API secret); only the agent's user may read it.
+    chmod 0750 "$DATA/livekit"; chmod 0640 "$DATA/livekit/livekit.yaml"
+    if [[ "$(jq -r '.reporters.config // empty' "$APPLIED" 2>/dev/null || true)" != "$lk_config" ]] || ! systemctl is-active --quiet hrs-node-livekit; then
+      log "Starting LiveKit for reporter mode"
+      systemctl enable --quiet hrs-node-livekit 2>/dev/null || true
+      systemctl restart hrs-node-livekit >> "$LOG" 2>&1 || problems+=("LiveKit did not start (port $lk_rtc in use?)")
+    fi
+  elif [[ -z "$lk_signal" ]] && systemctl is-active --quiet hrs-node-livekit 2>/dev/null; then
+    log "Reporter mode is off: stopping LiveKit"
+    systemctl disable --now --quiet hrs-node-livekit >> "$LOG" 2>&1 || true
+  fi
+
   if [[ $needs_fm -eq 1 ]] && { ! command -v ffmpeg >/dev/null || ! command -v aplay >/dev/null; }; then
     # FM/MPX: ffmpeg makes the MPX signal, aplay plays it on the sound card; the agent needs the sound cards and serial
     # ports (RDS over UECP), and is restarted to pick up the new groups.
@@ -177,7 +217,10 @@ main() {
       tmp=$(mktemp)
       {
         echo "# Managed by the Hosted Radio Station node agent. Manual changes are overwritten."
-        printf '\n(listen) {\n\thandle /listen/* {\n\t\treverse_proxy 127.0.0.1:%s {\n\t\t\theader_up X-Hrs-Client {client_ip}\n\t\t\tflush_interval -1\n\t\t}\n\t}\n\thandle {\n\t\trespond "Hosted Radio Station node" 200\n\t}\n}\n' "$ice_port"
+        printf '\n(listen) {\n\thandle /listen/* {\n\t\treverse_proxy 127.0.0.1:%s {\n\t\t\theader_up X-Hrs-Client {client_ip}\n\t\t\tflush_interval -1\n\t\t}\n\t}\n' "$ice_port"
+        # Reporter mode: phones and RHIS Studio reach LiveKit's web socket (and its API) over HTTPS.
+        [[ -n "$lk_signal" ]] && printf '\t@livekit path /rtc /rtc/* /twirp/*\n\thandle @livekit {\n\t\treverse_proxy 127.0.0.1:%s\n\t}\n' "$lk_signal"
+        printf '\thandle {\n\t\trespond "Hosted Radio Station node" 200\n\t}\n}\n'
         if [[ -n "$public_host" ]] && in_dns "$public_host"; then
           printf '\n%s {\n\ttls %s/%s.crt %s/%s.key\n\timport listen\n}\n' "$public_host" "$CADDY_OWN" "$public_host" "$CADDY_OWN" "$public_host"
         elif [[ -n "$public_host" ]]; then
