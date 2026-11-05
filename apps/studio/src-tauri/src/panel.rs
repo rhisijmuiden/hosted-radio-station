@@ -678,12 +678,18 @@ mod tests {
         p.set_cert(Some(PanelCert { host: "localhost".into(), cert_pem: cert.pem(), key_pem: key.serialize_pem(), issued_at: 1 })).await;
         // Not running yet: no https address.
         assert!(p.status().https_url.is_none());
-        let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        // A free pair of ports below the ephemeral ranges (Windows 49152+, Linux 32768+): an ephemeral port right after
+        // a free one is soon taken by an outgoing connection of another test.
+        let seed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as u16;
+        let port = (0..200u16)
+            .map(|i| 20000 + (seed.wrapping_add(i.wrapping_mul(37)) % 12000))
+            .find(|&p| std::net::TcpListener::bind(("0.0.0.0", p)).is_ok() && std::net::TcpListener::bind(("0.0.0.0", p + 1)).is_ok())
+            .expect("two free ports in a row");
         p.start(port).await.unwrap();
         let status = p.status();
+        assert!(status.https_error.is_none(), "{:?}", status.https_error);
         assert_eq!(status.https_url.as_deref(), Some(format!("https://localhost:{}/", port + 1).as_str()));
         assert_eq!(status.tls_host.as_deref(), Some("localhost"));
-        assert!(status.https_error.is_none());
         let client = reqwest::Client::builder().add_root_certificate(reqwest::Certificate::from_pem(cert.pem().as_bytes()).unwrap()).build().unwrap();
         let url = format!("https://localhost:{}/api/hello?token=nope", port + 1);
         let mut res = None;
