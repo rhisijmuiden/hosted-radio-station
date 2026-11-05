@@ -18,6 +18,7 @@ import { LayoutMenu } from './LayoutMenu';
 import { StudioBanner, StudioHotkeys, StudioModeSwitch } from './Studio';
 import { StereoMeter } from './Meter';
 import { PanelIndicator } from './Panel';
+import { ReportersButton } from './Reporters';
 import { LanguageToggle, ThemeToggle } from './Toggles';
 import { Avatar } from './ui';
 import { ask } from '../lib/native';
@@ -257,6 +258,7 @@ function TopBar({ page }: { page: Page }) {
       <NextBlock />
       <div className="flex-1" />
       {page === 'assist' && station?.edition === 'station' && <LayoutMenu />}
+      <ReportersButton />
       <AirButton />
       <div className="text-right">
         <div className="display text-[22px] leading-none tabular">{status.data?.listeners ?? '–'}</div>

@@ -957,6 +957,9 @@ export interface NodeConfig {
   dedicatedStationId: string | null;
   /** Recorder (phase 21): the stations it records, "all" = every station it serves. */
   recordStations: 'all' | string[];
+  /** Reporter mode: a LiveKit server on this ingest node for reporters on location, and its UDP/TCP port. */
+  reporters?: boolean;
+  reporterPort?: number;
 }
 export type NodeDedication = 'auto' | 'shared' | 'customer' | 'station';
 /** Who a node serves: everyone, one customer, one station, or the stations that run on it (a station node). */
@@ -1053,6 +1056,8 @@ export interface NodeStatus {
   firewall?: { state: string; message?: string; foreign?: string[]; ports?: { ssh: string[]; tcp: string[]; udp: string[] }; ssh?: { from: string[]; limit: boolean; password: string }; at?: string } | null;
   /** Recorder (phase 21): what it records per station, and its disk. */
   recorder?: { stations: { stationId: string; kind: 'log' | 'show'; sessionId?: string; state: RecorderState; message?: string; since?: string; via?: 'ingest' }[]; disk: RecorderDisk | null } | null;
+  /** Reporter mode: the node's LiveKit server. */
+  reporters?: { state: 'installing' | 'starting' | 'running' | 'error'; message?: string; rooms?: number; participants?: number } | null;
   updatedAt?: string;
 }
 export type RecorderState = 'starting' | 'recording' | 'waiting' | 'error';
@@ -1227,7 +1232,7 @@ export interface NodesSettings {
   /** Machines may register themselves and wait under "Pending nodes" (phase 16). */
   openRegistration: boolean;
 }
-export type PortService = 'encoderTls' | 'encoderPlain' | 'legacy' | 'sftp' | 'ftp' | 'ftpPassive' | 'listeners' | 'listenersTls' | 'push';
+export type PortService = 'encoderTls' | 'encoderPlain' | 'legacy' | 'sftp' | 'ftp' | 'ftpPassive' | 'listeners' | 'listenersTls' | 'push' | 'reporters';
 /** Where a station's studio, encoders and uploads connect, as the orchestrator hands it out (phase 18). */
 export interface ConnectionEndpoint {
   role: 'stationNode' | 'ingest' | 'backupIngest' | 'uploads';
@@ -1281,7 +1286,9 @@ export interface FirewallPort {
   service: PortService;
   port: number;
   to?: number;
-  for: ('studio' | 'encoders' | 'uploads' | 'listeners' | 'ingests')[];
+  for: ('studio' | 'encoders' | 'uploads' | 'listeners' | 'ingests' | 'reporters')[];
+  /** Also UDP (reporter mode). */
+  udp?: boolean;
   station?: string;
   /** A port from before the port plan, open while the node keeps its old ports (1.3). */
   old?: boolean;

@@ -169,7 +169,7 @@ pub fn lan_address() -> Option<Ipv4Addr> {
     }
 }
 
-fn qr_svg(text: &str) -> String {
+pub(crate) fn qr_svg(text: &str) -> String {
     use qrcode::{render::svg, EcLevel, QrCode};
     match QrCode::with_error_correction_level(text.as_bytes(), EcLevel::M) {
         Ok(code) => code.render::<svg::Color>().min_dimensions(240, 240).quiet_zone(true).dark_color(svg::Color("#14213d")).light_color(svg::Color("#ffffff")).build(),
@@ -507,7 +507,8 @@ async fn tablet_session(panel: Arc<Panel>, id: String, name: String, mut socket:
     if let (true, Some(state)) = (ok, last) {
         ok = socket.send(Message::Text(state.to_string().into())).await.is_ok();
     }
-    let mut ping = tokio::time::interval(PING_EVERY);
+    // The first ping one interval from now: hello and state just went out.
+    let mut ping = tokio::time::interval_at(tokio::time::Instant::now() + PING_EVERY, PING_EVERY);
     while ok {
         tokio::select! {
             msg = socket.recv() => match msg {

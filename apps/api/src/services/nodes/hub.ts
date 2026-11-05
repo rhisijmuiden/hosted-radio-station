@@ -113,6 +113,19 @@ export function sanitizeRecorder(r: unknown): NodeRecorderStatus | null {
   };
 }
 
+/** The LiveKit server of a node (reporter mode), checked field by field. */
+export function sanitizeReporters(r: unknown): NodeStatus['reporters'] {
+  if (!r || typeof r !== 'object') return null;
+  const v = r as Record<string, unknown>;
+  const states = ['installing', 'starting', 'running', 'error'] as const;
+  return {
+    state: states.includes(v.state as never) ? (v.state as (typeof states)[number]) : 'error',
+    message: str(v.message, 300),
+    rooms: Math.max(0, num(v.rooms)),
+    participants: Math.max(0, num(v.participants)),
+  };
+}
+
 /** A part of a file a recorder node sends (phase 21): its bytes, where they start, and the size of the whole file. */
 export interface RecordingPart {
   body: Readable;
@@ -418,6 +431,7 @@ export class NodeHub {
     }
     s.fm = m.fm && typeof m.fm === 'object' ? sanitizeFm(m.fm) : null;
     s.recorder = sanitizeRecorder(m.recorder);
+    s.reporters = sanitizeReporters(m.reporters);
     s.updatedAt = new Date().toISOString();
     // Ingest status feeds now playing on this server, so it is saved more often.
     if (Date.now() - c.savedAt > (s.ingest?.length ? 3000 : 10_000)) void this.save(c);

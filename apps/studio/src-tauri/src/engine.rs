@@ -29,6 +29,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     carts::{self, Cart, CartPlayer, CartState},
     decks::{DeckEvent, DeckLoad, DeckPlayer, DeckState},
+    reporters::ReporterBus,
     resample::StereoResampler,
     streamer::{self, Status, Target},
 };
@@ -485,6 +486,8 @@ struct Mixer {
     mic_level: f32,
     /// Studio mode fader start: the level of the microphone fader (0..1).
     mic_fader: f32,
+    /// Reporter mode: the phones of reporters on location, and the talk-back they hear.
+    reporters: Arc<ReporterBus>,
 }
 
 impl Mixer {
@@ -703,6 +706,8 @@ impl Mixer {
         let in_gain = db_to_gain(self.config.input_gain_db);
         self.scratch_in.iter_mut().for_each(|s| *s *= in_gain);
         let input_peak = [peak(&self.scratch_in, 0), peak(&self.scratch_in, 1)];
+        // Reporter mode: the phones hear the microphone also while it is off air (talk-back), so before the gate.
+        self.reporters.send_back(&self.scratch_in);
         // The microphone gate: a short ramp per sample from the level of the last block to the new one.
         let target = if self.mic_open { self.mic_fader } else { 0.0 };
         if self.mic_level != target || target != 1.0 {
@@ -730,6 +735,9 @@ impl Mixer {
         if self.config.carts_to_stream {
             mix.iter_mut().zip(&cart_block).for_each(|(m, c)| *m += c);
         }
+        // Reporters: off air in the DJ's headphones only, on air also in the stream.
+        let mut reporter_monitor = vec![0f32; n];
+        self.reporters.render(n, &mut reporter_monitor, &mut mix);
         let reduction = self.limiter.process(&mut mix);
 
         if let Some(out) = self.output.as_mut() {
@@ -740,6 +748,7 @@ impl Mixer {
             if self.config.monitor_input {
                 monitor.iter_mut().zip(&self.scratch_in).for_each(|(m, c)| *m += c);
             }
+            monitor.iter_mut().zip(&reporter_monitor).for_each(|(m, r)| *m += r);
             let mut converted = Vec::with_capacity(n + 64);
             out.resampler.process(&monitor, &mut converted);
             // Keep the monitor latency low: when the device is slower, drop instead of piling up.
@@ -820,7 +829,7 @@ impl Mixer {
 }
 
 impl Engine {
-    pub fn start(emit: Emit) -> Self {
+    pub fn start(emit: Emit, reporters: Arc<ReporterBus>) -> Self {
         let (tx, rx): (Sender<Cmd>, Receiver<Cmd>) = crossbeam_channel::unbounded();
         let broadcast = Arc::new(Mutex::new(Status::Off));
         let info = Arc::new(Mutex::new(EngineInfo { sample_rate: 48_000, ..Default::default() }));
@@ -858,6 +867,7 @@ impl Engine {
                     mic_open: true,
                     mic_level: 1.0,
                     mic_fader: 1.0,
+                    reporters,
                 };
                 loop {
                     loop {
@@ -1011,7 +1021,7 @@ mod tests {
                 Event::Engine(_) => "engine".into(),
                 _ => "other".into(),
             })
-        }));
+        }), Arc::new(crate::reporters::ReporterBus::default()));
         let info = engine.configure(AudioConfig::default()).unwrap();
         assert_eq!(info.sample_rate, 48_000);
         thread::sleep(Duration::from_millis(200));

@@ -1,0 +1,24 @@
+[Unit]
+Description=Hosted Radio Station node: LiveKit server for reporters on location (reporter mode)
+After=network-online.target
+Wants=network-online.target
+# Installed and enabled by the root helper once the node has reporter mode on.
+ConditionPathExists=/var/lib/hrs-node/livekit/livekit.yaml
+ConditionPathExists=/usr/local/bin/livekit-server
+
+[Service]
+Type=simple
+User=hrs-node
+Group=hrs-node
+ExecStart=/usr/local/bin/livekit-server --config /var/lib/hrs-node/livekit/livekit.yaml
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+LimitNOFILE=65536
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadOnlyPaths=/var/lib/hrs-node/livekit
+
+[Install]
+WantedBy=multi-user.target

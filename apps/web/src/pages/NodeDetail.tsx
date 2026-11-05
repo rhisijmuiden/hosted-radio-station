@@ -493,6 +493,26 @@ function SettingsForm({ node, admin }: { node: NodeItem; admin: boolean }) {
               <Input type="number" min={1024} max={65535} value={c.sourcePlainPort ?? ''} placeholder={t('nodes.fields.off')} onChange={(e) => set({ sourcePlainPort: port(e.target.value) })} />
             </Field>
             <p className="text-xs text-muted sm:col-span-2">{t('nodes.detail.sourceDns')}</p>
+            <div className="flex flex-col gap-3 border-t border-line pt-4 sm:col-span-2">
+              <Switch checked={c.reporters ?? false} onChange={(reporters) => set({ reporters })} label={t('nodes.reporters.title')} description={t('nodes.reporters.hint')} />
+              {c.reporters && (
+                <>
+                  <Field label={t('nodes.reporters.port')} hint={t('nodes.reporters.portHint')}>
+                    <Input type="number" min={1024} max={65535} value={c.reporterPort ?? 8500} onChange={(e) => set({ reporterPort: port(e.target.value) ?? 8500 })} />
+                  </Field>
+                  {!node.status.caddy || !(c.publicHost || c.dnsHost) ? (
+                    <p className="text-xs text-warning">{t('nodes.reporters.needsName')}</p>
+                  ) : node.status.reporters ? (
+                    <p className={`text-xs ${node.status.reporters.state === 'running' ? 'text-online' : node.status.reporters.state === 'error' ? 'text-offline' : 'text-muted'}`}>
+                      {t(`nodes.reporters.state.${node.status.reporters.state}`, { rooms: node.status.reporters.rooms ?? 0, people: node.status.reporters.participants ?? 0 })}
+                      {node.status.reporters.message && node.status.reporters.state !== 'running' ? ` · ${node.status.reporters.message}` : ''}
+                    </p>
+                  ) : (
+                    !node.status.features?.includes('reporters') && <p className="text-xs text-warning">{t('nodes.reporters.update')}</p>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         </Card>
       )}

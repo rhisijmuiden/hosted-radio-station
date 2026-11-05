@@ -109,7 +109,32 @@ export interface NodePlan {
   firewall?: { enabled: boolean; takeOver: boolean; tcp: string[]; udp: string[]; sshFrom?: string[]; sshLimit?: boolean };
   /** Recorder (phase 21). Missing in plans of older main servers. */
   recorder?: RecorderPlan | null;
+  /**
+   * Reporter mode: a LiveKit server on this ingest node that reporters on location join from a phone (WebRTC), and
+   * RHIS Studio with them. Missing in plans of older main servers. The API key is "hrs"; its secret is derived from the
+   * node's own secret (reporterSecret), so it never travels in a plan.
+   */
+  reporters?: ReporterPlan | null;
   update: { branch: string | null; commit: string | null; auto: boolean };
+}
+
+/** The LiveKit server of an ingest node (reporter mode). */
+export interface ReporterPlan {
+  /** Port of LiveKit's own web socket and API on 127.0.0.1; the node's web server passes /rtc and /twirp on to it. */
+  signalPort: number;
+  /** The port phones send their audio to: UDP (one port for everything) and TCP for networks that block UDP. */
+  rtcPort: number;
+  /** The node's public address, when the main server knows it; else LiveKit looks it up itself (STUN). */
+  publicIp: string | null;
+}
+
+/** What the LiveKit server of a node is doing, in every stats message. */
+export interface ReporterStatus {
+  state: 'installing' | 'starting' | 'running' | 'error';
+  message?: string;
+  /** Rooms with people in them (a station with reporters on location), and how many are in them. */
+  rooms?: number;
+  participants?: number;
 }
 
 /** What a recorder node records (phase 21). */
@@ -383,6 +408,8 @@ export interface AgentStats {
   /** The node's firewall as its root helper reports it. */
   firewall?: NodeFirewallStatus | null;
   recorder?: RecorderStatus | null;
+  /** Reporter mode: the node's LiveKit server. */
+  reporters?: ReporterStatus | null;
 }
 
 export interface NodeFirewallStatus {

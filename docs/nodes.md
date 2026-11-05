@@ -75,6 +75,30 @@ Listeners are routed through `/api/public/stations/<slug>/listen/<mount>`: a red
 
 Encoders use the same login as on the main server. A customer node can only take encoders for its own customer.
 
+## Reporter mode (LiveKit on an ingest node)
+
+Reporters on location join a broadcast from their phone (WebRTC, Opus) and RHIS Studio talks with them. The audio goes
+through a [LiveKit](https://livekit.io) server on an ingest node, never through the orchestrator; the orchestrator
+only hands out the invitation codes and the access tokens.
+
+1. On an ingest node (Source role) with its own web server and a host name, switch on **Reporter mode** under Source.
+2. The node installs LiveKit (`/usr/local/bin/livekit-server`, checked against the release checksums), runs it as
+   `hrs-node-livekit` with `/var/lib/hrs-node/livekit/livekit.yaml`, and its web server passes `/rtc` and `/twirp` on
+   to it (port 17010 on 127.0.0.1). Phones and RHIS Studio connect to `wss://<node name>`.
+3. Open (or forward) the audio port, 8500 by default, for **UDP and TCP**. The node firewall does this by itself; the
+   firewall checklist lists it as "Reporters on location (audio)".
+4. LiveKit finds its public address itself (STUN). When that is wrong (a node behind NAT with a fixed public
+   address), fill in the public address under the node's names; LiveKit then uses it.
+
+The LiveKit API key is `hrs`; its secret is derived from the node's own secret on both sides, so it never travels in
+a plan. A station uses its own ingest nodes first (in their routing order), else any other ingest node with reporter
+mode that may serve it. The node page shows whether LiveKit runs and how many reporters are connected.
+
+In RHIS Studio the **Reporters** button opens the reporters screen (a window of its own, for a second monitor). Make a
+code there (six digits, 30 minutes, for any number of phones); reporters open `https://<panel>/reporter`, type the
+code or scan the QR code, and show up as a tile with their level. **Talk** puts them in the DJ's headphones and lets
+them hear the microphone, off air. Putting reporters on air follows in step 2.
+
 ## Routing: ingest, backup ingest and relays
 
 The main server is the orchestrator: it steers the nodes, checks encoder log-ins and hands out the routes, but it

@@ -5,6 +5,13 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 
 ## Unreleased
 
+- Reporter mode, step 1 (RHIS Studio 0.35): reporters on location join a broadcast from their phone. An ingest node
+  can run a LiveKit server (Nodes → node → Source → Reporter mode; audio port 8500 UDP and TCP); RHIS Studio gets a
+  **Reporters** button and a reporters screen of its own (for a second monitor) with a tile per phone: name, place,
+  connection, level, **Talk** (off air: the DJ hears the reporter in the headphones and the reporter hears the
+  microphone) and hang up. A six-digit code (or QR code) lets phones in at `https://<panel>/reporter`, a page in
+  English and Dutch. New: `GET /api/studio/stations/:id/reporters`, `POST`/`DELETE …/reporters/invite`,
+  `POST /api/public/reporters/join`. Putting reporters on air comes in step 2.
 - RHIS Studio refuses Go Live and studio mode at once outside the DJ's show (with "live only during shows" on),
   with the time the show opens ("You can only go live during your show, from 20:00"). Before, studio mode switched on
   and the server ended it a few seconds later, so it flapped on and off. New `POST /api/studio/stations/:id/live-check`;

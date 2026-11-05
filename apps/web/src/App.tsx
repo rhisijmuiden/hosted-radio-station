@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router';
 import { Toaster } from 'sonner';
 import { Layout } from './components/Layout';
@@ -39,6 +40,9 @@ import { WebServerPage } from './pages/WebServer';
 import { ServerNamesPage } from './pages/ServerNames';
 import { RoutingPage } from './pages/Routing';
 
+/** The reporter page (reporter mode) loads the WebRTC client only for phones that open it. */
+const ReporterPage = lazy(() => import('./pages/Reporter'));
+
 function RequireAuth({ admin, children }: { admin?: boolean; children: React.ReactNode }) {
   const me = useMe();
   const location = useLocation();
@@ -61,6 +65,14 @@ export function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route
+          path="/reporter"
+          element={
+            <Suspense fallback={null}>
+              <ReporterPage />
+            </Suspense>
+          }
+        />
         <Route
           element={
             <RequireAuth>

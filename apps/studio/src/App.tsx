@@ -7,6 +7,7 @@ import { Spinner } from './components/ui';
 import { startEngineEvents } from './lib/engine';
 import { startPanel } from './lib/panel';
 import { PanelBridge } from './components/Panel';
+import { ReportersBridge, ReportersOverlayHost } from './components/Reporters';
 import { call } from './lib/native';
 import { SessionProvider, useSession } from './lib/session';
 import { getSettings } from './lib/settings';
@@ -59,6 +60,8 @@ function Main() {
   return (
     <Shell page={page} onPage={setPage}>
       <PanelBridge />
+      <ReportersBridge />
+      <ReportersOverlayHost />
       {page === 'assist' && <AssistPage />}
       {page === 'live' && <LivePage onPage={setPage} />}
       {page === 'carts' && <CartsPage />}

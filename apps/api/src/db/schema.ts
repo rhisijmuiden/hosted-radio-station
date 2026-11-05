@@ -1022,6 +1022,9 @@ export type NodeRole = (typeof NODE_ROLES)[number];
 
 /** Settings of a node, made in the panel. Read through nodeConfigSchema for defaults. */
 export interface NodeConfig {
+  /** Reporter mode: this ingest node runs a LiveKit server for reporters on location, on this UDP/TCP port. */
+  reporters?: boolean;
+  reporterPort?: number;
   /** Host name listeners and encoders use for this node; with a domain the node gets a certificate. */
   publicHost?: string;
   /** Port listeners connect to when the node has no domain (or no web server of its own). */
@@ -1118,6 +1121,8 @@ export interface NodeStatus {
   firewall?: { state: string; message?: string; foreign?: string[]; ports?: { ssh: string[]; tcp: string[]; udp: string[] }; ssh?: { from: string[]; limit: boolean; password: string }; at?: string } | null;
   /** Recorder (phase 21): what it records per station, and the room left on its disk. */
   recorder?: NodeRecorderStatus | null;
+  /** Reporter mode: the node's LiveKit server. */
+  reporters?: { state: 'installing' | 'starting' | 'running' | 'error'; message?: string; rooms?: number; participants?: number } | null;
   updatedAt?: string;
   /** When the last bulk report (relays, listeners) came in. */
   reportedAt?: string;
@@ -1661,4 +1666,24 @@ export const alerts = pgTable(
     acknowledgedBy: text('acknowledged_by'),
   },
   (t) => [uniqueIndex('alerts_open_key_idx').on(t.key).where(sql`resolved_at is null`), index('alerts_opened_idx').on(t.openedAt)],
+);
+
+/**
+ * Reporter mode: the invitation code of a station that reporters on location type in (or scan as a QR code) to join
+ * the broadcast from a phone. One code per station at a time; any number of phones can use it until it runs out.
+ */
+export const reporterInvites = pgTable(
+  'reporter_invites',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+    /** Six digits, unique among the codes that are still valid. */
+    code: text('code').notNull(),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    /** How many phones joined with it. */
+    uses: integer('uses').notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('reporter_invites_station_idx').on(t.stationId), uniqueIndex('reporter_invites_code_idx').on(t.code)],
 );

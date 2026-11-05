@@ -48,6 +48,7 @@ import { stationRoutes } from './routes/stations.js';
 import { statsRoutes } from './routes/stats.js';
 import { jingleRoutes } from './routes/jingles.js';
 import { studioRoutes } from './routes/studio.js';
+import { reporterPublicRoutes, reporterStudioRoutes } from './routes/reporters.js';
 import { systemRoutes } from './routes/system.js';
 import { tenantRoutes } from './routes/tenants.js';
 import { userRoutes } from './routes/users.js';
@@ -241,8 +242,10 @@ export async function buildApp(ctx: AppContext) {
   await app.register(studioRoutes, { prefix: '/api/studio' });
   await app.register(jingleRoutes, { prefix: '/api/studio' });
   await app.register(studioRecordingRoutes, { prefix: '/api/studio' });
+  await app.register(reporterStudioRoutes, { prefix: '/api/studio' });
   await app.register(recordingLinkRoutes, { prefix: '/api/recordings' });
   await app.register(publicRoutes, { prefix: '/api/public' });
+  await app.register(reporterPublicRoutes, { prefix: '/api/public' });
   await app.register(listenRedirectRoutes, { prefix: '/api/public' });
   await app.register(listenFallbackRoutes);
   await app.register(billingPublicRoutes, { prefix: '/api/public' });
