@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import { LogOut, Mic, MicOff, Radio, RefreshCw } from 'lucide-react';
-import { ConnectionQuality, createLocalAudioTrack, DisconnectReason, Room, RoomEvent, Track, type LocalAudioTrack, type RemoteTrack } from 'livekit-client';
+import { ConnectionQuality, createLocalAudioTrack, DisconnectReason, Room, RoomEvent, Track, type LocalAudioTrack, type RemoteTrack, type RemoteTrackPublication } from 'livekit-client';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
@@ -18,6 +18,15 @@ type ReporterState = 'waiting' | 'talk' | 'live' | 'muted';
 type StudioMessage = { t: 'state'; states: Record<string, ReporterState> } | { t: 'bye' };
 const TOPIC = 'hrs-reporters';
 const STUDIO = 'studio';
+/** The studio's two tracks: its microphone (talking with the DJ) and the programme without the reporters (on air). */
+const BACK = { talk: 'talkback', programme: 'programme' } as const;
+
+/** Which studio track this phone listens to now (an older studio only has the talk-back). */
+function wantedTrack(state: ReporterState, names: string[]): string | null {
+  if (state === 'talk') return BACK.talk;
+  if (state === 'live' || state === 'muted') return names.includes(BACK.programme) ? BACK.programme : BACK.talk;
+  return null;
+}
 
 interface Joined {
   url: string;
@@ -56,7 +65,7 @@ export function ReporterPage() {
   const [level, setLevel] = useState(0);
   const room = useRef<Room | null>(null);
   const track = useRef<LocalAudioTrack | null>(null);
-  const back = useRef<HTMLAudioElement | null>(null);
+  const back = useRef(new Map<string, HTMLAudioElement>());
   const identity = useRef('');
   const stateRef = useRef<ReporterState>('waiting');
   const lang = i18n.language.startsWith('nl') ? 'nl' : 'en';
@@ -71,10 +80,18 @@ export function ReporterPage() {
     void listMics();
   }, []);
 
-  // The studio's voice only plays while the DJ talks with this phone or it is on air.
+  // Only the studio track that fits is subscribed (a phone on a festival network should not fetch both).
+  const listen = () => {
+    const studio = room.current?.remoteParticipants.get(STUDIO);
+    if (!studio) return;
+    const pubs = [...studio.audioTrackPublications.values()] as RemoteTrackPublication[];
+    const want = wantedTrack(stateRef.current, pubs.map((p) => p.trackName));
+    for (const pub of pubs) pub.setSubscribed(pub.trackName === want);
+    for (const [name, el] of back.current) el.muted = name !== want;
+  };
   useEffect(() => {
     stateRef.current = state;
-    if (back.current) back.current.muted = !(state === 'talk' || state === 'live');
+    listen();
   }, [state]);
 
   // The level of the own microphone, for the meter.
@@ -149,13 +166,21 @@ export function ReporterPage() {
     const studioPresent = () => setStudioHere([...r.remoteParticipants.values()].some((p) => p.identity === STUDIO));
     r.on(RoomEvent.ParticipantConnected, studioPresent)
       .on(RoomEvent.ParticipantDisconnected, studioPresent)
-      .on(RoomEvent.TrackSubscribed, (tr: RemoteTrack, _pub, p) => {
+      .on(RoomEvent.TrackPublished, (_pub, p) => p.identity === STUDIO && listen())
+      .on(RoomEvent.TrackSubscribed, (tr: RemoteTrack, pub, p) => {
         if (tr.kind !== Track.Kind.Audio || p.identity !== STUDIO) return;
         const el = tr.attach() as HTMLAudioElement;
-        el.muted = !(stateRef.current === 'talk' || stateRef.current === 'live');
-        back.current?.remove();
-        back.current = el;
+        back.current.get(pub.trackName)?.remove();
+        back.current.set(pub.trackName, el);
         document.body.appendChild(el);
+        listen();
+      })
+      .on(RoomEvent.TrackUnsubscribed, (tr: RemoteTrack, pub, p) => {
+        if (p.identity !== STUDIO) return;
+        // LiveKit has detached the track already; the element is still ours to remove.
+        tr.detach();
+        back.current.get(pub.trackName)?.remove();
+        back.current.delete(pub.trackName);
       })
       .on(RoomEvent.DataReceived, (payload, p, _kind, topic) => {
         if (topic !== TOPIC || p?.identity !== STUDIO) return;
@@ -172,15 +197,17 @@ export function ReporterPage() {
       .on(RoomEvent.Reconnected, () => setReconnecting(false))
       .on(RoomEvent.Disconnected, (reason) => {
         track.current?.stop();
-        back.current?.remove();
+        back.current.forEach((el) => el.remove());
+        back.current.clear();
         setPhase((ph) => (ph.kind === 'ended' ? ph : { kind: 'ended', reason: reason === DisconnectReason.CLIENT_INITIATED ? 'left' : reason === DisconnectReason.PARTICIPANT_REMOVED ? 'removed' : 'lost' }));
       });
     try {
-      await r.connect(joined.url, joined.token);
+      await r.connect(joined.url, joined.token, { autoSubscribe: false });
       await r.localParticipant.publishTrack(track.current, { source: Track.Source.Microphone, audioPreset: { maxBitrate: 48_000 }, dtx: false, red: true });
       // Browsers only play sound after a tap; the join button was one.
       await r.startAudio();
       studioPresent();
+      listen();
       setPhase({ kind: 'in', station: joined.station.name });
     } catch (err) {
       track.current?.stop();
@@ -259,7 +286,7 @@ export function ReporterPage() {
         <dl className="grid gap-2 text-[13px]">
           <div className="flex justify-between">
             <dt className="text-white/60">{t('reporter.youHear')}</dt>
-            <dd className="font-mono">{state === 'talk' || state === 'live' ? t('reporter.hearStudio') : t('reporter.hearNothing')}</dd>
+            <dd className="font-mono">{state === 'talk' ? t('reporter.hearStudio') : state === 'live' || state === 'muted' ? t('reporter.hearProgramme') : t('reporter.hearNothing')}</dd>
           </div>
           <div className="flex justify-between">
             <dt className="text-white/60">{t('reporter.connection')}</dt>

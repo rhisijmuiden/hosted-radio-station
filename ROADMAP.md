@@ -785,9 +785,10 @@ Today Go Live stops the server's music and sends only what RHIS Studio plays its
 ### Reporter mode (remote contributions)
 
 *Being built (from 5 November 2026). Step 1 (RHIS Studio 0.35): LiveKit on an ingest node, invitation code and QR, the
-phone page at /reporter, and the reporters screen in RHIS Studio with tiles, levels, Talk off air and hang up. Next:
-step 2 on air (Live, Mute, several at once, mix-minus), step 3 the Android app, step 4 the tablet panel and Stream
-Deck. Screenshots: docs/screenshots/reporters-step1-\*.png.*
+phone page at /reporter, and the reporters screen in RHIS Studio with tiles, levels, Talk off air and hang up. Step 2
+(RHIS Studio 0.36): on air, mute, several tiles at once, All off air, and a mix-minus feed for reporters on air. Next:
+step 3 the Android app, step 4 the tablet panel and Stream Deck. Screenshots: docs/screenshots/reporters-step1-\*.png
+and reporters-step2-\*.png.*
 
 - A reporter on location joins the broadcast from a phone: a simple web page on the station node (later a small Android app; iOS is harder) that uses the phone's microphone, like a phone call but in better quality (WebRTC/Opus), with a talk-back channel from the studio.
 - The DJ invites the reporter with a one-time link or code. In RHIS Studio a small reporter panel (that can be minimised or hidden) shows who is waiting, lets the DJ talk to them off air first, and puts them on air, like the SIP caller flow.

@@ -1,10 +1,11 @@
 import clsx from 'clsx';
-import { Mic2, PhoneOff, QrCode, RefreshCw, Users, Wifi, WifiOff, X } from 'lucide-react';
+import { CheckSquare, Mic2, MicOff, PhoneOff, QrCode, Radio, RefreshCw, Square, Users, Wifi, WifiOff, X } from 'lucide-react';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { call, inTauri } from '../lib/native';
 import {
+  allOffAir,
   closeReporters,
   endInvite,
   getReporters,
@@ -12,11 +13,15 @@ import {
   newInvite,
   openReporters,
   retryReporters,
+  setStates,
   subscribeReporters,
+  toggleLive,
+  toggleMute,
   toggleTalk,
   useReporters,
   type Reporter,
   type ReportersSnapshot,
+  type ReporterState,
 } from '../lib/reporters';
 import { useSession } from '../lib/session';
 import { Button, Spinner } from './ui';
@@ -27,7 +32,11 @@ import { Button, Spinner } from './ui';
  * the studio window, so closing this window does not drop anyone. In a browser it opens over the page.
  */
 
-export type ReporterCmd = { cmd: 'talk' | 'hangup'; id: string } | { cmd: 'invite' | 'endInvite' | 'retry' | 'stop' | 'hello' };
+export type ReporterCmd =
+  | { cmd: 'talk' | 'live' | 'mute' | 'hangup'; id: string }
+  | { cmd: 'state'; ids: string[]; state: ReporterState }
+  | { cmd: 'hangupMany'; ids: string[] }
+  | { cmd: 'allOff' | 'invite' | 'endInvite' | 'retry' | 'stop' | 'hello' };
 const STATE_EVENT = 'reporters:state';
 const CMD_EVENT = 'reporters:cmd';
 const WINDOW = 'reporters';
@@ -36,7 +45,12 @@ const WINDOW = 'reporters';
 async function run(c: ReporterCmd) {
   try {
     if (c.cmd === 'talk') toggleTalk(c.id);
+    if (c.cmd === 'live') toggleLive(c.id);
+    if (c.cmd === 'mute') toggleMute(c.id);
     if (c.cmd === 'hangup') hangUp(c.id);
+    if (c.cmd === 'state') setStates(c.ids, c.state);
+    if (c.cmd === 'hangupMany') c.ids.forEach(hangUp);
+    if (c.cmd === 'allOff') allOffAir();
     if (c.cmd === 'invite') await newInvite();
     if (c.cmd === 'endInvite') await endInvite();
     if (c.cmd === 'retry') await retryReporters();
@@ -128,6 +142,7 @@ export function ReportersButton({ onOpen = () => setOverlay(true) }: { onOpen?: 
   const { station, supports } = useSession();
   const count = useReporters((s) => s.reporters.length);
   const waiting = useReporters((s) => s.reporters.some((r) => r.state === 'waiting'));
+  const live = useReporters((s) => s.reporters.some((r) => r.state === 'live'));
   const on = useReporters((s) => s.status === 'connected');
   if (!station || !supports('reporters')) return null;
   return (
@@ -135,13 +150,13 @@ export function ReportersButton({ onOpen = () => setOverlay(true) }: { onOpen?: 
       onClick={() => void showReportersWindow(station.id, onOpen)}
       className={clsx(
         'flex h-10 items-center gap-2 rounded-md border px-3 text-sm font-semibold transition-colors',
-        waiting ? 'border-warning bg-warning/15 text-ink' : on ? 'border-talk/50 bg-talk/10 text-ink' : 'border-line bg-raised text-ink hover:bg-hover',
+        live ? 'border-onair bg-onair/15 text-ink' : waiting ? 'border-warning bg-warning/15 text-ink' : on ? 'border-talk/50 bg-talk/10 text-ink' : 'border-line bg-raised text-ink hover:bg-hover',
       )}
       title={t('reporters.open')}
     >
       <Users className="size-4" />
       {t('reporters.button')}
-      {count > 0 && <span className={clsx('grid min-w-5 place-items-center rounded-full px-1 text-[11px] font-bold', waiting ? 'bg-warning text-nacht' : 'bg-talk text-white dark:text-nacht')}>{count}</span>}
+      {count > 0 && <span className={clsx('grid min-w-5 place-items-center rounded-full px-1 text-[11px] font-bold', live ? 'bg-onair text-white' : waiting ? 'bg-warning text-nacht' : 'bg-talk text-white dark:text-nacht')}>{count}</span>}
     </button>
   );
 }
@@ -199,13 +214,39 @@ export function ReportersScreen({ snap, send, onClose }: { snap: ReportersSnapsh
   const now = useNowEverySecond();
   const talking = snap.reporters.filter((r) => r.state === 'talk').length;
   const waiting = snap.reporters.filter((r) => r.state === 'waiting').length;
+  const onAir = snap.reporters.filter((r) => r.state === 'live' || r.state === 'muted').length;
+  const [picked, setPicked] = useState<string[]>([]);
+  // Only reporters that are still there stay selected.
+  const selected = picked.filter((id) => snap.reporters.some((r) => r.identity === id));
+  const pick = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p.filter((x) => snap.reporters.some((r) => r.identity === x)), id]));
+  const bulk = (state: ReporterState) => {
+    send({ cmd: 'state', ids: selected, state });
+    setPicked([]);
+  };
+  // Keys: 1-9 select a tile, Escape clears the selection.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === 'Escape') setPicked([]);
+      const n = Number(e.key);
+      const r = n >= 1 && n <= 9 ? snap.reporters[n - 1] : undefined;
+      if (r) pick(r.identity);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface text-ink">
       <header className="flex items-center gap-4 border-b border-line bg-raised px-5 py-3">
         <h1 className="display text-[20px] leading-none">{t('reporters.title')}</h1>
-        <span className="text-[13px] text-muted">{t('reporters.counts', { talking, waiting })}</span>
+        <span className="text-[13px] text-muted">{t('reporters.counts', { onAir, talking, waiting })}</span>
         <ConnectionBadge snap={snap} />
         <div className="flex-1" />
+        {onAir > 0 && (
+          <button data-testid="reporters-all-off" onClick={() => send({ cmd: 'allOff' })} className="flex items-center gap-1.5 rounded-md border-2 border-onair bg-onair px-3 py-1.5 text-[13px] font-extrabold text-white hover:brightness-110">
+            <Radio className="size-4" /> {t('reporters.allOff')}
+          </button>
+        )}
         <span className="font-mono text-xl font-semibold tabular-nums">{new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
         {snap.status !== 'off' && (
           <Button size="sm" variant="ghost" onClick={() => send({ cmd: 'stop' })} title={t('reporters.stopHint')}>
@@ -234,15 +275,47 @@ export function ReportersScreen({ snap, send, onClose }: { snap: ReportersSnapsh
             </Button>
           </div>
         ) : (
-          <div className="grid auto-rows-[minmax(220px,1fr)] grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4">
+          <div className="grid auto-rows-[minmax(240px,1fr)] grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4">
             {snap.reporters.map((r, i) => (
-              <Tile key={r.identity} r={r} index={i} now={now} send={send} />
+              <Tile key={r.identity} r={r} index={i} now={now} send={send} selected={selected.includes(r.identity)} onPick={() => pick(r.identity)} />
             ))}
             <InviteTile snap={snap} send={send} />
           </div>
         )}
       </main>
-      <footer className="border-t border-line bg-raised px-5 py-2 text-xs text-muted">{t('reporters.footer')}</footer>
+      {selected.length > 0 ? (
+        <footer data-testid="reporters-bulk" className="flex flex-wrap items-center gap-2 border-t border-line bg-raised px-5 py-2.5">
+          <b className="mr-2 text-[13px]">{t('reporters.selected', { count: selected.length })}</b>
+          <Button size="sm" className="bg-onair text-white hover:brightness-110" variant="ghost" onClick={() => bulk('live')}>
+            <Radio className="size-4" /> {t('reporters.goLive')}
+          </Button>
+          <Button size="sm" onClick={() => bulk('talk')}>
+            <Mic2 className="size-4" /> {t('reporters.talk')}
+          </Button>
+          <Button size="sm" onClick={() => bulk('muted')}>
+            <MicOff className="size-4" /> {t('reporters.mute')}
+          </Button>
+          <Button size="sm" onClick={() => bulk('waiting')}>
+            {t('reporters.offAir')}
+          </Button>
+          <Button
+            size="sm"
+            variant="danger"
+            onClick={() => {
+              send({ cmd: 'hangupMany', ids: selected });
+              setPicked([]);
+            }}
+          >
+            <PhoneOff className="size-4" /> {t('reporters.hangUp')}
+          </Button>
+          <div className="flex-1" />
+          <Button size="sm" variant="ghost" onClick={() => setPicked([])}>
+            {t('reporters.clearSelection')}
+          </Button>
+        </footer>
+      ) : (
+        <footer className="border-t border-line bg-raised px-5 py-2 text-xs text-muted">{t('reporters.footer')}</footer>
+      )}
     </div>
   );
 }
@@ -263,47 +336,87 @@ const duration = (ms: number) => {
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 };
 
-function Tile({ r, index, now, send }: { r: Reporter; index: number; now: number; send: (c: ReporterCmd) => void }) {
+function Tile({ r, index, now, send, selected, onPick }: { r: Reporter; index: number; now: number; send: (c: ReporterCmd) => void; selected: boolean; onPick: () => void }) {
   const { t } = useTranslation();
   const talk = r.state === 'talk';
+  const live = r.state === 'live';
+  const muted = r.state === 'muted';
+  const onAir = live || muted;
   const level = Math.min(1, r.level * 1.4);
   return (
     <div
       data-testid="reporter-tile"
+      data-state={r.state}
       className={clsx(
         'relative grid grid-cols-[1fr_26px] grid-rows-[auto_auto_1fr_auto] gap-x-4 gap-y-2 rounded-xl border-2 bg-raised p-4 transition-colors',
-        talk ? 'border-talk bg-[linear-gradient(180deg,color-mix(in_srgb,var(--talk)_16%,transparent),transparent_60%)]' : 'border-dashed border-warning/70',
+        live && 'border-onair bg-[linear-gradient(180deg,color-mix(in_srgb,var(--onair)_18%,transparent),transparent_60%)]',
+        muted && 'border-onair/50 border-dashed',
+        talk && 'border-talk bg-[linear-gradient(180deg,color-mix(in_srgb,var(--talk)_16%,transparent),transparent_60%)]',
+        r.state === 'waiting' && 'border-dashed border-warning/70',
+        selected && 'ring-4 ring-lucht/60 ring-offset-2 ring-offset-surface',
       )}
     >
       <div className="flex min-w-0 items-center gap-3">
-        <span className="grid size-10 shrink-0 place-items-center rounded-full border border-line bg-chip text-[15px] font-extrabold">{r.name.slice(0, 1).toUpperCase()}</span>
+        <button onClick={onPick} className="grid size-10 shrink-0 place-items-center rounded-full border border-line bg-chip text-[15px] font-extrabold hover:bg-hover" title={t('reporters.select')} aria-pressed={selected}>
+          {selected ? <CheckSquare className="size-5 text-lucht" /> : r.name.slice(0, 1).toUpperCase()}
+        </button>
         <div className="min-w-0">
           <b className="block truncate text-[16px]">{r.name}</b>
           <small className="block truncate text-xs text-muted">{r.place || t('reporters.noPlace')}</small>
         </div>
-        <span className="ml-auto self-start font-mono text-[11px] text-muted">{index + 1}</span>
+        <button onClick={onPick} className="ml-auto flex items-center gap-1 self-start font-mono text-[11px] text-muted hover:text-ink" title={t('reporters.select')}>
+          {selected ? <CheckSquare className="size-3.5" /> : <Square className="size-3.5" />}
+          {index + 1}
+        </button>
       </div>
-      <span className={clsx('col-start-1 justify-self-start rounded-full px-2.5 py-0.5 text-[11px] font-extrabold tracking-wider', talk ? 'bg-talk text-white dark:text-nacht' : 'bg-warning/20 text-ink')}>
+      <span
+        className={clsx(
+          'col-start-1 justify-self-start rounded-full px-2.5 py-0.5 text-[11px] font-extrabold tracking-wider',
+          live && 'onair-pulse bg-onair text-white',
+          muted && 'bg-onair/20 text-onair',
+          talk && 'bg-talk text-white dark:text-nacht',
+          r.state === 'waiting' && 'bg-warning/20 text-ink',
+        )}
+      >
         {t(`reporters.state.${r.state}`)}
       </span>
       <div className="col-start-1 flex items-end gap-3 self-end font-mono text-xs text-muted">
         <span className={clsx(r.quality === 'poor' || r.quality === 'lost' ? 'text-warning' : 'text-online')}>● {t(`reporters.quality.${r.quality}`)}</span>
         <span>{duration(now - r.joinedAt)}</span>
+        {onAir && <span className="text-onair">{t('reporters.hearsProgramme')}</span>}
       </div>
-      <div className="col-start-1 flex gap-2">
+      <div className="col-start-1 grid grid-cols-[1fr_1fr_auto_auto] gap-2">
         <button
+          data-testid="reporter-live"
+          onClick={() => send({ cmd: 'live', id: r.identity })}
+          className={clsx('flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-2 text-[13px] font-bold', onAir ? 'border-onair bg-onair text-white' : 'border-onair/50 bg-onair/10 text-ink hover:bg-onair/20')}
+        >
+          <Radio className="size-4" />
+          {onAir ? t('reporters.offAir') : t('reporters.goLive')}
+        </button>
+        <button
+          data-testid="reporter-talk"
           onClick={() => send({ cmd: 'talk', id: r.identity })}
-          className={clsx('flex flex-1 items-center justify-center gap-1.5 rounded-md border px-2 py-2 text-[13px] font-bold', talk ? 'border-talk bg-talk text-white dark:text-nacht' : 'border-talk/50 bg-talk/10 text-ink hover:bg-talk/20')}
+          className={clsx('flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-2 text-[13px] font-bold', talk ? 'border-talk bg-talk text-white dark:text-nacht' : 'border-talk/50 bg-talk/10 text-ink hover:bg-talk/20')}
         >
           <Mic2 className="size-4" />
           {talk ? t('reporters.endTalk') : t('reporters.talk')}
+        </button>
+        <button
+          data-testid="reporter-mute"
+          onClick={() => send({ cmd: 'mute', id: r.identity })}
+          disabled={!onAir}
+          className={clsx('flex items-center justify-center rounded-md border px-3 py-2 disabled:opacity-35', muted ? 'border-offline bg-offline/20 text-offline' : 'border-line hover:bg-hover')}
+          title={muted ? t('reporters.unmute') : t('reporters.mute')}
+        >
+          <MicOff className="size-4" />
         </button>
         <button onClick={() => send({ cmd: 'hangup', id: r.identity })} className="flex items-center justify-center gap-1.5 rounded-md border border-line px-3 py-2 text-[13px] font-bold text-offline hover:bg-hover" title={t('reporters.hangUp')}>
           <PhoneOff className="size-4" />
         </button>
       </div>
       <div className="relative col-start-2 row-span-4 row-start-1 overflow-hidden rounded-md border border-line bg-meter" aria-label={t('reporters.level')}>
-        <i className="absolute inset-x-0 bottom-0 bg-[linear-gradient(0deg,var(--status-online)_0_65%,var(--status-warning)_65%_85%,var(--status-offline)_85%)] bg-bottom transition-[height] duration-75" style={{ height: `${level * 100}%`, backgroundSize: '100% 220px' }} />
+        <i className={clsx('absolute inset-x-0 bottom-0 bg-[linear-gradient(0deg,var(--status-online)_0_65%,var(--status-warning)_65%_85%,var(--status-offline)_85%)] bg-bottom transition-[height] duration-75', muted && 'opacity-40')} style={{ height: `${level * 100}%`, backgroundSize: '100% 220px' }} />
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 [package]
 name = "rhis-studio"
-version = "0.35.0"
+version = "0.36.0"
 description = "RHIS Studio: the Windows client of Hosted Radio Station"
 authors = ["RHIS"]
 license = "AGPL-3.0-or-later"

@@ -94,6 +94,10 @@ The LiveKit API key is `hrs`; its secret is derived from the node's own secret o
 a plan. A station uses its own ingest nodes first (in their routing order), else any other ingest node with reporter
 mode that may serve it. The node page shows whether LiveKit runs and how many reporters are connected.
 
+RHIS Studio publishes two audio tracks in the room: `talkback` (the DJ's microphone, also while it is off air) for a
+phone that talks with the DJ, and `programme` (the stream without the reporters, mix-minus) for a phone that is on
+air or muted. Each phone subscribes to the one it needs only, so a waiting phone downloads no audio.
+
 In RHIS Studio the **Reporters** button opens the reporters screen (a window of its own, for a second monitor). Make a
 code there (six digits, 30 minutes, for any number of phones); reporters open `https://<panel>/reporter`, type the
 code or scan the QR code, and show up as a tile with their level. **Talk** puts them in the DJ's headphones and lets

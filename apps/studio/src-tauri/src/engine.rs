@@ -706,8 +706,8 @@ impl Mixer {
         let in_gain = db_to_gain(self.config.input_gain_db);
         self.scratch_in.iter_mut().for_each(|s| *s *= in_gain);
         let input_peak = [peak(&self.scratch_in, 0), peak(&self.scratch_in, 1)];
-        // Reporter mode: the phones hear the microphone also while it is off air (talk-back), so before the gate.
-        self.reporters.send_back(&self.scratch_in);
+        // Reporter mode: a phone that talks with the DJ hears the microphone also while it is off air, so before the gate.
+        let talk_back = self.reporters.listening().then(|| self.scratch_in.clone());
         // The microphone gate: a short ramp per sample from the level of the last block to the new one.
         let target = if self.mic_open { self.mic_fader } else { 0.0 };
         if self.mic_level != target || target != 1.0 {
@@ -734,6 +734,10 @@ impl Mixer {
         let mut mix = self.scratch_in.clone();
         if self.config.carts_to_stream {
             mix.iter_mut().zip(&cart_block).for_each(|(m, c)| *m += c);
+        }
+        // A phone on air hears the programme without the reporters (mix-minus).
+        if let Some(talk) = talk_back {
+            self.reporters.send_back(&talk, &mix);
         }
         // Reporters: off air in the DJ's headphones only, on air also in the stream.
         let mut reporter_monitor = vec![0f32; n];
