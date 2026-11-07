@@ -3,8 +3,10 @@
 //! The WebRTC connection (LiveKit) runs in the studio window: it receives every phone as its own audio track and hands
 //! the samples to this bus (interleaved stereo f32 at the engine rate, a few times a second per phone). The mixer takes
 //! one block per phone per mixer block from here, with a small jitter buffer, and sends each phone where the DJ routes
-//! it: nowhere (waiting), to the DJ's headphones (talking off air) or, from step 2, on air. What the phones hear back
-//! (the talk-back: the microphone, also while it is off air) leaves the mixer here too, block by block.
+//! it: nowhere (waiting or muted), to the DJ's headphones (talking off air) or on air. What the phones hear back leaves
+//! the mixer here too, block by block, as two feeds: the talk-back (the microphone, also while it is off air) for a phone
+//! that talks with the DJ, and the programme without the reporters (mix-minus) for a phone that is on air, so nobody
+//! hears their own voice back with a delay.
 
 use std::collections::{HashMap, VecDeque};
 
@@ -18,7 +20,7 @@ pub enum Route {
     Off,
     /// Off air: only the DJ hears the reporter, in the monitor output.
     Talk,
-    /// On air (step 2): in the stream and in the monitor.
+    /// On air: in the stream and in the monitor.
     Live,
 }
 
@@ -85,11 +87,20 @@ impl ReporterBus {
         *self.back.lock() = tx;
     }
 
-    /// The talk-back for this block, when someone listens.
-    pub fn send_back(&self, block: &[f32]) {
+    /// Whether the window takes the feeds for the phones (else the mixer skips them).
+    pub fn listening(&self) -> bool {
+        self.back.lock().is_some()
+    }
+
+    /// What the phones hear for this block, when someone listens: the talk-back, then the programme without the
+    /// reporters, one after the other in one message (both `n` samples).
+    pub fn send_back(&self, talk: &[f32], programme: &[f32]) {
         let mut back = self.back.lock();
         if let Some(tx) = back.as_ref() {
-            match tx.try_send(block.to_vec()) {
+            let mut block = Vec::with_capacity(talk.len() + programme.len());
+            block.extend_from_slice(talk);
+            block.extend(programme.iter().map(|s| s.clamp(-1.0, 1.0)));
+            match tx.try_send(block) {
                 Ok(()) | Err(TrySendError::Full(_)) => {}
                 Err(TrySendError::Disconnected(_)) => *back = None,
             }
@@ -186,6 +197,19 @@ mod tests {
         assert!(bus.feeds.lock()["r"].buf.len() <= n * MAX_BLOCKS);
         bus.remove("r");
         assert!(bus.feeds.lock().is_empty());
+    }
+
+    #[test]
+    fn sends_the_talk_back_and_the_programme_in_one_block() {
+        let bus = ReporterBus::default();
+        bus.send_back(&[0.1; 4], &[0.2; 4]);
+        let (tx, rx) = crossbeam_channel::bounded(4);
+        bus.set_back(Some(tx));
+        bus.send_back(&[0.1, 0.1], &[0.5, 3.0]);
+        assert_eq!(rx.try_recv().unwrap(), vec![0.1, 0.1, 0.5, 1.0]);
+        drop(rx);
+        bus.send_back(&[0.0; 2], &[0.0; 2]);
+        assert!(bus.back.lock().is_none(), "a listener that is gone is forgotten");
     }
 
     #[test]

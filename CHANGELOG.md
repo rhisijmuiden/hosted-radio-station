@@ -5,6 +5,12 @@ All notable changes to Hosted Radio Station. Versions follow [semantic versionin
 
 ## Unreleased
 
+- Reporter mode, step 2 (RHIS Studio 0.36): reporters on air. Each tile gets **On air**/**Off air**, **Talk** and
+  **Mute** (a reporter on air turned down for a moment); select several tiles (click the avatar or press 1-9, Escape
+  clears) and switch them at once from the bar at the bottom, and **All off air** takes every reporter off air in one
+  click. A reporter on air goes into the stream (before the limiter) and hears the programme without the reporters
+  (mix-minus, so nobody hears their own voice back with a delay); a reporter talking with the DJ hears the
+  microphone. The phone only fetches the studio feed it needs. Reporters on air do not hear each other yet.
 - Reporter mode, step 1 (RHIS Studio 0.35): reporters on location join a broadcast from their phone. An ingest node
   can run a LiveKit server (Nodes → node → Source → Reporter mode; audio port 8500 UDP and TCP); RHIS Studio gets a
   **Reporters** button and a reporters screen of its own (for a second monitor) with a tile per phone: name, place,
